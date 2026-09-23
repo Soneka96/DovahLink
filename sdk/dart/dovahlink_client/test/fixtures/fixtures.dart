@@ -5,6 +5,7 @@ import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
 /// Central test-owned catalog of representative SDK values.
 abstract final class Fixtures {
@@ -78,5 +79,28 @@ abstract final class Fixtures {
     clientId: clientId,
     credential: credential,
     recoveryState: recoveryState,
+  );
+
+  // ---- State synchronization ----
+
+  /// Builds a synchronization view with no current baseline by default.
+  /// @param status The synchronization standing to represent.
+  /// @param value The latest typed state, or `null` before a baseline exists.
+  /// @param stateAuthorityId The authority identity associated with the baseline.
+  /// @param playContextId The play-context identity associated with the baseline.
+  /// @param revision The last accepted revision, or `null` before a baseline exists.
+  /// @return A fresh synchronization view.
+  static StateSynchronization<T> buildStateSynchronization<T>({
+    DovahLinkStateStatus status = DovahLinkStateStatus.notSubscribed,
+    T? value,
+    String? stateAuthorityId,
+    String? playContextId,
+    int? revision,
+  }) => StateSynchronization<T>(
+    status: status,
+    value: value,
+    stateAuthorityId: stateAuthorityId,
+    playContextId: playContextId,
+    revision: revision,
   );
 }
