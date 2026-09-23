@@ -9,18 +9,27 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
-/// A controllable preferences implementation for write-result behavior.
-class MockSharedPreferences extends Mock implements SharedPreferences {}
+/// A controllable preferences store for appearance persistence tests.
+class MockSharedPreferencesAsync extends Mock
+    implements SharedPreferencesAsync {}
 
-/// Exercises [AppearanceLocalDataSource] against the real test store and mocked failure paths.
+/// Exercises [AppearanceLocalDataSource] against isolated preference doubles.
 void main() {
-  TestWidgetsFlutterBinding.ensureInitialized();
-
-  Future<AppearanceLocalDataSource> buildDataSource({
+  /// Builds an isolated data source with an in-memory preference value.
+  AppearanceLocalDataSource buildDataSource({
     Map<String, Object> initialValues = const {},
-  }) async {
-    SharedPreferences.setMockInitialValues(initialValues);
-    final SharedPreferences preferences = await SharedPreferences.getInstance();
+  }) {
+    final MockSharedPreferencesAsync preferences = MockSharedPreferencesAsync();
+    String? storedPreset =
+        initialValues['dovahlink.appearance.themePreset'] as String?;
+    when(
+      () => preferences.getString('dovahlink.appearance.themePreset'),
+    ).thenAnswer((_) async => storedPreset);
+    when(
+      () => preferences.setString('dovahlink.appearance.themePreset', any()),
+    ).thenAnswer((invocation) async {
+      storedPreset = invocation.positionalArguments[1] as String;
+    });
     return AppearanceLocalDataSource(preferences);
   }
 
@@ -28,7 +37,7 @@ void main() {
     test(
       'Method loadPreset returns defaultThemePreset when nothing is stored',
       () async {
-        final AppearanceLocalDataSource dataSource = await buildDataSource();
+        final AppearanceLocalDataSource dataSource = buildDataSource();
 
         final Either<Failure, DovahThemePreset> result = await dataSource
             .loadPreset();
@@ -44,7 +53,7 @@ void main() {
     test(
       'Method loadPreset returns the stored preset when a valid name is stored',
       () async {
-        final AppearanceLocalDataSource dataSource = await buildDataSource(
+        final AppearanceLocalDataSource dataSource = buildDataSource(
           initialValues: {'dovahlink.appearance.themePreset': 'frostbound'},
         );
 
@@ -61,7 +70,7 @@ void main() {
     test(
       'Method loadPreset returns defaultThemePreset when the stored value is not a known preset',
       () async {
-        final AppearanceLocalDataSource dataSource = await buildDataSource(
+        final AppearanceLocalDataSource dataSource = buildDataSource(
           initialValues: {
             'dovahlink.appearance.themePreset':
                 'a-preset-that-no-longer-exists',
@@ -79,15 +88,18 @@ void main() {
     );
 
     test(
-      'Method loadPreset returns DatabaseFailure when SharedPreferences throws PlatformException',
+      'Method loadPreset returns DatabaseFailure when async storage throws PlatformException',
       () async {
-        final MockSharedPreferences preferences = MockSharedPreferences();
+        final MockSharedPreferencesAsync preferences =
+            MockSharedPreferencesAsync();
         when(
           () => preferences.getString('dovahlink.appearance.themePreset'),
-        ).thenThrow(
-          PlatformException(
-            code: 'read-failed',
-            message: 'Storage unavailable.',
+        ).thenAnswer(
+          (_) => Future<String?>.error(
+            PlatformException(
+              code: 'read-failed',
+              message: 'Storage unavailable.',
+            ),
           ),
         );
         final AppearanceLocalDataSource dataSource = AppearanceLocalDataSource(
@@ -109,10 +121,13 @@ void main() {
     test(
       'Method loadPreset uses a fallback message when PlatformException has no message',
       () async {
-        final MockSharedPreferences preferences = MockSharedPreferences();
+        final MockSharedPreferencesAsync preferences =
+            MockSharedPreferencesAsync();
         when(
           () => preferences.getString('dovahlink.appearance.themePreset'),
-        ).thenThrow(PlatformException(code: 'read-failed'));
+        ).thenAnswer(
+          (_) => Future<String?>.error(PlatformException(code: 'read-failed')),
+        );
         final AppearanceLocalDataSource dataSource = AppearanceLocalDataSource(
           preferences,
         );
@@ -132,10 +147,11 @@ void main() {
     test(
       'Method loadPreset returns the generic DatabaseFailure for unexpected errors',
       () async {
-        final MockSharedPreferences preferences = MockSharedPreferences();
+        final MockSharedPreferencesAsync preferences =
+            MockSharedPreferencesAsync();
         when(
           () => preferences.getString('dovahlink.appearance.themePreset'),
-        ).thenThrow(StateError('unexpected'));
+        ).thenAnswer((_) => Future<String?>.error(StateError('unexpected')));
         final AppearanceLocalDataSource dataSource = AppearanceLocalDataSource(
           preferences,
         );
@@ -157,15 +173,16 @@ void main() {
 
   group('Method savePreset behaves correctly', () {
     test(
-      'Method savePreset returns DatabaseFailure when SharedPreferences rejects the write',
+      'Method savePreset returns success when the asynchronous write completes',
       () async {
-        final MockSharedPreferences preferences = MockSharedPreferences();
+        final MockSharedPreferencesAsync preferences =
+            MockSharedPreferencesAsync();
         when(
           () => preferences.setString(
             'dovahlink.appearance.themePreset',
             DovahThemePreset.hearth.name,
           ),
-        ).thenAnswer((_) async => false);
+        ).thenAnswer((_) async {});
         final AppearanceLocalDataSource dataSource = AppearanceLocalDataSource(
           preferences,
         );
@@ -174,12 +191,7 @@ void main() {
           DovahThemePreset.hearth,
         );
 
-        expect(
-          result,
-          const Left<Failure, Unit>(
-            DatabaseFailure('Could not save the appearance.'),
-          ),
-        );
+        expect(result, const Right<Failure, Unit>(unit));
         verify(
           () => preferences.setString(
             'dovahlink.appearance.themePreset',
@@ -190,16 +202,17 @@ void main() {
     );
 
     test(
-      'Method savePreset returns DatabaseFailure when SharedPreferences throws PlatformException',
+      'Method savePreset returns DatabaseFailure when async storage throws PlatformException',
       () async {
-        final MockSharedPreferences preferences = MockSharedPreferences();
+        final MockSharedPreferencesAsync preferences =
+            MockSharedPreferencesAsync();
         when(
           () => preferences.setString(
             'dovahlink.appearance.themePreset',
             DovahThemePreset.hearth.name,
           ),
         ).thenAnswer(
-          (_) => Future<bool>.error(
+          (_) => Future<void>.error(
             PlatformException(
               code: 'write-failed',
               message: 'Storage unavailable.',
@@ -224,14 +237,15 @@ void main() {
     test(
       'Method savePreset uses a fallback message when PlatformException has no message',
       () async {
-        final MockSharedPreferences preferences = MockSharedPreferences();
+        final MockSharedPreferencesAsync preferences =
+            MockSharedPreferencesAsync();
         when(
           () => preferences.setString(
             'dovahlink.appearance.themePreset',
             DovahThemePreset.hearth.name,
           ),
         ).thenAnswer(
-          (_) => Future<bool>.error(PlatformException(code: 'write-failed')),
+          (_) => Future<void>.error(PlatformException(code: 'write-failed')),
         );
         final AppearanceLocalDataSource dataSource = AppearanceLocalDataSource(
           preferences,
@@ -253,13 +267,14 @@ void main() {
     test(
       'Method savePreset returns the generic DatabaseFailure for unexpected errors',
       () async {
-        final MockSharedPreferences preferences = MockSharedPreferences();
+        final MockSharedPreferencesAsync preferences =
+            MockSharedPreferencesAsync();
         when(
           () => preferences.setString(
             'dovahlink.appearance.themePreset',
             DovahThemePreset.hearth.name,
           ),
-        ).thenAnswer((_) => Future<bool>.error(StateError('unexpected')));
+        ).thenAnswer((_) => Future<void>.error(StateError('unexpected')));
         final AppearanceLocalDataSource dataSource = AppearanceLocalDataSource(
           preferences,
         );
@@ -282,7 +297,7 @@ void main() {
     test(
       'Method savePreset persists the preset so a later loadPreset returns it',
       () async {
-        final AppearanceLocalDataSource dataSource = await buildDataSource();
+        final AppearanceLocalDataSource dataSource = buildDataSource();
 
         final Either<Failure, Unit> saveResult = await dataSource.savePreset(
           DovahThemePreset.hearth,

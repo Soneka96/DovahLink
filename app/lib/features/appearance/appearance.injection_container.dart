@@ -13,7 +13,7 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Registers appearance dependencies.
 void initAppearanceDependencies() {
   sl.registerLazySingleton<IAppearanceLocalDataSource>(
-    () => AppearanceLocalDataSource(sl<SharedPreferences>()),
+    () => AppearanceLocalDataSource(sl<SharedPreferencesAsync>()),
   );
   sl.registerLazySingleton<IAppearanceRepository>(
     () => AppearanceRepository(sl<IAppearanceLocalDataSource>()),

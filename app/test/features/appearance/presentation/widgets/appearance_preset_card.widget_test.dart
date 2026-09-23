@@ -386,8 +386,8 @@ void main() {
           expect(data.flagsCollection.isEnabled, Tristate.isTrue);
           expect(data.flagsCollection.isSelected, Tristate.isTrue);
           expect(data.hasAction(SemanticsAction.tap), isTrue);
-          tester.binding.pipelineOwner.semanticsOwner!.performAction(
-            node.id,
+          tester.semantics.performAction(
+            find.semantics.byLabel(DovahThemePreset.hearth.label),
             SemanticsAction.tap,
           );
           expect(tapCount, 1);

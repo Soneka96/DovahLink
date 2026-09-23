@@ -2,6 +2,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/features/appearance/data/datasources/appearance_local.datasource.dart';
@@ -23,40 +24,47 @@ import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 
+/// Mocks the asynchronous preference API without requiring a registered plugin.
+class MockSharedPreferencesAsync extends Mock
+    implements SharedPreferencesAsync {}
+
 void main() {
   setUpAll(() {
     TestWidgetsFlutterBinding.ensureInitialized();
   });
 
+  setUp(() async {
+    await sl.reset();
+  });
+
+  tearDown(() async {
+    await sl.reset();
+  });
+
   group('injection_container — shared registrations', () {
     test(
-      'initDependencies leaves shared services unregistered when SharedPreferences fails and can retry',
+      'initDependencies leaves the legacy preferences channel untouched',
       () async {
         const MethodChannel channel = MethodChannel(
           'plugins.flutter.io/shared_preferences',
         );
         final TestDefaultBinaryMessenger messenger =
             TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        int storageCalls = 0;
         messenger.setMockMethodCallHandler(channel, (MethodCall call) async {
+          storageCalls++;
           throw PlatformException(code: 'read-failed');
         });
 
         try {
-          await expectLater(
-            initDependencies(),
-            throwsA(isA<PlatformException>()),
-          );
-          expect(sl.isRegistered<GoRouter>(), isFalse);
-          expect(sl.isRegistered<NavigatorService>(), isFalse);
-          expect(sl.isRegistered<SharedPreferences>(), isFalse);
+          await initDependencies();
+          expect(sl.isRegistered<GoRouter>(), isTrue);
+          expect(sl.isRegistered<NavigatorService>(), isTrue);
+          expect(sl.isRegistered<SharedPreferencesAsync>(), isTrue);
+          expect(storageCalls, 0);
         } finally {
           messenger.setMockMethodCallHandler(channel, null);
-          SharedPreferences.setMockInitialValues(<String, Object>{});
         }
-        await initDependencies();
-
-        expect(sl.isRegistered<GoRouter>(), isTrue);
-        expect(sl.isRegistered<NavigatorService>(), isTrue);
       },
     );
 
@@ -211,6 +219,10 @@ void main() {
 
     test('LoadThemePresetUseCase is a singleton', () async {
       await initDependencies();
+      await sl.unregister<SharedPreferencesAsync>();
+      sl.registerSingleton<SharedPreferencesAsync>(
+        MockSharedPreferencesAsync(),
+      );
 
       expect(
         identical(sl<LoadThemePresetUseCase>(), sl<LoadThemePresetUseCase>()),
