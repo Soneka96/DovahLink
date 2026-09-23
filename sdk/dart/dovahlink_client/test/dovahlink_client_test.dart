@@ -416,14 +416,17 @@ void main() {
       'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        final String helloAckFixture = _rawFixture('connection/hello-ack.json');
+        final JsonMap helloAckPayload =
+            (jsonDecode(helloAckFixture) as JsonMap)['payload'] as JsonMap;
+        transport.queueResponse(helloAckFixture);
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
 
         final HelloResult result = await client.hello();
 
-        expect(result.hostVersion, '0.3.3');
+        expect(result.hostVersion, helloAckPayload['hostVersion'] as String);
         expect(result.trustState, DovahLinkTrustState.unpaired);
         expect(client.trustState, DovahLinkTrustState.unpaired);
         expect(client.sessionId, 'session-1');

@@ -20,6 +20,8 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-23
+
 ### Added
 
 - A local development setup guide and prerequisite checker that reports missing CI tools with install and verification guidance.

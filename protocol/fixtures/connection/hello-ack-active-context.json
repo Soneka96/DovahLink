@@ -4,7 +4,7 @@
   "sessionId": "session-2",
   "correlationId": "message-hello-2",
   "payload": {
-    "hostVersion": "0.3.3",
+    "hostVersion": "0.4.0",
     "clientIdentityKind": "unpaired"
   },
   "stateAuthorityId": "state-authority-1",

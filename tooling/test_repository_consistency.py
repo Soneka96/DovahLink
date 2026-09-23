@@ -1112,7 +1112,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertTrue(entry_versions, "CHANGELOG.md has no version entries.")
         self.assertEqual(entry_versions[0], version)
-        for known_version in ("0.1.0", "0.2.0", "0.3.0", "0.3.1", "0.3.2", "0.3.3"):
+        for known_version in (
+            "0.1.0",
+            "0.2.0",
+            "0.3.0",
+            "0.3.1",
+            "0.3.2",
+            "0.3.3",
+            "0.4.0",
+        ):
             self.assertIn(known_version, entry_versions)
         self.assertEqual(
             len(set(entry_versions)),
@@ -1133,7 +1141,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "[Unreleased]",
             "[Unreleased] must be the first section in CHANGELOG.md.",
         )
-        self.assertNotIn("## [0.4.0]", changelog)
+        self.assertIn("## [0.4.0] - 2026-09-23", changelog)
 
         self.assertNotIn("versioned ZIP", changelog)
         self.assertIn("versioned package", changelog)
