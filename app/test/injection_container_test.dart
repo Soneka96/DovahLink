@@ -1,7 +1,13 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:dovahlink_client/features/appearance/data/datasources/appearance_local.datasource.dart';
+import 'package:dovahlink_client/features/appearance/domain/repositories/appearance_repository.dart';
+import 'package:dovahlink_client/features/appearance/domain/usecases/load_theme_preset.usecase.dart';
+import 'package:dovahlink_client/features/appearance/domain/usecases/set_theme_preset.usecase.dart';
+import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_list_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
@@ -17,63 +23,74 @@ import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 
 void main() {
+  setUpAll(() {
+    TestWidgetsFlutterBinding.ensureInitialized();
+    SharedPreferences.setMockInitialValues(<String, Object>{});
+  });
+
   group('injection_container — shared registrations', () {
-    test('initDependencies registers the router', () {
-      initDependencies();
+    test('initDependencies registers the router', () async {
+      await initDependencies();
 
       expect(sl.isRegistered<GoRouter>(), isTrue);
     });
 
-    test('initDependencies registers the navigator service', () {
-      initDependencies();
+    test('initDependencies registers the navigator service', () async {
+      await initDependencies();
 
       expect(sl.isRegistered<NavigatorService>(), isTrue);
     });
 
-    test('the registered GoRouter is a true singleton', () {
-      initDependencies();
+    test('the registered GoRouter is a true singleton', () async {
+      await initDependencies();
 
       expect(identical(sl<GoRouter>(), sl<GoRouter>()), isTrue);
     });
 
-    test('calling initDependencies twice does not throw or re-register', () {
-      initDependencies();
+    test(
+      'calling initDependencies twice does not throw or re-register',
+      () async {
+        await initDependencies();
 
-      expect(initDependencies, returnsNormally);
-      expect(sl.isRegistered<GoRouter>(), isTrue);
-      expect(sl.isRegistered<NavigatorService>(), isTrue);
-    });
+        await expectLater(initDependencies(), completes);
+        expect(sl.isRegistered<GoRouter>(), isTrue);
+        expect(sl.isRegistered<NavigatorService>(), isTrue);
+      },
+    );
   });
 
   group('injection_container — connection registrations', () {
-    test('initDependencies registers the Host-list ViewModel factory', () {
-      initDependencies();
+    test(
+      'initDependencies registers the Host-list ViewModel factory',
+      () async {
+        await initDependencies();
 
-      expect(sl.isRegistered<HostListScreenViewModel>(), isTrue);
-    });
+        expect(sl.isRegistered<HostListScreenViewModel>(), isTrue);
+      },
+    );
   });
 
   group('injection_container — pairing registrations', () {
-    test('initDependencies registers the SDK client', () {
-      initDependencies();
+    test('initDependencies registers the SDK client', () async {
+      await initDependencies();
 
       expect(sl.isRegistered<DovahLinkClient>(), isTrue);
     });
 
-    test('initDependencies registers the pairing remote data source', () {
-      initDependencies();
+    test('initDependencies registers the pairing remote data source', () async {
+      await initDependencies();
 
       expect(sl.isRegistered<IPairingRemoteDataSource>(), isTrue);
     });
 
-    test('initDependencies registers the pairing repository', () {
-      initDependencies();
+    test('initDependencies registers the pairing repository', () async {
+      await initDependencies();
 
       expect(sl.isRegistered<IPairingRepository>(), isTrue);
     });
 
-    test('initDependencies registers the pairing use cases', () {
-      initDependencies();
+    test('initDependencies registers the pairing use cases', () async {
+      await initDependencies();
 
       expect(sl.isRegistered<AuthenticateUseCase>(), isTrue);
       expect(sl.isRegistered<RequestPairingUseCase>(), isTrue);
@@ -84,14 +101,14 @@ void main() {
       expect(sl.isRegistered<ObserveConnectionStatusUseCase>(), isTrue);
     });
 
-    test('initDependencies registers the pairing ViewModel factory', () {
-      initDependencies();
+    test('initDependencies registers the pairing ViewModel factory', () async {
+      await initDependencies();
 
       expect(sl.isRegistered<PairingScreenViewModel>(), isTrue);
     });
 
-    test('RequestPairingRenotifyUseCase is a singleton', () {
-      initDependencies();
+    test('RequestPairingRenotifyUseCase is a singleton', () async {
+      await initDependencies();
 
       expect(
         identical(
@@ -102,8 +119,8 @@ void main() {
       );
     });
 
-    test('CancelPairingUseCase is a singleton', () {
-      initDependencies();
+    test('CancelPairingUseCase is a singleton', () async {
+      await initDependencies();
 
       expect(
         identical(sl<CancelPairingUseCase>(), sl<CancelPairingUseCase>()),
@@ -111,8 +128,8 @@ void main() {
       );
     });
 
-    test('RequestPairingRenotifyUseCase can be instantiated', () {
-      initDependencies();
+    test('RequestPairingRenotifyUseCase can be instantiated', () async {
+      await initDependencies();
 
       expect(sl<RequestPairingRenotifyUseCase>(), isNotNull);
       expect(
@@ -121,11 +138,53 @@ void main() {
       );
     });
 
-    test('CancelPairingUseCase can be instantiated', () {
-      initDependencies();
+    test('CancelPairingUseCase can be instantiated', () async {
+      await initDependencies();
 
       expect(sl<CancelPairingUseCase>(), isNotNull);
       expect(sl<CancelPairingUseCase>(), isA<CancelPairingUseCase>());
+    });
+  });
+
+  group('injection_container — appearance registrations', () {
+    test(
+      'initDependencies registers the appearance local data source',
+      () async {
+        await initDependencies();
+
+        expect(sl.isRegistered<IAppearanceLocalDataSource>(), isTrue);
+      },
+    );
+
+    test('initDependencies registers the appearance repository', () async {
+      await initDependencies();
+
+      expect(sl.isRegistered<IAppearanceRepository>(), isTrue);
+    });
+
+    test('initDependencies registers the appearance use cases', () async {
+      await initDependencies();
+
+      expect(sl.isRegistered<LoadThemePresetUseCase>(), isTrue);
+      expect(sl.isRegistered<SetThemePresetUseCase>(), isTrue);
+    });
+
+    test(
+      'initDependencies registers the appearance ViewModel factory',
+      () async {
+        await initDependencies();
+
+        expect(sl.isRegistered<AppearanceSectionViewModel>(), isTrue);
+      },
+    );
+
+    test('LoadThemePresetUseCase is a singleton', () async {
+      await initDependencies();
+
+      expect(
+        identical(sl<LoadThemePresetUseCase>(), sl<LoadThemePresetUseCase>()),
+        isTrue,
+      );
     });
   });
 }

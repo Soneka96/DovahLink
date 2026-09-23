@@ -3,6 +3,7 @@ import 'package:flutter_redux/flutter_redux.dart';
 import 'package:go_router/go_router.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.selectors.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
@@ -19,12 +20,17 @@ class DovahLinkApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return StoreProvider<AppState>(
       store: store,
-      child: MaterialApp.router(
-        title: 'DovahLink',
-        theme: ThemeData(
-          colorScheme: ColorScheme.fromSeed(seedColor: Colors.blueGrey),
-        ),
-        routerConfig: sl<GoRouter>(),
+      child: StoreConnector<AppState, ThemeData>(
+        distinct: true,
+        converter: (Store<AppState> store) =>
+            AppearanceSelectors.activeThemeDataSelector(store.state),
+        builder: (BuildContext context, ThemeData theme) {
+          return MaterialApp.router(
+            title: 'DovahLink',
+            theme: theme,
+            routerConfig: sl<GoRouter>(),
+          );
+        },
       ),
     );
   }
