@@ -149,9 +149,11 @@ Compatibility is evaluated against the Bridge release version sent in `hello_ack
 - Bridge and SDK package versions remain independent; the SDK declares which Bridge versions it
   accepts.
 
-Release versions are not bumped in ordinary phase PRs. The phase-completion audit performs the
-Bridge version cutover and updates the compatibility/changelog records. A later bugfix may invoke
-the version-audit skill manually; a contract-breaking bugfix is not silently classified as a patch.
+Release versions are not bumped in ordinary phase PRs. The phase-completion audit recommends the
+version impact and records any changelog or compatibility-documentation actions; it does not
+perform a version cutover. Version bumps and synchronized version literals belong to a later
+`release/<version>` branch from `main`, per `ai/context/common.md`. A later bug fix may invoke the
+version-impact audit manually; a contract-breaking bug fix is not silently classified as a patch.
 
 ### Phase breakdown
 
@@ -339,21 +341,26 @@ Run the cutover in this order:
    capabilities, subscriptions, snapshots, or Events.
 6. Run the complete Bridge, SDK, .NET, fixture, recovery, reconnect, and slow-client scenarios.
 7. Remove migration-only readers and fixtures, leaving no permanent dual protocol implementation.
-8. Hand the complete phase diff to 4.5 for the version-impact audit and release cutover.
+8. Hand the complete phase diff to 4.5 for the version-impact audit and phase closeout.
 
 #### 4.5 Version-Impact Audit Foundation
 
 **No longer blocked: Stage 3A has completed.** Unlike 4.2-4.4, this phase is
 not Bridge-specific; it still runs at whichever point Stage 4 actually closes, on Host + Adapter.
 
-Create the manually invoked version-audit skill and its repository documentation before Stage 4
-closure. The skill reads the phase or bugfix diff, affected public exports, protocol/schema changes,
-persistence formats, security/runtime behavior, tests, and current version ownership. It may update
-the relevant Host, Adapter, SDK, or Flutter/app version/changelog/compatibility files and current
-protocol/product version-ownership records, and prepare a commit message, but it never commits. By
-the time this phase runs, Stage 4 has already resumed exclusively on Host + Adapter per the section
-above; `bridge/` is historical evidence only and is not an active release/version owner audited
-here.
+Create the repository-owned, manually invoked audit at
+[`ai/skills/version-impact-audit/SKILL.md`](../ai/skills/version-impact-audit/SKILL.md) before
+Stage 4 closure. Invoke it by asking an agent to use that file to audit a named scope against a
+specified comparison baseline. The audit reads the complete phase or requested bug-fix range and
+reports its baseline, affected components, compatibility and version impact, changelog and
+documentation actions, release follow-up, and unresolved blockers. It does not change files unless
+the maintainer separately requests implementation of its recommendations. It never commits, pushes,
+merges, publishes, or changes release version literals as part of an ordinary phase or fix branch.
+Version bumps and synchronized literals belong to a later `release/<version>` branch from `main`,
+under `ai/context/common.md`'s Versioning rules; Phase 4.5 recommends the version but does not
+perform that release work. By the time this phase runs, Stage 4 has resumed exclusively on Host +
+Adapter per the section above; `bridge/` is historical evidence only and is not an active release
+version owner audited here.
 
 At Phase 4 completion it audits the complete phase rather than each ordinary PR. A later bugfix may
 invoke it independently; a contract-breaking bugfix must not be forced into a patch bump.
