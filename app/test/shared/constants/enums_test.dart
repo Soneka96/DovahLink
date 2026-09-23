@@ -62,4 +62,16 @@ void main() {
       },
     );
   });
+
+  group('Property label in DovahButtonVariant behaves correctly', () {
+    test(
+      'Property label in DovahButtonVariant returns the concise label for every variant',
+      () {
+        expect(DovahButtonVariant.primary.label, isA<String>());
+        expect(DovahButtonVariant.primary.label, 'Primary');
+        expect(DovahButtonVariant.secondary.label, isA<String>());
+        expect(DovahButtonVariant.secondary.label, 'Secondary');
+      },
+    );
+  });
 }

@@ -128,3 +128,19 @@ enum DovahPanelCornerStyle {
     DovahPanelCornerStyle.rounded => 'Rounded',
   };
 }
+
+/// A [DovahButton]'s visual emphasis. Every button renders as exactly one of these, so the type
+/// carries no unselected sentinel; see `ai/context/flutter/dart-style.md`'s "Enums".
+enum DovahButtonVariant {
+  /// The theme's high-emphasis action gradient (the approved prototype's `.primary`).
+  primary,
+
+  /// A bordered, low-emphasis surface (the approved prototype's `.secondary`).
+  secondary;
+
+  /// Returns the concise label for this variant.
+  String get label => switch (this) {
+    DovahButtonVariant.primary => 'Primary',
+    DovahButtonVariant.secondary => 'Secondary',
+  };
+}
