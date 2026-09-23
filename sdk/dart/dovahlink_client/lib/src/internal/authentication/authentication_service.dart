@@ -1,7 +1,9 @@
+import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/compatibility/host_version_compatibility.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
@@ -14,60 +16,47 @@ import 'package:dovahlink_client_sdk/src/protocol/hello_payload.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Owns `hello`/authentication and credential-rejection recovery, per
-/// `ai/context/sdk/architecture.md`'s "Internal composition". Resolves and persists this
-/// installation's `clientId`, negotiates trust with the Host, and recovers from a rejected
-/// `trusted_device_credential` hello by discarding it and retrying once as `unpaired`.
+/// Defines authentication operations for resolving this installation's
+/// [IAuthenticationService.clientId], negotiating Host trust, and recovering from a rejected saved
+/// credential.
 abstract interface class IAuthenticationService {
-  /// This installation's stable client ID, or `null` before [hello] has resolved it.
+  /// This installation's stable client ID, or `null` before [IAuthenticationService.hello] resolves
+  /// it.
   String? get clientId;
 
-  /// Sends `hello` and negotiates the session. Resolves and persists this installation's
-  /// `clientId` on first use, and automatically presents a stored trusted credential as
-  /// `trusted_device_credential` for an ordinary reconnect. Admits `unpaired` both when no
-  /// credential is stored yet and when a `CONFIRMING` pairing is still outstanding -- the Host
-  /// has not yet committed that credential as trusted, so it must not be presented as one. Once
-  /// the new session's trust state is known, retransmits any retry-safe operation an earlier
-  /// ordinary transport loss orphaned, provided the new session still satisfies its required
-  /// trust state.
+  /// Sends `hello` and admits the returned session. Resolves and persists this installation's
+  /// [IAuthenticationService.clientId] on first use. A saved credential is presented unless
+  /// [PairingRecoveryState.confirming] is pending; the Host has not trusted that credential yet.
+  /// After admission, retries any orphaned operation whose trust requirement the new session meets.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
+  /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
+  ///     range.
   Future<HelloResult> hello();
 
-  /// Connects to [uri] and authenticates, recovering from a rejected `trusted_device_credential`
-  /// hello (`revoked` or an unrecognized credential) by discarding it and retrying once as
-  /// `unpaired` -- the Host always accepts that, so a recoverable rejection never surfaces as a
-  /// thrown exception here. [HelloResult.recoveredFromRejectedCredential] reports whether that
-  /// happened and why, so a caller can still explain it to the user. A transport failure, a
-  /// non-recoverable protocol rejection, or the retry attempt's own failure still throws normally.
+  /// Connects to [uri] and authenticates. If the Host rejects a saved credential as
+  /// [CredentialRejectionReason.revoked] or [CredentialRejectionReason.unrecognized], discards it
+  /// and retries once with [AuthMethod.unpaired].
+  /// [HelloResult.recoveredFromRejectedCredential] reports that recovery. Transport failures,
+  /// incompatible Host versions, and non-recoverable protocol errors still throw.
   ///
-  /// A no-op that returns the cached result of the last [hello] when this client is already
-  /// connected and trusted -- the Host's one-session-per-connection limit
-  /// (`handshake_handler.cpp`'s `TryCreateSession`) rejects a second `hello` on a socket that
-  /// already holds a session, so re-authenticating an already-trusted, still-open connection must
-  /// not re-send one. Otherwise disconnects first whenever a connection is already open --
-  /// [hello]'s own admission can leave one behind without trust yet established, for example when a
-  /// caller's post-admission operation fails without disconnecting -- since the transport rejects a
-  /// second [ISessionService.connect] on a socket it has not closed.
+  /// Returns the cached result when [DovahLinkConnectionState.connected] and
+  /// [DovahLinkTrustState.trusted]. Otherwise closes any existing connection before opening
+  /// another, since each socket can admit only one session.
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
+  /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
+  ///     range.
   Future<HelloResult> authenticate(Uri uri);
 
-  /// Discards the persisted pairing credential and recovery state while preserving [clientId], so
-  /// the next [hello] presents `AuthMethod.unpaired` instead of a credential the Host has
-  /// already rejected. Call after a `trusted_device_credential` hello is rejected
-  /// (`unauthenticated`/`revoked`) and before retrying -- this installation's identity is not
-  /// itself invalid, only its stored credential. Does not touch the transport or in-memory
-  /// connection state.
+  /// Discards the stored credential and pairing-recovery state while preserving
+  /// [IAuthenticationService.clientId]. The next [IAuthenticationService.hello] authenticates as
+  /// [AuthMethod.unpaired]. Does not alter the transport or session state.
   Future<void> forgetCredential();
 }
 
-/// Implements [IAuthenticationService], per `ai/context/sdk/architecture.md`'s "Internal
-/// composition". Every collaborator ([ISessionService], [ISessionAdmissionService], [IRequestService],
-/// [IClientStorage], [ClientIdResolver], `ClientIdCache`) is supplied by the caller per
-/// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
-/// its own dependencies, including [ClientIdResolver], despite it being a small, otherwise
-/// dependency-free collaborator.
+/// Implements [IAuthenticationService] by coordinating credential loading, Host hello requests,
+/// trust recovery, and session admission.
 class AuthenticationService implements IAuthenticationService {
   /// Connects, disconnects, and reads live connection/trust state.
   final ISessionService _sessionService;
@@ -85,8 +74,9 @@ class AuthenticationService implements IAuthenticationService {
   /// Resolves this installation's persisted client ID on first use.
   final ClientIdResolver _clientIdResolver;
 
-  /// Shares this installation's resolved `clientId` with `PendingOperationTransmitter`, per
-  /// `client_id_cache.dart`'s documented reason a direct dependency between them is impossible.
+  /// Shares this installation's resolved [IAuthenticationService.clientId] with
+  /// [PendingOperationTransmitter], so
+  /// authentication and pending retries use the same client identity.
   final ClientIdCache _clientIdCache;
 
   /// Creates an authentication service over [sessionService], [sessionAdmissionService],
@@ -105,9 +95,9 @@ class AuthenticationService implements IAuthenticationService {
        _clientIdResolver = clientIdResolver,
        _clientIdCache = clientIdCache;
 
-  /// The Host's own release version reported by the last successful [hello], or `null`
-  /// before [hello] succeeds. Cached so [authenticate] can report it again without re-sending
-  /// `hello` on an already-admitted session.
+  /// The Host release version from the last successful [IAuthenticationService.hello], or `null`
+  /// before it succeeds. Cached so [IAuthenticationService.authenticate] can report it without
+  /// re-sending `hello` on an admitted session.
   String? _hostVersion;
 
   /// Implements [IAuthenticationService.clientId].
@@ -146,6 +136,7 @@ class AuthenticationService implements IAuthenticationService {
         HelloAckPayload.fromJson,
         response.payload,
       );
+      validateHostVersionCompatibility(ack.hostVersion);
       final DovahLinkTrustState trustState = switch (ack.clientIdentityKind) {
         ClientIdentityKind.unpaired => DovahLinkTrustState.unpaired,
         ClientIdentityKind.paired => DovahLinkTrustState.trusted,
@@ -153,9 +144,8 @@ class AuthenticationService implements IAuthenticationService {
 
       final String? sessionId = response.sessionId;
       if (sessionId == null) {
-        // hello_ack always carries a real sessionId per `protocol/schema/README.md`; a null one
-        // is a malformed reply, not a state ISessionAdmissionService.admitSession's typed contract
-        // accepts silently the way the pre-extraction field assignment once did.
+        // hello_ack requires a sessionId. A null value is malformed and must be rejected before
+        // session admission.
         throw const DovahLinkProtocolException(
           code: ProtocolErrorCode.malformedMessage,
           message: 'The host reported hello_ack with no sessionId.',

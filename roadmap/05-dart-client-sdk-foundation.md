@@ -4,18 +4,18 @@
 
 ## 5. Dart Client SDK Foundation
 
-**Status:** Planned. The package scaffold, protocol/transport layer, and persistence boundary
+**Status:** Active. The package scaffold, protocol/transport layer, and persistence boundary
 (`clientId`, credential, `CONFIRMING` pairing-recovery state, behind a Windows DPAPI-backed
 `IClientStorage`) were pulled forward to unblock Phase 3's client-side pairing recovery, per
 `ai/context/sdk/persistence.md`. Delivery is decomposed into the public typed protocol boundary,
 synchronization API, subscription/recovery lifecycle, Flutter middleware proof, and phase-end version
 auditing.
-Host-version compatibility detection, state revisions, subscriptions, snapshots, recovery, and
-completing the app's SDK integration remain undone, so this phase is not complete. The app's current
-`features/connection/` area owns Host selection and navigation rather than a separate protocol
-client. The single inbound SDK receiver/router and initial per-operation retry-safety/session-
-requirement/timeout-class policy were similarly pulled forward by Phase 3.3 (`roadmap/03`), per
-`ai/context/sdk/architecture.md` and `ai/context/sdk/api-design.md`.
+Phase 5.1 — SDK Typed Protocol and Host Compatibility Boundary is complete. State revisions,
+subscriptions, snapshots, recovery, and completing the app's SDK integration remain for the rest of
+Stage 5. The app's current `features/connection/` area owns Host selection and navigation rather
+than a separate protocol client. The single inbound SDK receiver/router and initial per-operation
+retry-safety/session-requirement/timeout-class policy were similarly pulled forward by Phase 3.3
+(`roadmap/03`), per `ai/context/sdk/architecture.md` and `ai/context/sdk/api-design.md`.
 
 ### Outcome
 
@@ -50,6 +50,8 @@ production consumer proving the supported SDK API is sufficient to build a compl
 ### Phase breakdown
 
 #### 5.1 SDK Typed Protocol and Host Compatibility Boundary
+
+**Status:** Complete
 
 Complete the Dart DTOs for the redesigned message families using generated structural
 `fromJson`/`toJson` code plus handwritten semantic validation. Keep a small shared message header and

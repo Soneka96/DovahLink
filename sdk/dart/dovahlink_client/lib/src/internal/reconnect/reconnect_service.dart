@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
@@ -8,25 +9,19 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Owns bounded automatic recovery from ordinary transport loss, per
-/// `ai/context/sdk/architecture.md`'s "Internal composition". Driven by `SessionService`
-/// through the `onOrdinaryTransportLoss` callback described in
-/// `ai/context/sdk/architecture.md`'s "Callbacks".
+/// Defines the callback that starts bounded recovery after ordinary transport loss.
 abstract interface class IReconnectService {
   /// Reports that ordinary transport loss finished tearing down the connection previously
   /// established at [uri], starting bounded automatic recovery.
   void onOrdinaryTransportLoss(Uri uri);
 }
 
-/// Implements [IReconnectService], per `ai/context/sdk/architecture.md`'s "Internal composition".
 /// Reconnects to the endpoint the session last connected to and re-authenticates, up to a bounded
 /// attempt budget and a hard overall deadline (each defaulting to the centrally tuned
 /// [kReconnectAttemptDelays]/[kReconnectDeadline]) -- whichever is exhausted first.
-/// `SessionService` continues to own transport/session state and teardown, and
-/// `AuthenticationService` continues to own authentication; this class only orchestrates when
-/// and how often to retry both. [sessionService] and [authenticationService] are supplied by the
-/// caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never
-/// constructs one of its own dependencies.
+/// [SessionService] owns transport/session state and teardown; [AuthenticationService] owns
+/// authentication. This class only chooses when and how often to retry. Incompatible Host versions
+/// are terminal and their typed failure is passed to teardown without another attempt.
 class ReconnectService implements IReconnectService {
   /// Reconnects to and disconnects from the Host, and reports live connection state.
   final ISessionService _sessionService;
@@ -39,8 +34,8 @@ class ReconnectService implements IReconnectService {
   /// with millisecond-scale delays instead of real seconds.
   final List<Duration> _attemptDelays;
 
-  /// The hard overall deadline for one recovery cycle. Defaults to the centrally tuned
-  /// [kReconnectDeadline]; overridable for the same reason as [_attemptDelays].
+  /// The hard overall deadline for one recovery cycle. Defaults to [kReconnectDeadline] and is
+  /// configurable for tests alongside [ReconnectService._attemptDelays].
   final Duration _deadline;
 
   /// The clock the deadline is measured against. Defaults to [DateTime.now]; overridable so a
@@ -68,23 +63,17 @@ class ReconnectService implements IReconnectService {
     unawaited(_recover(uri));
   }
 
-  /// Attempts bounded recovery to [uri]: at most `_attemptDelays.length` attempts, spaced by its
-  /// delays, never continuing past `_deadline` from the first attempt. Stops immediately --
-  /// without consuming further attempts -- on a terminal protocol rejection from
-  /// re-authenticating, per [ReconnectRejectionClassifier.isTerminal]; a retryable protocol
-  /// rejection instead consumes the attempt and continues, the same as a generic
-  /// transport/connectivity failure. When a terminal rejection is specifically about this
-  /// installation's credential (per [CredentialRejectionReason.fromProtocolErrorCode] -- `revoked`
-  /// or `blocked`, not a generic `unauthorized`/`malformedMessage`), forgets that credential before
-  /// stopping, the same way `IAuthenticationService.authenticate`'s own explicit-retry path
-  /// already does: a credential the Host has permanently rejected must not be presented again by
-  /// a later automatic recovery attempt. Also stops, without touching the connection again, if
-  /// something else (an explicit disconnect or an administrative invalidation) already moved the
-  /// session out of `reconnecting`. On exhaustion or terminal rejection, finalizes the cycle with
-  /// a disconnect that fails whatever operations `IAuthenticationService.hello`'s own
-  /// mid-cycle cleanup preserved for retry.
+  /// Attempts one recovery for each [ReconnectService._attemptDelays] entry, stopping at
+  /// [ReconnectService._deadline]. Retryable protocol and transport failures consume an attempt;
+  /// [ReconnectRejectionClassifier.isTerminal] failures stop immediately. For
+  /// [CredentialRejectionReason.revoked] or [CredentialRejectionReason.blocked] credentials,
+  /// forgets the credential before stopping. If an explicit disconnect or
+  /// invalidation already moved the session out of [DovahLinkConnectionState.reconnecting], leaves
+  /// that teardown alone. On exhaustion or terminal failure, disconnects so orphaned operations
+  /// preserved during recovery are failed.
   Future<void> _recover(Uri uri) async {
     final DateTime deadline = _now().add(_deadline);
+    Exception? terminalFailure;
     for (int attempt = 0; attempt < _attemptDelays.length; attempt++) {
       if (attempt > 0) {
         final Duration untilDeadline = deadline.difference(_now());
@@ -121,14 +110,19 @@ class ReconnectService implements IReconnectService {
           break;
         }
         continue;
+      } on DovahLinkCompatibilityException catch (error) {
+        terminalFailure = error;
+        break;
       } on Object {
         continue;
       }
     }
     await _sessionService.disconnect(
-      reason: const DovahLinkConnectionException(
-        'Reconnect could not restore the connection.',
-      ),
+      reason:
+          terminalFailure ??
+          const DovahLinkConnectionException(
+            'Reconnect could not restore the connection.',
+          ),
     );
   }
 }

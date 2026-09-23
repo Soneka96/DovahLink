@@ -2,6 +2,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
@@ -10,13 +11,11 @@ import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.da
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Mock session service used to control connection state and count recovery attempts, per
-/// `ai/context/sdk/testing.md`'s "Service test boundaries".
+/// Mocks session lifecycle to control connection state and count recovery attempts.
 class MockSessionService extends Mock implements ISessionService {}
 
-/// Mock authentication service -- its own `hello`/recovery logic is
-/// `authentication_service_test.dart`'s responsibility; this file only proves
-/// [ReconnectService] reacts correctly to each classification `hello()` can produce.
+/// Mocks authentication so these tests can verify [ReconnectService]'s response to
+/// [IAuthenticationService.hello] outcomes.
 class MockAuthenticationService extends Mock
     implements IAuthenticationService {}
 
@@ -142,6 +141,61 @@ void main() {
             code: ProtocolErrorCode.revoked,
             message: 'rejected',
             retryable: false,
+          ),
+        );
+        final ReconnectService service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verify(() => authenticationService.hello()).called(1);
+        verify(() => sessionService.connect(_uri)).called(1);
+        verify(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: false,
+            reason: any(named: 'reason'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss stops after an incompatible Host instead of retrying it',
+      () async {
+        when(() => authenticationService.hello()).thenThrow(
+          const DovahLinkCompatibilityException(
+            hostVersion: '0.5.0',
+            supportedHostVersionRange: '0.4.x',
+            failure: HostVersionCompatibilityFailure.hostTooNew,
+          ),
+        );
+        final ReconnectService service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verify(() => authenticationService.hello()).called(1);
+        verify(() => sessionService.connect(_uri)).called(1);
+        final Exception reason =
+            verify(
+                  () => sessionService.disconnect(
+                    orphanRetrySafeOperations: false,
+                    reason: captureAny(named: 'reason'),
+                  ),
+                ).captured.single
+                as Exception;
+        expect(reason, isA<DovahLinkCompatibilityException>());
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss stops after an older Host instead of retrying it',
+      () async {
+        when(() => authenticationService.hello()).thenThrow(
+          const DovahLinkCompatibilityException(
+            hostVersion: '0.3.9',
+            supportedHostVersionRange: '0.4.x',
+            failure: HostVersionCompatibilityFailure.hostTooOld,
           ),
         );
         final ReconnectService service = buildService();

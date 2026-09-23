@@ -12,8 +12,9 @@ DovahLink-app-specific conventions only.
 
 ## Documentation
 
-Follow the shared documentation rules in `ai/context/common.md` and the Dart-doc-comment mechanics
-in `ai/context/dart/dart-style.md`.
+Follow the shared documentation rules in `ai/context/common.md` and the Dartdoc symbol-link and
+brevity rules in [`ai/context/dart/dart-style.md`](../dart/dart-style.md#documentation). This file
+adds Flutter-specific documentation relationships only.
 
 - Describe dependencies in the architectural direction: Model to Entity, UseCase to repository
   interface, and repository implementation to repository interface. Domain never imports data.

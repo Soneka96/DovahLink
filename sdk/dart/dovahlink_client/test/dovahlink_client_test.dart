@@ -5,11 +5,15 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_client.dart'
+    show buildDovahLinkClientForTesting;
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart' show TimeoutClass;
-import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart'
+    show IDovahLinkTransport, WebSocketTransport;
 import 'fixtures/fixtures.dart';
+import 'support/fake_websocket_server.dart';
 import 'support/pending_reply.dart';
 
 /// Owns ordered release and correlation rewriting for fake-transport replies.
@@ -45,56 +49,49 @@ class PendingReplyQueue {
   }
 }
 
-/// A controllable [IDovahLinkTransport] double modeling the *real* [WebSocketTransport]'s
-/// semantics for the single continuous, single-subscription inbound stream this SDK's receiver
-/// depends on: [connect] establishes a fresh single-subscription stream (mirroring the real
-/// transport's fresh socket per connection, and its "only ever listened to once" constraint), and
-/// [messages] waits for the next message rather than erroring once nothing more is queued yet
-/// (mirroring how a real socket simply has nothing to deliver until something arrives).
+/// A controllable [IDovahLinkTransport] with [WebSocketTransport]'s per-connection,
+/// single-subscription stream semantics. Each [IDovahLinkTransport.connect] creates a fresh inbound
+/// stream; [IDovahLinkTransport.messages] waits for frames.
 ///
-/// [queueResponse] auto-correlates: a queued reply whose own `correlationId` is non-null (every
-/// canonical fixture answering a specific request) has that field rewritten to the `messageId` of
-/// the next not-yet-matched [send] call, in queue order, before delivery -- this lets tests reuse
-/// canonical fixtures (whose hardcoded `correlationId` values do not know this client's real,
-/// randomly generated `messageId`) without hand-matching them, while still exercising this
-/// client's own real correlationId-matching logic on the rewritten value. A queued reply already
-/// carrying `correlationId: null` (an unsolicited push, e.g. `capabilities`/`session_invalidated`,
-/// or malformed text with no `correlationId` to read at all) releases as soon as it reaches the
-/// front of the queue, without waiting for any particular [send] -- but never jumping ahead of an
-/// earlier-queued reply still waiting on its own [send], so relative queue order is always
-/// preserved. [queueRawResponse] is the escape hatch for a test that deliberately wants an
-/// unrewritten -- including deliberately mismatched -- `correlationId`, delivered immediately.
+/// [FakeDovahLinkTransport.queueResponse] rewrites correlated reply IDs to the next
+/// [IDovahLinkTransport.send] message ID while preserving FIFO order. Replies with no correlation,
+/// including malformed text, release when they reach the queue head. Use
+/// [FakeDovahLinkTransport.queueRawResponse] to test mismatched correlations without rewriting or
+/// queue ordering.
 class FakeDovahLinkTransport implements IDovahLinkTransport {
   /// Every raw text message sent, in order.
   final List<String> sent = <String>[];
 
-  /// Queued [queueResponse] replies not yet released, in queue order.
+  /// Queued [FakeDovahLinkTransport.queueResponse] replies not yet released, in queue order.
   final PendingReplyQueue _pendingReplies = PendingReplyQueue();
 
-  /// The current connection's inbound stream, or `null` before [connect]/after [close].
+  /// The current connection's inbound stream, or `null` before
+  /// [IDovahLinkTransport.connect] or after [IDovahLinkTransport.close].
   StreamController<String>? _incoming;
 
-  /// The URI passed to [connect], or `null` if not yet called.
+  /// The URI passed to [IDovahLinkTransport.connect], or `null` if not yet called.
   Uri? connectedUri;
 
-  /// Every URI passed to [connect], in order -- unlike [connectedUri], proves how many times and
-  /// with what arguments [connect] was called across a retry.
+  /// Every URI passed to [IDovahLinkTransport.connect], in order -- unlike
+  /// [FakeDovahLinkTransport.connectedUri], proves
+  /// how many times and with what arguments it was called across a retry.
   final List<Uri> connectCalls = <Uri>[];
 
-  /// Whether [close] was called.
+  /// Whether [IDovahLinkTransport.close] was called.
   bool closeCalled = false;
 
-  /// The number of times [close] was called -- unlike [closeCalled], distinguishes one real
+  /// The number of times [IDovahLinkTransport.close] was called -- unlike
+  /// [FakeDovahLinkTransport.closeCalled], distinguishes one real
   /// teardown from a duplicate one that should have been deduplicated.
   int closeCallCount = 0;
 
-  /// Makes the next [connect] call throw [error] instead of succeeding.
+  /// Makes the next [IDovahLinkTransport.connect] call throw [error] instead of succeeding.
   Object? failConnectWith;
 
-  /// Makes every [send] call throw [error] instead of succeeding.
+  /// Makes every [IDovahLinkTransport.send] call throw [error] instead of succeeding.
   Object? failSendWith;
 
-  /// Makes the next [close] call throw [error] instead of succeeding.
+  /// Makes the next [IDovahLinkTransport.close] call throw [error] instead of succeeding.
   Object? failCloseWith;
 
   /// Queues one raw JSON response; see the class doc for correlation and release-order behavior.
@@ -130,7 +127,7 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
     unawaited(incoming.close());
   }
 
-  /// See [IDovahLinkTransport.connect].
+  /// Implements [IDovahLinkTransport.connect].
   @override
   Future<void> connect(Uri uri) async {
     final Object? failure = failConnectWith;
@@ -144,7 +141,7 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
     _incoming = StreamController<String>();
   }
 
-  /// See [IDovahLinkTransport.send].
+  /// Implements [IDovahLinkTransport.send].
   @override
   Future<void> send(String text) async {
     final Object? failure = failSendWith;
@@ -158,11 +155,11 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
     );
   }
 
-  /// See [IDovahLinkTransport.messages].
+  /// Implements [IDovahLinkTransport.messages].
   @override
   Stream<String> get messages => _requireIncoming().stream;
 
-  /// See [IDovahLinkTransport.close].
+  /// Implements [IDovahLinkTransport.close].
   @override
   Future<void> close() async {
     closeCalled = true;
@@ -174,9 +171,11 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
     }
   }
 
-  /// Returns the current inbound stream, creating one on first use if [connect] was never
+  /// Returns the current inbound stream, creating one on first use if
+  /// [IDovahLinkTransport.connect] was never
   /// explicitly called -- many tests below exercise a single request/reply exchange directly
-  /// without a preceding [connect], the same way the fake this replaces always allowed. [connect]
+  /// without a preceding [IDovahLinkTransport.connect], the same way the fake this replaces always
+  /// allowed. [IDovahLinkTransport.connect]
   /// itself always installs a genuinely fresh one, which is what matters for this fake to
   /// correctly model one connection's stream being independent of the next.
   StreamController<String> _requireIncoming() =>
@@ -188,13 +187,13 @@ class TrackingClientStorage implements IClientStorage {
   /// Creates storage seeded with [state].
   TrackingClientStorage(this._state);
 
-  /// State returned by [load].
+  /// State returned by [IClientStorage.load].
   PersistedClientState _state;
 
-  /// Optional error thrown by [save].
+  /// Optional error thrown by [IClientStorage.save].
   Object? saveError;
 
-  /// Number of attempted [save] calls.
+  /// Number of attempted [IClientStorage.save] calls.
   int saveCount = 0;
 
   /// See [IClientStorage.load].
@@ -244,7 +243,8 @@ const Map<AdministrativeInvalidationReason, String> _invalidationWireValues =
       AdministrativeInvalidationReason.factoryReset: 'factory_reset',
     };
 
-/// Connects [client] to the fake transport and admits an unpaired session for a public-client test.
+/// Connects [client] to the fake transport and admits a [DovahLinkTrustState.unpaired] session for
+/// a public-client test.
 Future<void> _connectAndHello(
   FakeDovahLinkTransport transport,
   DovahLinkClient client,
@@ -259,16 +259,16 @@ Future<void> _connectAndHello(
 DovahLinkClient _buildFastReconnectClient(
   FakeDovahLinkTransport transport,
   InMemoryClientStorage storage,
-) => DovahLinkClient.withReconnectPolicy(
+) => buildDovahLinkClientForTesting(
   transport: transport,
   storage: storage,
-  attemptDelays: const <Duration>[
+  reconnectAttemptDelays: const <Duration>[
     Duration.zero,
     Duration.zero,
     Duration.zero,
     Duration.zero,
   ],
-  deadline: const Duration(seconds: 30),
+  reconnectDeadline: const Duration(seconds: 30),
 );
 
 /// Runs public-client behavior tests.
@@ -280,7 +280,60 @@ void main() {
   setUp(() {
     transport = FakeDovahLinkTransport();
     storage = InMemoryClientStorage();
-    client = DovahLinkClient(transport: transport, storage: storage);
+    client = buildDovahLinkClientForTesting(
+      transport: transport,
+      storage: storage,
+    );
+  });
+
+  group('Behavior default transport composition behaves correctly', () {
+    test(
+      'Behavior default transport composition connects and completes hello over '
+      'WebSocket',
+      () async {
+        const Duration timeout = Duration(seconds: 5);
+        final FakeWebSocketServer server = await FakeWebSocketServer.start()
+            .timeout(timeout);
+        addTearDown(server.close);
+
+        final DovahLinkClient defaultClient = DovahLinkClient(
+          storage: InMemoryClientStorage(),
+        );
+        addTearDown(defaultClient.disconnect);
+        final Future<WebSocket> acceptedSocket = server.connections.first
+            .timeout(timeout);
+
+        await defaultClient.connect(server.uri).timeout(timeout);
+        final WebSocket socket = await acceptedSocket;
+        addTearDown(socket.close);
+
+        final Completer<String> requestFrame = Completer<String>();
+        socket.listen((Object? message) {
+          if (message is String && !requestFrame.isCompleted) {
+            requestFrame.complete(message);
+          }
+        });
+        final Future<HelloResult> hello = defaultClient.hello().timeout(
+          timeout,
+        );
+        final JsonMap request =
+            jsonDecode(await requestFrame.future.timeout(timeout)) as JsonMap;
+        final JsonMap helloAck =
+            jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+        helloAck['correlationId'] = request['messageId'];
+        socket.add(jsonEncode(helloAck));
+        socket.add(_rawFixture('capabilities/capabilities-host.json'));
+
+        final HelloResult result = await hello;
+
+        expect(
+          defaultClient.connectionState,
+          DovahLinkConnectionState.connected,
+        );
+        expect(result.hostVersion, '0.4.0');
+        expect(result.trustState, DovahLinkTrustState.unpaired);
+      },
+    );
   });
 
   group('Method enqueue behaves correctly', () {
@@ -480,6 +533,44 @@ void main() {
     );
 
     test(
+      'Method hello disconnects and reports an incompatible Host before exposing a session',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'hello_ack',
+            'messageId': 'message-hello-ack-1',
+            'sessionId': 'session-1',
+            'correlationId': 'irrelevant',
+            'payload': <String, dynamic>{
+              'hostVersion': '0.5.0',
+              'clientIdentityKind': 'paired',
+            },
+            'stateAuthorityId': 'state-authority-1',
+            'playContextId': null,
+            'clientId': 'client-1',
+          }),
+        );
+
+        await expectLater(
+          client.hello(),
+          throwsA(
+            isA<DovahLinkCompatibilityException>().having(
+              (DovahLinkCompatibilityException error) => error.failure,
+              'failure',
+              HostVersionCompatibilityFailure.hostTooNew,
+            ),
+          ),
+        );
+
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.trustState, isNull);
+        expect(client.sessionId, isNull);
+        expect(transport.closeCalled, isTrue);
+      },
+    );
+
+    test(
       'Method hello the original rejection still surfaces even when cleanup itself fails',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
@@ -601,7 +692,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.2.0',
+              'hostVersion': '0.4.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -623,7 +714,7 @@ void main() {
             'sessionId': 'session-2',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.2.0',
+              'hostVersion': '0.4.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1198,7 +1289,7 @@ void main() {
         );
         final FakeDovahLinkTransport trackingTransport =
             FakeDovahLinkTransport();
-        final DovahLinkClient trackingClient = DovahLinkClient(
+        final DovahLinkClient trackingClient = buildDovahLinkClientForTesting(
           transport: trackingTransport,
           storage: trackingStorage,
         );
@@ -1235,7 +1326,7 @@ void main() {
         )..saveError = StateError('storage unavailable');
         final FakeDovahLinkTransport failingTransport =
             FakeDovahLinkTransport();
-        final DovahLinkClient failingClient = DovahLinkClient(
+        final DovahLinkClient failingClient = buildDovahLinkClientForTesting(
           transport: failingTransport,
           storage: failingStorage,
         );
@@ -1385,8 +1476,7 @@ void main() {
       expect(result.trustState, DovahLinkTrustState.unpaired);
       expect(client.connectionState, DovahLinkConnectionState.connected);
       expect(client.invalidationReason, isNull);
-      // The stable clientId survives explicit recovery -- only the rejected credential was
-      // discarded, per `ai/context/sdk/persistence.md`.
+      // The stable clientId survives explicit recovery; only the rejected credential was discarded.
       expect(client.clientId, clientIdBeforeInvalidation);
     });
 
@@ -1462,7 +1552,7 @@ void main() {
           'sessionId': 'session-2',
           'correlationId': 'irrelevant',
           'payload': <String, dynamic>{
-            'hostVersion': '0.2.0',
+            'hostVersion': '0.4.0',
             'clientIdentityKind': 'paired',
           },
           'stateAuthorityId': 'state-authority-1',
@@ -1847,7 +1937,6 @@ void main() {
       'never-connected transport',
       () async {
         final DovahLinkClient realTransportClient = DovahLinkClient(
-          transport: WebSocketTransport(),
           storage: storage,
         );
 
@@ -1861,16 +1950,15 @@ void main() {
     test(
       'Behavior request timeout handling fails and disconnects after its timeout class duration',
       () async {
-        final DovahLinkClient timeoutClient =
-            DovahLinkClient.withTimeoutDurations(
-              transport: transport,
-              storage: storage,
-              timeoutDurations: const <TimeoutClass, Duration>{
-                TimeoutClass.short: Duration(milliseconds: 20),
-                TimeoutClass.normal: Duration(milliseconds: 20),
-                TimeoutClass.heavy: Duration(milliseconds: 20),
-              },
-            );
+        final DovahLinkClient timeoutClient = buildDovahLinkClientForTesting(
+          transport: transport,
+          storage: storage,
+          timeoutDurations: const <TimeoutClass, Duration>{
+            TimeoutClass.short: Duration(milliseconds: 20),
+            TimeoutClass.normal: Duration(milliseconds: 20),
+            TimeoutClass.heavy: Duration(milliseconds: 20),
+          },
+        );
 
         // No reply is ever queued for hello -- it must time out rather than hang.
         await expectLater(
@@ -2007,11 +2095,9 @@ void main() {
   group('Behavior composition-root teardown deduplication behaves correctly', () {
     test('Behavior composition-root teardown deduplication closes the transport exactly once for a '
         'duplicate onError/onDone signal on one dead connection', () async {
-      // Proves, through a real DovahLinkClient composed of real ConnectionTeardownCoordinator
-      // and LifecycleOperationQueue instances (not mocked away, unlike every Service's own
-      // unit test), that a stream's onError and onDone both firing for one dead connection --
-      // exactly what a real dropped socket delivers -- runs real teardown/close exactly once,
-      // per `ai/context/sdk/testing.md`'s "Session/request refactor regression requirements".
+      // A real client composition must deduplicate a stream's onError and onDone signals for one
+      // dead connection and close its transport once. Service tests isolate their collaborators;
+      // this test covers the composed teardown path.
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
       transport.queueResponse(

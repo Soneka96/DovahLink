@@ -9,17 +9,16 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
-/// Owns pending requests, timeouts, retry behavior, and inbound message routing, per
-/// `ai/context/sdk/architecture.md`'s "Internal composition". The SDK owns exactly one of these
-/// per `IDovahLinkTransport` connection; see `ai/context/sdk/architecture.md`'s "Inbound message
-/// handling" for the correlation model this implements, and "Request/session boundary" for why
-/// [sendAndAwait] checks `ISessionService.connectionState` instead of the eliminated
-/// `ensureReceiving` mechanism.
+/// Defines request/reply operations for one [IDovahLinkTransport] connection, including correlated
+/// replies, unsolicited messages, and protocol violations.
 abstract interface class IRequestService {
-  /// Sends [messageType] with [payload] under [policy] and awaits [expectedType]. Fails
-  /// immediately with a [DovahLinkConnectionException] -- without registering or transmitting
-  /// anything -- unless the connection is currently `connected`.
+  /// Sends [messageType] with [payload] under [policy] and awaits [expectedType]. The connection
+  /// state guard accepts requests while [DovahLinkConnectionState.connected], or only
+  /// [ProtocolMessageType.hello] while [DovahLinkConnectionState.reauthenticating]. All other
+  /// states fail before registering or transmitting. The request's
+  /// [RequestPolicy.requiredTrustState] is checked separately.
   Future<Envelope> sendAndAwait({
     required ProtocolMessageType messageType,
     required JsonMap payload,
@@ -31,22 +30,17 @@ abstract interface class IRequestService {
   /// violations.
   void handleIncoming(String raw);
 
-  /// Resolves every pending operation. A `retrySafe` operation that has not already been retried
-  /// once is parked for [retryOrphanedOperations] instead of being failed immediately when
-  /// [orphanRetrySafeOperations] is `true`.
+  /// Resolves every pending operation. An operation allowed by [RequestPolicy.retrySafe] that has
+  /// not already been retried is parked for [IRequestService.retryOrphanedOperations] instead of
+  /// being failed immediately when [orphanRetrySafeOperations] is `true`.
   void failAll(Exception reason, {required bool orphanRetrySafeOperations});
 
   /// Retransmits, at most once each, every operation an earlier ordinary transport loss orphaned.
   void retryOrphanedOperations();
 }
 
-/// Implements [IRequestService], per `ai/context/sdk/architecture.md`'s "Internal composition" and
-/// "Request/session boundary". Every collaborator ([PendingOperationBookkeeping],
-/// [PendingOperationTransmitter], [MessageRouter]) is supplied by the caller per
-/// `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never constructs one of
-/// its own dependencies. [PendingOperationTransmitter] and [MessageRouter] depend directly on
-/// [ISessionService] and [PendingOperationBookkeeping], the same instances this class holds --
-/// no adapter stands between them.
+/// Routes requests and inbound messages while coordinating pending operations, transmission, and
+/// reply validation through constructor-supplied collaborators.
 class RequestService implements IRequestService {
   /// The session this service reads identity/trust from.
   final ISessionService _sessionService;
@@ -54,7 +48,8 @@ class RequestService implements IRequestService {
   /// Owns every pending and orphaned-for-retry operation this service tracks.
   final PendingOperationBookkeeping _bookkeeping;
 
-  /// Owns one request's wire-attempt mechanics while [_bookkeeping] owns pending-operation state.
+  /// Owns one request's wire-attempt mechanics while [RequestService._bookkeeping] owns
+  /// pending-operation state.
   final PendingOperationTransmitter _transmitter;
 
   /// Owns envelope decoding, correlation, and unsolicited routing.
@@ -72,20 +67,14 @@ class RequestService implements IRequestService {
        _transmitter = transmitter,
        _messageRouter = messageRouter;
 
-  /// Implements [IRequestService.sendAndAwait]. Fails immediately, before registering or
-  /// transmitting anything, unless [ISessionService.connectionState] is currently `connected` --
-  /// replacing the eliminated `ensureReceiving` mechanism per
-  /// `ai/context/sdk/architecture.md`'s "Request/session boundary". The one narrow exception is
-  /// [ProtocolMessageType.hello] itself while `reauthenticating` -- that is precisely the message
-  /// a bounded-recovery attempt sends to find out whether this device is trusted, blocked, or
-  /// revoked, so it cannot itself wait for trust to already be confirmed. No other message type is
-  /// ever exempted: whether this device is blocked or revoked is still unknown while
-  /// `reauthenticating`, so an ordinary application request must not be allowed to reach the wire
-  /// during that window merely because the transport happens to be up again. `reconnecting` fails
-  /// outright (no exception, not even for `hello`): it spans a whole bounded-recovery cycle
-  /// (backoff delay, then an in-flight `connect()` attempt) during which no transport is guaranteed
-  /// usable at all. An already-pending `retrySafe` operation orphaned by the transport loss that
-  /// triggered recovery is unaffected by this guard; see [retryOrphanedOperations].
+  /// Implements [IRequestService.sendAndAwait]. Requires a
+  /// [DovahLinkConnectionState.connected] session before registering or transmitting a request.
+  /// During [DovahLinkConnectionState.reauthenticating], only
+  /// [ProtocolMessageType.hello] may be sent because that request determines whether the current
+  /// device is trusted. During [DovahLinkConnectionState.reconnecting], all requests fail because
+  /// the transport may be in backoff or still connecting. Existing pending operations allowed by
+  /// [RequestPolicy.retrySafe] are unaffected by this guard; see
+  /// [IRequestService.retryOrphanedOperations].
   @override
   Future<Envelope> sendAndAwait({
     required ProtocolMessageType messageType,

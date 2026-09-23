@@ -1247,8 +1247,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 17)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 18)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
+        self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Active\.", roadmap)), 1)
         self.assertEqual(
             roadmap.count("**Status:** Planned after read-only product validation"), 1
         )
@@ -1257,23 +1258,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "## Ordered stages", 1
         )[0]
         self.assertIn(
-            "**Current stage:** Stage 5 — Dart Client SDK Foundation is the next development target.",
+            "**Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phase 5.2 is the next planned",
             current_position,
         )
         self.assertIn(
-            "Stage 4 — Live State Synchronization Foundation is complete",
+            "**Current phase:** Phase 5.2 — SDK State Synchronization API (**Planned**). Phase 5.1 completed",
             current_position,
+        )
+        ordered_stages = root_roadmap.split("## Ordered stages", 1)[1].split(
+            "## Major dependencies", 1
+        )[0]
+        self.assertIn(
+            "| 5 | Active. Phase 5.1 is complete; Phase 5.2 is the next planned target.",
+            ordered_stages,
+        )
+        self.assertIn(
+            "Stage 4 — Live State Synchronization Foundation is complete",
+            self._normalize_whitespace(current_position),
         )
         self.assertIn("recommends `0.4.0`", current_position)
         self.assertNotIn("Stage 4 remains Active", current_position)
-        # Phase 5 was partially pulled forward for Phase 3's pairing needs (sdk/README.md's
-        # "Status" section records the same decision); its status line carries that explanation
-        # instead of the plain "Planned" every other undone phase uses.
+        # Stage 5 is active because Phase 5.1 is complete and Phase 5.2 is next; the status line
+        # also records work pulled forward for Phase 3's pairing needs.
         phase_5_status = (
-            "**Status:** Planned. The package scaffold, protocol/transport layer, and "
+            "**Status:** Active. The package scaffold, protocol/transport layer, and "
             "persistence boundary"
         )
         self.assertEqual(roadmap.count(phase_5_status), 1)
+        phase_5_summary = self._normalize_whitespace(
+            self._read("roadmap/05-dart-client-sdk-foundation.md").split(
+                "### Outcome", 1
+            )[0]
+        )
+        self.assertIn(
+            "Phase 5.1 — SDK Typed Protocol and Host Compatibility Boundary is complete.",
+            phase_5_summary,
+        )
+        self.assertIn(
+            "State revisions, subscriptions, snapshots, recovery, and completing the app's "
+            "SDK integration remain for the rest of Stage 5.",
+            phase_5_summary,
+        )
 
         # 3A is now complete; its status line records what completing it means instead of the
         # bare "Complete" every other closed stage uses.
@@ -1312,7 +1337,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
                     "**Status:** Complete",
                 ]
             elif heading.startswith("5. "):
-                expected_statuses = [phase_5_status]
+                expected_statuses = [phase_5_status, "**Status:** Complete"]
             elif heading.startswith("28. "):
                 expected_statuses = [
                     "**Status:** Planned after read-only product validation"
@@ -1798,9 +1823,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "sdk/\n  dart/\n    dovahlink_client/",
             "It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic\nreconnection after ordinary transport loss",
             "The official\nFlutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public\nclient for pairing and authentication through `PairingRemoteDataSource`.",
-            "The pulled-forward client returns `hostVersion` but does not enforce a supported Host-version\nrange.",
-            "Stage 5 still owns the SDK's typed state\nmodels, revisions, subscriptions, snapshot/recovery lifecycle",
-            "The app's `features/connection/` code currently handles Host selection and\nnavigation",
+            "The SDK supports Host releases in the `0.4.x` range and rejects older or newer Host "
+            "versions during\n`hello`, before admitting a session.",
+            "It still has no public state synchronization API: Stage 5 owns\nthe SDK's typed state models, revisions, subscriptions, snapshot/recovery lifecycle",
+            "The app's `features/connection/` code currently handles Host\nselection and navigation",
         ):
             self.assertIn(required_phrase, sdk_readme)
 
@@ -1811,10 +1837,41 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertTrue((real_package / "pubspec.yaml").is_file())
         self.assertTrue((real_package / "lib").is_dir())
 
-    def test_shared_dart_conventions_are_split_from_flutter_only_ones(self) -> None:
-        """Guard the ai/context/dart/ extraction and its Flutter-side pointer."""
+    def test_sdk_public_api_hides_transport_types(self) -> None:
+        """Guard the SDK's curated public surface from exposing transport wiring."""
+        public_api = self._read("sdk/dart/dovahlink_client/lib/dovahlink_client.dart")
+        client_source = self._read(
+            "sdk/dart/dovahlink_client/lib/src/dovahlink_client.dart"
+        )
+        public_constructor = client_source.split("DovahLinkClient({", 1)[1].split(
+            "factory DovahLinkClient.windows()", 1
+        )[0]
+
+        self.assertNotIn("IDovahLinkTransport", public_api)
+        self.assertNotIn("transport/websocket_transport.dart", public_api)
+        self.assertNotIn("buildDovahLinkClientForTesting", public_api)
+        self.assertNotIn("IDovahLinkTransport", public_constructor)
+
+        sdk_root = REPOSITORY_ROOT / "sdk" / "dart" / "dovahlink_client"
+        transport_import = (
+            "package:dovahlink_client_sdk/src/transport/websocket_transport.dart"
+        )
+        for package_area in (sdk_root / "lib", sdk_root / "test"):
+            for source_path in package_area.rglob("*.dart"):
+                source = source_path.read_text(encoding="utf-8")
+                if (
+                    "IDovahLinkTransport" in source
+                    and source_path.name != "websocket_transport.dart"
+                ):
+                    self.assertIn(transport_import, source, str(source_path))
+
+    def test_shared_dart_documentation_conventions_are_linked_by_each_dart_area(
+        self,
+    ) -> None:
+        """Guard the shared Dartdoc rule and the SDK/Flutter pointers to it."""
         dart_style = self._read("ai/context/dart/dart-style.md")
         flutter_dart_style = self._read("ai/context/flutter/dart-style.md")
+        sdk_api_design = self._read("ai/context/sdk/api-design.md")
 
         for required_phrase in (
             "Shared Dart-language conventions that apply to every Dart package in this "
@@ -1822,8 +1879,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Do not use `dynamic` or `any`-style escape hatches to avoid modelling a type.",
             "Use the null assertion operator (`!`) only when an immediately visible check or "
             "constructor",
-            "Use Dart doc links such as `[SymbolName]` when referring to another documented "
-            "symbol",
+            "Link Dart declarations with unadorned Dartdoc references such as `[Type]` and "
+            "`[Type.member]`.",
+            "Do not wrap symbol names in backticks or quotes, or add Markdown "
+            "emphasis around links.",
+            "Import the declaring library even when a Dartdoc link is its only reference",
             "Missing implementation uses `// TODO: ...` immediately above the declaration.",
             "Use UpperCamelCase for classes, enums, typedefs, extensions, and type parameters.",
             "Use lowercase_with_underscores for packages, directories, source files, and import "
@@ -1833,6 +1893,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
         ):
             self.assertIn(required_phrase, dart_style)
 
+        normalized_dart_style = self._normalize_whitespace(dart_style)
+        self.assertIn(
+            "For unchanged overrides, use a concise link to the inherited member instead of "
+            "repeating its contract",
+            normalized_dart_style,
+        )
+        self.assertIn(
+            "do not pad API comments with an `Implements ... per architecture "
+            "document` statement",
+            normalized_dart_style,
+        )
+
         self.assertIn(
             "Shared Dart-language conventions (type safety, naming case, formatting, async, "
             "dartdoc mechanics)\nlive in [`ai/context/dart/dart-style.md`](../dart/dart-style.md)",
@@ -1841,6 +1913,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn(
             "follow `ai/context/dart/dart-style.md`'s baseline naming rules",
             flutter_dart_style,
+        )
+        self.assertIn(
+            "Dartdoc symbol-link and\nbrevity rules in [`ai/context/dart/dart-style.md`]",
+            flutter_dart_style,
+        )
+        self.assertIn(
+            "for\nDartdoc symbol links and concise inherited-contract references.",
+            sdk_api_design,
         )
         # The moved sections and their content must not be duplicated in the Flutter-only file.
         for retired_phrase in (
@@ -2078,7 +2158,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             app_readme,
         )
         self.assertIn(
-            "Stage 5 completes the SDK's Host-version compatibility checks", app_readme
+            "Phase 5.1 delivered the SDK's Host-version compatibility checks",
+            app_readme,
         )
         self.assertIn(
             "Flutter\nconventions point to [`ai/context/sdk/`](../ai/context/sdk/) for "
@@ -2120,8 +2201,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             security,
         )
 
-        # Stage 5 is still Planned/pulled-forward, not a frozen historical record, so its
-        # ownership-boundary list must name the areas that actually exist today.
+        # Stage 5 is active/pulled-forward, not a frozen historical record, so its ownership-boundary
+        # list must name the areas that actually exist today.
         sdk_foundation = self._read("roadmap/05-dart-client-sdk-foundation.md")
         self.assertIn(
             "alongside\n  `app/`, `host/`, `adapter/`, `protocol/`, and `integration/`",

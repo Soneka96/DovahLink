@@ -2,7 +2,7 @@ import 'package:json_annotation/json_annotation.dart';
 
 // ---- Connection lifecycle ----
 
-/// The connection lifecycle phase of a `DovahLinkClient`.
+/// The connection lifecycle phase reported by the SDK client.
 enum DovahLinkConnectionState {
   /// No socket is connected.
   disconnected,
@@ -14,29 +14,29 @@ enum DovahLinkConnectionState {
   connected,
 
   /// An administrator deliberately invalidated the authenticated session (`revoked`, `blocked`,
-  /// `trustReset`, or `factoryReset`); see `DovahLinkClient.invalidationReason`. Terminal for the
-  /// current session -- recovery is only ever a fresh, explicit `DovahLinkClient.connect`, never
-  /// automatic.
+  /// `trustReset`, or `factoryReset`). Recovery requires a fresh, explicit connection, never an
+  /// automatic retry on an invalidated session.
   administrativelyInvalidated,
 
   /// Bounded automatic recovery is in progress after ordinary, unexpected transport loss (not a
   /// deliberate disconnect, and not an administrative invalidation -- neither of those ever enters
-  /// this state). Transitions to [reauthenticating] once the transport reconnects, or resolves
-  /// directly to [disconnected] if the bounded recovery window is exhausted first while still
-  /// trying to reconnect.
+  /// this state). Transitions to [DovahLinkConnectionState.reauthenticating] once the transport
+  /// reconnects, or resolves directly to [DovahLinkConnectionState.disconnected] if recovery ends
+  /// before the transport reconnects.
   reconnecting,
 
   /// The transport reconnected during bounded automatic recovery and is being re-authenticated
-  /// (`hello`) before trust is confirmed -- distinct from [connected], which means a live session
-  /// is actually trusted and usable. Resolves to [connected] once `hello` admits a session, back to
-  /// [reconnecting] if `hello` fails and the recovery cycle still has attempts or time remaining, or
-  /// to [disconnected] once recovery gives up.
+  /// with [ProtocolMessageType.hello] before trust is confirmed -- distinct from
+  /// [DovahLinkConnectionState.connected], which means a live session is actually trusted and
+  /// usable. Resolves to [DovahLinkConnectionState.connected] once `hello` admits a session, back
+  /// to
+  /// [DovahLinkConnectionState.reconnecting] if `hello` fails and recovery still has attempts or
+  /// time remaining, or to [DovahLinkConnectionState.disconnected] once recovery gives up.
   reauthenticating,
 }
 
-/// The client's own trust standing with the host, established once `DovahLinkClient.hello`
-/// succeeds and possibly upgraded by `DovahLinkClient.acknowledgeTrustedCredential` or
-/// `DovahLinkClient.recoverPendingPairing`.
+/// The client's trust standing, established by a successful `hello` and possibly upgraded by
+/// credential acknowledgment or pending-pairing recovery.
 enum DovahLinkTrustState {
   /// Admitted without a trust credential; restricted to the pairing message set.
   unpaired,
@@ -45,7 +45,7 @@ enum DovahLinkTrustState {
   trusted,
 }
 
-/// The wire value of `hello.auth.method` (`protocol/schema/README.md`'s `hello`).
+/// The wire value of `hello.auth.method`.
 enum AuthMethod {
   /// No credential presented yet; admits a trust-restricted session solely to run pairing.
   @JsonValue('unpaired')
@@ -60,8 +60,8 @@ enum AuthMethod {
   trustedDeviceCredential,
 }
 
-/// Why a `trusted_device_credential` hello was rejected and `DovahLinkClient.authenticate`
-/// recovered by discarding the credential and retrying as `unpaired`.
+/// Why a rejected `trusted_device_credential` caused authentication to discard it and retry as
+/// `unpaired`.
 enum CredentialRejectionReason {
   /// The presented credential belonged to a clientId the host explicitly revoked.
   revoked,
@@ -69,7 +69,8 @@ enum CredentialRejectionReason {
   /// The presented credential did not match any credential the host currently trusts.
   unrecognized,
 
-  /// The presented credential's clientId is a currently blocked Known Device. Unlike [revoked],
+  /// The presented credential's clientId is a currently blocked Known Device. Unlike
+  /// [CredentialRejectionReason.revoked],
   /// recovering from this must not imply a new pairing code is being requested -- a blocked device
   /// is denied pairing until an administrator unblocks it.
   blocked;
@@ -86,9 +87,8 @@ enum CredentialRejectionReason {
   };
 }
 
-/// The raw wire value of `hello_ack.clientIdentityKind` (`protocol/schema/README.md`'s
-/// `hello_ack`), decoded directly by `HelloAckPayload`. Distinct from [DovahLinkTrustState]: this
-/// is the wire vocabulary, mapped to the domain concept by `AuthenticationService`.
+/// The raw wire value of `hello_ack.clientIdentityKind`, distinct from [DovahLinkTrustState] and
+/// mapped to that domain concept during authentication.
 enum ClientIdentityKind {
   /// Admitted without a trust credential.
   @JsonValue('unpaired')
@@ -101,7 +101,7 @@ enum ClientIdentityKind {
 
 // ---- Pairing ----
 
-/// The host's report of pairing availability, from `DovahLinkClient.requestPairing`.
+/// The Host's report of current pairing availability.
 enum PairingAvailability {
   /// No challenge is currently active, and none was just started.
   @JsonValue('unavailable')
@@ -120,7 +120,7 @@ enum PairingAvailability {
   otherDevicePairing,
 }
 
-/// The outcome of `DovahLinkClient.requestPairingRenotify`.
+/// The outcome of requesting redisplay of the owned pairing code.
 enum PairingRenotifyStatus {
   /// The active challenge's code was redisplayed in Skyrim.
   renotified,
@@ -142,7 +142,7 @@ enum PairingRenotifyStatus {
       };
 }
 
-/// The outcome of `DovahLinkClient.cancelPairing`.
+/// The outcome of canceling the owned pairing challenge or pending credential.
 enum PairingCancelStatus {
   /// An owned active challenge or pending credential was cleared.
   cancelled,
@@ -160,11 +160,9 @@ enum PairingCancelStatus {
       };
 }
 
-/// The raw wire value of `pairing_outcome.outcome` (`protocol/schema/README.md`'s
-/// `pairing_outcome`), decoded directly by `PairingOutcomePayload`. Spans every outcome value
-/// across `pairing_confirm`, `pairing_ack`, `pairing_renotify`, and `pairing_cancel` replies, since
-/// the wire schema defines one shared closed vocabulary for all four; which subset is valid for a
-/// given exchange is validated by the class that sent that request, not by this enum.
+/// The raw wire value of `pairing_outcome.outcome`, shared by replies to `pairing_confirm`,
+/// `pairing_ack`, `pairing_renotify`, and `pairing_cancel`. The request owner validates which
+/// subset is valid for each exchange.
 enum PairingOutcome {
   /// From `pairing_confirm`: a credential was issued.
   @JsonValue('credential_issued')
@@ -222,29 +220,26 @@ enum PairingOutcome {
 
 // ---- Request policy ----
 
-/// A centralized bounded timeout category a request is classified against, per
-/// `ai/context/sdk/api-design.md`'s "Request retry safety, session requirement, and timeout
-/// class". Durations live in `shared/constants.dart`'s `kTimeoutClassDurations` rather than here,
-/// so a call site's classification and the SDK's tuned duration policy stay independently
-/// editable.
+/// A centralized bounded timeout category used to classify a request independently of its tuned
+/// duration.
 enum TimeoutClass {
   /// A fast administrative round trip (a query, an acknowledgement).
   short,
 
-  /// The common case: a request that may involve a little more host-side work than [short].
+  /// The common case: a request that may involve more host-side work than [TimeoutClass.short].
   normal,
 
-  /// Reserved for a request expected to take meaningfully longer than [normal]. Unused until a
+  /// Reserved for a request expected to take meaningfully longer than
+  /// [TimeoutClass.normal]. Unused until a
   /// real operation actually needs it.
   heavy,
 }
 
 // ---- Trust invalidation ----
 
-/// The typed reason `DovahLinkClient.invalidationReason` reports once
-/// `DovahLinkConnectionState.administrativelyInvalidated` is reached -- the parsed form of an
-/// incoming `session_invalidated.reason` (`protocol/schema/README.md`'s `session_invalidated`).
-/// Never durable authoritative trust state; the Host remains the sole authority.
+/// The typed reason reported when [DovahLinkConnectionState.administrativelyInvalidated] is
+/// reached, parsed from `session_invalidated.reason`. The Host remains the sole authority for
+/// durable trust state.
 enum AdministrativeInvalidationReason {
   /// The presented device credential's `clientId` was explicitly revoked.
   @JsonValue('revoked')
@@ -272,7 +267,7 @@ enum ProtocolMessageType {
   @JsonValue('hello')
   hello,
 
-  /// Acknowledges a validated [hello].
+  /// Acknowledges a validated [ProtocolMessageType.hello].
   @JsonValue('hello_ack')
   helloAck,
 
@@ -348,7 +343,7 @@ enum ProtocolMessageType {
   @JsonValue('ping')
   ping,
 
-  /// Replies to a [ping].
+  /// Replies to a [ProtocolMessageType.ping].
   @JsonValue('pong')
   pong,
 }
@@ -410,8 +405,7 @@ enum ProtocolEndpoint {
 // ---- Persistence ----
 
 /// The client's local recovery standing for an in-progress pairing confirmation, persisted so a
-/// crash or relaunch between issuing a credential and confirming it can resume correctly. See
-/// `ai/context/protocol/security.md`'s "Persistent local trust" recoverable confirmation handshake.
+/// crash or relaunch between issuing a credential and confirming it can resume correctly.
 enum PairingRecoveryState {
   /// No pairing confirmation is outstanding.
   none,
@@ -423,8 +417,7 @@ enum PairingRecoveryState {
 
 // ---- Rename ----
 
-/// The raw wire value of `rename_outcome.outcome` (`protocol/schema/README.md`'s `rename_outcome`),
-/// decoded directly by `RenameOutcomePayload`.
+/// The raw wire value of `rename_outcome.outcome` that reports the Host's rename result.
 enum RenameOutcome {
   /// The device's display name was updated.
   @JsonValue('renamed')
@@ -437,4 +430,15 @@ enum RenameOutcome {
   /// The session's identity is unrecognized or not currently trusted.
   @JsonValue('not_trusted')
   notTrusted,
+}
+
+// ---- Host compatibility ----
+
+/// Why the SDK rejected a Host's otherwise well-formed release version.
+enum HostVersionCompatibilityFailure {
+  /// The Host predates the oldest release range supported by this SDK.
+  hostTooOld,
+
+  /// The Host is newer than this SDK's supported release range.
+  hostTooNew,
 }
