@@ -8,12 +8,15 @@ class CreateStore {
   /// Creates a store factory with no hidden dependencies.
   const CreateStore();
 
-  /// Returns a new distinct Redux store with [AppState.initial], wired with
-  /// [middleware].
-  Store<AppState> call({List<Middleware<AppState>> middleware = const []}) {
+  /// Returns a new distinct Redux store wired with [middleware], starting from [initialState]
+  /// when given or [AppState.initial] otherwise.
+  Store<AppState> call({
+    List<Middleware<AppState>> middleware = const [],
+    AppState? initialState,
+  }) {
     return Store<AppState>(
       appReducer,
-      initialState: AppState.initial(),
+      initialState: initialState ?? AppState.initial(),
       middleware: middleware,
       distinct: true,
     );

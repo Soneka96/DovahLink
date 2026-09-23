@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -59,6 +60,29 @@ void main() {
 
       expect(calls, ['called']);
       expect(store.state.pairing.phase, PairingPhase.connecting);
+    });
+  });
+
+  group('CreateStore — initialState override', () {
+    test('starts from the given initialState instead of AppState.initial', () {
+      final AppState given = AppState.initial(
+        appearance: const AppearanceState(
+          activePreset: DovahThemePreset.hearth,
+        ),
+      );
+
+      final Store<AppState> store = const CreateStore()(initialState: given);
+
+      expect(store.state, given);
+    });
+
+    test('defaults to AppState.initial when initialState is omitted', () {
+      final Store<AppState> store = const CreateStore()();
+      final AppState expected = AppState.initial();
+
+      expect(store.state.pairing, expected.pairing);
+      expect(store.state.appearance, expected.appearance);
+      expect(store.state.connection.hosts, expected.connection.hosts);
     });
   });
 }
