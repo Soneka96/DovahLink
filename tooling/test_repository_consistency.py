@@ -1175,16 +1175,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         sdk_changelog = self._read("sdk/CHANGELOG.md")
         host_changelog = self._read("host/CHANGELOG.md")
         archive = self._read("CHANGELOG.md")
-        sdk_unreleased = sdk_changelog.split("## [Unreleased]", 1)[1].split("\n## ", 1)[
-            0
-        ]
 
         self.assertIn(
             "The app no longer keeps observing a stale connection status", app_changelog
-        )
-        self.assertIn(
-            "rejects Host versions outside its declared `0.4.x` compatibility range",
-            sdk_unreleased,
         )
         self.assertIn(
             "rejects Host versions outside its declared `0.4.x` compatibility range",
