@@ -567,10 +567,22 @@ class RepositoryConsistencyTests(unittest.TestCase):
         explanation does not need a matching test change.
         """
         common = self._read("ai/context/common.md")
+        contributing = self._read("CONTRIBUTING.md")
 
         self.assertIn("## Member and collection ordering", common)
         self.assertNotIn("## Addition convention", common)
         self.assertIn("Changelog entries: reverse-chronological", common)
+        self.assertIn(
+            "Repository-only documentation, CI, development-tooling, and governance changes",
+            common,
+        )
+        self.assertIn("do not require a", common)
+        self.assertIn("component changelog entry unless they materially affect", common)
+        self.assertIn("consumers, packaging,", common)
+        self.assertIn("compatibility, or runtime behavior.", common)
+        self.assertIn("promotes each affected component changelog's", common)
+        self.assertIn("accumulated `[Unreleased]` entries", common)
+        self.assertIn("promotion of affected component changelog entries", contributing)
         self.assertIn("C++ data members are the one exception", common)
         self.assertIn("20-40 lines", common)
         self.assertIn("Route information to its owning home", common)

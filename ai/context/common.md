@@ -19,6 +19,9 @@ client, native Adapter, C# Host, protocol, and integration work. AI authority be
   For a change that affects more than one component, record each component's distinct outcome in
   its own file. Follow each file's bullet-writing rules. This is ongoing bookkeeping done by feature
   work itself, not deferred to release time.
+- Repository-only documentation, CI, development-tooling, and governance changes do not require a
+  component changelog entry unless they materially affect that component's consumers, packaging,
+  compatibility, or runtime behavior.
 - The version bump and syncing every hand-maintained version literal (`VERSION`, the literals and
   fixtures `tooling/test_repository_consistency.py`'s `test_version_literals_match_the_published_release`
   enumerates, and that same file's Host/Adapter changelog version bookkeeping) are their own
