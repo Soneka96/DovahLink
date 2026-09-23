@@ -127,7 +127,8 @@ jobs:
             ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}-
 
       - name: Report vcpkg cache hit
-        run: Write-Host "Exact vcpkg cache hit: ${{ steps.vcpkg-binary-cache.outputs.cache-hit }}"
+        run: |
+          Write-Host "Exact vcpkg cache hit: ${{ steps.vcpkg-binary-cache.outputs.cache-hit }}"
 
       - name: Build headless host executable (Debug)
         # Only the buildable project, not DovahLink.Host.Tests: host-ci.yml already covers the
