@@ -31,9 +31,13 @@ for nullable `copyWith` fields so omitted, cleared, and set values remain distin
 
 - Every enum is declared in `lib/shared/constants/enums.dart`, including feature-local status
   values.
-- The first member is always `none`, a sentinel for an unselected or invalid value—not an app
-  default.
-- Document every member, including `none`.
+- Give the enum a first `none` member only when the type genuinely has an unselected, unknown, or
+  invalid runtime state to represent. `none` is that sentinel, not an app default, and every member
+  including it is documented. Omit `none` entirely when every valid instance of the type is
+  guaranteed to resolve to one concrete member -- a selectable preset, or a presentation state that
+  only exists once its owner exists. Do not add it merely to follow this convention by default, and
+  do not model absence, default, or fallback behavior as `none` when the owning boundary (a
+  resolver, a persistence read, a factory) already guarantees resolution to a real value.
 - Keep enum extensions directly after their enum in the same file.
 - Keep enum behavior that is intrinsic to the enum, such as stable labels or classifications, on
   the enum itself or in its immediately following extension. Test enum methods, factories, and

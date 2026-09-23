@@ -63,3 +63,47 @@ enum PairingConnectionStatus {
   /// reset). Terminal for the current session; recovery is always an explicit user action.
   invalidated,
 }
+
+/// One of DovahLink's three first-class visual themes. Every value fully determines a concrete
+/// theme, so the type always resolves to one of these and carries no unselected sentinel; see
+/// `ai/context/flutter/dart-style.md`'s "Enums".
+enum DovahThemePreset {
+  /// Cold, severe, and compact: fractured stone and scratched iron.
+  frostbound,
+
+  /// The balanced DovahLink identity: midnight steel, ember, and ice.
+  dovah,
+
+  /// Warm, spacious, and storybook-like: parchment, walnut, and bronze.
+  hearth;
+
+  /// Returns the concise user-visible label for this preset.
+  String get label => switch (this) {
+    DovahThemePreset.frostbound => 'Frostbound',
+    DovahThemePreset.dovah => 'Dovah',
+    DovahThemePreset.hearth => 'Hearth',
+  };
+}
+
+/// The visual state a `DovahConnectionCard` renders. Presentation-only: it does not derive from
+/// real SDK/discovery/recovery state today (mapping that state onto these visuals remains future
+/// roadmap work), so it stays distinct from any domain connection-status type. Every card that
+/// exists shows exactly one of these, so the type carries no unselected sentinel; see
+/// `ai/context/flutter/dart-style.md`'s "Enums".
+enum DovahConnectionCardState {
+  /// The connection is reachable and ready to enter.
+  available,
+
+  /// The connection was seen before but is not currently reachable.
+  offline,
+
+  /// Trust changed and the connection needs pairing again before use.
+  repair;
+
+  /// Returns the concise user-visible label for this state.
+  String get label => switch (this) {
+    DovahConnectionCardState.available => 'Connected',
+    DovahConnectionCardState.offline => 'Offline',
+    DovahConnectionCardState.repair => 'Pair again',
+  };
+}
