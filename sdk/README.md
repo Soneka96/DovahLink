@@ -50,12 +50,12 @@ DPAPI-backed implementation ships today) -- see `ai/context/sdk/persistence.md`.
 Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
 client for pairing and authentication through `PairingRemoteDataSource`.
 
-The pulled-forward client returns `hostVersion` but does not enforce a supported Host-version
-range. It also has no public state synchronization API: Stage 5 still owns the SDK's typed state
-models, revisions, subscriptions, snapshot/recovery lifecycle, and restoring desired subscriptions
-after reconnect. The app's `features/connection/` code currently handles Host selection and
-navigation; Stage 5 wires live state through the SDK and Flutter middleware. This pull-forward does
-not close Stage 5.
+The SDK supports Host releases in the `0.4.x` range and rejects older or newer Host versions during
+`hello`, before admitting a session. It still has no public state synchronization API: Stage 5 owns
+the SDK's typed state models, revisions, subscriptions, snapshot/recovery lifecycle, and restoring
+desired subscriptions after reconnect. The app's `features/connection/` code currently handles Host
+selection and navigation; Stage 5 wires live state through the SDK and Flutter middleware. This
+work does not close Stage 5.
 
 The app's `features/connection/` area remains responsible for Host selection and navigation. It is
 not a parallel protocol implementation. See [`app/README.md`](../app/README.md) for the current

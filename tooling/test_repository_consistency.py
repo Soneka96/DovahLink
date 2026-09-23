@@ -1798,9 +1798,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "sdk/\n  dart/\n    dovahlink_client/",
             "It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic\nreconnection after ordinary transport loss",
             "The official\nFlutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public\nclient for pairing and authentication through `PairingRemoteDataSource`.",
-            "The pulled-forward client returns `hostVersion` but does not enforce a supported Host-version\nrange.",
-            "Stage 5 still owns the SDK's typed state\nmodels, revisions, subscriptions, snapshot/recovery lifecycle",
-            "The app's `features/connection/` code currently handles Host selection and\nnavigation",
+            "The SDK supports Host releases in the `0.4.x` range and rejects older or newer Host "
+            "versions during\n`hello`, before admitting a session.",
+            "It still has no public state synchronization API: Stage 5 owns\nthe SDK's typed state models, revisions, subscriptions, snapshot/recovery lifecycle",
+            "The app's `features/connection/` code currently handles Host\nselection and navigation",
         ):
             self.assertIn(required_phrase, sdk_readme)
 

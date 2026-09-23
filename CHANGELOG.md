@@ -20,6 +20,11 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ## [Unreleased]
 
+### Added
+
+- The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before
+  admitting a session.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

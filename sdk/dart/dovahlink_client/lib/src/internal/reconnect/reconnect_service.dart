@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
@@ -24,9 +25,10 @@ abstract interface class IReconnectService {
 /// [kReconnectAttemptDelays]/[kReconnectDeadline]) -- whichever is exhausted first.
 /// `SessionService` continues to own transport/session state and teardown, and
 /// `AuthenticationService` continues to own authentication; this class only orchestrates when
-/// and how often to retry both. [sessionService] and [authenticationService] are supplied by the
-/// caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never
-/// constructs one of its own dependencies.
+/// and how often to retry both. Incompatible Host versions are terminal and their typed failure is
+/// passed to teardown without another attempt. [sessionService] and [authenticationService] are
+/// supplied by the caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this
+/// class never constructs one of its own dependencies.
 class ReconnectService implements IReconnectService {
   /// Reconnects to and disconnects from the Host, and reports live connection state.
   final ISessionService _sessionService;
@@ -85,6 +87,7 @@ class ReconnectService implements IReconnectService {
   /// mid-cycle cleanup preserved for retry.
   Future<void> _recover(Uri uri) async {
     final DateTime deadline = _now().add(_deadline);
+    Exception? terminalFailure;
     for (int attempt = 0; attempt < _attemptDelays.length; attempt++) {
       if (attempt > 0) {
         final Duration untilDeadline = deadline.difference(_now());
@@ -121,14 +124,19 @@ class ReconnectService implements IReconnectService {
           break;
         }
         continue;
+      } on DovahLinkCompatibilityException catch (error) {
+        terminalFailure = error;
+        break;
       } on Object {
         continue;
       }
     }
     await _sessionService.disconnect(
-      reason: const DovahLinkConnectionException(
-        'Reconnect could not restore the connection.',
-      ),
+      reason:
+          terminalFailure ??
+          const DovahLinkConnectionException(
+            'Reconnect could not restore the connection.',
+          ),
     );
   }
 }

@@ -480,6 +480,44 @@ void main() {
     );
 
     test(
+      'Method hello disconnects and reports an incompatible Host before exposing a session',
+      () async {
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.queueResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'hello_ack',
+            'messageId': 'message-hello-ack-1',
+            'sessionId': 'session-1',
+            'correlationId': 'irrelevant',
+            'payload': <String, dynamic>{
+              'hostVersion': '0.5.0',
+              'clientIdentityKind': 'paired',
+            },
+            'stateAuthorityId': 'state-authority-1',
+            'playContextId': null,
+            'clientId': 'client-1',
+          }),
+        );
+
+        await expectLater(
+          client.hello(),
+          throwsA(
+            isA<DovahLinkCompatibilityException>().having(
+              (DovahLinkCompatibilityException error) => error.failure,
+              'failure',
+              HostVersionCompatibilityFailure.hostTooNew,
+            ),
+          ),
+        );
+
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.trustState, isNull);
+        expect(client.sessionId, isNull);
+        expect(transport.closeCalled, isTrue);
+      },
+    );
+
+    test(
       'Method hello the original rejection still surfaces even when cleanup itself fails',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
@@ -601,7 +639,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.2.0',
+              'hostVersion': '0.4.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -623,7 +661,7 @@ void main() {
             'sessionId': 'session-2',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.2.0',
+              'hostVersion': '0.4.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1462,7 +1500,7 @@ void main() {
           'sessionId': 'session-2',
           'correlationId': 'irrelevant',
           'payload': <String, dynamic>{
-            'hostVersion': '0.2.0',
+            'hostVersion': '0.4.0',
             'clientIdentityKind': 'paired',
           },
           'stateAuthorityId': 'state-authority-1',

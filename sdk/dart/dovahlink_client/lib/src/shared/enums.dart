@@ -438,3 +438,14 @@ enum RenameOutcome {
   @JsonValue('not_trusted')
   notTrusted,
 }
+
+// ---- Host compatibility ----
+
+/// Why the SDK rejected a Host's otherwise well-formed release version.
+enum HostVersionCompatibilityFailure {
+  /// The Host predates the oldest release range supported by this SDK.
+  hostTooOld,
+
+  /// The Host is newer than this SDK's supported release range.
+  hostTooNew,
+}

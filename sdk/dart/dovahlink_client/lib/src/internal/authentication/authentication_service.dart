@@ -1,7 +1,9 @@
+import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/compatibility/host_version_compatibility.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
@@ -31,6 +33,8 @@ abstract interface class IAuthenticationService {
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
   /// trust state.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
+  /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
+  ///     range.
   Future<HelloResult> hello();
 
   /// Connects to [uri] and authenticates, recovering from a rejected `trusted_device_credential`
@@ -51,6 +55,8 @@ abstract interface class IAuthenticationService {
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
+  /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
+  ///     range.
   Future<HelloResult> authenticate(Uri uri);
 
   /// Discards the persisted pairing credential and recovery state while preserving [clientId], so
@@ -146,6 +152,7 @@ class AuthenticationService implements IAuthenticationService {
         HelloAckPayload.fromJson,
         response.payload,
       );
+      validateHostVersionCompatibility(ack.hostVersion);
       final DovahLinkTrustState trustState = switch (ack.clientIdentityKind) {
         ClientIdentityKind.unpaired => DovahLinkTrustState.unpaired,
         ClientIdentityKind.paired => DovahLinkTrustState.trusted,

@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:meta/meta.dart';
 
+import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
@@ -272,12 +273,16 @@ class DovahLinkClient {
   /// ordinary transport loss orphaned, provided the new session still satisfies its required
   /// trust state; see [RequestPolicy.requiredTrustState] and [IAuthenticationService.hello].
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
+  /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
+  ///     range.
   Future<HelloResult> hello() => _authenticationService.hello();
 
   /// See [IAuthenticationService.authenticate].
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
+  /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
+  ///     range.
   Future<HelloResult> authenticate(Uri uri) =>
       _authenticationService.authenticate(uri);
 
