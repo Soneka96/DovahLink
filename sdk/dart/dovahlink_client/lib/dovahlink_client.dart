@@ -38,8 +38,3 @@ export 'src/persistence/client_storage.dart' show IClientStorage;
 export 'src/persistence/persisted_client_state.dart' show PersistedClientState;
 export 'src/persistence/windows/dpapi_client_storage.dart'
     show DpapiClientStorage;
-// IDovahLinkTransport is exported alongside DovahLinkClient, not hidden as a purely internal type:
-// DovahLinkClient's own public constructor accepts one (for a real socket by default, or an
-// injected implementation for advanced/test use), so a consumer must be able to name and
-// implement the interface without reaching into src/.
-export 'src/transport/websocket_transport.dart' show IDovahLinkTransport;

@@ -5,11 +5,15 @@ import 'dart:io';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_client.dart'
+    show buildDovahLinkClientForTesting;
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart' show TimeoutClass;
-import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
+import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart'
+    show IDovahLinkTransport, WebSocketTransport;
 import 'fixtures/fixtures.dart';
+import 'support/fake_websocket_server.dart';
 import 'support/pending_reply.dart';
 
 /// Owns ordered release and correlation rewriting for fake-transport replies.
@@ -259,16 +263,16 @@ Future<void> _connectAndHello(
 DovahLinkClient _buildFastReconnectClient(
   FakeDovahLinkTransport transport,
   InMemoryClientStorage storage,
-) => DovahLinkClient.withReconnectPolicy(
+) => buildDovahLinkClientForTesting(
   transport: transport,
   storage: storage,
-  attemptDelays: const <Duration>[
+  reconnectAttemptDelays: const <Duration>[
     Duration.zero,
     Duration.zero,
     Duration.zero,
     Duration.zero,
   ],
-  deadline: const Duration(seconds: 30),
+  reconnectDeadline: const Duration(seconds: 30),
 );
 
 /// Runs public-client behavior tests.
@@ -280,7 +284,60 @@ void main() {
   setUp(() {
     transport = FakeDovahLinkTransport();
     storage = InMemoryClientStorage();
-    client = DovahLinkClient(transport: transport, storage: storage);
+    client = buildDovahLinkClientForTesting(
+      transport: transport,
+      storage: storage,
+    );
+  });
+
+  group('Behavior default transport composition behaves correctly', () {
+    test(
+      'Behavior default transport composition connects and completes hello over '
+      'WebSocket',
+      () async {
+        const Duration timeout = Duration(seconds: 5);
+        final FakeWebSocketServer server = await FakeWebSocketServer.start()
+            .timeout(timeout);
+        addTearDown(server.close);
+
+        final DovahLinkClient defaultClient = DovahLinkClient(
+          storage: InMemoryClientStorage(),
+        );
+        addTearDown(defaultClient.disconnect);
+        final Future<WebSocket> acceptedSocket = server.connections.first
+            .timeout(timeout);
+
+        await defaultClient.connect(server.uri).timeout(timeout);
+        final WebSocket socket = await acceptedSocket;
+        addTearDown(socket.close);
+
+        final Completer<String> requestFrame = Completer<String>();
+        socket.listen((Object? message) {
+          if (message is String && !requestFrame.isCompleted) {
+            requestFrame.complete(message);
+          }
+        });
+        final Future<HelloResult> hello = defaultClient.hello().timeout(
+          timeout,
+        );
+        final JsonMap request =
+            jsonDecode(await requestFrame.future.timeout(timeout)) as JsonMap;
+        final JsonMap helloAck =
+            jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+        helloAck['correlationId'] = request['messageId'];
+        socket.add(jsonEncode(helloAck));
+        socket.add(_rawFixture('capabilities/capabilities-host.json'));
+
+        final HelloResult result = await hello;
+
+        expect(
+          defaultClient.connectionState,
+          DovahLinkConnectionState.connected,
+        );
+        expect(result.hostVersion, '0.4.0');
+        expect(result.trustState, DovahLinkTrustState.unpaired);
+      },
+    );
   });
 
   group('Method enqueue behaves correctly', () {
@@ -1236,7 +1293,7 @@ void main() {
         );
         final FakeDovahLinkTransport trackingTransport =
             FakeDovahLinkTransport();
-        final DovahLinkClient trackingClient = DovahLinkClient(
+        final DovahLinkClient trackingClient = buildDovahLinkClientForTesting(
           transport: trackingTransport,
           storage: trackingStorage,
         );
@@ -1273,7 +1330,7 @@ void main() {
         )..saveError = StateError('storage unavailable');
         final FakeDovahLinkTransport failingTransport =
             FakeDovahLinkTransport();
-        final DovahLinkClient failingClient = DovahLinkClient(
+        final DovahLinkClient failingClient = buildDovahLinkClientForTesting(
           transport: failingTransport,
           storage: failingStorage,
         );
@@ -1885,7 +1942,6 @@ void main() {
       'never-connected transport',
       () async {
         final DovahLinkClient realTransportClient = DovahLinkClient(
-          transport: WebSocketTransport(),
           storage: storage,
         );
 
@@ -1899,16 +1955,15 @@ void main() {
     test(
       'Behavior request timeout handling fails and disconnects after its timeout class duration',
       () async {
-        final DovahLinkClient timeoutClient =
-            DovahLinkClient.withTimeoutDurations(
-              transport: transport,
-              storage: storage,
-              timeoutDurations: const <TimeoutClass, Duration>{
-                TimeoutClass.short: Duration(milliseconds: 20),
-                TimeoutClass.normal: Duration(milliseconds: 20),
-                TimeoutClass.heavy: Duration(milliseconds: 20),
-              },
-            );
+        final DovahLinkClient timeoutClient = buildDovahLinkClientForTesting(
+          transport: transport,
+          storage: storage,
+          timeoutDurations: const <TimeoutClass, Duration>{
+            TimeoutClass.short: Duration(milliseconds: 20),
+            TimeoutClass.normal: Duration(milliseconds: 20),
+            TimeoutClass.heavy: Duration(milliseconds: 20),
+          },
+        );
 
         // No reply is ever queued for hello -- it must time out rather than hang.
         await expectLater(

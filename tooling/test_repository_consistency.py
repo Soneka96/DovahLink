@@ -1812,6 +1812,34 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertTrue((real_package / "pubspec.yaml").is_file())
         self.assertTrue((real_package / "lib").is_dir())
 
+    def test_sdk_public_api_hides_transport_types(self) -> None:
+        """Guard the SDK's curated public surface from exposing transport wiring."""
+        public_api = self._read("sdk/dart/dovahlink_client/lib/dovahlink_client.dart")
+        client_source = self._read(
+            "sdk/dart/dovahlink_client/lib/src/dovahlink_client.dart"
+        )
+        public_constructor = client_source.split("DovahLinkClient({", 1)[1].split(
+            "factory DovahLinkClient.windows()", 1
+        )[0]
+
+        self.assertNotIn("IDovahLinkTransport", public_api)
+        self.assertNotIn("transport/websocket_transport.dart", public_api)
+        self.assertNotIn("buildDovahLinkClientForTesting", public_api)
+        self.assertNotIn("IDovahLinkTransport", public_constructor)
+
+        sdk_root = REPOSITORY_ROOT / "sdk" / "dart" / "dovahlink_client"
+        transport_import = (
+            "package:dovahlink_client_sdk/src/transport/websocket_transport.dart"
+        )
+        for package_area in (sdk_root / "lib", sdk_root / "test"):
+            for source_path in package_area.rglob("*.dart"):
+                source = source_path.read_text(encoding="utf-8")
+                if (
+                    "IDovahLinkTransport" in source
+                    and source_path.name != "websocket_transport.dart"
+                ):
+                    self.assertIn(transport_import, source, str(source_path))
+
     def test_shared_dart_conventions_are_split_from_flutter_only_ones(self) -> None:
         """Guard the ai/context/dart/ extraction and its Flutter-side pointer."""
         dart_style = self._read("ai/context/dart/dart-style.md")

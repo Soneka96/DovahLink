@@ -42,54 +42,20 @@ class DovahLinkClient {
   /// recovery state.
   final IClientStorage _storage;
 
-  /// Creates a client. [transport] defaults to a real [WebSocketTransport]; inject a fake for
-  /// deterministic tests. [storage] is required so every consumer makes its persistence choice
+  /// Creates a client. [storage] is required so every consumer makes its persistence choice
   /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
-  DovahLinkClient({
-    IDovahLinkTransport? transport,
-    required IClientStorage storage,
-  }) : this._build(
-         transport: transport ?? WebSocketTransport(),
-         storage: storage,
-         timeoutDurations: kTimeoutClassDurations,
-       );
+  /// @param storage The SDK-owned storage boundary for this client's identity and credential.
+  DovahLinkClient({required IClientStorage storage})
+    : this._build(
+        transport: WebSocketTransport(),
+        storage: storage,
+        timeoutDurations: kTimeoutClassDurations,
+      );
 
-  /// Creates a client backed by real infrastructure: a [WebSocketTransport] and a
-  /// [DpapiClientStorage] persisting to this Windows user's default per-user location.
+  /// Creates a client backed by the SDK's default WebSocket transport and DPAPI storage for this
+  /// Windows user's default per-user location.
   factory DovahLinkClient.windows() =>
       DovahLinkClient(storage: DpapiClientStorage());
-
-  /// Creates a client with directly-injected [timeoutDurations], bypassing the centralized
-  /// production defaults in `shared/constants.dart`. Test-only: production code must always use
-  /// the unnamed constructor so every operation shares the same centrally tuned timeout policy.
-  @visibleForTesting
-  DovahLinkClient.withTimeoutDurations({
-    required IDovahLinkTransport transport,
-    required IClientStorage storage,
-    required Map<TimeoutClass, Duration> timeoutDurations,
-  }) : this._build(
-         transport: transport,
-         storage: storage,
-         timeoutDurations: timeoutDurations,
-       );
-
-  /// Creates a client with directly-injected reconnect timing controls. Test-only: production code
-  /// must use the unnamed constructor so reconnect shares the centrally tuned policy.
-  @visibleForTesting
-  DovahLinkClient.withReconnectPolicy({
-    required IDovahLinkTransport transport,
-    required IClientStorage storage,
-    required List<Duration> attemptDelays,
-    required Duration deadline,
-    DateTime Function() now = DateTime.now,
-  }) : this._build(
-         transport: transport,
-         storage: storage,
-         timeoutDurations: kTimeoutClassDurations,
-         attemptDelays: attemptDelays,
-         reconnectDeadline: deadline,
-         reconnectNow: now,
-       );
 
   /// Assembles the full seven-service object graph over [transport], timed per
   /// [timeoutDurations] and recovered with the supplied reconnect policy, per
@@ -340,8 +306,8 @@ class DovahLinkClient {
       _pairingService.recoverPendingPairing();
 
   /// Closes the connection and resets in-memory session state. Idempotent, and never throws: this
-  /// is a best-effort cleanup operation, matching [IDovahLinkTransport.close]'s own "Idempotent"
-  /// contract. In-memory state resets even when the underlying transport cannot be closed
+  /// is a best-effort cleanup operation matching the transport's idempotent close contract.
+  /// In-memory state resets even when the underlying transport cannot be closed
   /// cleanly -- a broken close must not leave [connectionState]/[trustState]/[sessionId] lying
   /// about a session that no longer exists. Persisted identity, credential, and recovery state are
   /// untouched -- trust survives a disconnect. Fails any operation still awaiting a reply, and any
@@ -362,3 +328,28 @@ class DovahLinkClient {
   /// connection state; call [disconnect] separately if the connection also needs resetting.
   Future<void> forgetCredential() => _authenticationService.forgetCredential();
 }
+
+/// Creates a client with controllable infrastructure for SDK tests.
+/// @param transport The fake or real transport used by this client.
+/// @param storage The SDK-owned storage boundary for this client's identity and credential.
+/// @param timeoutDurations The per-class request timeouts used by the client.
+/// @param reconnectAttemptDelays The bounded reconnect attempt schedule.
+/// @param reconnectDeadline The overall limit for one reconnect cycle.
+/// @param now The clock used to measure the reconnect deadline.
+/// @return A client wired to the supplied transport and timing controls.
+@visibleForTesting
+DovahLinkClient buildDovahLinkClientForTesting({
+  required IDovahLinkTransport transport,
+  required IClientStorage storage,
+  Map<TimeoutClass, Duration> timeoutDurations = kTimeoutClassDurations,
+  List<Duration> reconnectAttemptDelays = kReconnectAttemptDelays,
+  Duration reconnectDeadline = kReconnectDeadline,
+  DateTime Function() now = DateTime.now,
+}) => DovahLinkClient._build(
+  transport: transport,
+  storage: storage,
+  timeoutDurations: timeoutDurations,
+  attemptDelays: reconnectAttemptDelays,
+  reconnectDeadline: reconnectDeadline,
+  reconnectNow: now,
+);
