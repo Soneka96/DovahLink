@@ -7,18 +7,6 @@ player-facing summary posted with each Nexus Mods file upload.
 
 No new entries are added here. Keep the historical release sections below unchanged.
 
-### Added
-
-- The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before
-  admitting a session.
-- Flutter client visual foundation adds the Frostbound, Dovah, and Hearth presets with shared
-  themed components and locally persisted appearance state; the picker is not yet exposed through
-  normal app navigation.
-
-### Fixed
-
-- Themed buttons respect reduced-motion settings, and failed appearance writes are reported as errors.
-
 ## [0.4.0] - 2026-09-23
 
 ### Added

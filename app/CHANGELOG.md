@@ -11,6 +11,17 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ## [Unreleased]
 
+### Added
+
+- The app's shared interface now renders in the Frostbound, Dovah, or Hearth style; theme selection
+  is not yet reachable through normal navigation.
+- The selected theme is saved locally and restored after relaunch.
+
+### Fixed
+
+- Themed buttons respect reduced-motion settings.
+- Failed appearance writes are reported as errors.
+
 ## [0.4.0] - 2026-09-23
 
 ### Fixed
