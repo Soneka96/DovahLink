@@ -364,26 +364,31 @@ void main() {
       'AppearancePresetCard exposes its label, enabled, and selected state',
       (WidgetTester tester) async {
         final SemanticsHandle semantics = tester.ensureSemantics();
-        addTearDown(semantics.dispose);
-        await pumpDovahThemedWidget(
-          tester,
-          AppearancePresetCard(
-            preset: DovahThemePreset.hearth,
-            selected: true,
-            onTap: () {},
-          ),
-          preset: DovahThemePreset.dovah,
-          size: dovahTestSizes.first,
-        );
+        try {
+          await pumpDovahThemedWidget(
+            tester,
+            AppearancePresetCard(
+              preset: DovahThemePreset.hearth,
+              selected: true,
+              onTap: () {},
+            ),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
 
-        final SemanticsNode node = tester.getSemantics(
-          find.bySemanticsLabel(DovahThemePreset.hearth.label),
-        );
-        final SemanticsData data = node.getSemanticsData();
-        expect(data.flagsCollection.isButton, isTrue);
-        expect(data.flagsCollection.isEnabled, Tristate.isTrue);
-        expect(data.flagsCollection.isSelected, Tristate.isTrue);
-        expect(data.hasAction(SemanticsAction.tap), isTrue);
+          final SemanticsNode node = tester.getSemantics(
+            find.bySemanticsLabel(
+              RegExp('^${RegExp.escape(DovahThemePreset.hearth.label)}'),
+            ),
+          );
+          final SemanticsData data = node.getSemanticsData();
+          expect(data.flagsCollection.isButton, isTrue);
+          expect(data.flagsCollection.isEnabled, Tristate.isTrue);
+          expect(data.flagsCollection.isSelected, Tristate.isTrue);
+          expect(data.hasAction(SemanticsAction.tap), isTrue);
+        } finally {
+          semantics.dispose();
+        }
       },
     );
   });

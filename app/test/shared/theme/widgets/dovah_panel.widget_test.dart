@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
-import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 import 'dovah_widget_test_helpers.dart';
 
@@ -29,40 +28,58 @@ void main() {
         );
       }
     }
+  });
 
+  group('DovahPanel uses shared padding', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets('DovahPanel uses shared padding scaled for $preset', (
         WidgetTester tester,
       ) async {
+        const Key panelKey = Key('dovah-panel-padding');
         await pumpDovahThemedWidget(
           tester,
-          const DovahPanel(child: Text('Panel content')),
+          const DovahPanel(key: panelKey, child: Text('Panel content')),
           preset: preset,
           size: dovahTestSizes.first,
         );
         final DovahThemeTokens tokens = Theme.of(
           tester.element(find.text('Panel content')),
         ).extension<DovahThemeTokens>()!;
-        final Rect panelRect = tester.getRect(find.byType(DovahSurface));
+        final Rect panelRect = tester.getRect(find.byKey(panelKey));
         final Rect contentRect = tester.getRect(find.text('Panel content'));
+        final double borderInset =
+            tokens.cornerStyle == DovahPanelCornerStyle.rounded
+            ? DovahThemeTokens.surfaceBorderWidth
+            : 0;
+        final double expectedInset =
+            DovahThemeTokens.spacing18 * tokens.densityScale + borderInset;
 
         expect(
           contentRect.left - panelRect.left,
-          DovahThemeTokens.spacing18 * tokens.densityScale,
+          closeTo(expectedInset, 0.001),
+        );
+        expect(contentRect.top - panelRect.top, closeTo(expectedInset, 0.001));
+        expect(
+          panelRect.right - contentRect.right,
+          closeTo(expectedInset, 0.001),
         );
         expect(
-          contentRect.top - panelRect.top,
-          DovahThemeTokens.spacing18 * tokens.densityScale,
+          panelRect.bottom - contentRect.bottom,
+          closeTo(expectedInset, 0.001),
         );
       });
     }
+  });
 
+  group('DovahPanel respects explicit padding overrides', () {
     testWidgets('DovahPanel respects an explicit padding override', (
       WidgetTester tester,
     ) async {
+      const Key panelKey = Key('dovah-panel-explicit-padding');
       await pumpDovahThemedWidget(
         tester,
         const DovahPanel(
+          key: panelKey,
           padding: EdgeInsets.all(4),
           child: Text('Tightly padded content'),
         ),
@@ -72,6 +89,14 @@ void main() {
 
       expect(tester.takeException(), isNull);
       expect(find.text('Tightly padded content'), findsOneWidget);
+      final Rect panelRect = tester.getRect(find.byKey(panelKey));
+      final Rect contentRect = tester.getRect(
+        find.text('Tightly padded content'),
+      );
+      expect(contentRect.left - panelRect.left, closeTo(4, 0.001));
+      expect(contentRect.top - panelRect.top, closeTo(4, 0.001));
+      expect(panelRect.right - contentRect.right, closeTo(4, 0.001));
+      expect(panelRect.bottom - contentRect.bottom, closeTo(4, 0.001));
     });
   });
 }
