@@ -63,6 +63,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Height of an appearance-preset preview.
   static const double appearancePreviewHeight = 48;
 
+  /// Minimum width of an appearance-preset card before it wraps to another row.
+  static const double appearancePresetCardMinimumWidth = 160;
+
   /// Height of the accent strip in an appearance-preset preview.
   static const double appearancePreviewAccentHeight = 6;
 

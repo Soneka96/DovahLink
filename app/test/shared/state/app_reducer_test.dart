@@ -8,15 +8,15 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Exercises root Redux reducer pass-through and delegation.
 void main() {
-  group('AppReducer processes unhandled actions correctly', () {
-    test('Object modifies nothing', () {
+  group('Action Object behaves correctly', () {
+    test('Object returns the same state for an unhandled action', () {
       final AppState state = AppState.initial();
 
       expect(identical(appReducer(state, Object()), state), isTrue);
     });
   });
 
-  group('AppReducer processes handled actions correctly', () {
+  group('Action PairingStartedAction behaves correctly', () {
     test('PairingStartedAction delegates to the pairing reducer', () {
       final AppState state = AppState.initial();
 
@@ -42,7 +42,9 @@ void main() {
 
       expect(identical(result.appearance, state.appearance), isTrue);
     });
+  });
 
+  group('Action ThemePresetSelectedAction behaves correctly', () {
     test('ThemePresetSelectedAction delegates to the appearance reducer', () {
       final AppState state = AppState.initial();
 

@@ -11,10 +11,7 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widg
 
 import 'dovah_widget_test_helpers.dart';
 
-/// Exercises [DovahConnectionCard] across every DovahLink theme, every
-/// [DovahConnectionCardState], and interaction. Stage 10/11 will map real SDK/discovery/recovery
-/// state onto these states in the connected application; this test only proves the shared
-/// component renders and behaves correctly for each state, independent of that future work.
+/// Exercises [DovahConnectionCard] across every theme, supplied visual state, and interaction.
 void main() {
   group('DovahConnectionCard renders correctly', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {

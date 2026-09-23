@@ -34,8 +34,8 @@ void main() {
     });
   });
 
-  group('Action unhandled behaves correctly', () {
-    test('An unhandled action returns the same state instance unchanged', () {
+  group('Action Object behaves correctly', () {
+    test('Object returns the same state instance for an unhandled action', () {
       final AppearanceState state = AppearanceState.initial();
 
       final AppearanceState result = appearanceReducer(state, Object());

@@ -9,8 +9,8 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Exercises root application-state initialization.
 void main() {
-  group('AppState — initial', () {
-    test('initial creates the connection state', () {
+  group('Method initial behaves correctly', () {
+    test('Method initial creates the connection state', () {
       final AppState state = AppState.initial();
 
       expect(state, isA<AppState>());
@@ -18,7 +18,7 @@ void main() {
       expect(state.connection.hosts, isNotEmpty);
     });
 
-    test('initial creates the pairing state', () {
+    test('Method initial creates the pairing state', () {
       final AppState state = AppState.initial();
 
       expect(state.pairing, isA<PairingState>());
@@ -27,14 +27,17 @@ void main() {
       expect(state.pairing.error, isNull);
     });
 
-    test('initial creates the default appearance state when omitted', () {
-      final AppState state = AppState.initial();
+    test(
+      'Method initial creates the default appearance state when omitted',
+      () {
+        final AppState state = AppState.initial();
 
-      expect(state.appearance, isA<AppearanceState>());
-      expect(state.appearance.activePreset, defaultThemePreset);
-    });
+        expect(state.appearance, isA<AppearanceState>());
+        expect(state.appearance.activePreset, defaultThemePreset);
+      },
+    );
 
-    test('initial uses the given appearance state when provided', () {
+    test('Method initial uses the given appearance state when provided', () {
       const AppearanceState appearance = AppearanceState(
         activePreset: DovahThemePreset.hearth,
       );

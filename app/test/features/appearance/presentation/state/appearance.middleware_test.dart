@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
@@ -28,6 +31,7 @@ void main() {
   late MockStore store;
   late List<Object?> actionLog;
 
+  /// Records the action passed to the middleware's next handler.
   void next(dynamic action) => actionLog.add(action);
 
   setUpAll(() {
@@ -59,7 +63,7 @@ void main() {
   group('AppearanceMiddleware processes ThemePresetSelectedAction correctly', () {
     test(
       'ThemePresetSelectedAction persists the selected preset through SetThemePresetUseCase',
-      () async {
+      () {
         when(
           () => mockSetThemePreset(any()),
         ).thenAnswer((_) async => const Right(unit));
@@ -69,7 +73,6 @@ void main() {
           const ThemePresetSelectedAction(DovahThemePreset.hearth),
           next,
         );
-        await Future<void>.delayed(Duration.zero);
 
         verify(
           () => mockSetThemePreset(
@@ -100,30 +103,34 @@ void main() {
 
     test(
       'ThemePresetSelectedAction does not dispatch when persistence fails',
-      () async {
+      () {
         const DatabaseFailure failure = DatabaseFailure('unavailable');
-        when(
-          () => mockSetThemePreset(any()),
-        ).thenAnswer((_) async => const Left(failure));
+        fakeAsync((FakeAsync async) {
+          final Completer<Either<Failure, Unit>> persistence =
+              Completer<Either<Failure, Unit>>();
+          when(
+            () => mockSetThemePreset(any()),
+          ).thenAnswer((_) => persistence.future);
 
-        middleware.call(
-          store,
-          const ThemePresetSelectedAction(DovahThemePreset.hearth),
-          next,
-        );
-        await Future<void>.delayed(Duration.zero);
+          middleware.call(
+            store,
+            const ThemePresetSelectedAction(DovahThemePreset.hearth),
+            next,
+          );
+          persistence.complete(const Left(failure));
+          async.flushMicrotasks();
 
-        // Only the triggering action, logged by `next`; the failure is a background concern and
-        // dispatches nothing further, per the handler's own documented reasoning.
-        expect(actionLog, [
-          const ThemePresetSelectedAction(DovahThemePreset.hearth),
-        ]);
+          // Only the triggering action, logged by `next`; the failure does not add an action.
+          expect(actionLog, [
+            const ThemePresetSelectedAction(DovahThemePreset.hearth),
+          ]);
+        });
       },
     );
   });
 
-  group('AppearanceMiddleware processes unhandled actions correctly', () {
-    test('An unhandled action calls next and resolves no use case', () {
+  group('AppearanceMiddleware processes Object correctly', () {
+    test('Object calls next and resolves no use case', () {
       middleware.call(store, Object(), next);
 
       expect(actionLog, [isA<Object>()]);

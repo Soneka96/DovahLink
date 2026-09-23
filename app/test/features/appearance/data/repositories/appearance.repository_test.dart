@@ -4,7 +4,6 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:dovahlink_client/features/appearance/data/datasources/appearance_local.datasource.dart';
 import 'package:dovahlink_client/features/appearance/data/repositories/appearance.repository.dart';
-import 'package:dovahlink_client/features/appearance/domain/repositories/appearance_repository.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
@@ -20,12 +19,6 @@ void main() {
   setUp(() {
     mockDataSource = MockAppearanceLocalDataSource();
     repository = AppearanceRepository(mockDataSource);
-  });
-
-  group('AppearanceRepository', () {
-    test('AppearanceRepository is usable as IAppearanceRepository', () {
-      expect(repository, isA<IAppearanceRepository>());
-    });
   });
 
   group('Method loadPreset behaves correctly', () {

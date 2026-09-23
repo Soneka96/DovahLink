@@ -45,23 +45,40 @@ class AppearanceSection extends StatelessWidget {
               ),
             ),
             const SizedBox(height: DovahThemeTokens.spacing16),
-            Row(
-              children: [
-                for (final DovahThemePreset preset in DovahThemePreset.values)
-                  Expanded(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: DovahThemeTokens.spacing6,
+            LayoutBuilder(
+              builder: (BuildContext context, BoxConstraints constraints) {
+                const double columnGap = DovahThemeTokens.spacing6 * 2;
+                final int columnCount =
+                    (constraints.maxWidth /
+                            (DovahThemeTokens.appearancePresetCardMinimumWidth +
+                                columnGap))
+                        .floor()
+                        .clamp(1, DovahThemePreset.values.length)
+                        .toInt();
+                final double columnWidth = constraints.maxWidth / columnCount;
+
+                return Wrap(
+                  runSpacing: columnGap,
+                  children: [
+                    for (final DovahThemePreset preset
+                        in DovahThemePreset.values)
+                      SizedBox(
+                        width: columnWidth,
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: DovahThemeTokens.spacing6,
+                          ),
+                          child: AppearancePresetCard(
+                            key: Key('appearance-preset-card-${preset.name}'),
+                            preset: preset,
+                            selected: preset == viewModel.activePreset,
+                            onTap: () => viewModel.onSelectPreset(preset),
+                          ),
+                        ),
                       ),
-                      child: AppearancePresetCard(
-                        key: Key('appearance-preset-card-${preset.name}'),
-                        preset: preset,
-                        selected: preset == viewModel.activePreset,
-                        onTap: () => viewModel.onSelectPreset(preset),
-                      ),
-                    ),
-                  ),
-              ],
+                  ],
+                );
+              },
             ),
           ],
         );

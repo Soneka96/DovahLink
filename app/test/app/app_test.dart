@@ -25,7 +25,7 @@ void main() {
     SharedPreferences.setMockInitialValues(<String, Object>{});
   });
 
-  group('DovahLinkApp', () {
+  group('DovahLinkApp renders the initial Host list', () {
     testWidgets(
       'DovahLinkApp renders the Host list before a connection exists',
       (WidgetTester tester) async {
@@ -36,7 +36,9 @@ void main() {
         expect(find.text('Local Host'), findsOneWidget);
       },
     );
+  });
 
+  group('DovahLinkApp resolves pairing navigation', () {
     testWidgets(
       'DovahLinkApp resolves the pairing route through the real app shell',
       (WidgetTester tester) async {
@@ -55,7 +57,9 @@ void main() {
         expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
       },
     );
+  });
 
+  group('DovahLinkApp uses the shared router', () {
     testWidgets(
       'DovahLinkApp navigates through the same router instance backing the app shell',
       (WidgetTester tester) async {

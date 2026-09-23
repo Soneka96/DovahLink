@@ -6,8 +6,8 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Exercises [AppearanceState] initialization and value semantics.
 void main() {
-  group('AppearanceState — initial', () {
-    test('initial uses defaultThemePreset', () {
+  group('Method initial behaves correctly', () {
+    test('Method initial uses defaultThemePreset', () {
       final AppearanceState state = AppearanceState.initial();
 
       expect(state.activePreset, isA<DovahThemePreset>());
