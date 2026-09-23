@@ -4,20 +4,17 @@
 
 ## 4. Live State Synchronization Foundation
 
-**Status:** Active. Phase 4.1 is complete. Phase 4.2 and the remaining Bridge-authored phases below are permanently superseded, per `roadmap/03a-host-adapter-production-migration.md`; they are not next. Stage 4 continues exclusively on Host + Adapter, per this document's "Host/Adapter continuation (post-3A)" section below.
+**Status:** Complete
 
-Delivery is decomposed into protocol migration, Bridge publication, internal SDK synchronization,
-and final cross-boundary cutover. The protocol migration may temporarily read
-the previous contract to keep independently reviewable PRs green, but the completed stage supports
-only the redesigned contract. The Bridge publication and cross-boundary-cutover phases below (4.2
-onward) are retained as engineering specification and historical evidence; the Bridge implementation
-path they describe is superseded and was not continued once Stage 3A began.
+Stage 4 is complete on Host + Adapter. Its Bridge-authored 4.2–4.4 implementation path remains
+below as historical engineering evidence; it was superseded after Stage 3A and is not part of the
+active completion criteria.
 
 ### Outcome
 
-The Bridge and its client-side synchronization foundation push changing state from shared
-authoritative stores without requiring polling or allowing delivery pressure to block Skyrim. The
-first production domains are deliberately focused: `character_xp`, `character_health`,
+The Host and Adapter publish changing state from a shared authoritative store without requiring
+client polling or allowing delivery pressure to block Skyrim. The first production domains are
+deliberately focused: `character_xp`, `character_health`,
 `character_magicka`, and `character_stamina` use Snapshot mode, while `character_level` uses Event
 mode. Each is a separate state area; the existing aggregate `character` area is retired in the
 redesigned contract. A future phase may add a composed character view without creating a second
@@ -109,9 +106,9 @@ value is a Snapshot domain.
 ### Dependencies and boundaries
 
 This phase depends on Phases 2 and 3 and keeps the one-connected-client limit. Heavy resources remain
-outside the live stream. The redesigned contract supersedes the current `0.3.x` wire contract at
-cutover; the new Bridge release is expected to use `0.4.x` before `1.0.0` because the redesign is a
-breaking minor release under the repository's pre-1.0 compatibility policy.
+outside the live stream. The Stage 4 audit classifies the accumulated Host/client contract change as
+a breaking pre-1.0 minor and recommends `0.4.0`; the actual version update remains a later dedicated
+release-branch change.
 
 Reliable-event delivery is scoped to one authenticated session. Reconnection establishes fresh
 state snapshots and does not replay the previous session's queued events. Durable cross-session
@@ -141,13 +138,16 @@ migration uses a temporary boundary adapter so staged PRs can remain independent
 3. The final cleanup removes old readers and fixtures before Stage 4 is complete; no permanent dual
    protocol implementation remains.
 
-Compatibility is evaluated against the Bridge release version sent in `hello_ack`:
+Compatibility is evaluated against the Host release version sent in `hello_ack.hostVersion`:
 
 - before `1.0.0`, major and minor must match and patch is ignored (`0.3.x` does not mix with `0.4.x`);
-- after `1.0.0`, the major must match, a Bridge minor greater than the SDK's accepted minor is
+- after `1.0.0`, the major must match, a Host minor greater than the SDK's accepted minor is
   rejected, and patch is ignored;
-- Bridge and SDK package versions remain independent; the SDK declares which Bridge versions it
+- Host and SDK package versions remain independent; the SDK declares which Host versions it
   accepts.
+
+Host-version range declaration and enforcement are not implemented yet; Stage 5 owns that client
+behavior, per `ai/context/protocol/compatibility.md`.
 
 Release versions are not bumped in ordinary phase PRs. The phase-completion audit recommends the
 version impact and records any changelog or compatibility-documentation actions; it does not
@@ -348,6 +348,8 @@ Run the cutover in this order:
 **No longer blocked: Stage 3A has completed.** Unlike 4.2-4.4, this phase is
 not Bridge-specific; it still runs at whichever point Stage 4 actually closes, on Host + Adapter.
 
+**Status:** Complete
+
 Create the repository-owned, manually invoked audit at
 [`ai/skills/version-impact-audit/SKILL.md`](../ai/skills/version-impact-audit/SKILL.md) before
 Stage 4 closure. Invoke it by asking an agent to use that file to audit a named scope against a
@@ -423,10 +425,10 @@ invoke it independently; a contract-breaking bugfix must not be forced into a pa
     release.
 12. **Compatibility-documentation actions:** the canonical schema and
     `ai/context/protocol/compatibility.md` already describe `hostVersion`, `stateAuthorityId`, and
-    the deferred Stage 5 enforcement. Before closure, reconcile the remaining Bridge-era version
-    wording in this roadmap, correct `sdk/README.md`'s stale account of app SDK use and reconnect
-    work, and correct the SDK state-payload comments that say no areas are registered even though
-    the public schema now registers five.
+    the deferred Stage 5 enforcement. The current version-impact summary, SDK/app consumption
+    summaries, and SDK state-payload comments now reflect the Host contract. Superseded Bridge-era
+    implementation details remain historical. No further compatibility-documentation update is
+    required for this audit.
 13. **Required follow-up release work:** after this phase PR merges, create `release/0.4.0` from
     updated `main`, synchronize `VERSION` and all enumerated version literals, and promote the
     accumulated `[Unreleased]` entries. Public Nexus publication remains subject to the repository's
@@ -493,7 +495,8 @@ production live delivery through Host + Adapter is bounded and observable, `char
 source and synchronization contracts, the capture-policy and scheduler invariants are proven
 without worker-side runtime reads, the mode-specific queue and per-area recovery-barrier behavior is
 proven, all required registered domain data and cross-boundary tests pass, migration-only readers
-and fixtures are gone, and the phase-end version audit has completed. The Bridge-authored 4.2-4.4
+and fixtures are gone, maintainer live Skyrim validation for the five state areas and recovery
+scenarios is recorded, and the phase-end version audit has completed. The Bridge-authored 4.2-4.4
 specification above is retained as historical engineering evidence; it is not itself a completion
 requirement, per the "Host/Adapter continuation (post-3A)" section below.
 
@@ -518,9 +521,9 @@ per-session bounded queues, latest-value Snapshot behavior, reliable Event behav
 capacity, and serialized WebSocket writing. Use typed host messages internally and map to the public
 SDK contract only at the client boundary.
 
-Authoritative `state_snapshot`/`state_event` publication going live is gated on the deferred public
-instance identifier defined in `ai/context/protocol/compatibility.md`'s "Deferred: public instance
-identifier"; that section owns the gate condition and the prohibited substitutes.
+Authoritative `state_snapshot`/`state_event` publication was gated on the public
+`stateAuthorityId` decision and real implementation. That gate is satisfied; its continuity-epoch
+meaning and prohibited substitutes remain defined in `ai/context/protocol/compatibility.md`.
 
 Acceptance criteria:
 

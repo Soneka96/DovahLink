@@ -43,17 +43,20 @@ sdk/
     dovahlink_client/
 ```
 
-It currently provides the connect/hello/pairing/disconnect protocol client, proven against the real
-Host harness, plus SDK-owned `clientId`, credential, and `CONFIRMING` pairing-recovery persistence
-behind the `IClientStorage` interface (a real Windows DPAPI-backed implementation ships today) --
-see `ai/context/sdk/persistence.md`. The official Flutter app depends on it
-(`dovahlink_client_sdk` in `app/pubspec.yaml`), but nothing in the app consumes it yet; the
-production pairing UI is a later, separate build. Phase 5's remaining scope -- Host-version
-compatibility detection, reconnect, revisions, subscriptions, snapshots, and retiring the app's
-separate `features/connection/` Redux protocol code -- is undone, so this pull-forward does not
-close Phase 5.
+It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic
+reconnection after ordinary transport loss, plus SDK-owned `clientId`, credential, and
+`CONFIRMING` pairing-recovery persistence behind the `IClientStorage` interface (a real Windows
+DPAPI-backed implementation ships today) -- see `ai/context/sdk/persistence.md`. The official
+Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
+client for pairing and authentication through `PairingRemoteDataSource`.
 
-Until the pairing UI and the rest of Phase 5 land, the app-side Redux `features/connection/` code
-documented in [`ai/context/flutter/`](../ai/context/flutter/) remains a separate, not-yet-retired
-implementation for the identity and live-synchronization foundations already in progress; see
-[`app/README.md`](../app/README.md).
+The pulled-forward client returns `hostVersion` but does not enforce a supported Host-version
+range. It also has no public state synchronization API: Stage 5 still owns the SDK's typed state
+models, revisions, subscriptions, snapshot/recovery lifecycle, and restoring desired subscriptions
+after reconnect. The app's `features/connection/` code currently handles Host selection and
+navigation; Stage 5 wires live state through the SDK and Flutter middleware. This pull-forward does
+not close Stage 5.
+
+The app's `features/connection/` area remains responsible for Host selection and navigation. It is
+not a parallel protocol implementation. See [`app/README.md`](../app/README.md) for the current
+division between app presentation and SDK-owned communication.

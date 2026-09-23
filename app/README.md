@@ -8,15 +8,15 @@ root [ROADMAP.md](../ROADMAP.md); system boundaries live in
 Canonical messages and shared fixtures remain under [`protocol/`](../protocol/). Client models and
 adapters consume that contract without redefining it.
 
-## SDK migration
+## SDK integration
 
-Before `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5 ("Dart Client SDK Foundation"), this directory owns its protocol and
-client adapters directly — the identity, pairing, and live-synchronization foundations already in
-progress are implemented here, following `ai/context/flutter/`. After that phase, this app consumes
-[`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for normal DovahLink communication
-instead: transport, Host-version compatibility, authentication, pairing, reconnect, and revision
-logic move to the SDK boundary. Flutter conventions point to
-[`ai/context/sdk/`](../ai/context/sdk/) for that SDK-owned behavior rather than duplicating it here.
+The pairing feature already uses [`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for
+transport, authentication, pairing, pairing recovery, and bounded reconnect. The
+`features/connection/` area currently owns Host selection and navigation; it does not implement
+live-state synchronization. Stage 5 completes the SDK's Host-version compatibility checks and
+state synchronization API, then wires live-state streams through Flutter middleware. Flutter
+conventions point to [`ai/context/sdk/`](../ai/context/sdk/) for SDK-owned protocol behavior rather
+than duplicating it in the app.
 
 ## Development checks
 

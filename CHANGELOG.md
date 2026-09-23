@@ -29,8 +29,8 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   the Host after the migration.
 - Private, bounded IPC channel between the Adapter and Host carrying pairing, trust administration,
   and Skyrim-facing notifications.
-- Host-owned state subscriptions with baseline snapshots, live updates, recovery, and
-  play-context-safe resynchronization.
+- Host-owned state subscriptions with baseline snapshots, bounded delivery, play-context recovery,
+  and validated real Skyrim capture for health, magicka, stamina, XP, and level.
 - Reserved control and data outbound lanes so state publication cannot starve control traffic.
 - Dual licensing: the repository root and every component except `adapter/` are now licensed under
   the PolyForm Noncommercial License 1.0.0 (`LICENSE`); `adapter/` is licensed separately under
@@ -38,7 +38,6 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
 
 ### Changed
 
-- The Host/Adapter real-capture slice now includes completed live Skyrim validation; Stage 4 remains open for its Phase 4.5 version-impact audit.
 - Local CI uses its selected Python and exact pinned clang-format executable, and reports incompatible Visual Studio copies.
 - Trust-admin list-scope vocabulary is now known/trusted/blocked consistently across console admin,
   Host, and Adapter.
@@ -46,8 +45,6 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   Bridge ZIP.
 - Host composition now resolves every service through dependency injection instead of manual
   object-graph assembly in `Program.cs`.
-- The Adapter executes the Host's bounded resynchronization plan for event registrations and baseline samples.
-- Live capture routing now dispatches through explicit domain handlers, keeping generic Host capture handling free of Character-specific payload logic.
 - The Adapter's CommonLibSSE-NG dependency now tracks `alandtse/CommonLibSSE-NG` (GPL-3.0-or-later)
   instead of the `CharmedBaryon/CommonLibSSE` fork, to pick up its 1.7.x offset and Address Library
   V5 fixes.
@@ -62,26 +59,9 @@ versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus Mods
   CMake and Ninja executables for Adapter builds.
 - The Builder now uses its saved Skyrim install path to locate the Papyrus compiler, with environment
   and standard Steam paths as fallbacks.
-- Ordinary Host live-state samples now pause while Adapter resynchronization is pending.
-- The Host now ends a superseded pending `snapshot_request` with a retryable error instead of dropping its correlation.
-- The Host now waits for the Adapter's post-authentication play-context replay before issuing one
-  initial resynchronization for an active context, and issues none while the Adapter is inactive.
 - The SDK now stamps outgoing envelopes with the resolved `clientId` and fails fast when a required
   `clientId` cannot be resolved, instead of proceeding silently.
 - The app no longer keeps observing a stale connection status after its session is invalidated.
-- A rejected reliable Event capture, a lost play-context transition, a lost resynchronization
-  baseline or terminal result, or an unexpected exception mid-resynchronization now all reset the
-  Adapter's current private IPC attempt and let the supervisor reconnect, instead of either
-  permanently stopping the connection or silently leaving the Host waiting forever.
-- The Adapter now announces the play context ending -- loading a save has started, or the player
-  returned to the main menu -- instead of only ever announcing a new one; the Host clears its
-  tracked play context and stops live sampling until a fresh one is established, instead of
-  continuing to treat a stale context as current.
-- The Adapter's generated play-context identity can never be all-zero, and the Host now rejects an
-  all-zero identity outright instead of accepting it as a valid (if never actually issued) context.
-- A resynchronization request that never receives its matching result now forces the private IPC
-  connection closed after a bounded deadline, instead of leaving the Host waiting for a baseline
-  that will never arrive.
 
 ### Removed
 

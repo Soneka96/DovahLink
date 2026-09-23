@@ -3,6 +3,10 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - "**/*.g.dart"
+    - build/**
+    - windows/**
+    - macos/**
+    - linux/**
   errors:
     avoid_print: ignore
     missing_required_param: error

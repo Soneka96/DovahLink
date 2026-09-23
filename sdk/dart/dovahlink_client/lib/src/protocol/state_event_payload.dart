@@ -8,9 +8,9 @@ import 'package:dovahlink_client_sdk/src/protocol/protocol_timestamp_validator.d
 part 'state_event_payload.g.dart';
 
 /// Incoming `state_event` payload (`protocol/schema/README.md`'s `state_event`). Decode-only: the
-/// client never sends `state_event`. `data` stays an untyped [JsonMap]: no state area is currently
-/// registered (protocol/schema/README.md's "Registered state areas"), so there is no domain shape
-/// to decode it against yet. Contains complete post-change state, not a patch.
+/// client never sends `state_event`. `data` stays an untyped [JsonMap]: the schema registers five
+/// state areas, but the SDK's typed domain models and synchronization API are Stage 5 work. Contains
+/// complete post-change state, not a patch.
 @JsonSerializable(checked: true, createToJson: false)
 class StateEventPayload {
   /// The state area this event represents.

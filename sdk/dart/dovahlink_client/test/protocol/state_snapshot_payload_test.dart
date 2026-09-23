@@ -29,6 +29,23 @@ void main() {
     });
 
     test(
+      'Method fromJson accepts a registered area while keeping domain data generic',
+      () {
+        final StateSnapshotPayload payload = StateSnapshotPayload.fromJson(
+          <String, dynamic>{
+            'stateArea': 'character_health',
+            'revision': 1,
+            'occurredAt': '2026-08-11T12:00:00Z',
+            'data': <String, dynamic>{'value': 87.5},
+          },
+        );
+
+        expect(payload.stateArea, 'character_health');
+        expect(payload.data, <String, dynamic>{'value': 87.5});
+      },
+    );
+
+    test(
       'Method fromJson composes with timestamp validation for fractional UTC values',
       () {
         final StateSnapshotPayload payload = StateSnapshotPayload.fromJson(
