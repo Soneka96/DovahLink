@@ -23,7 +23,7 @@ void main() {
 
       final HelloAckPayload payload = HelloAckPayload.fromJson(json);
 
-      expect(payload.hostVersion, '0.3.3');
+      expect(payload.hostVersion, json['hostVersion'] as String);
       expect(payload.clientIdentityKind, ClientIdentityKind.unpaired);
     });
 
