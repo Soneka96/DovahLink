@@ -48,4 +48,18 @@ void main() {
       },
     );
   });
+
+  group('Property label in DovahPanelCornerStyle behaves correctly', () {
+    test(
+      'Property label in DovahPanelCornerStyle returns the concise label for every style',
+      () {
+        expect(DovahPanelCornerStyle.singleBevel.label, isA<String>());
+        expect(DovahPanelCornerStyle.singleBevel.label, 'Single bevel');
+        expect(DovahPanelCornerStyle.doubleBevel.label, isA<String>());
+        expect(DovahPanelCornerStyle.doubleBevel.label, 'Double bevel');
+        expect(DovahPanelCornerStyle.rounded.label, isA<String>());
+        expect(DovahPanelCornerStyle.rounded.label, 'Rounded');
+      },
+    );
+  });
 }

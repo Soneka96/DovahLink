@@ -1,0 +1,284 @@
+import 'dart:ui' show lerpDouble;
+
+import 'package:equatable/equatable.dart';
+import 'package:flutter/material.dart';
+import 'package:fpdart/fpdart.dart';
+
+import 'package:dovahlink_client/shared/constants/enums.dart';
+
+/// DovahLink's typed visual-theme contract: the complete material and atmosphere boundary a
+/// [DovahThemePreset] resolves to, beyond what a plain Material [ColorScheme] can express.
+/// Shared DovahLink surfaces and components read this extension rather than branching on which
+/// concrete preset is active.
+@immutable
+class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
+  /// Creates a complete token set. Every field is required so no theme can be assembled with an
+  /// accidentally-inherited default.
+  const DovahThemeTokens({
+    required this.background,
+    required this.surface,
+    required this.surfaceRaised,
+    required this.lineSubtle,
+    required this.lineStrong,
+    required this.textPrimary,
+    required this.textMuted,
+    required this.textFaint,
+    required this.accentPrimary,
+    required this.accentSecondary,
+    required this.signal,
+    required this.ember,
+    required this.success,
+    required this.warning,
+    required this.danger,
+    required this.focusRingTint,
+    required this.health,
+    required this.magicka,
+    required this.stamina,
+    required this.cornerStyle,
+    required this.cornerRadius,
+    required this.cornerCutSize,
+    required this.panelShadow,
+    required this.materialGradient,
+    required this.materialRaisedGradient,
+    required this.densityScale,
+    required this.displayFontFamily,
+    required this.environmentAssetPath,
+  });
+
+  /// The canvas behind every surface.
+  final Color background;
+
+  /// The base flat surface tone, used by simple non-material elements (icon buttons, form
+  /// fields).
+  final Color surface;
+
+  /// The raised/hover flat surface tone.
+  final Color surfaceRaised;
+
+  /// The ordinary border/divider tone.
+  final Color lineSubtle;
+
+  /// The emphasized border tone, used on hover and for stronger separators.
+  final Color lineStrong;
+
+  /// The primary text tone.
+  final Color textPrimary;
+
+  /// The secondary/muted text tone.
+  final Color textMuted;
+
+  /// The tertiary, least emphasized text tone (captions, sub-labels).
+  final Color textFaint;
+
+  /// The general interactive/icon accent tone.
+  final Color accentPrimary;
+
+  /// The secondary accent tone used for eyebrow and kicker labels.
+  final Color accentSecondary;
+
+  /// The brand's cool/icy signal tone: active-state indicators, gradient underlines, focus
+  /// glow.
+  final Color signal;
+
+  /// The brand's warm ember tone: paired with [signal] in gradient underlines and accents.
+  final Color ember;
+
+  /// The status tone for a reachable/healthy state.
+  final Color success;
+
+  /// The status tone for a state that needs attention but is not failed.
+  final Color warning;
+
+  /// The status tone for an error or failed state.
+  final Color danger;
+
+  /// A soft, low-opacity tint of the accent color used behind a focus ring.
+  final Color focusRingTint;
+
+  /// The stat-bar tone for health.
+  final Color health;
+
+  /// The stat-bar tone for magicka.
+  final Color magicka;
+
+  /// The stat-bar tone for stamina.
+  final Color stamina;
+
+  /// Which corner treatment this theme's panels, surfaces, buttons, and cards use.
+  final DovahPanelCornerStyle cornerStyle;
+
+  /// The corner radius applied when [cornerStyle] is [DovahPanelCornerStyle.rounded].
+  final double cornerRadius;
+
+  /// The bevel cut size applied when [cornerStyle] is [DovahPanelCornerStyle.singleBevel] or
+  /// [DovahPanelCornerStyle.doubleBevel]. A single representative size shared by every bevelled
+  /// component in the theme; the approved prototype varies this slightly per component, which
+  /// this token intentionally simplifies to one value per theme.
+  final double cornerCutSize;
+
+  /// The outer drop shadow a raised panel casts. The approved prototype also layers inset
+  /// highlight/shadow via CSS `box-shadow: inset`, which Flutter's [BoxShadow] cannot express;
+  /// that polish is reproduced by [materialGradient]'s own highlight stops instead.
+  final List<BoxShadow> panelShadow;
+
+  /// The base material recipe for a resting panel, connection card, or dialog.
+  final Gradient materialGradient;
+
+  /// The material recipe for a raised/hovered panel or connection card.
+  final Gradient materialRaisedGradient;
+
+  /// A multiplier applied to shared base spacing/sizing constants to express this theme's
+  /// overall visual density (frostbound tightest, hearth roomiest).
+  final double densityScale;
+
+  /// The display/heading font family for this theme. The body font family does not vary by
+  /// theme in the approved prototype, so it is not part of this contract.
+  final String displayFontFamily;
+
+  /// The asset path for this theme's atmospheric background image, or `null` when the theme
+  /// uses a pure gradient atmosphere with no image (Dovah).
+  final String? environmentAssetPath;
+
+  /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
+  /// threaded through [Option] to keep "omitted", "cleared to null", and "set" distinct.
+  @override
+  DovahThemeTokens copyWith({
+    Color? background,
+    Color? surface,
+    Color? surfaceRaised,
+    Color? lineSubtle,
+    Color? lineStrong,
+    Color? textPrimary,
+    Color? textMuted,
+    Color? textFaint,
+    Color? accentPrimary,
+    Color? accentSecondary,
+    Color? signal,
+    Color? ember,
+    Color? success,
+    Color? warning,
+    Color? danger,
+    Color? focusRingTint,
+    Color? health,
+    Color? magicka,
+    Color? stamina,
+    DovahPanelCornerStyle? cornerStyle,
+    double? cornerRadius,
+    double? cornerCutSize,
+    List<BoxShadow>? panelShadow,
+    Gradient? materialGradient,
+    Gradient? materialRaisedGradient,
+    double? densityScale,
+    String? displayFontFamily,
+    Option<String>? environmentAssetPath,
+  }) => DovahThemeTokens(
+    background: background ?? this.background,
+    surface: surface ?? this.surface,
+    surfaceRaised: surfaceRaised ?? this.surfaceRaised,
+    lineSubtle: lineSubtle ?? this.lineSubtle,
+    lineStrong: lineStrong ?? this.lineStrong,
+    textPrimary: textPrimary ?? this.textPrimary,
+    textMuted: textMuted ?? this.textMuted,
+    textFaint: textFaint ?? this.textFaint,
+    accentPrimary: accentPrimary ?? this.accentPrimary,
+    accentSecondary: accentSecondary ?? this.accentSecondary,
+    signal: signal ?? this.signal,
+    ember: ember ?? this.ember,
+    success: success ?? this.success,
+    warning: warning ?? this.warning,
+    danger: danger ?? this.danger,
+    focusRingTint: focusRingTint ?? this.focusRingTint,
+    health: health ?? this.health,
+    magicka: magicka ?? this.magicka,
+    stamina: stamina ?? this.stamina,
+    cornerStyle: cornerStyle ?? this.cornerStyle,
+    cornerRadius: cornerRadius ?? this.cornerRadius,
+    cornerCutSize: cornerCutSize ?? this.cornerCutSize,
+    panelShadow: panelShadow ?? this.panelShadow,
+    materialGradient: materialGradient ?? this.materialGradient,
+    materialRaisedGradient:
+        materialRaisedGradient ?? this.materialRaisedGradient,
+    densityScale: densityScale ?? this.densityScale,
+    displayFontFamily: displayFontFamily ?? this.displayFontFamily,
+    environmentAssetPath: environmentAssetPath == null
+        ? this.environmentAssetPath
+        : environmentAssetPath.toNullable(),
+  );
+
+  /// Interpolates every color and the two continuous geometry values; discrete values (corner
+  /// style, font family, asset path, shadow, gradients) snap to whichever side of [t] is closer,
+  /// since they have no meaningful halfway point.
+  @override
+  DovahThemeTokens lerp(ThemeExtension<DovahThemeTokens>? other, double t) {
+    if (other is! DovahThemeTokens) {
+      return this;
+    }
+    return DovahThemeTokens(
+      background: Color.lerp(background, other.background, t)!,
+      surface: Color.lerp(surface, other.surface, t)!,
+      surfaceRaised: Color.lerp(surfaceRaised, other.surfaceRaised, t)!,
+      lineSubtle: Color.lerp(lineSubtle, other.lineSubtle, t)!,
+      lineStrong: Color.lerp(lineStrong, other.lineStrong, t)!,
+      textPrimary: Color.lerp(textPrimary, other.textPrimary, t)!,
+      textMuted: Color.lerp(textMuted, other.textMuted, t)!,
+      textFaint: Color.lerp(textFaint, other.textFaint, t)!,
+      accentPrimary: Color.lerp(accentPrimary, other.accentPrimary, t)!,
+      accentSecondary: Color.lerp(accentSecondary, other.accentSecondary, t)!,
+      signal: Color.lerp(signal, other.signal, t)!,
+      ember: Color.lerp(ember, other.ember, t)!,
+      success: Color.lerp(success, other.success, t)!,
+      warning: Color.lerp(warning, other.warning, t)!,
+      danger: Color.lerp(danger, other.danger, t)!,
+      focusRingTint: Color.lerp(focusRingTint, other.focusRingTint, t)!,
+      health: Color.lerp(health, other.health, t)!,
+      magicka: Color.lerp(magicka, other.magicka, t)!,
+      stamina: Color.lerp(stamina, other.stamina, t)!,
+      cornerStyle: t < 0.5 ? cornerStyle : other.cornerStyle,
+      cornerRadius: lerpDouble(cornerRadius, other.cornerRadius, t)!,
+      cornerCutSize: lerpDouble(cornerCutSize, other.cornerCutSize, t)!,
+      panelShadow: t < 0.5 ? panelShadow : other.panelShadow,
+      materialGradient: t < 0.5 ? materialGradient : other.materialGradient,
+      materialRaisedGradient: t < 0.5
+          ? materialRaisedGradient
+          : other.materialRaisedGradient,
+      densityScale: lerpDouble(densityScale, other.densityScale, t)!,
+      displayFontFamily: t < 0.5 ? displayFontFamily : other.displayFontFamily,
+      environmentAssetPath: t < 0.5
+          ? environmentAssetPath
+          : other.environmentAssetPath,
+    );
+  }
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [
+    background,
+    surface,
+    surfaceRaised,
+    lineSubtle,
+    lineStrong,
+    textPrimary,
+    textMuted,
+    textFaint,
+    accentPrimary,
+    accentSecondary,
+    signal,
+    ember,
+    success,
+    warning,
+    danger,
+    focusRingTint,
+    health,
+    magicka,
+    stamina,
+    cornerStyle,
+    cornerRadius,
+    cornerCutSize,
+    panelShadow,
+    materialGradient,
+    materialRaisedGradient,
+    densityScale,
+    displayFontFamily,
+    environmentAssetPath,
+  ];
+}
