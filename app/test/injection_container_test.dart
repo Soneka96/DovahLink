@@ -1,5 +1,6 @@
-import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:flutter/services.dart';
+
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -27,6 +28,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairin
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -190,6 +192,36 @@ void main() {
         verify(
           () => store.dispatch(const PairingCancelRequestedAction()),
         ).called(1);
+      },
+    );
+
+    test(
+      'initDependencies resolves PairingRenotifyButtonViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState(
+              phase: PairingPhase.awaitingCode,
+              hostVersion: null,
+              error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: DateTime.now().add(
+                const Duration(minutes: 1),
+              ),
+            ),
+          ),
+        );
+        when(() => store.dispatch(any())).thenAnswer((_) {});
+
+        final PairingRenotifyButtonViewModel viewModel =
+            sl<PairingRenotifyButtonViewModel>(param1: store);
+
+        expect(viewModel.isAvailable, isFalse);
+        expect(viewModel.cooldownSeconds, greaterThan(0));
+        expect(viewModel.onPressed, isNull);
       },
     );
 

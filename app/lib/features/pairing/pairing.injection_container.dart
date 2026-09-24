@@ -12,6 +12,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connec
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -57,5 +58,12 @@ void initPairingDependencies() {
     void _,
   ) {
     return PairingScreenViewModel.fromStore(store);
+  });
+  sl.registerFactoryParam<
+    PairingRenotifyButtonViewModel,
+    Store<AppState>,
+    void
+  >((Store<AppState> store, void _) {
+    return PairingRenotifyButtonViewModel.fromStore(store);
   });
 }

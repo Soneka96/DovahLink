@@ -1,5 +1,6 @@
-import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
+
+import 'package:equatable/equatable.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
