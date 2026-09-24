@@ -95,7 +95,7 @@ The formatter matrix is:
 
 | File types | Formatter |
 | --- | --- |
-| Dart (`.dart`) | `dart format` |
+| Dart (`.dart`) | `dart format` and `dart run tidy_imports` from the owning package root |
 | C/C++ (`.cc`, `.cpp`, `.h`, `.hpp`) | `clang-format` |
 | C# (`.cs`) | `dotnet format whitespace`, limited to the owning project and staged paths |
 | Python (`.py`) | `ruff format` |

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,8 @@ from collections import defaultdict
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
+# Keep Dart batch-wrapper arguments below cmd.exe's command-line limit.
+MAX_DART_COMMAND_LENGTH = 6000
 SUPPORTED_SUFFIXES = {
     ".cc": "cpp",
     ".cpp": "cpp",
@@ -177,11 +180,39 @@ foreach ($path in $paths) {{
     return [executable, "-NoProfile", "-NonInteractive", "-Command", script]
 
 
+def dart_command_batches(prefix: list[str], arguments: list[str]) -> list[list[str]]:
+    """Split Dart arguments into commands that fit Windows batch-wrapper limits."""
+    prefix_length = sum(len(argument) + 3 for argument in prefix)
+    if prefix_length > MAX_DART_COMMAND_LENGTH:
+        raise RuntimeError(
+            "Dart formatter command prefix exceeds the command-line limit"
+        )
+
+    commands: list[list[str]] = []
+    batch: list[str] = []
+    command_length = prefix_length
+    for argument in arguments:
+        argument_length = len(argument) + 3
+        if command_length + argument_length > MAX_DART_COMMAND_LENGTH:
+            if not batch:
+                raise RuntimeError(
+                    f"Dart formatter path exceeds the command-line limit: {argument}"
+                )
+            commands.append([*prefix, *batch])
+            batch = []
+            command_length = prefix_length
+        batch.append(argument)
+        command_length += argument_length
+    if batch:
+        commands.append([*prefix, *batch])
+    return commands
+
+
 def formatter_commands(
     repository_root: Path,
     paths: list[str],
     check: bool,
-) -> list[list[str]]:
+) -> list[tuple[Path, list[str]]]:
     """Build formatter commands for supported paths without executing them."""
     grouped: dict[str, list[str]] = defaultdict(list)
     for path in paths:
@@ -189,61 +220,92 @@ def formatter_commands(
         if group is not None:
             grouped[group].append(path)
 
-    commands: list[list[str]] = []
+    commands: list[tuple[Path, list[str]]] = []
     if grouped["dart"]:
-        commands.append(
-            [
-                "dart",
-                "format",
-                *(["--output=none", "--set-exit-if-changed"] if check else []),
-                *grouped["dart"],
+        for package_root in ("app", "sdk/dart/dovahlink_client"):
+            package_prefix = f"{package_root}/"
+            package_paths = [
+                item for item in grouped["dart"] if item.startswith(package_prefix)
             ]
+            if package_paths:
+                # tidy_imports matches patterns against absolute paths.
+                patterns = [
+                    r"[/\\]".join(
+                        re.escape(part)
+                        for part in item.removeprefix(package_prefix).split("/")
+                    )
+                    for item in package_paths
+                ]
+                sorter_arguments = ["dart", "run", "tidy_imports"]
+                if check:
+                    sorter_arguments.append("--exit-if-changed")
+                for sorter_command in dart_command_batches(sorter_arguments, patterns):
+                    commands.append((repository_root / package_root, sorter_command))
+        dart_format_arguments = ["dart", "format"]
+        if check:
+            dart_format_arguments.extend(["--output=none", "--set-exit-if-changed"])
+        commands.extend(
+            (repository_root, dart_command)
+            for dart_command in dart_command_batches(
+                dart_format_arguments, grouped["dart"]
+            )
         )
     if grouped["cpp"]:
         commands.append(
-            [
-                "clang-format.exe" if os.name == "nt" else "clang-format",
-                *(["--dry-run", "--Werror"] if check else ["-i"]),
-                *grouped["cpp"],
-            ]
+            (
+                repository_root,
+                [
+                    "clang-format.exe" if os.name == "nt" else "clang-format",
+                    *(["--dry-run", "--Werror"] if check else ["-i"]),
+                    *grouped["cpp"],
+                ],
+            )
         )
     if grouped["python"]:
         commands.append(
-            [
-                sys.executable,
-                "-m",
-                "ruff",
-                "format",
-                *(["--check"] if check else []),
-                *grouped["python"],
-            ]
+            (
+                repository_root,
+                [
+                    sys.executable,
+                    "-m",
+                    "ruff",
+                    "format",
+                    *(["--check"] if check else []),
+                    *grouped["python"],
+                ],
+            )
         )
     if grouped["powershell"]:
-        commands.append(powershell_command(grouped["powershell"], check))
+        commands.append(
+            (repository_root, powershell_command(grouped["powershell"], check))
+        )
     if grouped["csharp"]:
         by_project: dict[Path, list[str]] = defaultdict(list)
-        for path in grouped["csharp"]:
-            project = nearest_csharp_project(repository_root, path)
-            by_project[project].append(path)
+        for item in grouped["csharp"]:
+            project = nearest_csharp_project(repository_root, item)
+            by_project[project].append(item)
         for project, project_paths in sorted(by_project.items()):
             commands.append(
-                [
-                    "dotnet",
-                    "format",
-                    "whitespace",
-                    str(project),
-                    "--no-restore",
-                    *(["--verify-no-changes"] if check else []),
-                    "--include",
-                    *[
-                        str(
-                            (repository_root / path)
-                            .resolve()
-                            .relative_to(project.parent)
-                        )
-                        for path in project_paths
+                (
+                    repository_root,
+                    [
+                        "dotnet",
+                        "format",
+                        "whitespace",
+                        str(project),
+                        "--no-restore",
+                        *(["--verify-no-changes"] if check else []),
+                        "--include",
+                        *[
+                            str(
+                                (repository_root / item)
+                                .resolve()
+                                .relative_to(project.parent)
+                            )
+                            for item in project_paths
+                        ],
                     ],
-                ]
+                )
             )
     return commands
 
@@ -255,12 +317,12 @@ def is_windows_batch_wrapper(executable: str) -> bool:
 
 def execute_commands(
     repository_root: Path,
-    commands: list[list[str]],
+    commands: list[tuple[Path, list[str]]],
 ) -> int:
     """Run formatter commands and return the first non-zero exit code."""
-    resolved_commands: list[list[str]] = []
+    resolved_commands: list[tuple[Path, list[str]]] = []
     missing: set[str] = set()
-    for command in commands:
+    for working_directory, command in commands:
         executable = shutil.which(command[0])
         if executable is None:
             missing.add(command[0])
@@ -281,14 +343,14 @@ def execute_commands(
             if result.returncode != 0:
                 missing.add("Ruff Python module")
                 continue
-        resolved_commands.append([executable, *command[1:]])
+        resolved_commands.append((working_directory, [executable, *command[1:]]))
     if missing:
         print(
             "Required formatter(s) unavailable: " + ", ".join(sorted(missing)),
             file=sys.stderr,
         )
         return 127
-    for command in resolved_commands:
+    for working_directory, command in resolved_commands:
         try:
             if is_windows_batch_wrapper(command[0]):
                 # Python's Windows subprocess implementation otherwise lets the
@@ -296,10 +358,10 @@ def execute_commands(
                 # argument list. `shell=True` asks Python to apply the required
                 # Windows quoting for staged paths before the wrapper runs.
                 result = subprocess.run(
-                    command, cwd=repository_root, check=False, shell=True
+                    command, cwd=working_directory, check=False, shell=True
                 )
             else:
-                result = subprocess.run(command, cwd=repository_root, check=False)
+                result = subprocess.run(command, cwd=working_directory, check=False)
         except OSError as error:
             print(str(error), file=sys.stderr)
             return 127

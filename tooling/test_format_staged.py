@@ -120,8 +120,17 @@ class FormatStagedTests(unittest.TestCase):
             result = format_staged.execute_commands(
                 Path("."),
                 [
-                    ["clang-format", "--dry-run", "file.cpp"],
-                    [format_staged.sys.executable, "-m", "ruff", "format", "file.py"],
+                    (Path("."), ["clang-format", "--dry-run", "file.cpp"]),
+                    (
+                        Path("."),
+                        [
+                            format_staged.sys.executable,
+                            "-m",
+                            "ruff",
+                            "format",
+                            "file.py",
+                        ],
+                    ),
                 ],
             )
 
@@ -151,7 +160,18 @@ class FormatStagedTests(unittest.TestCase):
         ):
             result = format_staged.execute_commands(
                 Path("."),
-                [[format_staged.sys.executable, "-m", "ruff", "format", "file.py"]],
+                [
+                    (
+                        Path("."),
+                        [
+                            format_staged.sys.executable,
+                            "-m",
+                            "ruff",
+                            "format",
+                            "file.py",
+                        ],
+                    )
+                ],
             )
 
         self.assertEqual(result, 127)
@@ -180,14 +200,17 @@ class FormatStagedTests(unittest.TestCase):
             result = format_staged.execute_commands(
                 Path("."),
                 [
-                    [
-                        format_staged.sys.executable,
-                        "-m",
-                        "ruff",
-                        "format",
-                        "--check",
-                        "file.py",
-                    ]
+                    (
+                        Path("."),
+                        [
+                            format_staged.sys.executable,
+                            "-m",
+                            "ruff",
+                            "format",
+                            "--check",
+                            "file.py",
+                        ],
+                    )
                 ],
             )
 
@@ -213,7 +236,8 @@ class FormatStagedTests(unittest.TestCase):
             ) as run,
         ):
             result = format_staged.execute_commands(
-                Path("."), [["dart", "format", "tooling/format&safe.py"]]
+                Path("."),
+                [(Path("."), ["dart", "format", "tooling/format&safe.py"])],
             )
 
         self.assertEqual(result, 0)
@@ -238,7 +262,8 @@ class FormatStagedTests(unittest.TestCase):
         ):
             repository_root = Path(".")
             result = format_staged.execute_commands(
-                repository_root, [["dart", "format", "file.dart"]]
+                repository_root,
+                [(repository_root, ["dart", "format", "file.dart"])],
             )
 
         self.assertEqual(result, 0)
@@ -269,7 +294,8 @@ class FormatStagedTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             paths = [
-                "app/main.dart",
+                "app/lib/main.dart",
+                "sdk/dart/dovahlink_client/lib/src/client.dart",
                 "adapter/main.cpp",
                 "tooling/check.py",
                 "tooling/check.ps1",
@@ -277,22 +303,250 @@ class FormatStagedTests(unittest.TestCase):
 
             commands = format_staged.formatter_commands(root, paths, check=True)
 
+        self.assertEqual(commands[0][0], root / "app")
         self.assertEqual(
-            commands[0][:4],
+            commands[0][1],
+            [
+                "dart",
+                "run",
+                "tidy_imports",
+                "--exit-if-changed",
+                r"lib[/\\]main\.dart",
+            ],
+        )
+        self.assertEqual(commands[1][0], root / "sdk/dart/dovahlink_client")
+        self.assertEqual(
+            commands[1][1],
+            [
+                "dart",
+                "run",
+                "tidy_imports",
+                "--exit-if-changed",
+                r"lib[/\\]src[/\\]client\.dart",
+            ],
+        )
+        self.assertEqual(
+            commands[2][1][:4],
             ["dart", "format", "--output=none", "--set-exit-if-changed"],
         )
         clang_format_command = (
             "clang-format.exe" if format_staged.os.name == "nt" else "clang-format"
         )
         self.assertEqual(
-            commands[1][:3], [clang_format_command, "--dry-run", "--Werror"]
+            commands[3][1][:3], [clang_format_command, "--dry-run", "--Werror"]
         )
         self.assertEqual(
-            commands[2][:4],
+            commands[4][1][:4],
             [format_staged.sys.executable, "-m", "ruff", "format"],
         )
-        self.assertEqual(commands[2][4:5], ["--check"])
-        self.assertIn("Invoke-Formatter", commands[3][4])
+        self.assertEqual(commands[4][1][4:5], ["--check"])
+        self.assertIn("Invoke-Formatter", commands[5][1][4])
+
+    def test_formatter_commands_sort_only_selected_dart_files(self) -> None:
+        """Build package-local import commands from selected Dart paths only."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            commands = format_staged.formatter_commands(
+                root,
+                [
+                    "app/lib/features/main.screen.dart",
+                    "app/test/features/[main].dart",
+                    "sdk/dart/dovahlink_client/lib/src/client.dart",
+                    "sdk/dart/dovahlink_client/test/client_test.dart",
+                    "protocol/schema.json",
+                ],
+                check=False,
+            )
+
+        self.assertEqual(
+            commands[0][0],
+            root / "app",
+        )
+        self.assertEqual(
+            commands[0][1],
+            [
+                "dart",
+                "run",
+                "tidy_imports",
+                r"lib[/\\]features[/\\]main\.screen\.dart",
+                r"test[/\\]features[/\\]\[main\]\.dart",
+            ],
+        )
+        self.assertEqual(
+            commands[1][0],
+            root / "sdk/dart/dovahlink_client",
+        )
+        self.assertEqual(
+            commands[1][1],
+            [
+                "dart",
+                "run",
+                "tidy_imports",
+                r"lib[/\\]src[/\\]client\.dart",
+                r"test[/\\]client_test\.dart",
+            ],
+        )
+        self.assertEqual(
+            commands[2],
+            (
+                root,
+                [
+                    "dart",
+                    "format",
+                    "app/lib/features/main.screen.dart",
+                    "app/test/features/[main].dart",
+                    "sdk/dart/dovahlink_client/lib/src/client.dart",
+                    "sdk/dart/dovahlink_client/test/client_test.dart",
+                ],
+            ),
+        )
+
+    def test_formatter_commands_split_long_import_lists(self) -> None:
+        """Keep package-local import commands under the batch wrapper limit."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            paths = [
+                f"app/lib/{'nested/' * 25}screen-{index}.dart" for index in range(35)
+            ]
+            commands = format_staged.formatter_commands(root, paths, check=True)
+
+        sorter_commands = [
+            (working_directory, command)
+            for working_directory, command in commands
+            if command[:3] == ["dart", "run", "tidy_imports"]
+        ]
+        dart_format_commands = [
+            command for _, command in commands if command[:2] == ["dart", "format"]
+        ]
+        patterns = [
+            pattern for _, command in sorter_commands for pattern in command[4:]
+        ]
+        formatted_paths = [
+            path for command in dart_format_commands for path in command[4:]
+        ]
+
+        self.assertGreater(len(sorter_commands), 1)
+        self.assertGreater(len(dart_format_commands), 1)
+        self.assertEqual(len(patterns), len(paths))
+        self.assertEqual(formatted_paths, paths)
+        self.assertEqual(
+            {pattern.rsplit("screen", 1)[1] for pattern in patterns},
+            {f"\\-{index}\\.dart" for index in range(len(paths))},
+        )
+        for command in [
+            *(command for _, command in sorter_commands),
+            *dart_format_commands,
+        ]:
+            self.assertLessEqual(
+                len(
+                    subprocess.list2cmdline(
+                        [r"C:\Dart\flutter\bin\dart.BAT", *command[1:]]
+                    )
+                ),
+                format_staged.MAX_DART_COMMAND_LENGTH,
+            )
+
+    def test_formatter_commands_reject_a_single_oversized_dart_path(self) -> None:
+        """Reject a Dart path that cannot fit in a bounded formatter command."""
+        path = f"app/lib/{'nested/' * 1000}screen.dart"
+        with self.assertRaisesRegex(
+            RuntimeError, "path exceeds the command-line limit"
+        ):
+            format_staged.formatter_commands(Path("."), [path], check=False)
+
+    def test_execute_commands_stops_after_import_sorting_fails(self) -> None:
+        """Do not run Dart formatting when import sorting fails."""
+        resolved_dart = r"C:\Dart\flutter\bin\dart.exe"
+        package_root = Path("app")
+        with (
+            patch.object(format_staged.shutil, "which", return_value=resolved_dart),
+            patch.object(
+                format_staged.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 1),
+            ) as run,
+        ):
+            result = format_staged.execute_commands(
+                Path("."),
+                [
+                    (
+                        package_root,
+                        ["dart", "run", "tidy_imports", r"lib[/\\]main\.dart"],
+                    ),
+                    (
+                        Path("."),
+                        ["dart", "format", "app/lib/main.dart"],
+                    ),
+                ],
+            )
+
+        self.assertEqual(result, 1)
+        run.assert_called_once_with(
+            [
+                resolved_dart,
+                "run",
+                "tidy_imports",
+                r"lib[/\\]main\.dart",
+            ],
+            cwd=package_root,
+            check=False,
+        )
+
+    def test_execute_commands_preflights_missing_dart_for_import_sorting(self) -> None:
+        """Reject missing Dart before invoking any formatter command."""
+        with (
+            patch.object(format_staged.shutil, "which", return_value=None),
+            patch.object(format_staged.subprocess, "run") as run,
+        ):
+            result = format_staged.execute_commands(
+                Path("."),
+                [
+                    (
+                        Path("app"),
+                        ["dart", "run", "tidy_imports", r"lib[/\\]main\.dart"],
+                    ),
+                    (Path("."), ["dart", "format", "app/lib/main.dart"]),
+                ],
+            )
+
+        self.assertEqual(result, 127)
+        run.assert_not_called()
+
+    def test_execute_commands_uses_package_root_for_dart_import_sorting(self) -> None:
+        """Run import sorting from the owning Dart package root."""
+        package_root = Path("app")
+        resolved_dart = r"C:\Dart\flutter\bin\dart.BAT"
+        with (
+            patch.object(format_staged, "is_windows_batch_wrapper", return_value=True),
+            patch.object(format_staged.shutil, "which", return_value=resolved_dart),
+            patch.object(
+                format_staged.subprocess,
+                "run",
+                return_value=subprocess.CompletedProcess([], 0),
+            ) as run,
+        ):
+            result = format_staged.execute_commands(
+                Path("."),
+                [
+                    (
+                        package_root,
+                        ["dart", "run", "tidy_imports", r"lib[/\\]main\.dart"],
+                    )
+                ],
+            )
+
+        self.assertEqual(result, 0)
+        run.assert_called_once_with(
+            [
+                resolved_dart,
+                "run",
+                "tidy_imports",
+                r"lib[/\\]main\.dart",
+            ],
+            cwd=package_root,
+            check=False,
+            shell=True,
+        )
 
     def test_windows_cpp_formatter_uses_explicit_executable_name(self) -> None:
         """Avoid PATHEXT wrappers that the Windows prerequisite checker does not validate."""
@@ -304,7 +558,12 @@ class FormatStagedTests(unittest.TestCase):
 
         self.assertEqual(
             commands,
-            [["clang-format.exe", "--dry-run", "--Werror", "adapter/main.cpp"]],
+            [
+                (
+                    repository_root,
+                    ["clang-format.exe", "--dry-run", "--Werror", "adapter/main.cpp"],
+                )
+            ],
         )
 
     def test_csharp_command_is_limited_to_the_nearest_project(self) -> None:
@@ -326,16 +585,19 @@ class FormatStagedTests(unittest.TestCase):
         self.assertEqual(
             commands,
             [
-                [
-                    "dotnet",
-                    "format",
-                    "whitespace",
-                    str(project_directory / "DovahLinkBuilder.csproj"),
-                    "--no-restore",
-                    "--verify-no-changes",
-                    "--include",
-                    "Program.cs",
-                ]
+                (
+                    root,
+                    [
+                        "dotnet",
+                        "format",
+                        "whitespace",
+                        str(project_directory / "DovahLinkBuilder.csproj"),
+                        "--no-restore",
+                        "--verify-no-changes",
+                        "--include",
+                        "Program.cs",
+                    ],
+                )
             ],
         )
 
