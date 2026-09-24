@@ -9,14 +9,76 @@ data -> domain <- presentation
 presentation -> domain
 ```
 
-- `data` performs external I/O and maps models to domain entities.
+- `data` performs external I/O and maps external representations to domain entities.
 - `domain` contains pure Dart entities, repository interfaces, and use cases.
-- `presentation` contains screens, sections, widgets, view models, and client state.
+- `presentation` contains screens, sections, widgets, ViewModels, ViewData, and client state.
 - Imports may point from `presentation` to `domain`, and from `data` to `domain`.
 - Domain must not import `data`, `presentation`, Flutter, or transport implementations.
 - Presentation may consume domain interfaces and client-state outputs, but never construct infrastructure.
 - Domain dependencies are constructor-injected interfaces. Domain code never imports or resolves
   the `GetIt` container.
+
+## Domain and presentation values
+
+These four names have separate meanings in the Flutter app:
+
+- **Entity:** A pure Dart domain concept in `domain/entities/`, in a `*.entity.dart` file. Its
+  class uses the bare concept name, such as `Host`, `Character`, or `Quest`. It has no dependency
+  on Flutter, the SDK, JSON, storage, transport, protocol DTOs, `data`, or `presentation`.
+- **Model:** A data-layer representation of structured external data in `data/models/`, in a
+  `*.model.dart` file. A `<Concept>Model` extends its corresponding Entity and maps an actual
+  representation crossing an SDK, API, protocol, JSON, database, or persisted-data boundary.
+  The DataSource communicates with the SDK, API, or storage system; the Model is the Flutter
+  application's typed representation of structured data crossing that boundary. Domain
+  repository interfaces, use cases, Redux state, and presentation code use Entities, not Models.
+  A Model exists only when an actual external representation exists; do not manufacture
+  Model/Entity pairs merely for structural symmetry. A Model owns external
+  mapping or serialization where appropriate.
+- **ViewModel:** A presentation-layer Redux adapter named for exactly one Screen, Section, Widget,
+  or application presentation owner, such as `ConnectionsScreenViewModel`. It maps Redux state
+  through selectors, creates Redux dispatch callbacks, exposes what its owner requires, and
+  contains no domain or business logic. A Redux-backed ViewModel is registered through `sl` with
+  `registerFactoryParam`.
+- **ViewData:** An immutable presentation-only value in `presentation/viewdata/`, in a
+  `*.viewdata.dart` file, passed between UI components. It has no Store, selectors, dispatching, or
+  DI registration.
+
+```text
+SDK / API / storage
+        ↓
+    DataSource
+        ↓
+      Model
+        ↓ extends
+      Entity
+        ↓
+      Domain
+```
+
+“Model” is reserved for the data layer and must not be used as a generic suffix for immutable
+classes. Domain Entity classes use the bare concept name: the `.entity.dart` suffix identifies the
+file's architectural role, not an `Entity` suffix on the class. Primitive or enum persistence,
+including the existing theme preset setting, does not by itself justify an Entity/Model pair; add
+one only for a structured domain concept with an external representation.
+
+Correct:
+
+```dart
+class Host extends Equatable {}
+class HostModel extends Host {}
+class ConnectionsScreenViewModel extends Equatable {}
+class HostCardViewData extends Equatable {}
+```
+
+Incorrect:
+
+```dart
+class HostEntity extends Equatable {}
+class HostCardModel extends Equatable {} // immutable presentation-only data
+// presentation/models/
+// No Redux ownership: do not create HostCardViewModel.
+// No external Host representation: do not create HostModel.
+```
 
 ## Feature structure
 
@@ -36,6 +98,7 @@ lib/
       screens/
       widgets/
       state/
+      viewdata/ # optional; add when presentation-only values are needed
   shared/
     constants/
     failures/
@@ -60,12 +123,12 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 
 ## File rules
 
-- One primary public class or model per file. Datasource files are the documented exception below:
-  each contains both the abstract interface and its concrete implementation.
+- One primary public type per file. Datasource files are the documented exception below: each
+  contains both the abstract interface and its concrete implementation.
 - Use these suffixes: `.widget.dart`, `.section.dart`, `.screen.dart`, `.usecase.dart`,
-  `.params.dart`, `.entity.dart`, `.model.dart`, `.actions.dart`, `.middleware.dart`,
-  `.reducer.dart`, `.selectors.dart`, `.state.dart`, `.viewmodel.dart`, `.repository.dart`,
-  `.datasource.dart`.
+  `.params.dart`, `.entity.dart`, `.model.dart`, `.viewdata.dart`, `.actions.dart`,
+  `.middleware.dart`, `.reducer.dart`, `.selectors.dart`, `.state.dart`, `.viewmodel.dart`,
+  `.repository.dart`, `.datasource.dart`.
 - **Datasource files and classes:** Name datasource files `feature_local.datasource.dart` and
   `feature_remote.datasource.dart` (always feature-first, snake_case with underscores). Every
   datasource file requires both an abstract interface and a concrete implementation, per
@@ -88,8 +151,11 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   `Ifeature.repository.dart`; a Dart filename never takes the `I`-prefix), holding
   `IFeatureRepository`. Keep use-case params in `domain/usecases/params/`, never in the use-case
   file.
-- Every data model has a corresponding domain entity in `domain/entities/`, and the model extends that entity. Models own serialization; entities remain Flutter- and infrastructure-independent.
-- When a generated JSON model extends a concrete entity and needs typed model fields for nested
+- Every Model lives in `data/models/`, has a corresponding Entity in `domain/entities/`, and
+  extends that Entity. Create a Model only for an actual structured external representation, not
+  merely because an Entity exists. Models own external mapping or serialization where appropriate;
+  Entities remain pure Dart and infrastructure-independent.
+- When a generated JSON Model extends a concrete Entity and needs typed Model fields for nested
   serialization, its constructor forwards those fields through an explicit `super(...)` initializer
   (for example, `: super(level: level, health: health, ...)`). This is intentional model-boundary
   boilerplate required by `json_serializable`; it is not a general constructor pattern.
@@ -101,10 +167,14 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - A private widget class, or a method that returns widgets for a parent to render, still gets its
   own file with the appropriate suffix; being private is not a one-class-per-file exemption.
 - Keep use cases to one public operation.
-- Keep ViewModels as presentation connectors; business logic belongs in domain or state logic.
+- Keep ViewModels as Redux-backed presentation connectors; business logic belongs in domain or
+  state logic.
 - Keep Flutter and DovahLink protocol types separate. Map protocol DTOs at the client boundary.
 - Protocol DTOs must not cross into widgets or domain entities.
-- Protocol wire DTOs, encoding/decoding, session validation, and transport-facing adapters belong in the feature's `data` boundary or an explicitly approved client-infrastructure area. Convert them to Flutter-facing models before they enter domain or presentation code.
+- Protocol wire DTOs, encoding/decoding, session validation, and transport-facing adapters belong
+  in the feature's `data` boundary or an explicitly approved client-infrastructure area. Map
+  structured external data to data Models before it enters domain code; pass Entities and ViewData
+  to presentation code.
 
 ## Screens, sections, and widgets
 
@@ -112,30 +182,31 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - A Section is bespoke content nested inside a Screen alongside sibling content.
 - A Widget is a reusable or repeatable unit with one cohesive purpose.
 - Routability and the presence of a ViewModel do not decide the classification.
-- Any presentation widget may own one ViewModel when it needs Redux-backed state or Redux actions.
-  A ViewModel belongs to exactly one widget and is named `<WidgetName>ViewModel`.
+- A Screen, Section, Widget, or application presentation owner has one ViewModel only when it owns
+  Redux-backed state or Redux actions. Each ViewModel belongs to exactly one owner and is named
+  `<OwnerName>ViewModel`; child widgets do not receive ViewModels merely to transport UI values.
 - A Redux-backed ViewModel is a named public class in its own `.viewmodel.dart` file. It exposes
-  `factory WidgetNameViewModel.fromStore(Store<AppState> store)` and owns selector calls, Redux-backed
-  presentation values, and action callbacks.
+  `factory OwnerNameViewModel.fromStore(Store<AppState> store)` and owns selector calls,
+  Redux-backed presentation values, and action callbacks.
 - Register every Redux-backed ViewModel in `sl` with `registerFactoryParam`, passing its
   `Store<AppState>` to `fromStore`.
-- A widget that owns a ViewModel uses this connector pattern:
+- An owner that has a ViewModel uses this connector pattern:
 
   ```dart
-  StoreConnector<AppState, WidgetNameViewModel>(
+  StoreConnector<AppState, OwnerNameViewModel>(
     distinct: true,
     converter: (Store<AppState> store) =>
-        sl<WidgetNameViewModel>(param1: store),
+        sl<OwnerNameViewModel>(param1: store),
     builder: ...,
   )
   ```
 
   The converter only resolves the ViewModel through `sl`.
-- A widget that owns a ViewModel does not call selectors, read `store.state`, derive Redux-backed
+- An owner with a ViewModel does not call selectors, read `store.state`, derive Redux-backed
   values, call `store.dispatch`, create Redux callbacks, or perform Redux mapping in its converter.
-- Widgets without Redux-backed state or actions receive values, presentation Models, entities, and
-  callbacks through constructor parameters. A presentation Model is immutable data passed between
-  presentation components; it does not receive a Store or get registered in `sl`.
+- Widgets without Redux-backed state or actions receive values, Entities, ViewData, and callbacks
+  through constructor parameters. ViewData is immutable presentation data; it does not receive a
+  Store, use selectors, dispatch actions, or get registered in `sl`.
 
 ## Redux flow
 
@@ -147,7 +218,7 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Widgets do not call selectors or `store.dispatch`, read `store.state`, or map Redux state.
 - ViewModels read Redux state through selectors and create dispatch callbacks. State extraction and
   feature-level state decisions belong in selectors; ViewModels map selector results to their
-  widget's presentation contract.
+  single owner's presentation contract.
 - Redux state is read only through selectors and changed only through reducers. Never read state
   fields directly. Widgets that own a ViewModel keep Redux reads and dispatches in that ViewModel,
   including work associated with connector lifecycle callbacks.
@@ -200,7 +271,7 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
   returning the ViewModel created by `fromStore`.
 - Redux-backed ViewModels are presentation values, not behavior-bearing services; register and
   resolve their concrete classes as described above.
-- An owning widget resolves its ViewModel through `sl` in its `StoreConnector` converter;
+- A presentation owner resolves its ViewModel through `sl` in its `StoreConnector` converter;
   middleware handlers resolve registered use cases and services through `sl<Type>()`.
 - ViewModels, use cases, entities, repositories, and datasources never resolve dependencies from
   `GetIt`.
@@ -224,14 +295,15 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Widgets receive data and callbacks through props; visual styling comes from the theme, not from
   constructor parameters or hidden DI lookups.
 
-## JSON models and generated code
+## JSON data Models and generated code
 
-- Use `json_serializable` for Dart models that map to or from JSON; do not hand-write repetitive `fromJson`/`toJson` mappings for protocol DTOs.
+- Use `json_serializable` for data Models that map to or from JSON; do not hand-write repetitive
+  `fromJson`/`toJson` mappings for protocol DTOs.
 - Run generation with `dart run build_runner build` from the owning Flutter project.
-- Generated `.g.dart` files belong beside the source model in the owning area and must never be hand-edited.
+- Generated `.g.dart` files belong beside the source data Model in the owning area and must never be hand-edited.
 - `json_serializable` is a mapping tool, not the protocol contract. The canonical schema remains in `protocol/schema/`, and shared examples remain in `protocol/fixtures/`.
 - Keep semantic validation outside generated code: protocol versions, revisions, message/payload pairing, session identity, security limits, and recovery rules must be validated by handwritten boundary code. A closed/finite wire value with a fixed enumerable vocabulary (an enum-shaped field) is the one exception: it may decode directly into a typed enum via `json_serializable`'s `@JsonValue` support, with an unrecognized value failing inside `fromJson` as a `ProtocolFormatException`, per `ai/context/sdk/api-design.md`'s "Protocol DTO decoding" -- this is a closed-set format check, not the business-rule semantic validation (versions, revisions, pairing, identity, limits, recovery) this rule protects.
-- Configure generated models to preserve required-versus-unavailable distinctions; a missing required field must not silently become `null`.
+- Configure generated Models to preserve required-versus-unavailable distinctions; a missing required field must not silently become `null`.
 
 ## Client versioning
 

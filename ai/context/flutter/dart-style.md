@@ -6,9 +6,12 @@ DovahLink-app-specific conventions only.
 
 ## Naming and files
 
-- Use the naming convention established for the relevant type before adding a file. When no existing example exists, follow `ai/context/dart/dart-style.md`'s baseline naming rules, plus descriptive protocol suffixes such as `CharacterStateModel` and `CharacterStateMessage`.
+- Use the naming convention established for the relevant type before adding a file. When no
+  existing example exists, follow `ai/context/dart/dart-style.md`'s baseline naming rules. Use a
+  suffix such as `CharacterStateModel` only for a data Model in `data/models/` that represents an
+  external boundary; use protocol names such as `CharacterStateMessage` for wire DTOs.
 - Name files after the concept they contain, not after the screen that happens to use them.
-- Keep protocol mapping names explicit so a Flutter model is not confused with a wire message.
+- Keep protocol mapping names explicit so a Flutter data Model is not confused with a wire message.
 
 ## Documentation
 
@@ -16,14 +19,16 @@ Follow the shared documentation rules in `ai/context/common.md` and the Dartdoc 
 brevity rules in [`ai/context/dart/dart-style.md`](../dart/dart-style.md#documentation). This file
 adds Flutter-specific documentation relationships only.
 
-- Describe dependencies in the architectural direction: Model to Entity, UseCase to repository
+- Describe dependencies in the architectural direction: data Model to Entity, UseCase to repository
   interface, and repository implementation to repository interface. Domain never imports data.
-- A model and its sole entity or a ViewModel and its sole screen may cross-reference each other when
-  the pairing is explicit and exclusive. Do not name other consumers.
+- A data Model and its corresponding Entity or a ViewModel and its presentation owner may
+  cross-reference each other when the pairing is explicit and exclusive. Do not name other
+  consumers.
 
 ## Equatable and value objects
 
-Use `Equatable` for entities, models, value objects, ViewModels, Redux actions, and Redux state.
+Use `Equatable` for Entities, data Models, ViewData, value objects, ViewModels, Redux actions, and
+Redux state.
 Do not hand-write equality or hash codes for classes that extend it. Use `Option<T>?` from `fpdart`
 for nullable `copyWith` fields so omitted, cleared, and set values remain distinct.
 
