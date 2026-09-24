@@ -10,6 +10,7 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/snapshot_request_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
+import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
@@ -35,6 +36,9 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
   /// Reports a failed recovery through connection lifecycle handling.
   final ISessionService _sessionService;
 
+  /// Delay before each recovery attempt; the first attempt runs immediately.
+  final List<Duration> _retryDelays;
+
   /// Tracker state subscription used to coordinate recovery requests.
   StreamSubscription<StateSynchronization<T>>? _stateChanges;
 
@@ -48,13 +52,16 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
   /// @param domain The registered area, decoder, availability policy, and tracker.
   /// @param requestService The authenticated client request boundary.
   /// @param sessionService The connection lifecycle boundary used after recovery failure.
+  /// @param retryDelays The bounded retry schedule, starting with the immediate attempt.
   StateRecoveryService({
     required IStateDomainDefinition<T> domain,
     required IRequestService requestService,
     required ISessionService sessionService,
+    List<Duration> retryDelays = kReconnectAttemptDelays,
   }) : _domain = domain,
        _requestService = requestService,
-       _sessionService = sessionService;
+       _sessionService = sessionService,
+       _retryDelays = retryDelays;
 
   /// See [IStateRecoveryService.start].
   @override
@@ -93,6 +100,7 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
     final Completer<void> completion = Completer<void>();
     _recoveryTask = completion.future;
     _domain.tracker.beginRecovery();
+    int retryIndex = 0;
     try {
       while (true) {
         _restartAfterSnapshot = false;
@@ -131,6 +139,16 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           final DovahLinkStateStatus status = _domain.tracker.current.status;
           if (status == DovahLinkStateStatus.synchronized ||
               status == DovahLinkStateStatus.unavailable) {
+            return;
+          }
+          if (error.code == ProtocolErrorCode.temporarilyUnavailable &&
+              error.retryable) {
+            if (retryIndex + 1 < _retryDelays.length) {
+              retryIndex++;
+              await Future<void>.delayed(_retryDelays[retryIndex]);
+              continue;
+            }
+            _domain.tracker.failRecovery();
             return;
           }
           _domain.tracker.failRecovery();

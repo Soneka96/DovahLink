@@ -16,6 +16,13 @@ import 'controlled_request_service.dart';
 import 'mock_session_service.dart';
 import 'mock_state_revision_tracker.dart';
 
+/// Immediate, zero-delay attempts keep recovery retry tests deterministic and fast.
+const List<Duration> _shortRetryDelays = <Duration>[
+  Duration.zero,
+  Duration.zero,
+  Duration.zero,
+];
+
 /// Mock state-domain definition used to isolate recovery-service behavior.
 class MockStateDomainDefinition<T> extends Mock
     implements IStateDomainDefinition<T> {}
@@ -53,15 +60,18 @@ Envelope buildStateSnapshotEnvelope({
 /// @param domain The mock registered state-domain policy and tracker.
 /// @param requests The request fake controlling correlated Snapshot replies.
 /// @param session The mock connection lifecycle service.
+/// @param retryDelays The bounded retry schedule used by the recovery service.
 /// @return The state recovery service under test.
 IStateRecoveryService<int?> buildStateRecoveryService({
   required MockStateDomainDefinition<int?> domain,
   required ControlledRequestService requests,
   required MockSessionService session,
+  List<Duration> retryDelays = _shortRetryDelays,
 }) => StateRecoveryService<int?>(
   domain: domain,
   requestService: requests,
   sessionService: session,
+  retryDelays: retryDelays,
 );
 
 /// Runs state-recovery-service behavior tests.
@@ -166,6 +176,7 @@ void main() {
       domain: domain,
       requests: requests,
       session: session,
+      retryDelays: _shortRetryDelays,
     );
     service.start();
   });
@@ -312,7 +323,8 @@ void main() {
     });
 
     test(
-      'Method recover follows bounded recovery after a retryable Host error',
+      'Method recover retries a temporarily unavailable Snapshot without making the '
+      'session unhealthy',
       () async {
         emitStaleState();
         await Future<void>.delayed(Duration.zero);
@@ -324,11 +336,81 @@ void main() {
             retryable: true,
           ),
         );
+        await pumpEventQueue();
+        expect(requests.requests, hasLength(2));
+
+        requests.requests.last.reply.complete(
+          buildStateSnapshotEnvelope(revision: 5, value: 50),
+        );
+        await service.recover();
+
+        expect(currentState.status, DovahLinkStateStatus.synchronized);
+        expect(currentState.value, 50);
+        verifyNever(() => tracker.failRecovery());
+        verifyNever(() => session.onUnhealthy(any()));
+      },
+    );
+
+    test(
+      'Method recover fails only the domain after bounded Snapshot retries and accepts '
+      'a later baseline',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        for (int attempt = 0; attempt < _shortRetryDelays.length; attempt++) {
+          requests.requests[attempt].reply.completeError(
+            const DovahLinkProtocolException(
+              code: ProtocolErrorCode.temporarilyUnavailable,
+              message: 'State is temporarily unavailable.',
+              retryable: true,
+            ),
+          );
+          if (attempt + 1 < _shortRetryDelays.length) {
+            await pumpEventQueue();
+          }
+        }
+        await service.recover();
+
+        expect(requests.requests, hasLength(_shortRetryDelays.length));
+        expect(currentState.status, DovahLinkStateStatus.failed);
+        verify(() => tracker.failRecovery()).called(1);
+        verifyNever(() => session.onUnhealthy(any()));
+
+        when(
+          () => domain.decodeState(any()),
+        ).thenReturn((value: 60, isUnavailable: false));
+        final Future<void> laterRecovery = service.recover();
+        requests.requests.last.reply.complete(
+          buildStateSnapshotEnvelope(revision: 6, value: 60),
+        );
+        await laterRecovery;
+
+        expect(currentState.status, DovahLinkStateStatus.synchronized);
+        expect(currentState.value, 60);
+        expect(requests.requests, hasLength(_shortRetryDelays.length + 1));
+        verifyNever(() => session.onUnhealthy(any()));
+      },
+    );
+
+    test(
+      'Method recover keeps other retryable protocol errors on the unhealthy-session path',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        requests.requests.single.reply.completeError(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.internalError,
+            message: 'The Host could not complete the operation.',
+            retryable: true,
+          ),
+        );
         await service.recover();
 
         verify(() => tracker.failRecovery()).called(1);
         verify(() => session.onUnhealthy(any())).called(1);
-        expect(currentState.status, DovahLinkStateStatus.failed);
+        expect(requests.requests, hasLength(1));
       },
     );
 
@@ -348,6 +430,7 @@ void main() {
         await service.recover();
 
         verify(() => tracker.failRecovery()).called(1);
+        expect(requests.requests, hasLength(1));
         verifyNever(() => session.onUnhealthy(any()));
         verifyNever(
           () => session.onProtocolViolation(
