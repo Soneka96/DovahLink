@@ -2,7 +2,7 @@
 /// screen. `app_router.dart` is the only place these are turned into `GoRoute`s; no other file
 /// writes a route path as an inline string.
 abstract final class AppRoutes {
-  /// The root/entry screen, currently the read-only connection status display.
+  /// The root/entry screen: the connections screen listing the Hosts available to select.
   static const String home = '/';
 
   /// The pairing flow: requesting a code, entering it, and confirming trust.

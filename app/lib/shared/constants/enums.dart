@@ -89,6 +89,9 @@ enum DovahConnectionCardState {
   /// The connection is reachable and ready to enter.
   available,
 
+  /// The connection's reachability is not known; it is selectable and pairs or connects on entry.
+  unknown,
+
   /// The connection was seen before but is not currently reachable.
   offline,
 
@@ -98,6 +101,7 @@ enum DovahConnectionCardState {
   /// Returns the concise user-visible label for this state.
   String get label => switch (this) {
     DovahConnectionCardState.available => 'Connected',
+    DovahConnectionCardState.unknown => 'Not connected',
     DovahConnectionCardState.offline => 'Offline',
     DovahConnectionCardState.repair => 'Pair again',
   };

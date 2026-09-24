@@ -4,14 +4,19 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:redux/redux.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:dovahlink_client/app/app.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/data/datasources/appearance_local.datasource.dart';
 import 'package:dovahlink_client/features/appearance/domain/repositories/appearance_repository.dart';
 import 'package:dovahlink_client/features/appearance/domain/usecases/load_theme_preset.usecase.dart';
 import 'package:dovahlink_client/features/appearance/domain/usecases/set_theme_preset.usecase.dart';
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_list_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -21,17 +26,33 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.use
 import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
+import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Mocks the asynchronous preference API without requiring a registered plugin.
 class MockSharedPreferencesAsync extends Mock
     implements SharedPreferencesAsync {}
 
+/// Mocks the Redux store used to resolve Store-backed registrations.
+class MockStore extends Mock implements Store<AppState> {}
+
 void main() {
   setUpAll(() {
     TestWidgetsFlutterBinding.ensureInitialized();
+    registerFallbackValue(
+      const ThemePresetSelectedAction(DovahThemePreset.dovah),
+    );
+    registerFallbackValue(const PairingStartedAction());
+    registerFallbackValue(const PairingCancelRequestedAction());
+    registerFallbackValue(const PairingDisposedAction(wasTrusted: false));
   });
 
   setUp(() async {
@@ -81,6 +102,27 @@ void main() {
       expect(sl.isRegistered<NavigatorService>(), isTrue);
     });
 
+    test(
+      'initDependencies resolves DovahLinkAppViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState.initial(
+            appearance: const AppearanceState(
+              activePreset: DovahThemePreset.hearth,
+            ),
+          ),
+        );
+
+        final DovahLinkAppViewModel viewModel = sl<DovahLinkAppViewModel>(
+          param1: store,
+        );
+
+        expect(viewModel.activePreset, DovahThemePreset.hearth);
+      },
+    );
+
     test('the registered GoRouter is a true singleton', () async {
       await initDependencies();
 
@@ -101,11 +143,11 @@ void main() {
 
   group('injection_container — connection registrations', () {
     test(
-      'initDependencies registers the Host-list ViewModel factory',
+      'initDependencies registers the connections screen ViewModel factory',
       () async {
         await initDependencies();
 
-        expect(sl.isRegistered<HostListScreenViewModel>(), isTrue);
+        expect(sl.isRegistered<ConnectionsScreenViewModel>(), isTrue);
       },
     );
   });
@@ -146,6 +188,115 @@ void main() {
 
       expect(sl.isRegistered<PairingScreenViewModel>(), isTrue);
     });
+
+    test(
+      'initDependencies resolves PairingScreenViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(AppState.initial());
+        when(() => store.dispatch(any())).thenAnswer((_) {});
+
+        final PairingScreenViewModel viewModel = sl<PairingScreenViewModel>(
+          param1: store,
+        );
+
+        expect(viewModel.phase, PairingPhase.none);
+        viewModel.onStart();
+        viewModel.onDispose();
+
+        verify(() => store.dispatch(const PairingStartedAction())).called(1);
+        verify(
+          () => store.dispatch(const PairingDisposedAction(wasTrusted: false)),
+        ).called(1);
+      },
+    );
+
+    test(
+      'initDependencies resolves PairingCancelButtonViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: const PairingState(
+              phase: PairingPhase.awaitingCode,
+              hostVersion: null,
+              error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: null,
+            ),
+          ),
+        );
+        when(() => store.dispatch(any())).thenAnswer((_) {});
+
+        final PairingCancelButtonViewModel viewModel =
+            sl<PairingCancelButtonViewModel>(param1: store);
+
+        expect(viewModel.isEnabled, isTrue);
+        expect(viewModel.onPressed, isNotNull);
+        viewModel.onPressed!();
+        verify(
+          () => store.dispatch(const PairingCancelRequestedAction()),
+        ).called(1);
+      },
+    );
+
+    test(
+      'initDependencies resolves PairingCountdownViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState(
+              phase: PairingPhase.awaitingCode,
+              hostVersion: null,
+              error: null,
+              codeExpiresAt: DateTime.now().add(const Duration(minutes: 1)),
+              renotifyAvailableAt: null,
+            ),
+          ),
+        );
+
+        final PairingCountdownViewModel viewModel =
+            sl<PairingCountdownViewModel>(param1: store);
+
+        expect(viewModel.remainingSeconds, greaterThan(0));
+      },
+    );
+
+    test(
+      'initDependencies resolves PairingRenotifyButtonViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState(
+              phase: PairingPhase.awaitingCode,
+              hostVersion: null,
+              error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: DateTime.now().add(
+                const Duration(minutes: 1),
+              ),
+            ),
+          ),
+        );
+        when(() => store.dispatch(any())).thenAnswer((_) {});
+
+        final PairingRenotifyButtonViewModel viewModel =
+            sl<PairingRenotifyButtonViewModel>(param1: store);
+
+        expect(viewModel.isAvailable, isFalse);
+        expect(viewModel.cooldownSeconds, greaterThan(0));
+        expect(viewModel.onPressed, isNull);
+      },
+    );
 
     test('RequestPairingRenotifyUseCase is a singleton', () async {
       await initDependencies();
@@ -210,11 +361,29 @@ void main() {
     });
 
     test(
-      'initDependencies registers the appearance ViewModel factory',
+      'initDependencies resolves AppearanceSectionViewModel from a Store',
       () async {
         await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState.initial(
+            appearance: const AppearanceState(
+              activePreset: DovahThemePreset.hearth,
+            ),
+          ),
+        );
+        when(() => store.dispatch(any())).thenAnswer((_) {});
 
-        expect(sl.isRegistered<AppearanceSectionViewModel>(), isTrue);
+        final AppearanceSectionViewModel viewModel =
+            sl<AppearanceSectionViewModel>(param1: store);
+
+        expect(viewModel.activePreset, DovahThemePreset.hearth);
+        viewModel.onSelectPreset(DovahThemePreset.frostbound);
+        verify(
+          () => store.dispatch(
+            const ThemePresetSelectedAction(DovahThemePreset.frostbound),
+          ),
+        ).called(1);
       },
     );
 

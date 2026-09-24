@@ -8,14 +8,6 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart'
 /// A DovahLink themed button. Primary buttons use each preset's approved action fill and label
 /// color; secondary buttons use the theme's raised material and primary text tone.
 class DovahButton extends StatefulWidget {
-  /// Creates a themed button.
-  const DovahButton({
-    required this.label,
-    required this.onPressed,
-    this.variant = DovahButtonVariant.primary,
-    super.key,
-  });
-
   /// The button's visible text.
   final String label;
 
@@ -24,6 +16,18 @@ class DovahButton extends StatefulWidget {
 
   /// The button's visual emphasis.
   final DovahButtonVariant variant;
+
+  /// An optional icon shown before the label, in the label's color.
+  final IconData? icon;
+
+  /// Creates a themed button.
+  const DovahButton({
+    required this.label,
+    required this.onPressed,
+    this.variant = DovahButtonVariant.primary,
+    this.icon,
+    super.key,
+  });
 
   /// Creates the state that tracks the prototype's primary-button hover treatment.
   @override
@@ -45,37 +49,42 @@ class _DovahButtonState extends State<DovahButton> {
     );
     final bool enabled = widget.onPressed != null;
 
-    final Widget surface = widget.variant == DovahButtonVariant.primary
-        ? DovahSurface(
-            gradient: tokens.primaryActionGradient,
-            padding: padding,
-            child: Center(
-              widthFactor: 1,
-              heightFactor: 1,
-              child: Text(
-                widget.label,
-                style: TextStyle(
-                  color: tokens.primaryActionForeground,
-                  fontWeight: FontWeight.w800,
-                ),
+    final bool primary = widget.variant == DovahButtonVariant.primary;
+    final Color foreground = primary
+        ? tokens.primaryActionForeground
+        : tokens.textPrimary;
+    final Text label = Text(
+      widget.label,
+      style: TextStyle(
+        color: foreground,
+        fontSize: DovahThemeTokens.buttonFontSize,
+        fontWeight: primary ? FontWeight.w800 : FontWeight.w700,
+        height: DovahThemeTokens.bodyLineHeight,
+      ),
+    );
+    final Widget surface = DovahSurface(
+      gradient: primary ? tokens.primaryActionGradient : null,
+      raised: !primary,
+      padding: padding,
+      child: Center(
+        widthFactor: 1,
+        heightFactor: 1,
+        child: widget.icon == null
+            ? label
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    widget.icon,
+                    size: DovahThemeTokens.buttonIconSize,
+                    color: foreground,
+                  ),
+                  const SizedBox(width: DovahThemeTokens.buttonIconGap),
+                  label,
+                ],
               ),
-            ),
-          )
-        : DovahSurface(
-            raised: true,
-            padding: padding,
-            child: Center(
-              widthFactor: 1,
-              heightFactor: 1,
-              child: Text(
-                widget.label,
-                style: TextStyle(
-                  color: tokens.textPrimary,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          );
+      ),
+    );
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,

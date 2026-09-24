@@ -57,6 +57,15 @@ ThemeData buildDovahPresetTheme() {
     densityScale: 1,
     displayFontFamily: 'Georgia',
     environmentAssetPath: null,
+    eyebrow: Color(0xFFE2A55E),
+    rootHeaderHeight: 88,
+    pageTitleFontSize: 34,
+    connectionCardMinHeight: 80,
+    rootContentTopPadding: 30,
+    rootHeroBottomGap: 28,
+    pageTitleLineHeight: 1.14,
+    rootHeaderRuleFraction: 0.36,
+    uppercaseLabels: false,
   );
 
   return ThemeData(

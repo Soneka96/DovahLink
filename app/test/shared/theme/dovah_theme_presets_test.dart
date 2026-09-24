@@ -188,6 +188,53 @@ void main() {
     });
   });
 
+  group('Behavior prototype root-screen token mappings behave correctly', () {
+    test('Behavior prototype root-screen tokens match Frostbound values', () {
+      final DovahThemeTokens tokens = buildFrostboundTheme()
+          .extension<DovahThemeTokens>()!;
+
+      expect(tokens.eyebrow, const Color(0xFFBD5559));
+      expect(tokens.rootHeaderHeight, 70);
+      expect(tokens.pageTitleFontSize, 31);
+      expect(tokens.connectionCardMinHeight, 68);
+      expect(tokens.pageTitleLineHeight, 1.0);
+      expect(tokens.uppercaseLabels, isTrue);
+      expect(tokens.rootContentTopPadding, 20);
+      expect(tokens.rootHeroBottomGap, 18);
+      expect(tokens.rootHeaderRuleFraction, 0.2);
+    });
+
+    test('Behavior prototype root-screen tokens match Dovah values', () {
+      final DovahThemeTokens tokens = buildDovahPresetTheme()
+          .extension<DovahThemeTokens>()!;
+
+      expect(tokens.eyebrow, const Color(0xFFE2A55E));
+      expect(tokens.rootHeaderHeight, 88);
+      expect(tokens.pageTitleFontSize, 34);
+      expect(tokens.connectionCardMinHeight, 80);
+      expect(tokens.pageTitleLineHeight, 1.14);
+      expect(tokens.uppercaseLabels, isFalse);
+      expect(tokens.rootContentTopPadding, 30);
+      expect(tokens.rootHeroBottomGap, 28);
+      expect(tokens.rootHeaderRuleFraction, 0.36);
+    });
+
+    test('Behavior prototype root-screen tokens match Hearth values', () {
+      final DovahThemeTokens tokens = buildHearthTheme()
+          .extension<DovahThemeTokens>()!;
+
+      expect(tokens.eyebrow, const Color(0xFF945720));
+      expect(tokens.rootHeaderHeight, 86);
+      expect(tokens.pageTitleFontSize, 38);
+      expect(tokens.connectionCardMinHeight, 82);
+      expect(tokens.pageTitleLineHeight, 1.14);
+      expect(tokens.uppercaseLabels, isFalse);
+      expect(tokens.rootContentTopPadding, 30);
+      expect(tokens.rootHeroBottomGap, 28);
+      expect(tokens.rootHeaderRuleFraction, 0.52);
+    });
+  });
+
   group('Method buildDovahPresetTheme behaves correctly', () {
     test(
       'Method buildDovahPresetTheme attaches DovahThemeTokens with doubleBevel geometry',

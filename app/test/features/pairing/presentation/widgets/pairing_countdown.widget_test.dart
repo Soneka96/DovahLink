@@ -1,295 +1,167 @@
-import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/material.dart';
 
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_countdown.widget.dart';
-import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// Exercises [PairingCountdown] countdown display and periodic updates.
+/// Mocks the countdown's Redux store subscription.
+class MockStore extends Mock implements Store<AppState> {}
+
+/// Mocks the countdown's presentation contract.
+class MockPairingCountdownViewModel extends Mock
+    implements PairingCountdownViewModel {}
+
+/// Exercises [PairingCountdown] using its ViewModel presentation contract.
 void main() {
-  group('PairingCountdown', () {
-    testWidgets('PairingCountdown renders nothing when countdown is null', (
+  late Store<AppState> store;
+  late MockPairingCountdownViewModel viewModel;
+  Store<AppState>? resolvedStore;
+
+  setUp(() async {
+    await sl.reset();
+    store = MockStore();
+    viewModel = MockPairingCountdownViewModel();
+    resolvedStore = null;
+    when(
+      () => store.onChange,
+    ).thenAnswer((_) => const Stream<AppState>.empty());
+    when(() => viewModel.remainingSeconds).thenReturn(null);
+    sl.registerFactoryParam<PairingCountdownViewModel, Store<AppState>, void>((
+      Store<AppState> storeParam,
+      void _,
+    ) {
+      resolvedStore = storeParam;
+      return viewModel;
+    });
+  });
+
+  tearDown(() async {
+    await sl.reset();
+  });
+
+  Widget buildWidget({
+    TextStyle? textStyle,
+    String Function(int seconds)? formatSeconds,
+  }) => MaterialApp(
+    home: StoreProvider<AppState>(
+      store: store,
+      child: Scaffold(
+        body: formatSeconds == null
+            ? PairingCountdown(textStyle: textStyle)
+            : PairingCountdown(
+                textStyle: textStyle,
+                formatSeconds: formatSeconds,
+              ),
+      ),
+    ),
+  );
+
+  group('PairingCountdown displays', () {
+    testWidgets('PairingCountdown resolves its ViewModel with its Store', (
       WidgetTester tester,
     ) async {
-      final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: const PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: null,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
+      await tester.pumpWidget(buildWidget());
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(body: PairingCountdown()),
-          ),
-        ),
-      );
+      expect(resolvedStore, same(store));
+    });
+
+    testWidgets('PairingCountdown renders nothing when seconds are null', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildWidget());
 
       expect(find.byType(Text), findsNothing);
     });
 
     testWidgets(
-      'PairingCountdown displays formatted countdown when seconds remain',
+      'PairingCountdown displays the default format when seconds remain',
       (WidgetTester tester) async {
-        final now = DateTime.now();
-        // A small margin absorbs the wall-clock time pumpWidget takes, so the
-        // truncating-to-whole-seconds selector doesn't flake across a second boundary.
-        final expiresIn125Seconds = now.add(
-          const Duration(seconds: 125, milliseconds: 500),
-        );
-        final store = Store<AppState>(
-          (AppState state, dynamic action) => state,
-          initialState: AppState(
-            connection: ConnectionState.initial(),
-            pairing: PairingState(
-              phase: PairingPhase.awaitingCode,
-              hostVersion: null,
-              error: null,
-              codeExpiresAt: expiresIn125Seconds,
-              renotifyAvailableAt: null,
-            ),
-          ),
-        );
+        when(() => viewModel.remainingSeconds).thenReturn(125);
 
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: store,
-              child: const Scaffold(body: PairingCountdown()),
-            ),
-          ),
-        );
+        await tester.pumpWidget(buildWidget());
 
-        final textFinder = find.byType(Text);
-        expect(textFinder, findsOneWidget);
-        final Text textWidget = tester.widget<Text>(textFinder);
-        expect(textWidget.data, '2:05');
+        expect(find.text('2:05'), findsOneWidget);
       },
     );
 
-    testWidgets('PairingCountdown displays zero when countdown has expired', (
+    testWidgets('PairingCountdown displays zero for an expired code', (
       WidgetTester tester,
     ) async {
-      final now = DateTime.now();
-      final expiredInPast = now.subtract(const Duration(seconds: 10));
-      final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: expiredInPast,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
+      when(() => viewModel.remainingSeconds).thenReturn(0);
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(body: PairingCountdown()),
-          ),
-        ),
-      );
+      await tester.pumpWidget(buildWidget());
 
-      final textFinder = find.byType(Text);
-      expect(textFinder, findsOneWidget);
-      final Text textWidget = tester.widget<Text>(textFinder);
-      expect(textWidget.data, '0:00');
+      expect(find.text('0:00'), findsOneWidget);
     });
 
-    testWidgets('PairingCountdown applies custom text style when provided', (
+    testWidgets('PairingCountdown applies the supplied text style', (
       WidgetTester tester,
     ) async {
-      final now = DateTime.now();
-      final expiresIn10Seconds = now.add(const Duration(seconds: 10));
-      const customStyle = TextStyle(fontSize: 32, fontWeight: FontWeight.bold);
-      final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: expiresIn10Seconds,
-            renotifyAvailableAt: null,
-          ),
-        ),
+      when(() => viewModel.remainingSeconds).thenReturn(10);
+      const TextStyle style = TextStyle(
+        fontSize: 32,
+        fontWeight: FontWeight.bold,
       );
 
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(
-              body: PairingCountdown(textStyle: customStyle),
-            ),
-          ),
-        ),
-      );
+      await tester.pumpWidget(buildWidget(textStyle: style));
 
-      final textFinder = find.byType(Text);
-      expect(textFinder, findsOneWidget);
-      final Text textWidget = tester.widget<Text>(textFinder);
-      expect(textWidget.style, customStyle);
+      expect(tester.widget<Text>(find.byType(Text)).style, style);
     });
 
-    testWidgets('PairingCountdown uses custom format function when provided', (
+    testWidgets('PairingCountdown uses the supplied format function', (
       WidgetTester tester,
     ) async {
-      final now = DateTime.now();
-      final expiresIn90Seconds = now.add(const Duration(seconds: 90));
-      final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: expiresIn90Seconds,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
+      when(() => viewModel.remainingSeconds).thenReturn(90);
+      int? formattedSeconds;
 
       await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: Scaffold(
-              body: PairingCountdown(
-                formatSeconds: (secs) => '${secs}s remaining',
-              ),
-            ),
-          ),
+        buildWidget(
+          formatSeconds: (int seconds) {
+            formattedSeconds = seconds;
+            return '$seconds seconds remaining';
+          },
         ),
       );
 
-      final textFinder = find.byType(Text);
-      expect(textFinder, findsOneWidget);
-      final Text textWidget = tester.widget<Text>(textFinder);
-      expect(textWidget.data, contains('s remaining'));
-    });
-
-    testWidgets('PairingCountdown updates countdown when store state changes', (
-      WidgetTester tester,
-    ) async {
-      final now = DateTime.now();
-      final expiresIn60Seconds = now.add(
-        const Duration(seconds: 60, milliseconds: 500),
-      );
-      final expiresIn30Seconds = now.add(
-        const Duration(seconds: 30, milliseconds: 500),
-      );
-
-      final store = Store<AppState>(
-        (AppState state, dynamic action) {
-          if (action is _UpdateCountdownAction) {
-            return AppState(
-              connection: ConnectionState.initial(),
-              pairing: PairingState(
-                phase: PairingPhase.awaitingCode,
-                hostVersion: null,
-                error: null,
-                codeExpiresAt: action.newExpiry,
-                renotifyAvailableAt: null,
-              ),
-            );
-          }
-          return state;
-        },
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: expiresIn60Seconds,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(body: PairingCountdown()),
-          ),
-        ),
-      );
-
-      var textWidget = tester.widget<Text>(find.byType(Text));
-      expect(textWidget.data, '1:00');
-
-      store.dispatch(_UpdateCountdownAction(expiresIn30Seconds));
-      await tester.pump();
-
-      textWidget = tester.widget<Text>(find.byType(Text));
-      expect(textWidget.data, '0:30');
-    });
-
-    testWidgets('PairingCountdown maintains timer during widget rebuild', (
-      WidgetTester tester,
-    ) async {
-      final now = DateTime.now();
-      final expiresIn60Seconds = now.add(
-        const Duration(seconds: 60, milliseconds: 500),
-      );
-      final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: expiresIn60Seconds,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(body: PairingCountdown()),
-          ),
-        ),
-      );
-
-      final textBefore = (tester.widget<Text>(find.byType(Text))).data;
-      expect(textBefore, '1:00');
-
-      await tester.pump();
-
-      final textAfter = (tester.widget<Text>(find.byType(Text))).data;
-      expect(textAfter, isNotNull);
+      expect(formattedSeconds, 90);
+      expect(find.text('90 seconds remaining'), findsOneWidget);
     });
   });
-}
 
-class _UpdateCountdownAction {
-  _UpdateCountdownAction(this.newExpiry);
-  final DateTime newExpiry;
+  group('PairingCountdown tracks local timer ticks', () {
+    testWidgets('PairingCountdown refreshes its ViewModel on timer ticks', (
+      WidgetTester tester,
+    ) async {
+      await sl.unregister<PairingCountdownViewModel>();
+      int resolutions = 0;
+      const PairingCountdownViewModel initial = PairingCountdownViewModel(
+        remainingSeconds: 60,
+      );
+      const PairingCountdownViewModel elapsed = PairingCountdownViewModel(
+        remainingSeconds: 59,
+      );
+      sl.registerFactoryParam<PairingCountdownViewModel, Store<AppState>, void>(
+        (Store<AppState> _, void _) {
+          resolutions++;
+          return resolutions == 1 ? initial : elapsed;
+        },
+      );
+
+      await tester.pumpWidget(
+        buildWidget(formatSeconds: (int seconds) => '${seconds}s'),
+      );
+      expect(find.text('60s'), findsOneWidget);
+
+      await tester.pump(const Duration(seconds: 1));
+
+      expect(resolutions, greaterThan(1));
+      expect(find.text('59s'), findsOneWidget);
+    });
+  });
 }

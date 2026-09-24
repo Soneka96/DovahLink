@@ -6,11 +6,12 @@
 - Widgets and sections should have behavior-focused tests rather than snapshots.
 - Screens should test the important user-visible states, failure states, and accessibility behavior.
 - Protocol mapping tests belong at the client boundary and should use representative wire fixtures.
-- Tests for JSON models must consume representative protocol fixtures and exercise every generated
-  mapping direction the model exposes. Models intended to round-trip assert both `fromJson`
+- Tests for JSON data Models must consume representative protocol fixtures and exercise every generated
+  mapping direction the Model exposes. Models intended to round-trip assert both `fromJson`
   decoding and `toJson` output. Generated source itself is not hand-tested or edited; handwritten
   boundary validation is tested explicitly.
-- Model tests must also assert that each model is usable as its corresponding domain entity; entity behavior tests belong beside the entity when the entity contains behavior beyond value declarations.
+- Data Model tests must also assert that each Model is usable as its corresponding domain Entity;
+  Entity behavior tests belong beside the Entity when it contains behavior beyond value declarations.
 - For each behavior exposed by a client boundary, tests must cover the applicable accepted and
   rejected messages, recovery requests, correlation IDs, session-generation invalidation, stale
   publication suppression, malformed or unsupported messages, duplicate and stale messages,
@@ -23,11 +24,11 @@
   declaration assertions in that source unit's test file without creating a class-wide test group.
 - Keep Flutter-owned typed fixtures below the app-local `app/test/fixtures/` directory. The app's
   discoverable catalog is `app/test/fixtures/fixtures.dart`, with named builders such as
-  `Fixtures.buildHostEntity(...)` grouped by the owning production area (`Connection`, `Pairing`,
+  `Fixtures.buildHost(...)` grouped by the owning production area (`Connection`, `Pairing`,
   and so on). This catalog is test-only in-memory construction; it must not import SDK-private
   fixture code or enter production exports. Canonical cross-side JSON fixtures remain in
   `protocol/fixtures/` and take precedence for contract tests.
-- A representative model/entity/value construction lives in exactly one catalog builder. Every
+- A representative Entity/data Model/ViewData/value construction lives in exactly one catalog builder. Every
   other test file calls the relevant named catalog builder rather than duplicating construction
   inline or creating a private builder. When one fixture's default needs another fixture, compose
   the other builder through a nullable parameter and `??`, because fixture-builder calls are not
@@ -36,7 +37,8 @@
   scenario. It must not re-derive the catalog builder's representative defaults. Malformed boundary
   values, scenario-specific widget fixtures, and Redux/store setup may remain local when locality
   makes the behavior under test clearer.
-- A model/entity/value type used through a fixture builder needs real `==`/`hashCode` if any test
+- An Entity/data Model/ViewData/value type used through a fixture builder needs real
+  `==`/`hashCode` if any test
   compares two instances for equality. `const` literals can canonicalize to the same instance and
   hide a missing equality override; non-`const` catalog calls must surface that gap through the
   failing `verify()` or `expect()`.
@@ -55,8 +57,8 @@
 
 ## Layer-specific tests
 
-- Models group each `fromJson`, `toJson`, or other mapping method separately. Keep an identity
-  assertion in its own behavior group only when model/entity identity is itself the contract.
+- Data Models group each `fromJson`, `toJson`, or other mapping method separately. Keep an identity
+  assertion in its own behavior group only when Model/Entity identity is itself the contract.
 - Use cases group their single callable operation by method, normally `Method call behaves
   correctly`. Mock the repository interface and test success and every relevant failure pass-through.
 - Repositories have one behavior group per method, including exact datasource calls and symmetric

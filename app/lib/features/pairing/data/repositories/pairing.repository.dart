@@ -8,15 +8,15 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Implements [IPairingRepository] over [IPairingRemoteDataSource].
 class PairingRepository implements IPairingRepository {
-  /// Creates a repository backed by [_remoteDataSource].
-  PairingRepository(this._remoteDataSource);
-
   /// The remote data source this repository delegates to.
   final IPairingRemoteDataSource _remoteDataSource;
 
+  /// Creates a repository backed by [_remoteDataSource].
+  PairingRepository(this._remoteDataSource);
+
   /// See [IPairingRepository.authenticate].
   @override
-  Future<Either<Failure, PairingHandshakeEntity>> authenticate() =>
+  Future<Either<Failure, PairingHandshake>> authenticate() =>
       _remoteDataSource.authenticate();
 
   /// See [IPairingRepository.requestPairingCode].
