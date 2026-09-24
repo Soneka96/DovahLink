@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -38,6 +39,24 @@ void main() {
       expect(first, second);
       expect(first.hashCode, second.hashCode);
       expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildAuthenticateParams behaves correctly', () {
+    test('Method buildAuthenticateParams targets the representative Host', () {
+      final AuthenticateParams params = Fixtures.buildAuthenticateParams();
+
+      expect(params.hostUri, defaultHostUri);
+    });
+
+    test('Method buildAuthenticateParams preserves the named override', () {
+      final Uri uri = Uri.parse('ws://127.0.0.1:2/');
+
+      final AuthenticateParams params = Fixtures.buildAuthenticateParams(
+        hostUri: uri,
+      );
+
+      expect(params.hostUri, uri);
     });
   });
 

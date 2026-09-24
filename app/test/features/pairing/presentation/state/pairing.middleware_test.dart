@@ -6,6 +6,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -13,6 +14,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
@@ -56,10 +58,10 @@ class MockNavigatorService extends Mock implements NavigatorService {}
 /// whatever a test stubs.
 class MockStore extends Mock implements Store<AppState> {}
 
-/// Builds an [AppState] with the given pairing [phase], the only field
-/// [PairingMiddleware] itself ever reads from the Store.
-AppState _stateWithPhase(PairingPhase phase) => AppState(
-  connection: ConnectionState.initial(),
+/// Builds an [AppState] with the given pairing [phase] and the selected [host] (the representative
+/// Host when omitted) -- the two things [PairingMiddleware] itself reads from the Store.
+AppState _stateWithPhase(PairingPhase phase, {Host? host}) => AppState(
+  connection: ConnectionState(selectedHost: host ?? Fixtures.buildHost()),
   pairing: PairingState(
     phase: phase,
     hostVersion: null,
@@ -67,6 +69,12 @@ AppState _stateWithPhase(PairingPhase phase) => AppState(
     codeExpiresAt: null,
     renotifyAvailableAt: null,
   ),
+);
+
+/// Builds an [AppState] with no Host selected, in the initial pairing phase.
+AppState _stateWithoutSelectedHost() => AppState(
+  connection: ConnectionState.initial(),
+  pairing: PairingState.initial(),
 );
 
 /// Exercises [PairingMiddleware] in isolation: each test calls
@@ -89,6 +97,7 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(NoParams());
+    registerFallbackValue(Fixtures.buildAuthenticateParams());
   });
 
   setUp(() async {
@@ -173,6 +182,80 @@ void main() {
         // trusted session yet to invalidate.
         expect(actionLog, hasLength(2));
         verify(() => mockAuthenticate(any())).called(1);
+      },
+    );
+
+    test(
+      'PairingStartedAction authenticates with exactly the selected Host URI',
+      () async {
+        final Host host = Fixtures.buildHost(
+          displayName: 'Second Host',
+          uri: Uri.parse('ws://192.168.1.11:2000/'),
+        );
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.none, host: host));
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        verify(
+          () => mockAuthenticate(
+            AuthenticateParams(hostUri: Uri.parse('ws://192.168.1.11:2000/')),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'PairingStartedAction authenticates by URI when two Hosts share a display name',
+      () async {
+        final Host first = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://192.168.1.10:1000/'),
+        );
+        final Host second = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://192.168.1.11:2000/'),
+        );
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.none, host: first));
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.none, host: second));
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        verifyInOrder([
+          () => mockAuthenticate(AuthenticateParams(hostUri: first.uri)),
+          () => mockAuthenticate(AuthenticateParams(hostUri: second.uri)),
+        ]);
+      },
+    );
+
+    test(
+      'PairingStartedAction dispatches PairingFailedAction and never authenticates when no Host is selected',
+      () async {
+        when(() => store.state).thenReturn(_stateWithoutSelectedHost());
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          isA<PairingStartedAction>(),
+          const PairingFailedAction('Select a Host to pair with.'),
+        ]);
+        verifyNever(() => mockAuthenticate(any()));
       },
     );
 

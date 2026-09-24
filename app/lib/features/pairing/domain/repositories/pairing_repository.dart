@@ -6,10 +6,13 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Domain boundary for negotiating local device pairing with the host.
 abstract interface class IPairingRepository {
-  /// Connects and authenticates, resolving this installation's trust
-  /// standing. Recovers an interrupted pairing confirmation automatically
-  /// when the session authenticates as unpaired.
-  Future<Either<Failure, PairingHandshake>> authenticate();
+  /// Connects to the Host at [hostUri] and authenticates, resolving this
+  /// installation's trust standing with that Host. Recovers an interrupted
+  /// pairing confirmation automatically when the session authenticates as
+  /// unpaired.
+  Future<Either<Failure, PairingHandshake>> authenticate({
+    required Uri hostUri,
+  });
 
   /// Starts, or queries the status of, a pairing challenge. A fresh or
   /// already-active code is shown in Skyrim; this resolves once the client

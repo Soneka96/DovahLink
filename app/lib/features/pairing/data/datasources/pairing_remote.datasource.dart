@@ -2,15 +2,17 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
-import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Wraps a [DovahLinkClient] for the pairing feature's remote operations.
 abstract interface class IPairingRemoteDataSource {
-  /// Connects and authenticates, recovering an interrupted pairing
-  /// confirmation when the session authenticates as unpaired.
-  Future<Either<Failure, PairingHandshakeModel>> authenticate();
+  /// Connects to the Host at [hostUri] and authenticates, recovering an
+  /// interrupted pairing confirmation when the session authenticates as
+  /// unpaired.
+  Future<Either<Failure, PairingHandshakeModel>> authenticate({
+    required Uri hostUri,
+  });
 
   /// Starts, or queries the status of, a pairing challenge.
   /// Returns the active code's remaining validity in seconds, or null when the host did not
@@ -47,7 +49,7 @@ const PairingFailure _unexpectedPairingFailure = PairingFailure(
   'Pairing could not be completed. Please try again.',
 );
 
-/// Connects to the shared default Host endpoint ([defaultHostUri]) through an injected
+/// Connects to the Host endpoint each call names through an injected
 /// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s. An exception
 /// outside that documented set is also converted rather than left to escape this boundary, as
 /// [_unexpectedPairingFailure].
@@ -63,9 +65,11 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// credential and retrying as `unpaired` -- this layer only picks the user-safe wording for
   /// [HelloResult.recoveredFromRejectedCredential] when that happened.
   @override
-  Future<Either<Failure, PairingHandshakeModel>> authenticate() async {
+  Future<Either<Failure, PairingHandshakeModel>> authenticate({
+    required Uri hostUri,
+  }) async {
     try {
-      final HelloResult hello = await _client.authenticate(defaultHostUri);
+      final HelloResult hello = await _client.authenticate(hostUri);
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
       if (!trusted) {
         final DovahLinkTrustState recovered = await _client
