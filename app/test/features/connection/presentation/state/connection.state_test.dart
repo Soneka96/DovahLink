@@ -11,7 +11,7 @@ void main() {
     test('creates a state with the static default Host', () {
       final ConnectionState state = ConnectionState.initial();
 
-      expect(state.hosts, [Fixtures.buildHostEntity()]);
+      expect(state.hosts, [Fixtures.buildHost()]);
     });
   });
 
@@ -26,8 +26,8 @@ void main() {
 
     test('replaces hosts when supplied', () {
       final ConnectionState state = ConnectionState.initial();
-      final List<HostEntity> replacement = [
-        Fixtures.buildHostEntity(displayName: 'Other Host'),
+      final List<Host> replacement = [
+        Fixtures.buildHost(displayName: 'Other Host'),
       ];
 
       final ConnectionState result = state.copyWith(hosts: replacement);

@@ -8,7 +8,7 @@ class ConnectionHostSelectedAction extends Equatable {
   const ConnectionHostSelectedAction(this.host);
 
   /// The Host the user selected.
-  final HostEntity host;
+  final Host host;
 
   /// See [Equatable.props].
   @override

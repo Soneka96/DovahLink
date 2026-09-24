@@ -81,7 +81,7 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
           store.dispatch(PairingFailedAction(failure.message));
         }
       },
-      (PairingHandshakeEntity handshake) {
+      (PairingHandshake handshake) {
         store.dispatch(
           PairingAuthenticatedAction(
             hostVersion: handshake.hostVersion,

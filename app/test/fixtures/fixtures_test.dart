@@ -12,30 +12,27 @@ import 'fixtures.dart';
 
 /// Exercises the Flutter app's representative typed fixture builders.
 void main() {
-  group('Method buildHostEntity behaves correctly', () {
-    test('Method buildHostEntity builds representative defaults', () {
-      final HostEntity host = Fixtures.buildHostEntity();
+  group('Method buildHost behaves correctly', () {
+    test('Method buildHost builds representative defaults', () {
+      final Host host = Fixtures.buildHost();
 
       expect(host.displayName, isA<String>());
       expect(host.displayName, 'Local Host');
       expect(host.uri, defaultHostUri);
     });
 
-    test('Method buildHostEntity preserves named overrides', () {
+    test('Method buildHost preserves named overrides', () {
       final Uri uri = Uri.parse('ws://127.0.0.1:1/');
-      final HostEntity host = Fixtures.buildHostEntity(
-        displayName: 'Test Host',
-        uri: uri,
-      );
+      final Host host = Fixtures.buildHost(displayName: 'Test Host', uri: uri);
 
       expect(host.displayName, isA<String>());
       expect(host.displayName, 'Test Host');
       expect(host.uri, uri);
     });
 
-    test('Method buildHostEntity returns a fresh value per call', () {
-      final HostEntity first = Fixtures.buildHostEntity();
-      final HostEntity second = Fixtures.buildHostEntity();
+    test('Method buildHost returns a fresh value per call', () {
+      final Host first = Fixtures.buildHost();
+      final Host second = Fixtures.buildHost();
 
       expect(first, second);
       expect(first.hashCode, second.hashCode);
@@ -47,7 +44,7 @@ void main() {
     test('Method buildHostCardModel builds representative defaults', () {
       final HostCardModel card = Fixtures.buildHostCardModel();
 
-      expect(card.host, Fixtures.buildHostEntity());
+      expect(card.host, Fixtures.buildHost());
       expect(card.title, isA<String>());
       expect(card.title, 'Local Host');
       expect(card.subtitle, isA<String>());
@@ -58,7 +55,7 @@ void main() {
     });
 
     test('Method buildHostCardModel preserves named overrides', () {
-      final HostEntity host = Fixtures.buildHostEntity(displayName: 'Other');
+      final Host host = Fixtures.buildHost(displayName: 'Other');
       final HostCardModel card = Fixtures.buildHostCardModel(
         host: host,
         title: 'Other',
@@ -87,28 +84,23 @@ void main() {
     });
   });
 
-  group('Method buildPairingHandshakeEntity behaves correctly', () {
-    test(
-      'Method buildPairingHandshakeEntity builds representative defaults',
-      () {
-        final PairingHandshakeEntity handshake =
-            Fixtures.buildPairingHandshakeEntity();
+  group('Method buildPairingHandshake behaves correctly', () {
+    test('Method buildPairingHandshake builds representative defaults', () {
+      final PairingHandshake handshake = Fixtures.buildPairingHandshake();
 
-        expect(handshake.hostVersion, isA<String>());
-        expect(handshake.hostVersion, '1.2.3');
-        expect(handshake.trusted, isA<bool>());
-        expect(handshake.trusted, isTrue);
-        expect(handshake.credentialRejectedMessage, isNull);
-      },
-    );
+      expect(handshake.hostVersion, isA<String>());
+      expect(handshake.hostVersion, '1.2.3');
+      expect(handshake.trusted, isA<bool>());
+      expect(handshake.trusted, isTrue);
+      expect(handshake.credentialRejectedMessage, isNull);
+    });
 
-    test('Method buildPairingHandshakeEntity preserves named overrides', () {
-      final PairingHandshakeEntity handshake =
-          Fixtures.buildPairingHandshakeEntity(
-            hostVersion: '2.0.0',
-            trusted: false,
-            credentialRejectedMessage: 'Pairing is required again.',
-          );
+    test('Method buildPairingHandshake preserves named overrides', () {
+      final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+        hostVersion: '2.0.0',
+        trusted: false,
+        credentialRejectedMessage: 'Pairing is required again.',
+      );
 
       expect(handshake.hostVersion, isA<String>());
       expect(handshake.hostVersion, '2.0.0');
@@ -119,12 +111,12 @@ void main() {
     });
 
     test(
-      'Method buildPairingHandshakeEntity keeps trust and rejection independent',
+      'Method buildPairingHandshake keeps trust and rejection independent',
       () {
-        final PairingHandshakeEntity untrustedWithoutMessage =
-            Fixtures.buildPairingHandshakeEntity(trusted: false);
-        final PairingHandshakeEntity trustedWithMessage =
-            Fixtures.buildPairingHandshakeEntity(
+        final PairingHandshake untrustedWithoutMessage =
+            Fixtures.buildPairingHandshake(trusted: false);
+        final PairingHandshake trustedWithMessage =
+            Fixtures.buildPairingHandshake(
               credentialRejectedMessage: 'Pairing is required again.',
             );
 
@@ -138,19 +130,14 @@ void main() {
       },
     );
 
-    test(
-      'Method buildPairingHandshakeEntity returns a fresh value per call',
-      () {
-        final PairingHandshakeEntity first =
-            Fixtures.buildPairingHandshakeEntity();
-        final PairingHandshakeEntity second =
-            Fixtures.buildPairingHandshakeEntity();
+    test('Method buildPairingHandshake returns a fresh value per call', () {
+      final PairingHandshake first = Fixtures.buildPairingHandshake();
+      final PairingHandshake second = Fixtures.buildPairingHandshake();
 
-        expect(first, second);
-        expect(first.hashCode, second.hashCode);
-        expect(identical(first, second), isFalse);
-      },
-    );
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
+      expect(identical(first, second), isFalse);
+    });
   });
 
   group('Method buildDovahThemeTokens behaves correctly', () {

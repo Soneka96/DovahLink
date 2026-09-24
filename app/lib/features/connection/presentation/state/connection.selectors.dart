@@ -9,14 +9,13 @@ abstract final class ConnectionSelectors {
   static const String hostCardSubtitle = 'DovahLink Host';
 
   /// Returns the Hosts available to select.
-  static List<HostEntity> hostsSelector(AppState state) =>
-      state.connection.hosts;
+  static List<Host> hostsSelector(AppState state) => state.connection.hosts;
 
   /// Returns one card's display data per Host, in Host order. Reachability is not known on the
   /// connections screen, so every card is [DovahConnectionCardState.unknown]; its detail is the
   /// Host endpoint's authority (host and port), or the whole endpoint when it has none.
   static List<HostCardModel> hostCardsSelector(AppState state) => [
-    for (final HostEntity host in hostsSelector(state))
+    for (final Host host in hostsSelector(state))
       HostCardModel(
         host: host,
         title: host.displayName,

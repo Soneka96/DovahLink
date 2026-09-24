@@ -3,7 +3,7 @@ import 'package:equatable/equatable.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
-/// Immutable presentation data for one Host card, including the [HostEntity] it selects.
+/// Immutable presentation data for one Host card, including the [Host] it selects.
 class HostCardModel extends Equatable {
   /// Creates a Host card model.
   const HostCardModel({
@@ -15,7 +15,7 @@ class HostCardModel extends Equatable {
   });
 
   /// The Host this card represents and selects.
-  final HostEntity host;
+  final Host host;
 
   /// The card's primary line, the Host's name.
   final String title;

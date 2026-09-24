@@ -26,7 +26,7 @@ void main() {
                 cards: [
                   Fixtures.buildHostCardModel(),
                   Fixtures.buildHostCardModel(
-                    host: Fixtures.buildHostEntity(
+                    host: Fixtures.buildHost(
                       displayName: 'Second Host',
                       uri: Uri.parse('ws://192.168.1.11:2000/'),
                     ),
@@ -34,7 +34,7 @@ void main() {
                     detail: '192.168.1.11:2000',
                   ),
                 ],
-                onSelectHost: (HostEntity host) {},
+                onSelectHost: (Host host) {},
               ),
               preset: preset,
               size: size,
@@ -64,7 +64,7 @@ void main() {
           tester,
           ConnectionsHostSection(
             cards: [Fixtures.buildHostCardModel()],
-            onSelectHost: (HostEntity host) {},
+            onSelectHost: (Host host) {},
           ),
           preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
@@ -80,10 +80,7 @@ void main() {
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
-          ConnectionsHostSection(
-            cards: const [],
-            onSelectHost: (HostEntity host) {},
-          ),
+          ConnectionsHostSection(cards: const [], onSelectHost: (Host host) {}),
           preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
         );
@@ -109,12 +106,12 @@ void main() {
                 child: ConnectionsHostSection(
                   cards: [
                     Fixtures.buildHostCardModel(
-                      host: Fixtures.buildHostEntity(displayName: longName),
+                      host: Fixtures.buildHost(displayName: longName),
                       title: longName,
                       detail: 'a-very-long-host-name.local:58231' * 3,
                     ),
                   ],
-                  onSelectHost: (HostEntity host) {},
+                  onSelectHost: (Host host) {},
                 ),
               ),
             ),
@@ -135,7 +132,7 @@ void main() {
             tester,
             ConnectionsHostSection(
               cards: [Fixtures.buildHostCardModel()],
-              onSelectHost: (HostEntity host) {},
+              onSelectHost: (Host host) {},
             ),
             preset: preset,
             size: dovahTestSizes.first,
@@ -163,14 +160,14 @@ void main() {
             cards: [
               Fixtures.buildHostCardModel(),
               Fixtures.buildHostCardModel(
-                host: Fixtures.buildHostEntity(
+                host: Fixtures.buildHost(
                   displayName: 'Second Host',
                   uri: Uri.parse('ws://192.168.1.11:2000/'),
                 ),
                 title: 'Second Host',
               ),
             ],
-            onSelectHost: (HostEntity host) {},
+            onSelectHost: (Host host) {},
           ),
           preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
@@ -198,15 +195,15 @@ void main() {
     testWidgets(
       'ConnectionsHostSection calls onSelectHost with the tapped card Host',
       (WidgetTester tester) async {
-        final HostEntity first = Fixtures.buildHostEntity(
+        final Host first = Fixtures.buildHost(
           displayName: 'First Host',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
-        final HostEntity second = Fixtures.buildHostEntity(
+        final Host second = Fixtures.buildHost(
           displayName: 'Second Host',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
-        final List<HostEntity> selected = [];
+        final List<Host> selected = [];
         await pumpDovahThemedWidget(
           tester,
           ConnectionsHostSection(
@@ -230,15 +227,15 @@ void main() {
     testWidgets(
       'ConnectionsHostSection keeps Host identity when cards are reordered',
       (WidgetTester tester) async {
-        final HostEntity first = Fixtures.buildHostEntity(
+        final Host first = Fixtures.buildHost(
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
-        final HostEntity second = Fixtures.buildHostEntity(
+        final Host second = Fixtures.buildHost(
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
-        final List<HostEntity> selected = [];
+        final List<Host> selected = [];
 
         await pumpDovahThemedWidget(
           tester,
@@ -275,7 +272,7 @@ void main() {
     testWidgets(
       'ConnectionsHostSection does not call onSelectHost before a tap',
       (WidgetTester tester) async {
-        final List<HostEntity> selected = [];
+        final List<Host> selected = [];
         await pumpDovahThemedWidget(
           tester,
           ConnectionsHostSection(
@@ -301,7 +298,7 @@ void main() {
             tester,
             ConnectionsHostSection(
               cards: [Fixtures.buildHostCardModel()],
-              onSelectHost: (HostEntity host) {},
+              onSelectHost: (Host host) {},
             ),
             preset: DovahThemePreset.dovah,
             size: dovahTestSizes.first,

@@ -23,7 +23,7 @@
   declaration assertions in that source unit's test file without creating a class-wide test group.
 - Keep Flutter-owned typed fixtures below the app-local `app/test/fixtures/` directory. The app's
   discoverable catalog is `app/test/fixtures/fixtures.dart`, with named builders such as
-  `Fixtures.buildHostEntity(...)` grouped by the owning production area (`Connection`, `Pairing`,
+  `Fixtures.buildHost(...)` grouped by the owning production area (`Connection`, `Pairing`,
   and so on). This catalog is test-only in-memory construction; it must not import SDK-private
   fixture code or enter production exports. Canonical cross-side JSON fixtures remain in
   `protocol/fixtures/` and take precedence for contract tests.

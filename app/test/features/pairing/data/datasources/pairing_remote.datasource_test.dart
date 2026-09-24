@@ -41,14 +41,12 @@ void main() {
           ),
         );
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          Right<Failure, PairingHandshakeEntity>(
-            Fixtures.buildPairingHandshakeEntity(),
-          ),
+          Right<Failure, PairingHandshake>(Fixtures.buildPairingHandshake()),
         );
         verify(() => mockClient.authenticate(defaultHostUri)).called(1);
         verifyNever(() => mockClient.recoverPendingPairing());
@@ -68,14 +66,12 @@ void main() {
           () => mockClient.recoverPendingPairing(),
         ).thenAnswer((_) async => DovahLinkTrustState.trusted);
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          Right<Failure, PairingHandshakeEntity>(
-            Fixtures.buildPairingHandshakeEntity(),
-          ),
+          Right<Failure, PairingHandshake>(Fixtures.buildPairingHandshake()),
         );
         verify(() => mockClient.recoverPendingPairing()).called(1);
       },
@@ -94,13 +90,13 @@ void main() {
           () => mockClient.recoverPendingPairing(),
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          Right<Failure, PairingHandshakeEntity>(
-            Fixtures.buildPairingHandshakeEntity(trusted: false),
+          Right<Failure, PairingHandshake>(
+            Fixtures.buildPairingHandshake(trusted: false),
           ),
         );
       },
@@ -120,13 +116,13 @@ void main() {
           () => mockClient.recoverPendingPairing(),
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          Right<Failure, PairingHandshakeEntity>(
-            Fixtures.buildPairingHandshakeEntity(
+          Right<Failure, PairingHandshake>(
+            Fixtures.buildPairingHandshake(
               trusted: false,
               credentialRejectedMessage:
                   "This device's trust was revoked. Requesting a new pairing code.",
@@ -150,13 +146,13 @@ void main() {
           () => mockClient.recoverPendingPairing(),
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          Right<Failure, PairingHandshakeEntity>(
-            Fixtures.buildPairingHandshakeEntity(
+          Right<Failure, PairingHandshake>(
+            Fixtures.buildPairingHandshake(
               trusted: false,
               credentialRejectedMessage:
                   'This device is blocked by the host and cannot be paired again until an '
@@ -182,13 +178,13 @@ void main() {
           () => mockClient.recoverPendingPairing(),
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          Right<Failure, PairingHandshakeEntity>(
-            Fixtures.buildPairingHandshakeEntity(
+          Right<Failure, PairingHandshake>(
+            Fixtures.buildPairingHandshake(
               trusted: false,
               credentialRejectedMessage:
                   "This device isn't recognized by this host. Requesting a new pairing code.",
@@ -209,12 +205,12 @@ void main() {
           () => mockClient.connectionState,
         ).thenReturn(DovahLinkConnectionState.disconnected);
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeEntity>(
+          const Left<Failure, PairingHandshake>(
             NetworkFailure('socket failed'),
           ),
         );
@@ -232,12 +228,12 @@ void main() {
           () => mockClient.connectionState,
         ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeEntity>(
+          const Left<Failure, PairingHandshake>(
             SessionInvalidatedFailure(
               'This device was disconnected by the host. Try again.',
             ),
@@ -264,12 +260,12 @@ void main() {
           () => mockClient.connectionState,
         ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeEntity>(
+          const Left<Failure, PairingHandshake>(
             SessionInvalidatedFailure(
               'This device was disconnected by the host. Try again.',
             ),
@@ -289,14 +285,12 @@ void main() {
           ),
         );
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeEntity>(
-            NetworkFailure('bad reply'),
-          ),
+          const Left<Failure, PairingHandshake>(NetworkFailure('bad reply')),
         );
       },
     );
@@ -308,12 +302,12 @@ void main() {
           () => mockClient.authenticate(any()),
         ).thenThrow(const DovahLinkStorageException('corrupt store'));
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeEntity>(
+          const Left<Failure, PairingHandshake>(
             DatabaseFailure('corrupt store'),
           ),
         );
@@ -333,12 +327,12 @@ void main() {
           () => mockClient.recoverPendingPairing(),
         ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeEntity>(
+          const Left<Failure, PairingHandshake>(
             PairingFailure('That pairing code has expired. Request a new one.'),
           ),
         );
@@ -352,12 +346,12 @@ void main() {
           () => mockClient.authenticate(any()),
         ).thenThrow(StateError('boom'));
 
-        final Either<Failure, PairingHandshakeEntity> result = await dataSource
+        final Either<Failure, PairingHandshake> result = await dataSource
             .authenticate();
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeEntity>(
+          const Left<Failure, PairingHandshake>(
             PairingFailure('Pairing could not be completed. Please try again.'),
           ),
         );

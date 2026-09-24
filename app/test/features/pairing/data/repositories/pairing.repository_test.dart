@@ -35,16 +35,15 @@ void main() {
     test(
       'Method authenticate returns Right when the data source succeeds',
       () async {
-        final PairingHandshakeEntity handshake =
-            Fixtures.buildPairingHandshakeEntity();
+        final PairingHandshake handshake = Fixtures.buildPairingHandshake();
         when(
           () => mockDataSource.authenticate(),
         ).thenAnswer((_) async => Right(handshake));
 
-        final Either<Failure, PairingHandshakeEntity> result = await repository
+        final Either<Failure, PairingHandshake> result = await repository
             .authenticate();
 
-        expect(result, Right<Failure, PairingHandshakeEntity>(handshake));
+        expect(result, Right<Failure, PairingHandshake>(handshake));
         verify(() => mockDataSource.authenticate()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
@@ -58,10 +57,10 @@ void main() {
           () => mockDataSource.authenticate(),
         ).thenAnswer((_) async => const Left(failure));
 
-        final Either<Failure, PairingHandshakeEntity> result = await repository
+        final Either<Failure, PairingHandshake> result = await repository
             .authenticate();
 
-        expect(result, const Left<Failure, PairingHandshakeEntity>(failure));
+        expect(result, const Left<Failure, PairingHandshake>(failure));
         verify(() => mockDataSource.authenticate()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },

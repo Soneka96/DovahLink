@@ -1,9 +1,9 @@
 import 'package:equatable/equatable.dart';
 
 /// A DovahLink Host a client can select and connect or pair with.
-class HostEntity extends Equatable {
+class Host extends Equatable {
   /// Creates a Host identity.
-  const HostEntity({required this.displayName, required this.uri});
+  const Host({required this.displayName, required this.uri});
 
   /// User-facing name for this Host.
   final String displayName;

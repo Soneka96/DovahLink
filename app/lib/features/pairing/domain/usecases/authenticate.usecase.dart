@@ -8,7 +8,7 @@ import 'package:dovahlink_client/shared/usecase/usecase.dart';
 
 /// Connects and authenticates through [IPairingRepository].
 class AuthenticateUseCase
-    extends UseCase<Either<Failure, PairingHandshakeEntity>, NoParams> {
+    extends UseCase<Either<Failure, PairingHandshake>, NoParams> {
   /// Creates a use case backed by [IPairingRepository].
   AuthenticateUseCase(this._repository);
 
@@ -17,7 +17,7 @@ class AuthenticateUseCase
 
   /// See [UseCase.call].
   @override
-  Future<Either<Failure, PairingHandshakeEntity>> call(NoParams params) {
+  Future<Either<Failure, PairingHandshake>> call(NoParams params) {
     return _repository.authenticate();
   }
 }

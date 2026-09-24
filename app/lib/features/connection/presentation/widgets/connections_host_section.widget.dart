@@ -21,7 +21,7 @@ class ConnectionsHostSection extends StatelessWidget {
   final List<HostCardModel> cards;
 
   /// Called with the Host of the card the user taps.
-  final void Function(HostEntity host) onSelectHost;
+  final void Function(Host host) onSelectHost;
 
   /// See [StatelessWidget.build].
   @override

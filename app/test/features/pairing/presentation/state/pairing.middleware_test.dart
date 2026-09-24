@@ -145,8 +145,9 @@ void main() {
     test(
       'PairingStartedAction dispatches PairingAuthenticatedAction when authentication succeeds',
       () async {
-        final PairingHandshakeEntity handshake =
-            Fixtures.buildPairingHandshakeEntity(trusted: false);
+        final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+          trusted: false,
+        );
         when(
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => Right(handshake));
@@ -180,8 +181,9 @@ void main() {
       'PairingStartedAction also dispatches PairingSessionTrustedAction when authentication '
       'presents an already-trusted credential',
       () async {
-        final PairingHandshakeEntity handshake =
-            Fixtures.buildPairingHandshakeEntity(trusted: true);
+        final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+          trusted: true,
+        );
         when(
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => Right(handshake));
@@ -203,11 +205,10 @@ void main() {
     test(
       'PairingStartedAction dispatches PairingAuthenticatedAction carrying the credential-rejected message through',
       () async {
-        final PairingHandshakeEntity handshake =
-            Fixtures.buildPairingHandshakeEntity(
-              trusted: false,
-              credentialRejectedMessage: "This device's trust was revoked.",
-            );
+        final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+          trusted: false,
+          credentialRejectedMessage: "This device's trust was revoked.",
+        );
         when(
           () => mockAuthenticate(any()),
         ).thenAnswer((_) async => Right(handshake));

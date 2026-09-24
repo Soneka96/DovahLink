@@ -12,18 +12,18 @@ abstract final class Fixtures {
   // ---- Connection ----
 
   /// Builds a Host identity with the representative local endpoint.
-  static HostEntity buildHostEntity({
+  static Host buildHost({
     /// The user-facing Host name.
     String displayName = 'Local Host',
 
     /// The Host endpoint, or the representative local endpoint when omitted.
     Uri? uri,
-  }) => HostEntity(displayName: displayName, uri: uri ?? defaultHostUri);
+  }) => Host(displayName: displayName, uri: uri ?? defaultHostUri);
 
   /// Builds a Host card's display data for the representative local Host.
   static HostCardModel buildHostCardModel({
     /// The Host the card selects, or the representative Host when omitted.
-    HostEntity? host,
+    Host? host,
 
     /// The card's primary line.
     String title = 'Local Host',
@@ -37,7 +37,7 @@ abstract final class Fixtures {
     /// The card's visual state.
     DovahConnectionCardState state = DovahConnectionCardState.unknown,
   }) => HostCardModel(
-    host: host ?? buildHostEntity(),
+    host: host ?? buildHost(),
     title: title,
     subtitle: subtitle,
     detail: detail,
@@ -47,7 +47,7 @@ abstract final class Fixtures {
   // ---- Pairing ----
 
   /// Builds a pairing handshake with representative trusted-session defaults.
-  static PairingHandshakeEntity buildPairingHandshakeEntity({
+  static PairingHandshake buildPairingHandshake({
     /// The Host's own release version reported by the handshake.
     String hostVersion = '1.2.3',
 
@@ -56,7 +56,7 @@ abstract final class Fixtures {
 
     /// The user-safe explanation for a rejected credential, when applicable.
     String? credentialRejectedMessage,
-  }) => PairingHandshakeEntity(
+  }) => PairingHandshake(
     hostVersion: hostVersion,
     trusted: trusted,
     credentialRejectedMessage: credentialRejectedMessage,

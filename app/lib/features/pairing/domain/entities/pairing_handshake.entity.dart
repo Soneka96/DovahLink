@@ -1,9 +1,9 @@
 import 'package:equatable/equatable.dart';
 
 /// The result of authenticating a host session for the pairing flow.
-class PairingHandshakeEntity extends Equatable {
+class PairingHandshake extends Equatable {
   /// Creates a pairing handshake result.
-  const PairingHandshakeEntity({
+  const PairingHandshake({
     required this.hostVersion,
     required this.trusted,
     this.credentialRejectedMessage,

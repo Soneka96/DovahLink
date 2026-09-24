@@ -20,7 +20,7 @@ void main() {
       final HostCardModel card = Fixtures.buildHostCardModel();
       final List<HostCardModel> others = [
         Fixtures.buildHostCardModel(
-          host: Fixtures.buildHostEntity(displayName: 'Other'),
+          host: Fixtures.buildHost(displayName: 'Other'),
         ),
         Fixtures.buildHostCardModel(title: 'Other'),
         Fixtures.buildHostCardModel(subtitle: 'Other'),

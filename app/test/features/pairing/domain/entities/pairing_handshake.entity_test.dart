@@ -6,93 +6,116 @@ import '../../../../fixtures/fixtures.dart';
 
 /// Exercises pairing-handshake entity value preservation.
 void main() {
-  group('PairingHandshakeEntity', () {
-    test('stores the reported host version and trust standing', () {
-      final PairingHandshakeEntity handshake =
-          Fixtures.buildPairingHandshakeEntity(
-            hostVersion: '1.2.3',
-            trusted: true,
-          );
+  group('Property hostVersion behaves correctly', () {
+    test('PairingHandshake.hostVersion stores the reported host version', () {
+      final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+        hostVersion: '1.2.3',
+        trusted: true,
+      );
 
       expect(handshake.hostVersion, '1.2.3');
+    });
+  });
+
+  group('Property trusted behaves correctly', () {
+    test('PairingHandshake.trusted stores the trust standing', () {
+      final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+        hostVersion: '1.2.3',
+        trusted: true,
+      );
+
       expect(handshake.trusted, isTrue);
     });
+  });
 
-    test('treats handshakes with different trust standing as unequal', () {
-      final PairingHandshakeEntity first = Fixtures.buildPairingHandshakeEntity(
+  group('Property credentialRejectedMessage behaves correctly', () {
+    test(
+      'PairingHandshake.credentialRejectedMessage stores a supplied message',
+      () {
+        final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectedMessage: "This device's trust was revoked.",
+        );
+
+        expect(handshake.credentialRejectedMessage, isA<String>());
+        expect(
+          handshake.credentialRejectedMessage,
+          "This device's trust was revoked.",
+        );
+      },
+    );
+
+    test('PairingHandshake.credentialRejectedMessage defaults to null', () {
+      final PairingHandshake handshake = Fixtures.buildPairingHandshake(
         hostVersion: '1.2.3',
         trusted: false,
       );
-      final PairingHandshakeEntity second =
-          Fixtures.buildPairingHandshakeEntity(
-            hostVersion: '1.2.3',
-            trusted: true,
-          );
+
+      expect(handshake.credentialRejectedMessage, isNull);
+    });
+  });
+
+  group('Behavior equality behaves correctly', () {
+    test('PairingHandshake equality changes when host versions differ', () {
+      final PairingHandshake first = Fixtures.buildPairingHandshake(
+        hostVersion: '1.2.3',
+        trusted: true,
+      );
+      final PairingHandshake second = Fixtures.buildPairingHandshake(
+        hostVersion: '2.0.0',
+        trusted: true,
+      );
 
       expect(first == second, isFalse);
     });
 
-    test('stores a credential-rejected message when set', () {
-      final PairingHandshakeEntity handshake =
-          Fixtures.buildPairingHandshakeEntity(
-            hostVersion: '1.2.3',
-            trusted: false,
-            credentialRejectedMessage: "This device's trust was revoked.",
-          );
-
-      expect(handshake.credentialRejectedMessage, isA<String>());
-      expect(
-        handshake.credentialRejectedMessage,
-        "This device's trust was revoked.",
+    test('PairingHandshake equality changes when trust standings differ', () {
+      final PairingHandshake first = Fixtures.buildPairingHandshake(
+        hostVersion: '1.2.3',
+        trusted: false,
       );
-    });
+      final PairingHandshake second = Fixtures.buildPairingHandshake(
+        hostVersion: '1.2.3',
+        trusted: true,
+      );
 
-    test('defaults the credential-rejected message to null', () {
-      final PairingHandshakeEntity handshake =
-          Fixtures.buildPairingHandshakeEntity(
-            hostVersion: '1.2.3',
-            trusted: false,
-          );
-
-      expect(handshake.credentialRejectedMessage, isNull);
+      expect(first == second, isFalse);
     });
 
     test(
-      'treats handshakes with different credential-rejected messages as unequal',
+      'PairingHandshake equality changes when rejection messages differ',
       () {
-        final PairingHandshakeEntity first =
-            Fixtures.buildPairingHandshakeEntity(
-              hostVersion: '1.2.3',
-              trusted: false,
-            );
-        final PairingHandshakeEntity second =
-            Fixtures.buildPairingHandshakeEntity(
-              hostVersion: '1.2.3',
-              trusted: false,
-              credentialRejectedMessage: "This device's trust was revoked.",
-            );
+        final PairingHandshake first = Fixtures.buildPairingHandshake(
+          hostVersion: '1.2.3',
+          trusted: false,
+        );
+        final PairingHandshake second = Fixtures.buildPairingHandshake(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectedMessage: "This device's trust was revoked.",
+        );
 
         expect(first == second, isFalse);
       },
     );
 
     test(
-      'treats handshakes with the same credential-rejected message as equal',
+      'PairingHandshake equality gives matching hashes for equal values',
       () {
-        final PairingHandshakeEntity first =
-            Fixtures.buildPairingHandshakeEntity(
-              hostVersion: '1.2.3',
-              trusted: false,
-              credentialRejectedMessage: "This device's trust was revoked.",
-            );
-        final PairingHandshakeEntity second =
-            Fixtures.buildPairingHandshakeEntity(
-              hostVersion: '1.2.3',
-              trusted: false,
-              credentialRejectedMessage: "This device's trust was revoked.",
-            );
+        final PairingHandshake first = Fixtures.buildPairingHandshake(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectedMessage: "This device's trust was revoked.",
+        );
+        final PairingHandshake second = Fixtures.buildPairingHandshake(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectedMessage: "This device's trust was revoked.",
+        );
 
         expect(first == second, isTrue);
+        expect(first.hashCode, second.hashCode);
       },
     );
   });

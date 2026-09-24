@@ -12,14 +12,14 @@ import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection selectors over root application state.
 void main() {
-  AppState stateWith(List<HostEntity> hosts) => AppState(
+  AppState stateWith(List<Host> hosts) => AppState(
     connection: ConnectionState(hosts: hosts),
     pairing: PairingState.initial(),
   );
 
   group('Selector hostsSelector behaves correctly', () {
     test('Selector hostsSelector selects the Host list from AppState', () {
-      final HostEntity host = Fixtures.buildHostEntity();
+      final Host host = Fixtures.buildHost();
 
       expect(ConnectionSelectors.hostsSelector(stateWith([host])), [host]);
     });
@@ -27,7 +27,7 @@ void main() {
 
   group('Selector hostCardsSelector behaves correctly', () {
     test('Selector hostCardsSelector maps a Host to its display data', () {
-      final HostEntity host = Fixtures.buildHostEntity();
+      final Host host = Fixtures.buildHost();
 
       expect(ConnectionSelectors.hostCardsSelector(stateWith([host])), [
         Fixtures.buildHostCardModel(host: host),
@@ -38,8 +38,8 @@ void main() {
       'Selector hostCardsSelector marks every card unknown because reachability is not known',
       () {
         final AppState state = stateWith([
-          Fixtures.buildHostEntity(),
-          Fixtures.buildHostEntity(displayName: 'Second Host'),
+          Fixtures.buildHost(),
+          Fixtures.buildHost(displayName: 'Second Host'),
         ]);
 
         final List<DovahConnectionCardState> states =
@@ -55,11 +55,11 @@ void main() {
     );
 
     test('Selector hostCardsSelector keeps Host order and each Host', () {
-      final HostEntity first = Fixtures.buildHostEntity(
+      final Host first = Fixtures.buildHost(
         displayName: 'First Host',
         uri: Uri.parse('ws://192.168.1.10:1000/'),
       );
-      final HostEntity second = Fixtures.buildHostEntity(
+      final Host second = Fixtures.buildHost(
         displayName: 'Second Host',
         uri: Uri.parse('ws://192.168.1.11:2000/'),
       );
@@ -92,9 +92,7 @@ void main() {
     test(
       'Selector hostCardsSelector falls back to the whole endpoint when it has no authority',
       () {
-        final HostEntity host = Fixtures.buildHostEntity(
-          uri: Uri.parse('local-host'),
-        );
+        final Host host = Fixtures.buildHost(uri: Uri.parse('local-host'));
 
         final HostCardModel card = ConnectionSelectors.hostCardsSelector(
           stateWith([host]),
@@ -107,7 +105,7 @@ void main() {
 
     test('Selector hostCardsSelector keeps a very long Host name intact', () {
       final String longName = 'A very long Host name ' * 12;
-      final HostEntity host = Fixtures.buildHostEntity(displayName: longName);
+      final Host host = Fixtures.buildHost(displayName: longName);
 
       final HostCardModel card = ConnectionSelectors.hostCardsSelector(
         stateWith([host]),

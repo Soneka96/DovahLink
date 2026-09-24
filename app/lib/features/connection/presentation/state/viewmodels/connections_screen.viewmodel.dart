@@ -21,7 +21,7 @@ class ConnectionsScreenViewModel extends Equatable {
     final AppState state = store.state;
     return ConnectionsScreenViewModel(
       hostCards: ConnectionSelectors.hostCardsSelector(state),
-      onSelectHost: (HostEntity host) =>
+      onSelectHost: (Host host) =>
           store.dispatch(ConnectionHostSelectedAction(host)),
     );
   }
@@ -30,7 +30,7 @@ class ConnectionsScreenViewModel extends Equatable {
   final List<HostCardModel> hostCards;
 
   /// Called when the user selects [host] to pair or connect with.
-  final void Function(HostEntity host) onSelectHost;
+  final void Function(Host host) onSelectHost;
 
   /// See [Equatable.props].
   @override

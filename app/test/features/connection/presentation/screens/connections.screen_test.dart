@@ -43,7 +43,7 @@ void main() {
   late MockStore store;
   late MockConnectionsScreenViewModel viewModel;
   late MockAppearanceSectionViewModel appearanceViewModel;
-  late List<HostEntity> selectedHosts;
+  late List<Host> selectedHosts;
   late List<DovahThemePreset> selectedPresets;
 
   setUp(() async {
@@ -157,7 +157,7 @@ void main() {
     testWidgets(
       'ConnectionsScreen contains one card per Host from its ViewModel',
       (WidgetTester tester) async {
-        final HostEntity second = Fixtures.buildHostEntity(
+        final Host second = Fixtures.buildHost(
           displayName: 'Second Host',
           uri: Uri.parse('ws://192.168.1.11:2000/'),
         );
@@ -213,7 +213,7 @@ void main() {
         final String longName = 'A very long Host name ' * 12;
         when(() => viewModel.hostCards).thenReturn([
           Fixtures.buildHostCardModel(
-            host: Fixtures.buildHostEntity(displayName: longName),
+            host: Fixtures.buildHost(displayName: longName),
             title: longName,
           ),
         ]);
@@ -295,18 +295,18 @@ void main() {
         );
         await tester.pump();
 
-        expect(selectedHosts, [Fixtures.buildHostEntity()]);
+        expect(selectedHosts, [Fixtures.buildHost()]);
       },
     );
 
     testWidgets(
       'ConnectionsScreen passes the second Host, not the first, when the second card is tapped',
       (WidgetTester tester) async {
-        final HostEntity first = Fixtures.buildHostEntity(
+        final Host first = Fixtures.buildHost(
           displayName: 'First Host',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
-        final HostEntity second = Fixtures.buildHostEntity(
+        final Host second = Fixtures.buildHost(
           displayName: 'Second Host',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
@@ -327,17 +327,17 @@ void main() {
     testWidgets(
       'ConnectionsScreen distinguishes and selects Hosts with identical display names',
       (WidgetTester tester) async {
-        final HostEntity first = Fixtures.buildHostEntity(
+        final Host first = Fixtures.buildHost(
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
-        final HostEntity second = Fixtures.buildHostEntity(
+        final Host second = Fixtures.buildHost(
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardModel(host: first),
-          Fixtures.buildHostCardModel(host: second),
+          Fixtures.buildHostCardModel(host: first, title: first.displayName),
+          Fixtures.buildHostCardModel(host: second, title: second.displayName),
         ]);
         await useSurface(tester, const Size(1280, 900));
         await tester.pumpWidget(buildWidget());

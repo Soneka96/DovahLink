@@ -10,7 +10,7 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 abstract interface class IPairingRemoteDataSource {
   /// Connects and authenticates, recovering an interrupted pairing
   /// confirmation when the session authenticates as unpaired.
-  Future<Either<Failure, PairingHandshakeEntity>> authenticate();
+  Future<Either<Failure, PairingHandshake>> authenticate();
 
   /// Starts, or queries the status of, a pairing challenge.
   /// Returns the active code's remaining validity in seconds, or null when the host did not
@@ -63,7 +63,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// credential and retrying as `unpaired` -- this layer only picks the user-safe wording for
   /// [HelloResult.recoveredFromRejectedCredential] when that happened.
   @override
-  Future<Either<Failure, PairingHandshakeEntity>> authenticate() async {
+  Future<Either<Failure, PairingHandshake>> authenticate() async {
     try {
       final HelloResult hello = await _client.authenticate(defaultHostUri);
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
@@ -73,7 +73,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
         trusted = recovered == DovahLinkTrustState.trusted;
       }
       return Right(
-        PairingHandshakeEntity(
+        PairingHandshake(
           hostVersion: hello.hostVersion,
           trusted: trusted,
           credentialRejectedMessage: _credentialRejectedMessage(

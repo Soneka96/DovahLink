@@ -16,7 +16,7 @@ class PairingRepository implements IPairingRepository {
 
   /// See [IPairingRepository.authenticate].
   @override
-  Future<Either<Failure, PairingHandshakeEntity>> authenticate() =>
+  Future<Either<Failure, PairingHandshake>> authenticate() =>
       _remoteDataSource.authenticate();
 
   /// See [IPairingRepository.requestPairingCode].

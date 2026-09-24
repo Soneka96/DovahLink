@@ -25,13 +25,12 @@ void main() {
 
   group('Usecase AuthenticateUseCase returns the correct value', () {
     test('returns Right when repository succeeds', () async {
-      final PairingHandshakeEntity handshake =
-          Fixtures.buildPairingHandshakeEntity();
+      final PairingHandshake handshake = Fixtures.buildPairingHandshake();
       when(
         () => mockRepository.authenticate(),
       ).thenAnswer((_) async => Right(handshake));
 
-      final Either<Failure, PairingHandshakeEntity> result = await useCase(
+      final Either<Failure, PairingHandshake> result = await useCase(
         NoParams(),
       );
 
@@ -46,7 +45,7 @@ void main() {
         () => mockRepository.authenticate(),
       ).thenAnswer((_) async => const Left(failure));
 
-      final Either<Failure, PairingHandshakeEntity> result = await useCase(
+      final Either<Failure, PairingHandshake> result = await useCase(
         NoParams(),
       );
 
