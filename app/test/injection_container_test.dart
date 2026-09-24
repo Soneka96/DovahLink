@@ -30,6 +30,7 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -182,6 +183,22 @@ void main() {
       expect(sl.isRegistered<CancelPairingUseCase>(), isTrue);
       expect(sl.isRegistered<ObserveConnectionStatusUseCase>(), isTrue);
     });
+
+    test(
+      'initDependencies registers and resolves the pairing dialog ViewModel factory',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(AppState.initial());
+
+        final PairingDialogViewModel viewModel = sl<PairingDialogViewModel>(
+          param1: store,
+        );
+
+        expect(sl.isRegistered<PairingDialogViewModel>(), isTrue);
+        expect(viewModel.title, 'Pair with this PC');
+      },
+    );
 
     test(
       'initDependencies registers and resolves the pairing section ViewModel factory',

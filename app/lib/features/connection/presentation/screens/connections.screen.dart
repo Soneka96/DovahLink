@@ -12,7 +12,7 @@ import 'package:dovahlink_client/features/connection/presentation/widgets/connec
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
-import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
@@ -78,11 +78,7 @@ class ConnectionsScreen extends StatelessWidget {
                                   cards: viewModel.hostCards,
                                   onSelectHost: (Host host) {
                                     viewModel.onSelectHost(host);
-                                    DovahDialog.show<void>(
-                                      context,
-                                      title: 'Pair with ${host.displayName}',
-                                      child: const PairingSection(),
-                                    );
+                                    PairingDialog.show(context);
                                   },
                                 ),
                                 const ConnectionsFooter(),

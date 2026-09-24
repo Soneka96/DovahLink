@@ -17,7 +17,9 @@ import 'package:dovahlink_client/features/connection/presentation/state/viewmode
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -36,6 +38,10 @@ class MockConnectionsScreenViewModel extends Mock
 class MockAppearanceSectionViewModel extends Mock
     implements AppearanceSectionViewModel {}
 
+/// Mock ViewModel supplied to the [PairingDialog] the screen opens.
+class MockPairingDialogViewModel extends Mock
+    implements PairingDialogViewModel {}
+
 /// Mock ViewModel supplied to the [PairingSection] the screen's dialog shows.
 class MockPairingSectionViewModel extends Mock
     implements PairingSectionViewModel {}
@@ -50,6 +56,7 @@ void main() {
   late MockConnectionsScreenViewModel viewModel;
   late MockAppearanceSectionViewModel appearanceViewModel;
   late MockPairingSectionViewModel pairingViewModel;
+  late MockPairingDialogViewModel pairingDialogViewModel;
   late List<String> pairingCalls;
   late List<Host> selectedHosts;
   late List<DovahThemePreset> selectedPresets;
@@ -60,6 +67,8 @@ void main() {
     viewModel = MockConnectionsScreenViewModel();
     appearanceViewModel = MockAppearanceSectionViewModel();
     pairingViewModel = MockPairingSectionViewModel();
+    pairingDialogViewModel = MockPairingDialogViewModel();
+    when(() => pairingDialogViewModel.title).thenReturn('Pair with Local Host');
     pairingCalls = [];
     selectedHosts = [];
     selectedPresets = [];
@@ -91,6 +100,9 @@ void main() {
     when(
       () => pairingViewModel.onDispose,
     ).thenReturn(() => pairingCalls.add('dispose'));
+    sl.registerFactoryParam<PairingDialogViewModel, Store<AppState>, void>(
+      (Store<AppState> _, void _) => pairingDialogViewModel,
+    );
     sl.registerFactoryParam<PairingSectionViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => pairingViewModel,
     );
@@ -107,6 +119,7 @@ void main() {
     reset(viewModel);
     reset(appearanceViewModel);
     reset(pairingViewModel);
+    reset(pairingDialogViewModel);
     reset(store);
   });
 
@@ -432,13 +445,14 @@ void main() {
     }
 
     testWidgets(
-      'ConnectionsScreen opens the pairing section in a DovahDialog titled with the Host name when a Host is tapped',
+      'ConnectionsScreen opens the pairing section in a DovahDialog titled by the pairing dialog ViewModel when a Host is tapped',
       (WidgetTester tester) async {
         useWindow(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
 
         await tapHost(tester, 'ws://127.0.0.1:58231/');
 
+        expect(find.byType(PairingDialog), findsOneWidget);
         expect(find.byType(DovahDialog), findsOneWidget);
         expect(find.text('Pair with Local Host'), findsOneWidget);
         expect(
@@ -477,7 +491,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen titles the dialog for, and selects, the second Host when it is tapped',
+      'ConnectionsScreen selects the second Host and opens the pairing dialog when it is tapped',
       (WidgetTester tester) async {
         final Host first = Fixtures.buildHost(
           displayName: 'First Host',
@@ -496,8 +510,7 @@ void main() {
 
         await tapHost(tester, 'ws://127.0.0.1:2/');
 
-        expect(find.text('Pair with Second Host'), findsOneWidget);
-        expect(find.text('Pair with First Host'), findsNothing);
+        expect(find.byType(DovahDialog), findsOneWidget);
         expect(selectedHosts, [second]);
       },
     );
@@ -525,7 +538,7 @@ void main() {
 
         await tapHost(tester, 'ws://127.0.0.1:1/');
 
-        expect(find.text('Pair with Shared Host Name'), findsOneWidget);
+        expect(find.byType(DovahDialog), findsOneWidget);
         expect(selectedHosts, [first]);
         expect(selectedHosts.single.uri, first.uri);
       },

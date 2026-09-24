@@ -6,7 +6,9 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// The pairing state after trust is established, the prototype's "You're connected" step: a
-/// success mark, the Host that is now paired, and the action that finishes.
+/// success mark, the Host that is now paired, and the action that finishes. Finishing only closes
+/// the dialog: there is no game session to enter yet, so the prototype's "Enter game" action is
+/// not offered.
 class PairingSuccess extends StatelessWidget {
   /// The Host's name, shown in the copy.
   final String hostName;
