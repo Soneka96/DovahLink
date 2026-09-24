@@ -142,7 +142,8 @@ The eight Services:
 - `ISessionAdmissionService`/`SessionAdmissionService` — `admitSession`, a privileged capability
   injected only into `AuthenticationService`. Also triggers `RequestService`'s
   retry-orphaned-operations transition as part of admitting a session, keeping reconnect/session
-  recovery cohesive in one place.
+  recovery cohesive in one place; trusted admission also starts restoration of the remembered
+  state-area set through `SubscriptionService`.
 - `ISessionTrustService`/`SessionTrustService` — `markTrusted`, a privileged capability injected
   only into `PairingService`.
 - `IRequestService`/`RequestService` — owns pending requests, timeout policy, retry behavior,
@@ -234,13 +235,15 @@ These are the SDK's explicitly enumerated lifecycle-inversion exceptions to ordi
 injection. They are typed, assigned once by the composition root, and do not construct or resolve
 implementations.
 
-1. **Teardown notification** → `IRequestService.failAll`. `SessionService` can detect a
+1. **Teardown notification** → `IRequestService.failAll` and
+   `ISubscriptionService.onSessionEnded`. `SessionService` can detect a
    connection failure entirely internally (its own transport subscription's `onError`/`onDone`) and
    must trigger pending-operation failure/orphaning after tearing down, but cannot hold an
    `IRequestService` reference, because `RequestService` is constructed after `SessionService`
    and itself depends on `ISessionService`. Assigned once by the composition root as a method
-   tear-off (`sessionService.onTeardown = requestService.failAll`), not as
-   `RequestService` implementing a second interface. Gated by the same generation check
+   closure assigned once by the composition root, not as `RequestService` implementing a second
+   interface. The subscription service clears the session's accepted-area gate while preserving
+   desired intent, so a later trusted session can restore it. Gated by the same generation check
    `ConnectionTeardownCoordinator` already uses internally, so a duplicate `onError`+`onDone` signal
    for one dead connection fires the callback exactly once, never twice, and a later, genuinely new
    teardown still fires it again.

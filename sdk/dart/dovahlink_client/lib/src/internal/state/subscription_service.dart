@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
@@ -34,6 +36,15 @@ abstract interface class ISubscriptionService {
   /// @throws [DovahLinkConnectionException] if no trusted session is active.
   /// @throws [DovahLinkProtocolException] if the Host returns a malformed acknowledgement.
   Future<Set<DovahLinkStateArea>> synchronizeDesiredStateAreas();
+
+  /// Starts best-effort restoration after an authenticated session becomes trusted.
+  void restoreDesiredStateAreas();
+
+  /// Clears the accepted state gate when the current socket session ends, preserving intent.
+  void onSessionEnded();
+
+  /// Clears both desired intent and the current accepted state gate.
+  void clearDesiredStateAreas();
 }
 
 /// Implements per-domain subscription intent over the shared request and state-message paths.
@@ -53,6 +64,9 @@ class SubscriptionService implements ISubscriptionService {
   /// Changes whenever the desired set changes, preventing an older acknowledgement from
   /// replacing the state-message gate for a newer request.
   int _intentGeneration = 0;
+
+  /// Changes whenever a session ends, preventing its late acknowledgement from reopening the gate.
+  int _sessionGeneration = 0;
 
   /// Creates a subscription service over the shared request, session, and state-message owners.
   /// @param requestService Sends correlated subscription updates.
@@ -95,6 +109,7 @@ class SubscriptionService implements ISubscriptionService {
   @override
   Future<Set<DovahLinkStateArea>> synchronizeDesiredStateAreas() async {
     final int requestGeneration = _intentGeneration;
+    final int requestSessionGeneration = _sessionGeneration;
     final Set<DovahLinkStateArea> requestedAreas = Set<DovahLinkStateArea>.of(
       _desiredStateAreas,
     );
@@ -143,12 +158,49 @@ class SubscriptionService implements ISubscriptionService {
       _reportMalformedAcknowledgement();
     }
 
-    if (_intentGeneration == requestGeneration) {
+    if (_intentGeneration == requestGeneration &&
+        _sessionGeneration == requestSessionGeneration) {
       _stateMessageHandler.setSubscribedStateAreas(<String>{
         for (final DovahLinkStateArea area in acceptedAreas) area.protocolValue,
       });
     }
     return Set<DovahLinkStateArea>.unmodifiable(rejectedAreas);
+  }
+
+  /// See [ISubscriptionService.restoreDesiredStateAreas].
+  @override
+  void restoreDesiredStateAreas() {
+    if (_desiredStateAreas.isEmpty) {
+      return;
+    }
+    unawaited(_restoreDesiredStateAreasInBackground());
+  }
+
+  /// Sends the desired set without letting a recovery error escape an authentication operation.
+  Future<void> _restoreDesiredStateAreasInBackground() async {
+    try {
+      await synchronizeDesiredStateAreas();
+    } on Object {
+      // RequestService routes transport failures and malformed acknowledgements through
+      // SessionService before this best-effort lifecycle restoration completes.
+    }
+  }
+
+  /// See [ISubscriptionService.onSessionEnded].
+  @override
+  void onSessionEnded() {
+    _sessionGeneration++;
+    _stateMessageHandler.setSubscribedStateAreas(<String>{});
+  }
+
+  /// See [ISubscriptionService.clearDesiredStateAreas].
+  @override
+  void clearDesiredStateAreas() {
+    if (_desiredStateAreas.isNotEmpty) {
+      _desiredStateAreas.clear();
+      _intentGeneration++;
+    }
+    onSessionEnded();
   }
 
   /// Decodes protocol state-area identifiers into the SDK's typed domains.

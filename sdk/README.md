@@ -53,9 +53,10 @@ client for pairing and authentication through `PairingRemoteDataSource`.
 The SDK supports Host releases in the `0.4.x` range and rejects older or newer Host versions during
 `hello`, before admitting a session. Phase 5.2 is complete: the public client exposes replayable typed
 state streams for XP, health, magicka, stamina, and level, backed by the SDK's state models,
-revision tracking, Snapshot handling, and level Event handling. Phase 5.3 still owns explicit
-subscription intent and restoring subscriptions after reconnect; Phase 5.4 wires SDK streams
-through Flutter middleware. These remaining phases keep Stage 5 open.
+revision tracking, Snapshot handling, and level Event handling. Phase 5.3 is complete: callers have
+typed per-domain subscription intent, and the SDK restores the desired set after trusted recovery
+while keeping it dormant after administrative invalidation. Phase 5.4 wires SDK streams through
+Flutter middleware; Phase 5.5 audits version impact and closes Stage 5.
 
 The app's `features/connection/` area remains responsible for Host selection and navigation. It is
 not a parallel protocol implementation. See [`app/README.md`](../app/README.md) for the current

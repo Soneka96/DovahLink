@@ -251,6 +251,122 @@ void main() {
     );
 
     test(
+      'Method onSessionEnded clears accepted areas but preserves desired intent',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(accepted: <String>['character_xp']),
+        );
+        await update;
+
+        service.onSessionEnded();
+
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+        expect(service.desiredStateAreas, <DovahLinkStateArea>{
+          DovahLinkStateArea.characterXp,
+        });
+      },
+    );
+
+    test(
+      'Method onSessionEnded ignores a late acknowledgement from the ended session',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        service.onSessionEnded();
+        requestService.requests.single.reply.complete(
+          _acknowledgement(accepted: <String>['character_xp']),
+        );
+
+        expect(await update, isEmpty);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+        expect(service.desiredStateAreas, <DovahLinkStateArea>{
+          DovahLinkStateArea.characterXp,
+        });
+      },
+    );
+
+    test(
+      'Method restoreDesiredStateAreas resends only the remembered set',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(accepted: <String>['character_xp']),
+        );
+        await update;
+        service.onSessionEnded();
+
+        service.restoreDesiredStateAreas();
+
+        expect(requestService.requests, hasLength(2));
+        expect(requestService.requests.last.payload, <String, dynamic>{
+          'stateAreas': <String>['character_xp'],
+        });
+        requestService.requests.last.reply.complete(
+          _acknowledgement(accepted: <String>['character_xp']),
+        );
+        await pumpEventQueue();
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          'character_xp',
+        });
+      },
+    );
+
+    test(
+      'Method restoreDesiredStateAreas contains a failed best-effort request',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(accepted: <String>['character_xp']),
+        );
+        await update;
+        service.onSessionEnded();
+
+        service.restoreDesiredStateAreas();
+        requestService.requests.last.reply.completeError(
+          const DovahLinkConnectionException('Connection lost.'),
+        );
+        await pumpEventQueue();
+
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+        expect(service.desiredStateAreas, <DovahLinkStateArea>{
+          DovahLinkStateArea.characterXp,
+        });
+      },
+    );
+
+    test(
+      'Method clearDesiredStateAreas removes intent and the accepted gate',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(accepted: <String>['character_xp']),
+        );
+        await update;
+
+        service.clearDesiredStateAreas();
+
+        expect(service.desiredStateAreas, isEmpty);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+        service.restoreDesiredStateAreas();
+        expect(requestService.requests, hasLength(1));
+      },
+    );
+
+    test(
+      'Method restoreDesiredStateAreas is a no-op when no intent remains',
+      () {
+        service.restoreDesiredStateAreas();
+
+        expect(requestService.requests, isEmpty);
+      },
+    );
+
+    test(
       'Method synchronizeDesiredStateAreas fails closed on malformed acknowledgements',
       () async {
         final List<({List<String> accepted, List<String> rejected})> malformed =

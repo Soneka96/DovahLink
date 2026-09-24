@@ -229,7 +229,11 @@ class DovahLinkClient {
     levelRecoveryService.start();
 
     final SessionAdmissionService sessionAdmissionService =
-        SessionAdmissionService(state: state, requestService: _requestService);
+        SessionAdmissionService(
+          state: state,
+          requestService: _requestService,
+          subscriptionService: _subscriptionService,
+        );
     final SessionTrustService sessionTrustService = SessionTrustService(
       state: state,
     );
@@ -251,6 +255,7 @@ class DovahLinkClient {
         reason,
         orphanRetrySafeOperations: orphanRetrySafeOperations,
       );
+      _subscriptionService.onSessionEnded();
       if (_sessionService.invalidationReason != null) {
         unawaited(
           _authenticationService.forgetCredential().catchError((
@@ -401,7 +406,8 @@ class DovahLinkClient {
   /// `trusted_device_credential` on reconnect, except while a
   /// [PairingRecoveryState.confirming] pairing is outstanding;
   /// the Host has not trusted that credential yet. Once the session is admitted, retries orphaned
-  /// requests whose trust requirements the new session satisfies.
+  /// requests whose trust requirements the new session satisfies. A trusted admission also starts
+  /// restoring this client's desired state subscriptions.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
@@ -456,11 +462,14 @@ class DovahLinkClient {
   /// Echoes back a [credential] durably saved from [DovahLinkClient.confirmPairingCode],
   /// completing pairing. [DovahLinkClient.trustState] becomes
   /// [DovahLinkTrustState.trusted] on success, and the persisted recovery state clears back to
-  /// [PairingRecoveryState.none] while keeping the credential.
+  /// [PairingRecoveryState.none] while keeping the credential. Starts best-effort restoration of
+  /// desired state-area subscriptions after pairing succeeds.
   /// @throws [DovahLinkPairingException] if the Host has no matching pending confirmation or
   ///     an administrative mutation invalidated the pending credential.
-  Future<void> acknowledgeTrustedCredential(String credential) =>
-      _pairingService.acknowledgeTrustedCredential(credential);
+  Future<void> acknowledgeTrustedCredential(String credential) async {
+    await _pairingService.acknowledgeTrustedCredential(credential);
+    _subscriptionService.restoreDesiredStateAreas();
+  }
 
   /// Resumes an interrupted pairing confirmation after a crash or relaunch. Call after
   /// [DovahLinkClient.hello] admits a [DovahLinkTrustState.unpaired] session.
@@ -471,9 +480,16 @@ class DovahLinkClient {
   /// `pairing_invalidated` outcome (an administrative mutation rejected the pending credential)
   /// discards the local credential and resets to [DovahLinkTrustState.unpaired] rather than
   /// treating that as a fatal error; any other failure leaves [PairingRecoveryState.confirming]
-  /// untouched so a later relaunch can retry.
-  Future<DovahLinkTrustState> recoverPendingPairing() =>
-      _pairingService.recoverPendingPairing();
+  /// untouched so a later relaunch can retry. A recovered trusted session starts restoring desired
+  /// state subscriptions.
+  Future<DovahLinkTrustState> recoverPendingPairing() async {
+    final DovahLinkTrustState trustState = await _pairingService
+        .recoverPendingPairing();
+    if (trustState == DovahLinkTrustState.trusted) {
+      _subscriptionService.restoreDesiredStateAreas();
+    }
+    return trustState;
+  }
 
   /// Closes the connection and resets in-memory session state. Idempotent, and never throws: this
   /// is a best-effort cleanup operation matching the transport's idempotent close contract.
@@ -481,8 +497,9 @@ class DovahLinkClient {
   /// cleanly -- a broken close must not leave [DovahLinkClient.connectionState],
   /// [DovahLinkClient.trustState], or [DovahLinkClient.sessionId] lying
   /// about a session that no longer exists. Persisted identity, credential, and recovery state are
-  /// untouched -- trust survives a disconnect. Fails any operation still awaiting a reply, and any
-  /// operation an earlier transport loss orphaned for retry, instead of leaving it to hang
+  /// untouched -- trust survives a disconnect. Clears desired state subscriptions, then fails any
+  /// operation still awaiting a reply, and any operation an earlier transport loss orphaned for
+  /// retry, instead of leaving it to hang
   /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. Also
   /// cancels bounded automatic recovery already in progress from an earlier transport loss --
   /// [DovahLinkClient.connectionState] moves directly to
@@ -490,7 +507,10 @@ class DovahLinkClient {
   /// letting that recovery keep running. Repeated calls remain safe because transport close and
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
   /// preserved, not reset to generic disconnect.
-  Future<void> disconnect() => _sessionService.disconnect();
+  Future<void> disconnect() {
+    _subscriptionService.clearDesiredStateAreas();
+    return _sessionService.disconnect();
+  }
 
   /// Discards the persisted pairing credential and recovery state while preserving
   /// [DovahLinkClient.clientId], so the next [DovahLinkClient.hello] presents

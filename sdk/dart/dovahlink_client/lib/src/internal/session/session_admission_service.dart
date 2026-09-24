@@ -1,5 +1,6 @@
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Admits a newly authenticated session, a privileged capability injected only into
@@ -8,7 +9,8 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 abstract interface class ISessionAdmissionService {
   /// Admits a newly authenticated session, recording [sessionId] and [trustState] and triggering
   /// retransmission of any retry-safe operation an earlier ordinary transport loss orphaned, per
-  /// `ai/context/sdk/architecture.md`'s "Session-state ownership".
+  /// `ai/context/sdk/architecture.md`'s "Session-state ownership". A trusted admission also starts
+  /// best-effort restoration of the remembered state-area subscriptions.
   void admitSession({
     required String sessionId,
     required DovahLinkTrustState trustState,
@@ -27,13 +29,21 @@ class SessionAdmissionService implements ISessionAdmissionService {
   /// newly admitted session's trust state is known.
   final IRequestService _requestService;
 
+  /// Restores desired state-area subscriptions after trusted admission.
+  final ISubscriptionService _subscriptionService;
+
   /// Creates a session admission service over [state], retrying orphaned operations through
-  /// [requestService].
+  /// [requestService], then restoring trusted subscriptions through [subscriptionService].
+  /// @param state The single owner of current session state.
+  /// @param requestService Retries eligible operations after admission.
+  /// @param subscriptionService Restores desired state areas for trusted sessions.
   SessionAdmissionService({
     required SessionState state,
     required IRequestService requestService,
+    required ISubscriptionService subscriptionService,
   }) : _state = state,
-       _requestService = requestService;
+       _requestService = requestService,
+       _subscriptionService = subscriptionService;
 
   /// Implements [ISessionAdmissionService.admitSession].
   @override
@@ -43,5 +53,8 @@ class SessionAdmissionService implements ISessionAdmissionService {
   }) {
     _state.admit(sessionId: sessionId, trustState: trustState);
     _requestService.retryOrphanedOperations();
+    if (trustState == DovahLinkTrustState.trusted) {
+      _subscriptionService.restoreDesiredStateAreas();
+    }
   }
 }

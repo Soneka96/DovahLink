@@ -224,15 +224,27 @@ String _rawFixture(String relativePath) =>
 
 /// Builds an unsolicited `session_invalidated` envelope for [reason] (a raw wire value, e.g.
 /// `'revoked'`).
-String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
+String _rawSessionInvalidated(
+  String reason, {
+  String sessionId = 'session-1',
+}) => jsonEncode(<String, dynamic>{
   'messageType': 'session_invalidated',
   'messageId': 'message-session-invalidated-1',
-  'sessionId': 'session-1',
+  'sessionId': sessionId,
   'correlationId': null,
   'payload': <String, dynamic>{'reason': reason},
   'playContextId': null,
   'clientId': null,
 });
+
+/// Returns the decoded subscription updates sent by [transport].
+/// @param transport The fake transport whose writes are inspected.
+/// @return The client-originated `subscribe` envelopes, in send order.
+List<JsonMap> _sentSubscriptionUpdates(FakeDovahLinkTransport transport) =>
+    transport.sent
+        .map((String raw) => jsonDecode(raw) as JsonMap)
+        .where((JsonMap envelope) => envelope['messageType'] == 'subscribe')
+        .toList();
 
 /// Builds a correlated `subscription_ack` for the fake Host.
 /// @param accepted The state areas the Host accepted.
@@ -241,10 +253,11 @@ String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
 String _rawSubscriptionAck({
   required List<String> accepted,
   List<String> rejected = const <String>[],
+  String sessionId = 'session-paired-1',
 }) => jsonEncode(<String, dynamic>{
   'messageType': 'subscription_ack',
   'messageId': 'message-subscription-ack-1',
-  'sessionId': 'session-paired-1',
+  'sessionId': sessionId,
   'correlationId': 'subscribe-placeholder',
   'payload': <String, dynamic>{
     'acceptedStateAreas': accepted,
@@ -805,6 +818,313 @@ void main() {
       );
     },
   );
+
+  group('Behavior subscription session lifecycle behaves correctly', () {
+    test(
+      'Behavior successful pending-pairing recovery restores remembered subscriptions',
+      () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'a1b2c3d4e5f6',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        await _connectAndHello(transport, client);
+        await expectLater(
+          client.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(
+            accepted: <String>['character_xp'],
+            sessionId: 'session-1',
+          ),
+        );
+        expect(
+          await client.recoverPendingPairing(),
+          DovahLinkTrustState.trusted,
+        );
+
+        for (
+          int attempt = 0;
+          attempt < 20 && _sentSubscriptionUpdates(transport).isEmpty;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          _sentSubscriptionUpdates(transport).single['payload'],
+          <String, dynamic>{
+            'stateAreas': <String>['character_xp'],
+          },
+        );
+      },
+    );
+
+    test(
+      'Behavior ordinary reconnect restores only desired areas and waits for a fresh Snapshot',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _subscribeStateAreas(
+          reconnectTransport,
+          reconnectClient,
+          <DovahLinkStateArea>[
+            DovahLinkStateArea.characterXp,
+            DovahLinkStateArea.characterHealth,
+          ],
+        );
+
+        reconnectTransport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_health']),
+        );
+        await reconnectClient.unsubscribeStateArea(
+          DovahLinkStateArea.characterXp,
+        );
+        reconnectTransport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_health',
+            revision: 7,
+            value: 87.5,
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          (await reconnectClient.characterHealthChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_health']),
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+        for (
+          int attempt = 0;
+          attempt < 30 &&
+              _sentSubscriptionUpdates(reconnectTransport).length < 4;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+
+        final List<JsonMap> updates = _sentSubscriptionUpdates(
+          reconnectTransport,
+        );
+        expect(updates, hasLength(4));
+        expect(updates.last['payload'], <String, dynamic>{
+          'stateAreas': <String>['character_health'],
+        });
+        expect(
+          (await reconnectClient.characterHealthChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+
+        reconnectTransport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_health',
+            revision: 1,
+            value: 75,
+            correlationId:
+                _sentSubscriptionUpdates(reconnectTransport).last['messageId']
+                    as String,
+          ),
+        );
+        await pumpEventQueue();
+        final StateSynchronization<CharacterHealthState> recovered =
+            await reconnectClient.characterHealthChanges.first;
+        expect(recovered.status, DovahLinkStateStatus.synchronized);
+        expect(recovered.revision, 1);
+        expect(recovered.value?.value, 75);
+        expect(
+          (await reconnectClient.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+      },
+    );
+
+    test(
+      'Behavior administrative invalidation stays dormant until explicit pairing succeeds',
+      () async {
+        await _connectAndTrustedHello(transport, client);
+        await _subscribeStateAreas(transport, client, <DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          (await client.characterXpChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+
+        transport.queueRawResponse(
+          _rawSessionInvalidated('revoked', sessionId: 'session-paired-1'),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(stateArea: 'character_xp', revision: 2, value: 43),
+        );
+        transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_xp',
+            baseRevision: 1,
+            revision: 2,
+            value: 43,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(
+          client.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(transport.connectCalls, hasLength(1));
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          (await client.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        final HelloResult retry = await client.authenticate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        expect(retry.trustState, DovahLinkTrustState.unpaired);
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-status-available.json'),
+        );
+        await client.requestPairing();
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+        );
+        final String credential = await client.confirmPairingCode(
+          code: '123456',
+          displayName: 'My PC',
+        );
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(
+            accepted: <String>['character_xp'],
+            sessionId: 'session-1',
+          ),
+        );
+        await client.acknowledgeTrustedCredential(credential);
+
+        for (
+          int attempt = 0;
+          attempt < 20 && _sentSubscriptionUpdates(transport).length < 2;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(_sentSubscriptionUpdates(transport), hasLength(2));
+        final String restoredSubscriptionMessageId =
+            _sentSubscriptionUpdates(transport).last['messageId'] as String;
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+            correlationId: restoredSubscriptionMessageId,
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          (await client.characterXpChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(client.trustState, DovahLinkTrustState.trusted);
+      },
+    );
+
+    test(
+      'Behavior intentional disconnect during reconnect clears intent before a later session',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = buildDovahLinkClientForTesting(
+          transport: reconnectTransport,
+          storage: InMemoryClientStorage(),
+          reconnectAttemptDelays: const <Duration>[
+            Duration.zero,
+            Duration(milliseconds: 200),
+          ],
+          reconnectDeadline: const Duration(seconds: 5),
+        );
+        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _subscribeStateAreas(
+          reconnectTransport,
+          reconnectClient,
+          <DovahLinkStateArea>[DovahLinkStateArea.characterXp],
+        );
+        reconnectTransport.failConnectWith = const SocketException(
+          'Host remains unavailable',
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (
+          int attempt = 0;
+          attempt < 20 &&
+              reconnectClient.connectionState !=
+                  DovahLinkConnectionState.reconnecting;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.reconnecting,
+        );
+
+        await reconnectClient.disconnect();
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        reconnectTransport.failConnectWith = null;
+        await reconnectClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await reconnectClient.hello();
+        await pumpEventQueue();
+
+        expect(_sentSubscriptionUpdates(reconnectTransport), hasLength(1));
+      },
+    );
+  });
 
   group('Behavior default transport composition behaves correctly', () {
     test(
