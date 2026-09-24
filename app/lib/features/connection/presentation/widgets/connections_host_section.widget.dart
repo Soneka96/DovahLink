@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
-import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
+import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
@@ -18,7 +18,7 @@ class ConnectionsHostSection extends StatelessWidget {
   });
 
   /// The cards to show, in order.
-  final List<HostCardModel> cards;
+  final List<HostCardViewData> cards;
 
   /// Called with the Host of the card the user taps.
   final void Function(Host host) onSelectHost;
@@ -72,7 +72,7 @@ class ConnectionsHostSection extends StatelessWidget {
           separatorBuilder: (BuildContext context, int index) =>
               const SizedBox(height: DovahThemeTokens.rootListGap),
           itemBuilder: (BuildContext context, int index) {
-            final HostCardModel card = cards[index];
+            final HostCardViewData card = cards[index];
             return DovahConnectionCard(
               key: Key('host-card-${card.host.uri}'),
               title: card.title,

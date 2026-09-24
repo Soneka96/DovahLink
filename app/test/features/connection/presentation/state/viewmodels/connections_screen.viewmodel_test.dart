@@ -33,7 +33,7 @@ void main() {
       final ConnectionsScreenViewModel viewModel =
           ConnectionsScreenViewModel.fromStore(store);
 
-      expect(viewModel.hostCards, [Fixtures.buildHostCardModel()]);
+      expect(viewModel.hostCards, [Fixtures.buildHostCardViewData()]);
     });
 
     test(
@@ -74,11 +74,11 @@ void main() {
 
     test('two ViewModels with different cards are not equal', () {
       final ConnectionsScreenViewModel first = ConnectionsScreenViewModel(
-        hostCards: [Fixtures.buildHostCardModel()],
+        hostCards: [Fixtures.buildHostCardViewData()],
         onSelectHost: (Host host) {},
       );
       final ConnectionsScreenViewModel second = ConnectionsScreenViewModel(
-        hostCards: [Fixtures.buildHostCardModel(title: 'Other')],
+        hostCards: [Fixtures.buildHostCardViewData(title: 'Other')],
         onSelectHost: (Host host) {},
       );
 

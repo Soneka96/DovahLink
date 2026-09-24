@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
-import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
+import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
@@ -41,9 +41,9 @@ void main() {
     });
   });
 
-  group('Method buildHostCardModel behaves correctly', () {
-    test('Method buildHostCardModel builds representative defaults', () {
-      final HostCardModel card = Fixtures.buildHostCardModel();
+  group('Method buildHostCardViewData behaves correctly', () {
+    test('Method buildHostCardViewData builds representative defaults', () {
+      final HostCardViewData card = Fixtures.buildHostCardViewData();
 
       expect(card.host, Fixtures.buildHost());
       expect(card.title, isA<String>());
@@ -55,9 +55,9 @@ void main() {
       expect(card.state, DovahConnectionCardState.unknown);
     });
 
-    test('Method buildHostCardModel preserves named overrides', () {
+    test('Method buildHostCardViewData preserves named overrides', () {
       final Host host = Fixtures.buildHost(displayName: 'Other');
-      final HostCardModel card = Fixtures.buildHostCardModel(
+      final HostCardViewData card = Fixtures.buildHostCardViewData(
         host: host,
         title: 'Other',
         subtitle: 'Sub',
@@ -75,9 +75,9 @@ void main() {
       expect(card.state, DovahConnectionCardState.repair);
     });
 
-    test('Method buildHostCardModel returns a fresh value per call', () {
-      final HostCardModel first = Fixtures.buildHostCardModel();
-      final HostCardModel second = Fixtures.buildHostCardModel();
+    test('Method buildHostCardViewData returns a fresh value per call', () {
+      final HostCardViewData first = Fixtures.buildHostCardViewData();
+      final HostCardViewData second = Fixtures.buildHostCardViewData();
 
       expect(first, second);
       expect(first.hashCode, second.hashCode);
