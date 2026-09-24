@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Builds the Frostbound preset: cold, severe, and compact -- fractured stone, scratched iron,
@@ -94,6 +95,6 @@ ThemeData buildFrostboundTheme() {
       error: tokens.danger,
       onSurface: tokens.textPrimary,
     ),
-    extensions: const [tokens],
+    extensions: const [tokens, DovahRootThemeMetrics.frostbound],
   );
 }

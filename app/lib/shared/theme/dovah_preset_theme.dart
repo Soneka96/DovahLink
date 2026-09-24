@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Builds the Dovah preset: the balanced DovahLink identity -- midnight steel, ember-to-ice
@@ -95,6 +96,6 @@ ThemeData buildDovahPresetTheme() {
       error: tokens.danger,
       onSurface: tokens.textPrimary,
     ),
-    extensions: const [tokens],
+    extensions: const [tokens, DovahRootThemeMetrics.dovah],
   );
 }

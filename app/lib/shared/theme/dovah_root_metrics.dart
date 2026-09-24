@@ -4,15 +4,16 @@ import 'package:flutter/foundation.dart';
 
 import 'package:equatable/equatable.dart';
 
-import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 
 /// The measurements of the root (Connections) screen: its shell, header, and title block. The
 /// approved prototype changes them at two independent window breakpoints -- narrow
 /// (`max-width:900px`) and compact (`max-height:620px`) -- and each theme pins some of them
-/// differently, so every value that varies lives in a prototype-exact table resolved by
-/// [forWindow] and no widget branches on the window size or the preset itself. Where both
-/// breakpoints apply, the compact (height) value wins, as it does in the prototype's cascade. The
-/// connection card's own geometry is in `DovahConnectionCardMetrics`.
+/// differently. The theme-varying values live in [DovahRootThemeMetrics], a theme extension that
+/// Flutter interpolates during a theme change, and [forWindow] resolves them for the window, so no
+/// widget branches on the window size or the preset itself. Where both breakpoints apply, the
+/// compact (height) value wins, as it does in the prototype's cascade. The connection card's own
+/// geometry is in `DovahConnectionCardMetrics`.
 @immutable
 class DovahRootMetrics extends Equatable {
   /// The widest window, in logical pixels, that still gets the narrow measurements (the
@@ -142,47 +143,41 @@ class DovahRootMetrics extends Equatable {
     required this.showFooter,
   });
 
-  /// Resolves the measurements for [preset] in a window of size [window]. Each table row lists
-  /// the regular, narrow-only, and compact values in that order, taken from the prototype's
-  /// `index.html` media queries and `themes.css` per-theme overrides.
+  /// Resolves the measurements for a window of size [window] from [themeMetrics], the active
+  /// theme's (possibly mid-transition) values for each window mode. Which mode applies is the
+  /// prototype's `index.html` media queries: compact height wins over narrow width.
   factory DovahRootMetrics.forWindow({
-    required DovahThemePreset preset,
+    required DovahRootThemeMetrics themeMetrics,
     required Size window,
   }) {
     final bool narrow = window.width <= narrowMaxWindowWidth;
     final bool compact = window.height <= compactMaxWindowHeight;
 
-    double level((double, double, double) row) =>
-        compact ? row.$3 : (narrow ? row.$2 : row.$1);
+    double level(double regular, double narrowValue, double compactValue) =>
+        compact ? compactValue : (narrow ? narrowValue : regular);
 
     return DovahRootMetrics(
       sideMargin: narrow ? 18 : 32,
-      headerHeight: level(switch (preset) {
-        DovahThemePreset.frostbound => (70, 70, 56),
-        DovahThemePreset.dovah => (88, 88, 62),
-        DovahThemePreset.hearth => (86, 86, 62),
-      }),
-      contentTopPadding: level(switch (preset) {
-        DovahThemePreset.frostbound => (20, 20, 20),
-        DovahThemePreset.dovah => (30, 20, 14),
-        DovahThemePreset.hearth => (30, 20, 14),
-      }),
-      heroBottomGap: level(switch (preset) {
-        DovahThemePreset.frostbound => (18, 18, 18),
-        DovahThemePreset.dovah => (28, 20, 14),
-        DovahThemePreset.hearth => (28, 20, 14),
-      }),
-      pageTitleFontSize: level(switch (preset) {
-        DovahThemePreset.frostbound => (31, 31, 31),
-        DovahThemePreset.dovah => (34, 28, 25),
-        DovahThemePreset.hearth => (38, 38, 38),
-      }),
+      headerHeight: compact
+          ? themeMetrics.compactHeaderHeight
+          : themeMetrics.regularHeaderHeight,
+      contentTopPadding: level(
+        themeMetrics.regularContentTopPadding,
+        themeMetrics.narrowContentTopPadding,
+        themeMetrics.compactContentTopPadding,
+      ),
+      heroBottomGap: level(
+        themeMetrics.regularHeroBottomGap,
+        themeMetrics.narrowHeroBottomGap,
+        themeMetrics.compactHeroBottomGap,
+      ),
+      pageTitleFontSize: level(
+        themeMetrics.regularPageTitleFontSize,
+        themeMetrics.narrowPageTitleFontSize,
+        themeMetrics.compactPageTitleFontSize,
+      ),
       pageTitleTopGap: compact ? 4 : 7,
-      brandTaglineLetterSpacingEm: switch (preset) {
-        DovahThemePreset.frostbound => 0.24,
-        DovahThemePreset.dovah => 0.2,
-        DovahThemePreset.hearth => 0.14,
-      },
+      brandTaglineLetterSpacingEm: themeMetrics.brandTaglineLetterSpacingEm,
       showFooter: !compact,
     );
   }

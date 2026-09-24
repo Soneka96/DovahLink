@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// One expected resolution: the preset and window it is resolved for, then the side margin,
 /// header height, content top padding, hero bottom gap, title size, title top gap, tagline letter
@@ -21,7 +23,8 @@ typedef _RootCase = (
   bool,
 );
 
-/// Exercises [DovahRootMetrics]'s prototype constants, breakpoints, per-theme tables, and equality.
+/// Exercises [DovahRootMetrics]'s prototype constants, breakpoints, window resolution of each
+/// preset's theme metrics, and equality.
 void main() {
   group('Property breakpoints behave correctly', () {
     test(
@@ -255,7 +258,9 @@ void main() {
         'Method forWindow resolves the prototype measurements for ${testCase.$1.name} at ${testCase.$2}',
         () {
           final DovahRootMetrics metrics = DovahRootMetrics.forWindow(
-            preset: testCase.$1,
+            themeMetrics: dovahThemeDataFor(
+              testCase.$1,
+            ).extension<DovahRootThemeMetrics>()!,
             window: testCase.$2,
           );
 
@@ -281,11 +286,11 @@ void main() {
 
     test('Method forWindow treats a 900 wide window as narrow', () {
       final DovahRootMetrics narrow = DovahRootMetrics.forWindow(
-        preset: DovahThemePreset.dovah,
+        themeMetrics: DovahRootThemeMetrics.dovah,
         window: const Size(900, 720),
       );
       final DovahRootMetrics wide = DovahRootMetrics.forWindow(
-        preset: DovahThemePreset.dovah,
+        themeMetrics: DovahRootThemeMetrics.dovah,
         window: const Size(901, 720),
       );
 
@@ -297,11 +302,11 @@ void main() {
 
     test('Method forWindow treats a 620 tall window as compact', () {
       final DovahRootMetrics compact = DovahRootMetrics.forWindow(
-        preset: DovahThemePreset.dovah,
+        themeMetrics: DovahRootThemeMetrics.dovah,
         window: const Size(1280, 620),
       );
       final DovahRootMetrics regular = DovahRootMetrics.forWindow(
-        preset: DovahThemePreset.dovah,
+        themeMetrics: DovahRootThemeMetrics.dovah,
         window: const Size(1280, 621),
       );
 
@@ -315,7 +320,7 @@ void main() {
       'Method forWindow lets the compact height override the narrow width',
       () {
         final DovahRootMetrics metrics = DovahRootMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahRootThemeMetrics.dovah,
           window: const Size(720, 480),
         );
 
@@ -323,16 +328,61 @@ void main() {
         expect(metrics.contentTopPadding, 14);
       },
     );
+
+    test('Method forWindow applies both breakpoints at exactly 900 by 620', () {
+      final DovahRootMetrics metrics = DovahRootMetrics.forWindow(
+        themeMetrics: DovahRootThemeMetrics.dovah,
+        window: const Size(900, 620),
+      );
+
+      expect(metrics.sideMargin, 18);
+      expect(metrics.headerHeight, 62);
+      expect(metrics.pageTitleFontSize, 25);
+      expect(metrics.showFooter, isFalse);
+    });
+
+    test(
+      'Method forWindow resolves each window mode from mid-transition theme metrics',
+      () {
+        final DovahRootThemeMetrics mid = DovahRootThemeMetrics.dovah.lerp(
+          DovahRootThemeMetrics.hearth,
+          0.5,
+        );
+
+        final DovahRootMetrics regular = DovahRootMetrics.forWindow(
+          themeMetrics: mid,
+          window: const Size(1280, 720),
+        );
+        final DovahRootMetrics narrow = DovahRootMetrics.forWindow(
+          themeMetrics: mid,
+          window: const Size(800, 700),
+        );
+        final DovahRootMetrics compact = DovahRootMetrics.forWindow(
+          themeMetrics: mid,
+          window: const Size(1280, 560),
+        );
+
+        expect(regular.pageTitleFontSize, 36);
+        expect(regular.headerHeight, 87);
+        expect(narrow.pageTitleFontSize, 33);
+        expect(narrow.headerHeight, 87);
+        expect(compact.pageTitleFontSize, 31.5);
+        expect(compact.headerHeight, 62);
+        expect(compact.contentTopPadding, 14);
+        expect(regular.brandTaglineLetterSpacingEm, closeTo(0.17, 1e-9));
+        expect(compact.brandTaglineLetterSpacingEm, closeTo(0.17, 1e-9));
+      },
+    );
   });
 
   group('Behavior equality behaves correctly', () {
     test('Behavior equality holds for the same resolved measurements', () {
       final DovahRootMetrics first = DovahRootMetrics.forWindow(
-        preset: DovahThemePreset.hearth,
+        themeMetrics: DovahRootThemeMetrics.hearth,
         window: const Size(1280, 720),
       );
       final DovahRootMetrics second = DovahRootMetrics.forWindow(
-        preset: DovahThemePreset.hearth,
+        themeMetrics: DovahRootThemeMetrics.hearth,
         window: const Size(1600, 900),
       );
 
@@ -340,13 +390,13 @@ void main() {
       expect(first.hashCode, second.hashCode);
     });
 
-    test('Behavior equality fails between different presets', () {
+    test('Behavior equality fails between different theme metrics', () {
       final DovahRootMetrics first = DovahRootMetrics.forWindow(
-        preset: DovahThemePreset.hearth,
+        themeMetrics: DovahRootThemeMetrics.hearth,
         window: const Size(1280, 720),
       );
       final DovahRootMetrics second = DovahRootMetrics.forWindow(
-        preset: DovahThemePreset.dovah,
+        themeMetrics: DovahRootThemeMetrics.dovah,
         window: const Size(1280, 720),
       );
 

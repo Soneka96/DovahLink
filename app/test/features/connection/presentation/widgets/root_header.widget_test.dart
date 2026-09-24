@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
@@ -32,7 +33,9 @@ void main() {
             expect(
               tester.getSize(find.byType(RootHeader)).height,
               DovahRootMetrics.forWindow(
-                preset: preset,
+                themeMetrics: dovahThemeDataFor(
+                  preset,
+                ).extension<DovahRootThemeMetrics>()!,
                 window: size,
               ).headerHeight,
             );
@@ -205,7 +208,9 @@ void main() {
           expect(
             tagline.style?.letterSpacing,
             DovahRootMetrics.forWindow(
-                  preset: preset,
+                  themeMetrics: dovahThemeDataFor(
+                    preset,
+                  ).extension<DovahRootThemeMetrics>()!,
                   window: const Size(1280, 720),
                 ).brandTaglineLetterSpacingEm *
                 DovahRootMetrics.brandTaglineFontSize,

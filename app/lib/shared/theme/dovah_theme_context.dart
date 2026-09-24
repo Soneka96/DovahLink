@@ -5,6 +5,7 @@ import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -21,9 +22,9 @@ extension DovahThemeContext on BuildContext {
       DovahDialogMetrics.forWindowHeight(MediaQuery.sizeOf(this).height);
 
   /// The [DovahRootMetrics] for the active theme and the size of the window this context is shown
-  /// in.
+  /// in. It follows the theme's own transition, so its measurements animate with the theme.
   DovahRootMetrics get dovahRootMetrics => DovahRootMetrics.forWindow(
-    preset: dovahTokens.preset,
+    themeMetrics: Theme.of(this).extension<DovahRootThemeMetrics>()!,
     window: MediaQuery.sizeOf(this),
   );
 

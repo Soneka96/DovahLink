@@ -304,10 +304,18 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
     consume resolved metrics; they never branch on the window size or the active preset themselves.
   - A local literal owns a genuinely one-off layout detail with no semantic reuse; do not promote
     it to a constant.
-- A prototype value that differs by theme or by breakpoint belongs in a metrics table resolved from
-  the preset and window size, never a new theme token or a scale multiplier applied to a base
-  value. Copy each value exactly from the approved prototype and cite its selector in the doc
-  comment; do not merge nearby values into one shared constant.
+- A prototype value that differs by theme or by breakpoint belongs in a metrics class, never a new
+  theme token or a scale multiplier applied to a base value. Copy each value exactly from the
+  approved prototype and cite its selector in the doc comment; do not merge nearby values into one
+  shared constant.
+- A metrics value that differs by theme lives in that family's `Dovah<Family>ThemeMetrics`
+  `ThemeExtension`, holding the theme's exact value for every window mode and installed by each
+  preset's theme builder, so Flutter's `ThemeData` transition interpolates it with `lerpDouble`,
+  `EdgeInsets.lerp`, and the like instead of snapping it. `Dovah<Family>Metrics.forWindow` takes
+  that extension and the window size and selects the window mode; a metrics class never resolves a
+  theme-varying value from a preset identity, because a preset changes discretely mid-transition.
+  A value that differs only by window stays in the resolver, and a family with no theme-varying
+  value has no theme extension.
 
 ## JSON data Models and generated code
 

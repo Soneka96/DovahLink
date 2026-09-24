@@ -27,6 +27,7 @@ import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
@@ -950,7 +951,9 @@ void main() {
             await useSurface(tester, size);
             await tester.pumpWidget(buildWidget(preset: preset));
             final DovahRootMetrics metrics = DovahRootMetrics.forWindow(
-              preset: preset,
+              themeMetrics: dovahThemeDataFor(
+                preset,
+              ).extension<DovahRootThemeMetrics>()!,
               window: size,
             );
             final Rect header = tester.getRect(find.byType(RootHeader));

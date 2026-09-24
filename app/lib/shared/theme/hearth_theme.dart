@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Builds the Hearth preset: warm, spacious, and storybook-like -- parchment, walnut, bronze,
@@ -94,6 +95,6 @@ ThemeData buildHearthTheme() {
       error: tokens.danger,
       onSurface: tokens.textPrimary,
     ),
-    extensions: const [tokens],
+    extensions: const [tokens, DovahRootThemeMetrics.hearth],
   );
 }
