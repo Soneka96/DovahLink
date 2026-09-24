@@ -28,6 +28,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairin
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -192,6 +193,31 @@ void main() {
         verify(
           () => store.dispatch(const PairingCancelRequestedAction()),
         ).called(1);
+      },
+    );
+
+    test(
+      'initDependencies resolves PairingCountdownViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState(
+              phase: PairingPhase.awaitingCode,
+              hostVersion: null,
+              error: null,
+              codeExpiresAt: DateTime.now().add(const Duration(minutes: 1)),
+              renotifyAvailableAt: null,
+            ),
+          ),
+        );
+
+        final PairingCountdownViewModel viewModel =
+            sl<PairingCountdownViewModel>(param1: store);
+
+        expect(viewModel.remainingSeconds, greaterThan(0));
       },
     );
 
