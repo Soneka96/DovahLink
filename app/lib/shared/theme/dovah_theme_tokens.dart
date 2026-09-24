@@ -1,7 +1,8 @@
 import 'dart:ui' show lerpDouble;
 
-import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
+
+import 'package:equatable/equatable.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';

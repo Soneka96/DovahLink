@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
@@ -6,7 +7,6 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
-
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Exercises [RootHeader] across every DovahLink theme, both test sizes, and text scaling.

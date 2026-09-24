@@ -1,7 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Exercises pairing-handshake entity value preservation.

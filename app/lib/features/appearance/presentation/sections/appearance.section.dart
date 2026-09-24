@@ -1,9 +1,10 @@
+import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_card.widget.dart';
 import 'package:flutter/material.dart';
+
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
-import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_card.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';

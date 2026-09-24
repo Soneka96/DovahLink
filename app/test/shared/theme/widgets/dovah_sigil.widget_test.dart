@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil_painter.dart';
-
 import 'dovah_widget_test_helpers.dart';
 
 /// Exercises [DovahSigil] across every DovahLink theme and test size.

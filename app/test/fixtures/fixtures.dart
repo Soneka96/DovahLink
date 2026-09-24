@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
+import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -57,6 +58,22 @@ abstract final class Fixtures {
     /// The user-safe explanation for a rejected credential, when applicable.
     String? credentialRejectedMessage,
   }) => PairingHandshake(
+    hostVersion: hostVersion,
+    trusted: trusted,
+    credentialRejectedMessage: credentialRejectedMessage,
+  );
+
+  /// Builds a data-layer pairing handshake with representative trusted-session defaults.
+  static PairingHandshakeModel buildPairingHandshakeModel({
+    /// The Host's own release version reported by the handshake.
+    String hostVersion = '1.2.3',
+
+    /// Whether the session already holds a trusted credential.
+    bool trusted = true,
+
+    /// The user-safe explanation for a rejected credential, when applicable.
+    String? credentialRejectedMessage,
+  }) => PairingHandshakeModel(
     hostVersion: hostVersion,
     trusted: trusted,
     credentialRejectedMessage: credentialRejectedMessage,

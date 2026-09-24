@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Exercises [HostCardModel]'s value equality.

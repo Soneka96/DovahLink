@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
-
 import '../../fixtures/fixtures.dart';
 
 /// Exercises [DovahThemeTokens]'s `copyWith`, `lerp`, and equality contracts.

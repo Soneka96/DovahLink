@@ -1,13 +1,14 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
+import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
-
 import 'fixtures.dart';
 
 /// Exercises the Flutter app's representative typed fixture builders.
@@ -137,6 +138,32 @@ void main() {
       expect(first, second);
       expect(first.hashCode, second.hashCode);
       expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildPairingHandshakeModel behaves correctly', () {
+    test(
+      'Method buildPairingHandshakeModel builds representative defaults',
+      () {
+        final PairingHandshakeModel model =
+            Fixtures.buildPairingHandshakeModel();
+
+        expect(model.hostVersion, '1.2.3');
+        expect(model.trusted, isTrue);
+        expect(model.credentialRejectedMessage, isNull);
+      },
+    );
+
+    test('Method buildPairingHandshakeModel preserves named overrides', () {
+      final PairingHandshakeModel model = Fixtures.buildPairingHandshakeModel(
+        hostVersion: '2.0.0',
+        trusted: false,
+        credentialRejectedMessage: 'Pairing is required again.',
+      );
+
+      expect(model.hostVersion, '2.0.0');
+      expect(model.trusted, isFalse);
+      expect(model.credentialRejectedMessage, 'Pairing is required again.');
     });
   });
 

@@ -2,7 +2,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection-state initialization and copying.

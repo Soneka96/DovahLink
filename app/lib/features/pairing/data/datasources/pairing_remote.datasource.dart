@@ -1,7 +1,7 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:fpdart/fpdart.dart';
 
-import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
@@ -10,7 +10,7 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 abstract interface class IPairingRemoteDataSource {
   /// Connects and authenticates, recovering an interrupted pairing
   /// confirmation when the session authenticates as unpaired.
-  Future<Either<Failure, PairingHandshake>> authenticate();
+  Future<Either<Failure, PairingHandshakeModel>> authenticate();
 
   /// Starts, or queries the status of, a pairing challenge.
   /// Returns the active code's remaining validity in seconds, or null when the host did not
@@ -63,7 +63,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// credential and retrying as `unpaired` -- this layer only picks the user-safe wording for
   /// [HelloResult.recoveredFromRejectedCredential] when that happened.
   @override
-  Future<Either<Failure, PairingHandshake>> authenticate() async {
+  Future<Either<Failure, PairingHandshakeModel>> authenticate() async {
     try {
       final HelloResult hello = await _client.authenticate(defaultHostUri);
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
@@ -73,13 +73,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
         trusted = recovered == DovahLinkTrustState.trusted;
       }
       return Right(
-        PairingHandshake(
-          hostVersion: hello.hostVersion,
-          trusted: trusted,
-          credentialRejectedMessage: _credentialRejectedMessage(
-            hello.recoveredFromRejectedCredential,
-          ),
-        ),
+        PairingHandshakeModel.fromHelloResult(hello: hello, trusted: trusted),
       );
     } on DovahLinkConnectionException catch (error) {
       // Administrative invalidation (revoked/blocked/trustReset/factoryReset) can fail this same
@@ -105,21 +99,6 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
       return const Left(_unexpectedPairingFailure);
     }
   }
-
-  /// Converts a recovered credential-rejection reason into its user-safe explanation, or `null`
-  /// when [reason] is `null` (nothing was recovered from).
-  String? _credentialRejectedMessage(
-    CredentialRejectionReason? reason,
-  ) => switch (reason) {
-    CredentialRejectionReason.revoked =>
-      "This device's trust was revoked. Requesting a new pairing code.",
-    CredentialRejectionReason.unrecognized =>
-      "This device isn't recognized by this host. Requesting a new pairing code.",
-    CredentialRejectionReason.blocked =>
-      'This device is blocked by the host and cannot be paired again until an '
-          'administrator unblocks it.',
-    null => null,
-  };
 
   /// See [IPairingRemoteDataSource.requestPairingCode].
   @override

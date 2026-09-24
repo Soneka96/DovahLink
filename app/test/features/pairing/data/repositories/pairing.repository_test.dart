@@ -3,12 +3,12 @@ import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
+import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/data/repositories/pairing.repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Mocks the remote data source for [PairingRepository] tests.
@@ -25,8 +25,8 @@ void main() {
     repository = PairingRepository(mockDataSource);
   });
 
-  group('PairingRepository', () {
-    test('PairingRepository is usable as IPairingRepository', () {
+  group('Behavior interface conformance behaves correctly', () {
+    test('PairingRepository implements IPairingRepository', () {
       expect(repository, isA<IPairingRepository>());
     });
   });
@@ -35,7 +35,8 @@ void main() {
     test(
       'Method authenticate returns Right when the data source succeeds',
       () async {
-        final PairingHandshake handshake = Fixtures.buildPairingHandshake();
+        final PairingHandshakeModel handshake =
+            Fixtures.buildPairingHandshakeModel();
         when(
           () => mockDataSource.authenticate(),
         ).thenAnswer((_) async => Right(handshake));
