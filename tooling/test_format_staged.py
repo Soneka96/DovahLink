@@ -1,5 +1,6 @@
 """Test staged-file selection and formatter command construction."""
 
+import re
 import subprocess
 import tempfile
 import unittest
@@ -302,6 +303,10 @@ class FormatStagedTests(unittest.TestCase):
             ]
 
             commands = format_staged.formatter_commands(root, paths, check=True)
+            app_root_pattern = re.escape(str((root / "app").resolve()))
+            sdk_root_pattern = re.escape(
+                str((root / "sdk/dart/dovahlink_client").resolve())
+            )
 
         self.assertEqual(commands[0][0], root / "app")
         self.assertEqual(
@@ -311,7 +316,7 @@ class FormatStagedTests(unittest.TestCase):
                 "run",
                 "tidy_imports",
                 "--exit-if-changed",
-                r"lib[/\\]main\.dart",
+                "^" + app_root_pattern + r"[/\\]lib[/\\]main\.dart$",
             ],
         )
         self.assertEqual(commands[1][0], root / "sdk/dart/dovahlink_client")
@@ -322,7 +327,7 @@ class FormatStagedTests(unittest.TestCase):
                 "run",
                 "tidy_imports",
                 "--exit-if-changed",
-                r"lib[/\\]src[/\\]client\.dart",
+                "^" + sdk_root_pattern + r"[/\\]lib[/\\]src[/\\]client\.dart$",
             ],
         )
         self.assertEqual(
@@ -357,6 +362,10 @@ class FormatStagedTests(unittest.TestCase):
                 ],
                 check=False,
             )
+            app_root_pattern = re.escape(str((root / "app").resolve()))
+            sdk_root_pattern = re.escape(
+                str((root / "sdk/dart/dovahlink_client").resolve())
+            )
 
         self.assertEqual(
             commands[0][0],
@@ -368,8 +377,10 @@ class FormatStagedTests(unittest.TestCase):
                 "dart",
                 "run",
                 "tidy_imports",
-                r"lib[/\\]features[/\\]main\.screen\.dart",
-                r"test[/\\]features[/\\]\[main\]\.dart",
+                "^"
+                + app_root_pattern
+                + r"[/\\]lib[/\\]features[/\\]main\.screen\.dart$",
+                "^" + app_root_pattern + r"[/\\]test[/\\]features[/\\]\[main\]\.dart$",
             ],
         )
         self.assertEqual(
@@ -382,8 +393,8 @@ class FormatStagedTests(unittest.TestCase):
                 "dart",
                 "run",
                 "tidy_imports",
-                r"lib[/\\]src[/\\]client\.dart",
-                r"test[/\\]client_test\.dart",
+                "^" + sdk_root_pattern + r"[/\\]lib[/\\]src[/\\]client\.dart$",
+                "^" + sdk_root_pattern + r"[/\\]test[/\\]client_test\.dart$",
             ],
         )
         self.assertEqual(
@@ -400,6 +411,32 @@ class FormatStagedTests(unittest.TestCase):
                 ],
             ),
         )
+
+    def test_formatter_commands_anchor_import_pattern_to_one_selected_file(
+        self,
+    ) -> None:
+        """Target one absolute file, including Windows separators, and exclude near matches."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory) / "project+[root]"
+            commands = format_staged.formatter_commands(
+                root, ["app/lib/main.dart"], check=False
+            )
+
+        pattern = commands[0][1][3]
+        app_root = (root / "app").resolve()
+        selected_path = app_root / "lib" / "main.dart"
+        matching_mixed_separators = f"{app_root}/lib/main.dart"
+        same_suffix_in_test_directory = app_root / "test" / "lib" / "main.dart"
+        extra_prefix_directory = root / "nested" / "app" / "lib" / "main.dart"
+        backup_path = app_root / "lib" / "main.dart.backup"
+
+        self.assertTrue(pattern.startswith("^"))
+        self.assertTrue(pattern.endswith("$"))
+        self.assertIsNotNone(re.search(pattern, str(selected_path)))
+        self.assertIsNotNone(re.search(pattern, matching_mixed_separators))
+        self.assertIsNone(re.search(pattern, str(same_suffix_in_test_directory)))
+        self.assertIsNone(re.search(pattern, str(extra_prefix_directory)))
+        self.assertIsNone(re.search(pattern, str(backup_path)))
 
     def test_formatter_commands_split_long_import_lists(self) -> None:
         """Keep package-local import commands under the batch wrapper limit."""
@@ -431,7 +468,7 @@ class FormatStagedTests(unittest.TestCase):
         self.assertEqual(formatted_paths, paths)
         self.assertEqual(
             {pattern.rsplit("screen", 1)[1] for pattern in patterns},
-            {f"\\-{index}\\.dart" for index in range(len(paths))},
+            {f"\\-{index}\\.dart$" for index in range(len(paths))},
         )
         for command in [
             *(command for _, command in sorter_commands),

@@ -229,11 +229,18 @@ def formatter_commands(
             ]
             if package_paths:
                 # tidy_imports matches patterns against absolute paths.
+                package_root_pattern = re.escape(
+                    str((repository_root / package_root).resolve())
+                )
                 patterns = [
-                    r"[/\\]".join(
+                    "^"
+                    + package_root_pattern
+                    + r"[/\\]"
+                    + r"[/\\]".join(
                         re.escape(part)
                         for part in item.removeprefix(package_prefix).split("/")
                     )
+                    + "$"
                     for item in package_paths
                 ]
                 sorter_arguments = ["dart", "run", "tidy_imports"]
