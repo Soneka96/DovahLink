@@ -34,12 +34,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Shared panel and connection-card padding.
   static const double spacing18 = 18;
 
-  /// Shared dialog-header padding.
-  static const double spacing19 = 19;
-
-  /// Shared dialog-content vertical padding.
-  static const double spacing13 = 13;
-
   /// Shared dialog-backdrop padding.
   static const double spacing24 = 24;
 
@@ -297,9 +291,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
 
   /// Fraction of the window width a themed dialog may fill, up to [dialogMaxWidth].
   static const double dialogWidthFraction = 0.88;
-
-  /// Fraction of the window height a themed dialog may fill.
-  static const double dialogHeightFraction = 0.92;
 
   /// Opacity of the environment-background scrim at the top edge.
   static const double environmentTopScrimOpacity = 0.82;

@@ -13,6 +13,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 
 /// Mock ViewModel supplied to [AppearanceSection].
 class MockAppearanceSectionViewModel extends Mock
@@ -128,6 +129,56 @@ void main() {
         }
       },
     );
+  });
+
+  group('AppearanceSection stays usable inside DovahDialog', () {
+    for (final Size size in const [
+      Size(720, 480),
+      Size(900, 560),
+      Size(1280, 720),
+      Size(1600, 900),
+    ]) {
+      testWidgets(
+        'AppearanceSection shows every preset without overflow and selects one inside DovahDialog at $size',
+        (WidgetTester tester) async {
+          tester.view.physicalSize = size * tester.view.devicePixelRatio;
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(
+            StoreProvider<AppState>(
+              store: store,
+              child: MaterialApp(
+                theme: dovahThemeDataFor(DovahThemePreset.dovah),
+                home: Builder(
+                  builder: (BuildContext context) => TextButton(
+                    onPressed: () => DovahDialog.show<void>(
+                      context,
+                      title: 'Appearance',
+                      child: const AppearanceSection(),
+                    ),
+                    child: const Text('Open'),
+                  ),
+                ),
+              ),
+            ),
+          );
+
+          await tester.tap(find.text('Open'));
+          await tester.pumpAndSettle();
+
+          expect(tester.takeException(), isNull);
+          expect(find.text('Appearance'), findsOneWidget);
+          expect(
+            tester.getSize(find.byType(DovahDialog)).height,
+            lessThanOrEqualTo(size.height * 0.92),
+          );
+
+          await tester.ensureVisible(find.text(DovahThemePreset.hearth.label));
+          await tester.tap(find.text(DovahThemePreset.hearth.label));
+
+          expect(selectedPresets, [DovahThemePreset.hearth]);
+        },
+      );
+    }
   });
 
   group('AppearanceSection calls the selection callback', () {

@@ -8,11 +8,20 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'dovah_widget_test_helpers.dart';
 
+/// The landscape window sizes the dialog is proven at: two below and two above the compact
+/// breakpoint.
+const List<Size> dialogWindowSizes = [
+  Size(720, 480),
+  Size(900, 560),
+  Size(1280, 720),
+  Size(1600, 900),
+];
+
 /// Exercises [DovahDialog] across every DovahLink theme and its show/close behavior.
 void main() {
   group('DovahDialog renders correctly', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in dovahTestSizes) {
+      for (final Size size in dialogWindowSizes) {
         testWidgets(
           'DovahDialog renders its title and content under $preset at $size without overflow',
           (WidgetTester tester) async {
@@ -306,6 +315,44 @@ void main() {
     );
   });
 
+  group('DovahDialog.showBuilder shows a caller-built dialog', () {
+    testWidgets(
+      'DovahDialog.showBuilder shows the built dialog over the blurred backdrop and closes on Escape',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          Builder(
+            builder: (BuildContext context) => ElevatedButton(
+              onPressed: () => DovahDialog.showBuilder<void>(
+                context,
+                builder: (BuildContext dialogContext) => const DovahDialog(
+                  title: 'Built title',
+                  child: Text('Built body'),
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dialogWindowSizes.first,
+        );
+
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('Built title'), findsOneWidget);
+        expect(find.text('Built body'), findsOneWidget);
+        expect(find.byType(BackdropFilter), findsOneWidget);
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pumpAndSettle();
+
+        expect(find.text('Built body'), findsNothing);
+      },
+    );
+  });
+
   group('DovahDialog matches the prototype modal metrics', () {
     testWidgets(
       'DovahDialog.show scrims with the prototype backdrop color and opacity',
@@ -367,18 +414,104 @@ void main() {
     );
 
     testWidgets(
-      'DovahDialog pads its header 12 by 19 and its content 13 by 17 at the Dovah density',
+      'DovahDialog pads its header 12 by 19 and its content 13 by 17 at compact heights',
+      (WidgetTester tester) async {
+        for (final Size size in const [Size(720, 480), Size(900, 560)]) {
+          await pumpDovahThemedWidget(
+            tester,
+            const Center(
+              child: DovahDialog(
+                title: 'Appearance',
+                child: SizedBox(
+                  key: Key('body'),
+                  width: double.infinity,
+                  height: 20,
+                ),
+              ),
+            ),
+            preset: DovahThemePreset.dovah,
+            size: size,
+          );
+
+          final Container header = tester.widget<Container>(
+            find.byKey(const Key('dovah-dialog-header')),
+          );
+          expect(
+            header.padding,
+            const EdgeInsets.symmetric(horizontal: 19, vertical: 12),
+          );
+          final Rect dialog = tester.getRect(find.byType(DovahDialog));
+          final Rect body = tester.getRect(find.byKey(const Key('body')));
+          expect(body.left - dialog.left, 17);
+        }
+      },
+    );
+
+    testWidgets(
+      'DovahDialog pads its header 19 by 22 and its content 22 by 22 at regular heights',
+      (WidgetTester tester) async {
+        for (final Size size in const [Size(1280, 720), Size(1600, 900)]) {
+          await pumpDovahThemedWidget(
+            tester,
+            const Center(
+              child: DovahDialog(
+                title: 'Appearance',
+                child: SizedBox(
+                  key: Key('body'),
+                  width: double.infinity,
+                  height: 20,
+                ),
+              ),
+            ),
+            preset: DovahThemePreset.dovah,
+            size: size,
+          );
+
+          final Container header = tester.widget<Container>(
+            find.byKey(const Key('dovah-dialog-header')),
+          );
+          expect(
+            header.padding,
+            const EdgeInsets.symmetric(horizontal: 22, vertical: 19),
+          );
+          final Rect dialog = tester.getRect(find.byType(DovahDialog));
+          final Rect body = tester.getRect(find.byKey(const Key('body')));
+          expect(body.left - dialog.left, 22);
+        }
+      },
+    );
+
+    testWidgets('DovahDialog scales its regular padding by the theme density', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const Center(
+          child: DovahDialog(title: 'Appearance', child: SizedBox()),
+        ),
+        preset: DovahThemePreset.frostbound,
+        size: const Size(1280, 720),
+      );
+
+      final Container header = tester.widget<Container>(
+        find.byKey(const Key('dovah-dialog-header')),
+      );
+      expect(
+        header.padding,
+        const EdgeInsets.symmetric(horizontal: 22 * 0.85, vertical: 19 * 0.85),
+      );
+    });
+
+    testWidgets(
+      'DovahDialog scales its regular padding up by the Hearth density',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
           const Center(
-            child: DovahDialog(
-              title: 'Appearance',
-              child: SizedBox(key: Key('body'), width: 100, height: 20),
-            ),
+            child: DovahDialog(title: 'Appearance', child: SizedBox()),
           ),
-          preset: DovahThemePreset.dovah,
-          size: const Size(900, 560),
+          preset: DovahThemePreset.hearth,
+          size: const Size(1280, 720),
         );
 
         final Container header = tester.widget<Container>(
@@ -386,11 +519,11 @@ void main() {
         );
         expect(
           header.padding,
-          const EdgeInsets.symmetric(horizontal: 19, vertical: 12),
+          const EdgeInsets.symmetric(
+            horizontal: 22 * 1.15,
+            vertical: 19 * 1.15,
+          ),
         );
-        final Rect dialog = tester.getRect(find.byType(DovahDialog));
-        final Rect body = tester.getRect(find.byKey(const Key('body')));
-        expect(body.left - dialog.left, greaterThanOrEqualTo(17));
       },
     );
 
@@ -433,22 +566,52 @@ void main() {
       tester.takeException();
     });
 
-    testWidgets('DovahDialog fills at most 92 percent of the window height', (
-      WidgetTester tester,
-    ) async {
-      await pumpDovahThemedWidget(
-        tester,
-        const Center(
-          child: DovahDialog(
-            title: 'Appearance',
-            child: SizedBox(width: 100, height: 3000),
-          ),
-        ),
-        preset: DovahThemePreset.dovah,
-        size: const Size(1280, 720),
-      );
+    testWidgets(
+      'DovahDialog fills at most 92 percent of a compact window height',
+      (WidgetTester tester) async {
+        for (final double height in const [480, 560]) {
+          await pumpDovahThemedWidget(
+            tester,
+            const Center(
+              child: DovahDialog(
+                title: 'Appearance',
+                child: SizedBox(width: 100, height: 3000),
+              ),
+            ),
+            preset: DovahThemePreset.dovah,
+            size: Size(900, height),
+          );
 
-      expect(tester.getSize(find.byType(DovahDialog)).height, 720 * 0.92);
-    });
+          expect(
+            tester.getSize(find.byType(DovahDialog)).height,
+            height * 0.92,
+          );
+        }
+      },
+    );
+
+    testWidgets(
+      'DovahDialog fills at most 86 percent of a regular window height',
+      (WidgetTester tester) async {
+        for (final double height in const [720, 900]) {
+          await pumpDovahThemedWidget(
+            tester,
+            const Center(
+              child: DovahDialog(
+                title: 'Appearance',
+                child: SizedBox(width: 100, height: 3000),
+              ),
+            ),
+            preset: DovahThemePreset.dovah,
+            size: Size(1280, height),
+          );
+
+          expect(
+            tester.getSize(find.byType(DovahDialog)).height,
+            height * 0.86,
+          );
+        }
+      },
+    );
   });
 }

@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
@@ -12,7 +13,8 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 /// [show] wires this into Flutter's own dialog route, which already provides barrier dismissal,
 /// Escape-to-close, and focus containment -- this widget does not reimplement that behavior. The
 /// card supplies its own transparent [Material], which a dialog route does not, so ink-based
-/// content such as an [InkWell] works inside it.
+/// content such as an [InkWell] works inside it. Its paddings and height cap follow the window
+/// height through [DovahDialogMetrics].
 class DovahDialog extends StatelessWidget {
   /// The dialog's title.
   final String title;
@@ -36,6 +38,17 @@ class DovahDialog extends StatelessWidget {
     BuildContext context, {
     required String title,
     required Widget child,
+  }) => showBuilder<T>(
+    context,
+    builder: (BuildContext dialogContext) =>
+        DovahDialog(title: title, child: child),
+  );
+
+  /// Shows the widget [builder] returns, normally a [DovahDialog] whose title depends on state,
+  /// behind the same blurred backdrop as [show].
+  static Future<T?> showBuilder<T>(
+    BuildContext context, {
+    required WidgetBuilder builder,
   }) => showDialog<T>(
     context: context,
     barrierColor: DovahThemeTokens.dialogBackdropColor.withValues(
@@ -48,9 +61,7 @@ class DovahDialog extends StatelessWidget {
       ),
       child: Padding(
         padding: const EdgeInsets.all(DovahThemeTokens.spacing24),
-        child: Center(
-          child: DovahDialog(title: title, child: child),
-        ),
+        child: Center(child: builder(dialogContext)),
       ),
     ),
   );
@@ -59,6 +70,7 @@ class DovahDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
+    final DovahDialogMetrics metrics = context.dovahDialogMetrics;
     final Size window = MediaQuery.sizeOf(context);
     return Material(
       type: MaterialType.transparency,
@@ -68,7 +80,7 @@ class DovahDialog extends StatelessWidget {
             DovahThemeTokens.dialogMaxWidth,
             window.width * DovahThemeTokens.dialogWidthFraction,
           ),
-          maxHeight: window.height * DovahThemeTokens.dialogHeightFraction,
+          maxHeight: window.height * metrics.heightFraction,
         ),
         child: DovahPanel(
           padding: EdgeInsets.zero,
@@ -78,8 +90,9 @@ class DovahDialog extends StatelessWidget {
               Container(
                 key: const Key('dovah-dialog-header'),
                 padding: EdgeInsets.symmetric(
-                  horizontal: DovahThemeTokens.spacing19 * tokens.densityScale,
-                  vertical: DovahThemeTokens.spacing12 * tokens.densityScale,
+                  horizontal:
+                      metrics.headerHorizontalPadding * tokens.densityScale,
+                  vertical: metrics.headerVerticalPadding * tokens.densityScale,
                 ),
                 decoration: BoxDecoration(
                   border: Border(bottom: BorderSide(color: tokens.lineSubtle)),
@@ -114,8 +127,8 @@ class DovahDialog extends StatelessWidget {
                 child: Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal:
-                        DovahThemeTokens.spacing17 * tokens.densityScale,
-                    vertical: DovahThemeTokens.spacing13 * tokens.densityScale,
+                        metrics.bodyHorizontalPadding * tokens.densityScale,
+                    vertical: metrics.bodyVerticalPadding * tokens.densityScale,
                   ),
                   child: SingleChildScrollView(child: child),
                 ),
