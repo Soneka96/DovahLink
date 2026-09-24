@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Exercises SDK authentication result mapping for [PairingHandshakeModel].
 void main() {
@@ -21,25 +22,39 @@ void main() {
         expect(model, isA<PairingHandshake>());
         expect(model.hostVersion, '1.2.3');
         expect(model.trusted, isTrue);
+        expect(model.credentialRejectionReason, isNull);
         expect(model.credentialRejectedMessage, isNull);
       },
     );
 
     test('Method fromHelloResult maps each rejected credential reason', () {
-      final List<(CredentialRejectionReason, String)> mappings = [
-        (CredentialRejectionReason.revoked, "This device's trust was revoked."),
+      final List<
+        (CredentialRejectionReason, PairingCredentialRejectionReason, String)
+      >
+      mappings = [
+        (
+          CredentialRejectionReason.revoked,
+          PairingCredentialRejectionReason.revoked,
+          "This device's trust was revoked.",
+        ),
         (
           CredentialRejectionReason.unrecognized,
+          PairingCredentialRejectionReason.unrecognized,
           "This device isn't recognized by this host.",
         ),
         (
           CredentialRejectionReason.blocked,
+          PairingCredentialRejectionReason.blocked,
           'This device is blocked by the host and cannot be paired again until an '
               'administrator unblocks it.',
         ),
       ];
 
-      for (final (CredentialRejectionReason reason, String message)
+      for (final (
+            CredentialRejectionReason reason,
+            PairingCredentialRejectionReason appReason,
+            String message,
+          )
           in mappings) {
         final PairingHandshakeModel model =
             PairingHandshakeModel.fromHelloResult(
@@ -51,6 +66,11 @@ void main() {
               trusted: false,
             );
 
+        expect(
+          model.credentialRejectionReason,
+          isA<PairingCredentialRejectionReason>(),
+        );
+        expect(model.credentialRejectionReason, appReason);
         expect(model.credentialRejectedMessage, message);
         expect(model.hostVersion, '2.0.0');
         expect(model.trusted, isFalse);

@@ -1,9 +1,51 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Exercises pairing action construction and equality.
 void main() {
+  group('Behavior equality in PairingAuthenticatedAction behaves correctly', () {
+    test(
+      'Behavior equality in PairingAuthenticatedAction includes the typed rejection reason',
+      () {
+        const PairingAuthenticatedAction revoked = PairingAuthenticatedAction(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.revoked,
+        );
+        const PairingAuthenticatedAction blocked = PairingAuthenticatedAction(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.blocked,
+        );
+
+        expect(revoked == blocked, isFalse);
+      },
+    );
+
+    test(
+      'Behavior equality in PairingAuthenticatedAction gives matching hashes for equal rejection data',
+      () {
+        const PairingAuthenticatedAction first = PairingAuthenticatedAction(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.blocked,
+          credentialRejectedMessage: 'Blocked.',
+        );
+        const PairingAuthenticatedAction second = PairingAuthenticatedAction(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.blocked,
+          credentialRejectedMessage: 'Blocked.',
+        );
+
+        expect(first, second);
+        expect(first.hashCode, second.hashCode);
+      },
+    );
+  });
+
   group(
     'Behavior equality in PairingRenotifyRequestedAction behaves correctly',
     () {

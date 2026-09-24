@@ -69,18 +69,26 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
 PairingState pairingStartedReducer(
   PairingState state,
   PairingStartedAction action,
-) => state.copyWith(phase: PairingPhase.connecting, error: const None());
+) => state.copyWith(
+  phase: PairingPhase.connecting,
+  error: const None(),
+  credentialRejectionReason: const None(),
+);
 
 /// Handles [PairingAuthenticatedAction].
-/// Updates [PairingState.phase], [PairingState.hostVersion], [PairingState.error]. Carries
-/// [PairingAuthenticatedAction.credentialRejectedMessage] through as the error text when set, so
-/// a session recovered from a rejected credential can still explain why to the user.
+/// Updates [PairingState.phase], [PairingState.hostVersion], [PairingState.error], and
+/// [PairingState.credentialRejectionReason]. Carries a rejected credential's typed reason and
+/// safe copy into state for presentation.
 PairingState pairingAuthenticatedReducer(
   PairingState state,
   PairingAuthenticatedAction action,
 ) => state.copyWith(
   phase: action.trusted ? PairingPhase.trusted : PairingPhase.unpaired,
   hostVersion: Some(action.hostVersion),
+  credentialRejectionReason:
+      action.trusted || action.credentialRejectionReason == null
+      ? const None()
+      : Some(action.credentialRejectionReason!),
   error: action.credentialRejectedMessage == null
       ? const None()
       : Some(action.credentialRejectedMessage!),
@@ -91,7 +99,11 @@ PairingState pairingAuthenticatedReducer(
 PairingState pairingCodeRequestedReducer(
   PairingState state,
   PairingCodeRequestedAction action,
-) => state.copyWith(phase: PairingPhase.requestingCode, error: const None());
+) => state.copyWith(
+  phase: PairingPhase.requestingCode,
+  error: const None(),
+  credentialRejectionReason: const None(),
+);
 
 /// Handles [PairingCodeAvailableAction].
 /// Updates [PairingState.phase], [PairingState.error], [PairingState.codeExpiresAt]. Clears
@@ -121,7 +133,11 @@ PairingState pairingCodeSubmittedReducer(
 PairingState pairingConfirmedReducer(
   PairingState state,
   PairingConfirmedAction action,
-) => state.copyWith(phase: PairingPhase.trusted, error: const None());
+) => state.copyWith(
+  phase: PairingPhase.trusted,
+  error: const None(),
+  credentialRejectionReason: const None(),
+);
 
 /// Handles [PairingDisconnectedAction].
 /// Updates [PairingState.phase], [PairingState.error].
@@ -143,6 +159,7 @@ PairingState pairingFailedReducer(
   error: Some(action.message),
   codeExpiresAt: const None(),
   renotifyAvailableAt: const None(),
+  credentialRejectionReason: const None(),
 );
 
 /// Handles [PairingDisposedAction].
@@ -188,6 +205,7 @@ PairingState pairingCancelSucceededReducer(
   error: const Some('Pairing cancelled.'),
   codeExpiresAt: const None(),
   renotifyAvailableAt: const None(),
+  credentialRejectionReason: const None(),
 );
 
 /// Handles [PairingConfirmFailedWithAttemptsRemainingAction].
@@ -208,4 +226,8 @@ PairingState pairingConfirmFailedWithAttemptsRemainingReducer(
 PairingState pairingConnectionRestoredReducer(
   PairingState state,
   PairingConnectionRestoredAction action,
-) => state.copyWith(phase: PairingPhase.trusted, error: const None());
+) => state.copyWith(
+  phase: PairingPhase.trusted,
+  error: const None(),
+  credentialRejectionReason: const None(),
+);

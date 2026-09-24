@@ -165,6 +165,11 @@ void main() {
         );
         expect(
           (actionLog[1] as PairingAuthenticatedAction)
+              .credentialRejectionReason,
+          isNull,
+        );
+        expect(
+          (actionLog[1] as PairingAuthenticatedAction)
               .credentialRejectedMessage,
           isNull,
         );
@@ -222,6 +227,8 @@ void main() {
           (_) async => Right(
             Fixtures.buildPairingHandshake(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.revoked,
               credentialRejectedMessage: "This device's trust was revoked.",
             ),
           ),
@@ -234,6 +241,35 @@ void main() {
           isA<PairingStartedAction>(),
           isA<PairingAuthenticatedAction>(),
         ]);
+        verifyNever(() => mockRequestPairing(any()));
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch PairingCodeRequestedAction for a blocked credential',
+      () async {
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(
+            Fixtures.buildPairingHandshake(
+              trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.blocked,
+              credentialRejectedMessage: 'This device is blocked by the Host.',
+            ),
+          ),
+        );
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), isEmpty);
+        expect(
+          actionLog
+              .whereType<PairingAuthenticatedAction>()
+              .single
+              .credentialRejectionReason,
+          PairingCredentialRejectionReason.blocked,
+        );
         verifyNever(() => mockRequestPairing(any()));
       },
     );
@@ -357,6 +393,7 @@ void main() {
       () async {
         final PairingHandshake handshake = Fixtures.buildPairingHandshake(
           trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.revoked,
           credentialRejectedMessage: "This device's trust was revoked.",
         );
         when(
@@ -370,6 +407,11 @@ void main() {
           (actionLog[1] as PairingAuthenticatedAction)
               .credentialRejectedMessage,
           "This device's trust was revoked.",
+        );
+        expect(
+          (actionLog[1] as PairingAuthenticatedAction)
+              .credentialRejectionReason,
+          PairingCredentialRejectionReason.revoked,
         );
       },
     );

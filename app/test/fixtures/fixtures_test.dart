@@ -112,6 +112,7 @@ void main() {
       expect(handshake.hostVersion, '1.2.3');
       expect(handshake.trusted, isA<bool>());
       expect(handshake.trusted, isTrue);
+      expect(handshake.credentialRejectionReason, isNull);
       expect(handshake.credentialRejectedMessage, isNull);
     });
 
@@ -119,6 +120,7 @@ void main() {
       final PairingHandshake handshake = Fixtures.buildPairingHandshake(
         hostVersion: '2.0.0',
         trusted: false,
+        credentialRejectionReason: PairingCredentialRejectionReason.revoked,
         credentialRejectedMessage: 'Pairing is required again.',
       );
 
@@ -126,6 +128,10 @@ void main() {
       expect(handshake.hostVersion, '2.0.0');
       expect(handshake.trusted, isA<bool>());
       expect(handshake.trusted, isFalse);
+      expect(
+        handshake.credentialRejectionReason,
+        PairingCredentialRejectionReason.revoked,
+      );
       expect(handshake.credentialRejectedMessage, isA<String>());
       expect(handshake.credentialRejectedMessage, 'Pairing is required again.');
     });
@@ -141,6 +147,7 @@ void main() {
             );
 
         expect(untrustedWithoutMessage.trusted, isFalse);
+        expect(untrustedWithoutMessage.credentialRejectionReason, isNull);
         expect(untrustedWithoutMessage.credentialRejectedMessage, isNull);
         expect(trustedWithMessage.trusted, isTrue);
         expect(
@@ -169,6 +176,7 @@ void main() {
 
         expect(model.hostVersion, '1.2.3');
         expect(model.trusted, isTrue);
+        expect(model.credentialRejectionReason, isNull);
         expect(model.credentialRejectedMessage, isNull);
       },
     );
@@ -177,11 +185,16 @@ void main() {
       final PairingHandshakeModel model = Fixtures.buildPairingHandshakeModel(
         hostVersion: '2.0.0',
         trusted: false,
+        credentialRejectionReason: PairingCredentialRejectionReason.blocked,
         credentialRejectedMessage: 'Pairing is required again.',
       );
 
       expect(model.hostVersion, '2.0.0');
       expect(model.trusted, isFalse);
+      expect(
+        model.credentialRejectionReason,
+        PairingCredentialRejectionReason.blocked,
+      );
       expect(model.credentialRejectedMessage, 'Pairing is required again.');
     });
   });

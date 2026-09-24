@@ -62,11 +62,15 @@ abstract final class Fixtures {
     /// Whether the session already holds a trusted credential.
     bool trusted = true,
 
+    /// The Host's typed rejection reason, when it rejected a stored credential.
+    PairingCredentialRejectionReason? credentialRejectionReason,
+
     /// The user-safe explanation for a rejected credential, when applicable.
     String? credentialRejectedMessage,
   }) => PairingHandshake(
     hostVersion: hostVersion,
     trusted: trusted,
+    credentialRejectionReason: credentialRejectionReason,
     credentialRejectedMessage: credentialRejectedMessage,
   );
 
@@ -78,11 +82,15 @@ abstract final class Fixtures {
     /// Whether the session already holds a trusted credential.
     bool trusted = true,
 
+    /// The Host's typed rejection reason, when it rejected a stored credential.
+    PairingCredentialRejectionReason? credentialRejectionReason,
+
     /// The user-safe explanation for a rejected credential, when applicable.
     String? credentialRejectedMessage,
   }) => PairingHandshakeModel(
     hostVersion: hostVersion,
     trusted: trusted,
+    credentialRejectionReason: credentialRejectionReason,
     credentialRejectedMessage: credentialRejectedMessage,
   );
 

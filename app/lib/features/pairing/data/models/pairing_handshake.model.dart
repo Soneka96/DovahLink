@@ -1,6 +1,7 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Represents the SDK authentication result at the Pairing data boundary.
 class PairingHandshakeModel extends PairingHandshake {
@@ -11,6 +12,9 @@ class PairingHandshakeModel extends PairingHandshake {
 
     /// Resolved session trust standing after pairing recovery.
     required super.trusted,
+
+    /// Typed Host rejection reason for a previously stored credential, if any.
+    super.credentialRejectionReason,
 
     /// User-safe explanation for a recovered rejected credential, if any.
     super.credentialRejectedMessage,
@@ -26,6 +30,15 @@ class PairingHandshakeModel extends PairingHandshake {
   }) => PairingHandshakeModel(
     hostVersion: hello.hostVersion,
     trusted: trusted,
+    credentialRejectionReason: switch (hello.recoveredFromRejectedCredential) {
+      CredentialRejectionReason.revoked =>
+        PairingCredentialRejectionReason.revoked,
+      CredentialRejectionReason.unrecognized =>
+        PairingCredentialRejectionReason.unrecognized,
+      CredentialRejectionReason.blocked =>
+        PairingCredentialRejectionReason.blocked,
+      null => null,
+    },
     credentialRejectedMessage: switch (hello.recoveredFromRejectedCredential) {
       CredentialRejectionReason.revoked => "This device's trust was revoked.",
       CredentialRejectionReason.unrecognized =>
