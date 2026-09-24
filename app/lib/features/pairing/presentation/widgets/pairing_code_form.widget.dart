@@ -45,8 +45,14 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
   /// Owns focus for the code field, so a rejected submit can return focus to it.
   final FocusNode _codeFocusNode = FocusNode();
 
-  /// The message from a submit attempt with an incomplete code, cleared on the next edit, or
-  /// `null`. Takes the message slot ahead of [PairingCodeForm.errorMessage].
+  /// The last code text used to distinguish edits from selection changes.
+  String _lastText = '';
+
+  /// Whether the code text changed since the current external error arrived.
+  bool _editedSinceError = false;
+
+  /// The message from a submit attempt with an incomplete code, cleared on the next controller
+  /// change, or `null`. Takes the message slot ahead of [PairingCodeForm.errorMessage].
   String? _incompleteCodeMessage;
 
   /// Whether the entered code has all [pairingCodeLength] digits.
@@ -56,12 +62,29 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
   @override
   void initState() {
     super.initState();
-    // Rebuild for the edited code (boxes and primary button), clearing a stale incomplete-code
-    // message, and for focus changes (the focused box's halo).
-    _codeController.addListener(
-      () => setState(() => _incompleteCodeMessage = null),
-    );
+    // Rebuild for code/selection changes (boxes, button, and focus halo), clear local validation,
+    // and hide an external error only after the text itself changes.
+    _codeController.addListener(() {
+      final String currentText = _codeController.text;
+      final bool textChanged = currentText != _lastText;
+      _lastText = currentText;
+      setState(() {
+        _incompleteCodeMessage = null;
+        if (textChanged) {
+          _editedSinceError = true;
+        }
+      });
+    });
     _codeFocusNode.addListener(() => setState(() {}));
+  }
+
+  /// See [State.didUpdateWidget].
+  @override
+  void didUpdateWidget(covariant PairingCodeForm oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.errorMessage != oldWidget.errorMessage) {
+      _editedSinceError = false;
+    }
   }
 
   /// See [State.dispose].
@@ -89,7 +112,9 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
   @override
   Widget build(BuildContext context) {
     final DovahDialogMetrics metrics = context.dovahDialogMetrics;
-    final String? message = _incompleteCodeMessage ?? widget.errorMessage;
+    final String? message =
+        _incompleteCodeMessage ??
+        (_editedSinceError ? null : widget.errorMessage);
 
     return Column(
       mainAxisSize: MainAxisSize.min,

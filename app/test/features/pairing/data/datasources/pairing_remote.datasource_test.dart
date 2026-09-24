@@ -127,6 +127,8 @@ void main() {
           Right<Failure, PairingHandshakeModel>(
             Fixtures.buildPairingHandshakeModel(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.revoked,
               credentialRejectedMessage: "This device's trust was revoked.",
             ),
           ),
@@ -156,6 +158,8 @@ void main() {
           Right<Failure, PairingHandshakeModel>(
             Fixtures.buildPairingHandshakeModel(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.blocked,
               credentialRejectedMessage:
                   'This device is blocked by the host and cannot be paired again until an '
                   'administrator unblocks it.',
@@ -188,6 +192,8 @@ void main() {
           Right<Failure, PairingHandshakeModel>(
             Fixtures.buildPairingHandshakeModel(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.unrecognized,
               credentialRejectedMessage:
                   "This device isn't recognized by this host.",
             ),

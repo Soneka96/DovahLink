@@ -445,6 +445,8 @@ void main() {
           (_) async => Right(
             Fixtures.buildPairingHandshake(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.revoked,
               credentialRejectedMessage: "This device's trust was revoked.",
             ),
           ),
@@ -475,6 +477,8 @@ void main() {
           (_) async => Right(
             Fixtures.buildPairingHandshake(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.revoked,
               credentialRejectedMessage: "This device's trust was revoked.",
             ),
           ),

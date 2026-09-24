@@ -40,6 +40,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Blocked devices no longer see an option to pair again until an administrator unblocks them.
+- Host code-rejection messages clear after the player edits the pairing code.
 - Rapid theme changes persist in selection order so an older preset cannot replace the latest one.
 - Dialogs dismiss when the user taps their backdrop.
 - Appearance storage failures no longer prevent startup; the default theme is used when

@@ -291,6 +291,60 @@ void main() {
       expect(find.text('That code is not correct.'), findsOneWidget);
     });
 
+    testWidgets(
+      'PairingCodeForm clears an external error after the code text changes',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          buildForm(errorMessage: 'That code is not correct.'),
+        );
+
+        await tester.enterText(find.byKey(codeFieldKey), '1');
+        await tester.pump();
+
+        expect(find.text('That code is not correct.'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm keeps an external error visible after selection-only changes',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(buildForm());
+        await tester.enterText(find.byKey(codeFieldKey), '123');
+        await tester.pump();
+        await tester.pumpWidget(
+          buildForm(errorMessage: 'That code is not correct.'),
+        );
+
+        final TextEditingController controller = tester
+            .widget<TextField>(find.byKey(codeFieldKey))
+            .controller!;
+        final String text = controller.text;
+        controller.selection = const TextSelection.collapsed(offset: 1);
+        await tester.pump();
+
+        expect(controller.text, text);
+        expect(find.text('That code is not correct.'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm shows a new external error after the previous one was edited away',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          buildForm(errorMessage: 'That code is not correct.'),
+        );
+        await tester.enterText(find.byKey(codeFieldKey), '1');
+        await tester.pump();
+
+        await tester.pumpWidget(
+          buildForm(errorMessage: 'That code has expired.'),
+        );
+
+        expect(find.text('That code is not correct.'), findsNothing);
+        expect(find.text('That code has expired.'), findsOneWidget);
+      },
+    );
+
     testWidgets('PairingCodeForm displays an empty message slot without one', (
       WidgetTester tester,
     ) async {
