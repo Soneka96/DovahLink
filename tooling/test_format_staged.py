@@ -454,6 +454,19 @@ class FormatStagedTests(unittest.TestCase):
         ):
             format_staged.formatter_commands(Path("."), [path], check=False)
 
+    def test_formatter_commands_reject_oversized_second_path_after_valid_first_path(
+        self,
+    ) -> None:
+        """Reject an oversized Dart path supplied after a valid path."""
+        paths = [
+            "app/lib/main.dart",
+            f"app/lib/{'nested/' * 1000}screen.dart",
+        ]
+        with self.assertRaisesRegex(
+            RuntimeError, "path exceeds the command-line limit"
+        ):
+            format_staged.formatter_commands(Path("."), paths, check=False)
+
     def test_execute_commands_stops_after_import_sorting_fails(self) -> None:
         """Do not run Dart formatting when import sorting fails."""
         resolved_dart = r"C:\Dart\flutter\bin\dart.exe"

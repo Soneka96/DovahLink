@@ -193,11 +193,11 @@ def dart_command_batches(prefix: list[str], arguments: list[str]) -> list[list[s
     command_length = prefix_length
     for argument in arguments:
         argument_length = len(argument) + 3
+        if prefix_length + argument_length > MAX_DART_COMMAND_LENGTH:
+            raise RuntimeError(
+                f"Dart formatter path exceeds the command-line limit: {argument}"
+            )
         if command_length + argument_length > MAX_DART_COMMAND_LENGTH:
-            if not batch:
-                raise RuntimeError(
-                    f"Dart formatter path exceeds the command-line limit: {argument}"
-                )
             commands.append([*prefix, *batch])
             batch = []
             command_length = prefix_length
