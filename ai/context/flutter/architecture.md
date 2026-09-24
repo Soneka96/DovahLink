@@ -256,9 +256,12 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 ## Dependency injection
 
 - Every behavior-bearing Flutter/Dart class or equivalent type has an explicit abstract contract,
-  even when it has one implementation. Consumers depend on the contract, and every collaborator is
-  supplied through the constructor. Register concrete implementations behind those contracts in
-  `GetIt`.
+  even when it has one implementation. Consumers depend on the contract. Constructor injection is
+  the default for collaborators, including infrastructure implementations, protocol clients,
+  repositories, datasources, use cases, services, and other behavior-bearing types. The narrow
+  framework/composition-boundary exception is Redux middleware action handlers: as specified in
+  "Redux flow", they may resolve only the already-registered use cases and services they invoke
+  through `sl<Type>()`. Register concrete implementations behind their contracts in `GetIt`.
 - Do not add artificial interfaces to widgets, DTOs, entities, enums, pure functions, or other
   data-only types. This rule is adopted phase-forward and does not reopen completed phases.
 - Register shared dependencies first in `lib/injection_container.dart`, then call each feature's
@@ -271,10 +274,9 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
   returning the ViewModel created by `fromStore`.
 - Redux-backed ViewModels are presentation values, not behavior-bearing services; register and
   resolve their concrete classes as described above.
-- A presentation owner resolves its ViewModel through `sl` in its `StoreConnector` converter;
-  middleware handlers resolve registered use cases and services through `sl<Type>()`.
-- ViewModels, use cases, entities, repositories, and datasources never resolve dependencies from
-  `GetIt`.
+- Resolve a Redux-backed ViewModel through `sl` only in its owning `StoreConnector` converter.
+- ViewModels, use cases, entities, repositories, datasources, and services never resolve
+  collaborators from `GetIt` themselves.
 - Call dependency initialization once before `runApp`.
 
 ## Services
