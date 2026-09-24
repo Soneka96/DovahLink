@@ -180,9 +180,11 @@ public sealed class ProcessCommandRunnerTests
     public async Task CancellationTerminatesTheProcessTreeAndThrowsOperationCanceledException()
     {
         using var temporaryDirectory = new TemporaryDirectory();
-        string pidPath = Path.Combine(temporaryDirectory.Path, "child-pid.txt");
+        string markerDirectory = Path.Combine(temporaryDirectory.Path, "child-markers-λ");
+        Directory.CreateDirectory(markerDirectory);
+        string pidPath = Path.Combine(markerDirectory, "child-pid.txt");
         string startedPath = Path.Combine(temporaryDirectory.Path, "child-started.txt");
-        string sentinelPath = Path.Combine(temporaryDirectory.Path, "child-sentinel.txt");
+        string sentinelPath = Path.Combine(markerDirectory, "child-sentinel.txt");
         string goPath = Path.Combine(temporaryDirectory.Path, "child-go.txt");
         string batchPath = Path.Combine(temporaryDirectory.Path, "child-tree.bat");
         string childScriptPath = Path.Combine(temporaryDirectory.Path, "child-tree.ps1");
@@ -191,14 +193,15 @@ public sealed class ProcessCommandRunnerTests
             childScriptPath,
             $"Set-Content -LiteralPath '{pidPath.Replace("'", "''")}' -Value $PID\n" +
             "Start-Sleep -Milliseconds 500\n" +
-            $"Set-Content -LiteralPath '{sentinelPath.Replace("'", "''")}' -Value orphan\n");
+            $"Set-Content -LiteralPath '{sentinelPath.Replace("'", "''")}' -Value orphan\n",
+            new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         File.WriteAllText(
             batchPath,
             "@echo off\n" +
             $"echo started > \"{startedPath}\"\n" +
             ":wait\n" +
             $"if not exist \"{goPath}\" goto wait\n" +
-            $"start \"\" /b \"{powershellPath}\" -NoProfile -File \"{childScriptPath}\"\n" +
+            $"start \"\" /b \"{powershellPath}\" -NoProfile -ExecutionPolicy Bypass -File \"{childScriptPath}\"\n" +
             "ping -n 30 127.0.0.1 >nul\n");
         var command = new BuildCommand(
             Path.Combine(Environment.SystemDirectory, "cmd.exe"),
