@@ -197,6 +197,9 @@ void main() {
       expect(tokens.pageTitleFontSize, 31);
       expect(tokens.connectionCardMinHeight, 61);
       expect(tokens.uppercaseLabels, isTrue);
+      expect(tokens.rootContentTopPadding, 20);
+      expect(tokens.rootHeroBottomGap, 18);
+      expect(tokens.rootHeaderRuleFraction, 0.2);
     });
 
     test('Behavior prototype root-screen tokens match Dovah values', () {
@@ -208,6 +211,9 @@ void main() {
       expect(tokens.pageTitleFontSize, 34);
       expect(tokens.connectionCardMinHeight, 78);
       expect(tokens.uppercaseLabels, isFalse);
+      expect(tokens.rootContentTopPadding, 30);
+      expect(tokens.rootHeroBottomGap, 28);
+      expect(tokens.rootHeaderRuleFraction, 0.36);
     });
 
     test('Behavior prototype root-screen tokens match Hearth values', () {
@@ -219,6 +225,9 @@ void main() {
       expect(tokens.pageTitleFontSize, 38);
       expect(tokens.connectionCardMinHeight, 82);
       expect(tokens.uppercaseLabels, isFalse);
+      expect(tokens.rootContentTopPadding, 30);
+      expect(tokens.rootHeroBottomGap, 28);
+      expect(tokens.rootHeaderRuleFraction, 0.52);
     });
   });
 

@@ -61,6 +61,9 @@ ThemeData buildDovahPresetTheme() {
     rootHeaderHeight: 88,
     pageTitleFontSize: 34,
     connectionCardMinHeight: 78,
+    rootContentTopPadding: 30,
+    rootHeroBottomGap: 28,
+    rootHeaderRuleFraction: 0.36,
     uppercaseLabels: false,
   );
 

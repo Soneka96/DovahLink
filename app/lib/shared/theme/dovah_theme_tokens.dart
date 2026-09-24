@@ -87,6 +87,87 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Letter spacing, in ems, of labels a theme renders in uppercase.
   static const double uppercaseLetterSpacingEm = 0.045;
 
+  /// Maximum width of the root screen's content column.
+  static const double rootContentMaxWidth = 1180;
+
+  /// Margin on each side of the root screen's content column.
+  static const double rootContentSideMargin = 32;
+
+  /// Padding below the root screen's content.
+  static const double rootContentBottomPadding = 40;
+
+  /// Height of the gradient rule under the root header.
+  static const double rootHeaderRuleHeight = 2;
+
+  /// Opacity of the root header's surface fill.
+  static const double rootHeaderBackgroundOpacity = 0.88;
+
+  /// Blur strength behind the root header.
+  static const double rootHeaderBlurSigma = 11;
+
+  /// Width and height of the root header's brand mark.
+  static const double rootBrandMarkSize = 44;
+
+  /// Gap between the brand mark and the wordmark.
+  static const double rootBrandGap = 13;
+
+  /// Font size of the DovahLink wordmark.
+  static const double brandNameFontSize = 18;
+
+  /// Letter spacing, in ems, of the DovahLink wordmark.
+  static const double brandNameLetterSpacingEm = 0.15;
+
+  /// Font size of the wordmark's tagline.
+  static const double brandTaglineFontSize = 9;
+
+  /// Letter spacing, in ems, of the wordmark's tagline.
+  static const double brandTaglineLetterSpacingEm = 0.2;
+
+  /// Gap between the wordmark and its tagline.
+  static const double brandTaglineTopGap = 3;
+
+  /// Gap between the page title block and its action.
+  static const double rootHeroGap = 20;
+
+  /// Font size of a page-title eyebrow.
+  static const double eyebrowFontSize = 10;
+
+  /// Letter spacing, in ems, of a page-title eyebrow.
+  static const double eyebrowLetterSpacingEm = 0.2;
+
+  /// Letter spacing, in ems, of a page title.
+  static const double pageTitleLetterSpacingEm = 0.02;
+
+  /// Letter spacing, in ems, of a page title a theme renders in uppercase.
+  static const double pageTitleUppercaseLetterSpacingEm = 0.06;
+
+  /// Gap between an eyebrow and its page title.
+  static const double pageTitleTopGap = 7;
+
+  /// Gap between a page title and its description.
+  static const double pageTitleBottomGap = 5;
+
+  /// Font size of a page description.
+  static const double pageDescriptionFontSize = 14;
+
+  /// Font size of a section label.
+  static const double sectionLabelFontSize = 11;
+
+  /// Letter spacing, in ems, of a section label.
+  static const double sectionLabelLetterSpacingEm = 0.15;
+
+  /// Gap between a section label and its rule.
+  static const double sectionLabelGap = 10;
+
+  /// Gap between a section label and its content.
+  static const double sectionLabelBottomGap = 11;
+
+  /// Gap between connection cards.
+  static const double rootListGap = 10;
+
+  /// Font size of the root screen's footer note.
+  static const double rootFooterFontSize = 12;
+
   /// Width of themed focus outlines.
   static const double focusOutlineWidth = 2;
 
@@ -162,6 +243,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.pageTitleFontSize,
     required this.connectionCardMinHeight,
     required this.uppercaseLabels,
+    required this.rootContentTopPadding,
+    required this.rootHeroBottomGap,
+    required this.rootHeaderRuleFraction,
   });
 
   /// The canvas behind every surface.
@@ -284,6 +368,15 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// prototype's Frostbound theme does.
   final bool uppercaseLabels;
 
+  /// Padding above the root screen's title row.
+  final double rootContentTopPadding;
+
+  /// Gap between the root screen's title row and its first section.
+  final double rootHeroBottomGap;
+
+  /// Fraction of the root header's width its gradient rule spans.
+  final double rootHeaderRuleFraction;
+
   /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
   /// threaded through [Option] to keep "omitted", "cleared to null", and "set" distinct.
   @override
@@ -332,6 +425,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? pageTitleFontSize,
     double? connectionCardMinHeight,
     bool? uppercaseLabels,
+    double? rootContentTopPadding,
+    double? rootHeroBottomGap,
+    double? rootHeaderRuleFraction,
   }) => DovahThemeTokens(
     background: background ?? this.background,
     surface: surface ?? this.surface,
@@ -374,6 +470,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     connectionCardMinHeight:
         connectionCardMinHeight ?? this.connectionCardMinHeight,
     uppercaseLabels: uppercaseLabels ?? this.uppercaseLabels,
+    rootContentTopPadding: rootContentTopPadding ?? this.rootContentTopPadding,
+    rootHeroBottomGap: rootHeroBottomGap ?? this.rootHeroBottomGap,
+    rootHeaderRuleFraction:
+        rootHeaderRuleFraction ?? this.rootHeaderRuleFraction,
   );
 
   /// Interpolates every color and the two continuous geometry values; discrete values (corner
@@ -443,6 +543,21 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         t,
       )!,
       uppercaseLabels: t < 0.5 ? uppercaseLabels : other.uppercaseLabels,
+      rootContentTopPadding: lerpDouble(
+        rootContentTopPadding,
+        other.rootContentTopPadding,
+        t,
+      )!,
+      rootHeroBottomGap: lerpDouble(
+        rootHeroBottomGap,
+        other.rootHeroBottomGap,
+        t,
+      )!,
+      rootHeaderRuleFraction: lerpDouble(
+        rootHeaderRuleFraction,
+        other.rootHeaderRuleFraction,
+        t,
+      )!,
     );
   }
 
@@ -485,5 +600,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     pageTitleFontSize,
     connectionCardMinHeight,
     uppercaseLabels,
+    rootContentTopPadding,
+    rootHeroBottomGap,
+    rootHeaderRuleFraction,
   ];
 }

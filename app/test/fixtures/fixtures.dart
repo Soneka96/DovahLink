@@ -111,6 +111,9 @@ abstract final class Fixtures {
     double pageTitleFontSize = 34,
     double connectionCardMinHeight = 78,
     bool uppercaseLabels = false,
+    double rootContentTopPadding = 30,
+    double rootHeroBottomGap = 28,
+    double rootHeaderRuleFraction = 0.36,
   }) => DovahThemeTokens(
     background: background,
     surface: surface,
@@ -168,5 +171,8 @@ abstract final class Fixtures {
     pageTitleFontSize: pageTitleFontSize,
     connectionCardMinHeight: connectionCardMinHeight,
     uppercaseLabels: uppercaseLabels,
+    rootContentTopPadding: rootContentTopPadding,
+    rootHeroBottomGap: rootHeroBottomGap,
+    rootHeaderRuleFraction: rootHeaderRuleFraction,
   );
 }

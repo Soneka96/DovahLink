@@ -60,6 +60,9 @@ ThemeData buildFrostboundTheme() {
     rootHeaderHeight: 70,
     pageTitleFontSize: 31,
     connectionCardMinHeight: 61,
+    rootContentTopPadding: 20,
+    rootHeroBottomGap: 18,
+    rootHeaderRuleFraction: 0.2,
     uppercaseLabels: true,
   );
 

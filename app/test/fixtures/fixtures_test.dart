@@ -189,6 +189,9 @@ void main() {
       expect(tokens.connectionCardMinHeight, isA<double>());
       expect(tokens.connectionCardMinHeight, 78);
       expect(tokens.uppercaseLabels, isFalse);
+      expect(tokens.rootContentTopPadding, 30);
+      expect(tokens.rootHeroBottomGap, 28);
+      expect(tokens.rootHeaderRuleFraction, 0.36);
     });
 
     test('Method buildDovahThemeTokens preserves named overrides', () {
