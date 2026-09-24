@@ -3,12 +3,15 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
+import 'package:redux/redux.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/features/appearance/data/datasources/appearance_local.datasource.dart';
 import 'package:dovahlink_client/features/appearance/domain/repositories/appearance_repository.dart';
 import 'package:dovahlink_client/features/appearance/domain/usecases/load_theme_preset.usecase.dart';
 import 'package:dovahlink_client/features/appearance/domain/usecases/set_theme_preset.usecase.dart';
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
+import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
@@ -22,15 +25,23 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairin
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
+import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Mocks the asynchronous preference API without requiring a registered plugin.
 class MockSharedPreferencesAsync extends Mock
     implements SharedPreferencesAsync {}
 
+/// Mocks the Redux store used to resolve Store-backed registrations.
+class MockStore extends Mock implements Store<AppState> {}
+
 void main() {
   setUpAll(() {
     TestWidgetsFlutterBinding.ensureInitialized();
+    registerFallbackValue(
+      const ThemePresetSelectedAction(DovahThemePreset.dovah),
+    );
   });
 
   setUp(() async {
@@ -209,11 +220,29 @@ void main() {
     });
 
     test(
-      'initDependencies registers the appearance ViewModel factory',
+      'initDependencies resolves AppearanceSectionViewModel from a Store',
       () async {
         await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState.initial(
+            appearance: const AppearanceState(
+              activePreset: DovahThemePreset.hearth,
+            ),
+          ),
+        );
+        when(() => store.dispatch(any())).thenAnswer((_) {});
 
-        expect(sl.isRegistered<AppearanceSectionViewModel>(), isTrue);
+        final AppearanceSectionViewModel viewModel =
+            sl<AppearanceSectionViewModel>(param1: store);
+
+        expect(viewModel.activePreset, DovahThemePreset.hearth);
+        viewModel.onSelectPreset(DovahThemePreset.frostbound);
+        verify(
+          () => store.dispatch(
+            const ThemePresetSelectedAction(DovahThemePreset.frostbound),
+          ),
+        ).called(1);
       },
     );
 

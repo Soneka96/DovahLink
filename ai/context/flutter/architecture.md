@@ -117,19 +117,22 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - A Section is bespoke content nested inside a Screen alongside sibling content.
 - A Widget is a reusable or repeatable unit with one cohesive purpose.
 - Routability and the presence of a ViewModel do not decide the classification.
-- Screens and Sections resolve their own DI-registered dependencies; do not thread them through
-  constructor props from a parent. This is a framework-managed entry-point exception: `GetIt`
-  returns an already-registered contract, and the screen or section never constructs the concrete
-  implementation.
-- Reusable widgets receive data and callbacks as props and remain dumb.
+- Each Screen owns one Store-backed Screen ViewModel and resolves it from DI. A Section may own one
+  Store-backed Section ViewModel when it has cohesive, independently updating presentation state
+  whose changes should not rebuild the whole Screen. A Section ViewModel is registered in DI, built
+  from `Store<AppState>`, and resolved only by its owning Section. Reusable widgets receive plain
+  values, models, entities, and callbacks through constructor props; they do not resolve DI
+  dependencies or connect directly to the Store.
+- `AppearanceSection` is a Section ViewModel boundary: preset selection updates the picker without
+  rebuilding the Connections screen.
 
 ## Redux flow
 
 - Use Redux when a value is read by another screen, drives a use case, or must persist beyond one
   widget rebuild. Purely local presentation state stays in the smallest widget's `State`.
-- Give a widget or section its own ViewModel, not just the parent Screen's, when many
-  independently-updating widgets are mounted at once and a shared ViewModel would rebuild all of
-  them on any single field's change.
+- Keep shared presentation state in its owning Screen or Section ViewModel and pass it to reusable
+  child widgets through props. Keep purely local presentation state in the smallest widget's
+  `State`.
 - The normal chain is `Screen/Section -> ViewModel -> Action -> Middleware -> ResultAction ->
   Reducer -> AppState -> StoreConnector`.
 - Screens and Sections never call `store.dispatch`, use cases, repositories, or services directly.
@@ -189,8 +192,8 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Register concrete implementations behind domain interfaces.
 - Register use cases as DI dependencies and construct them with repository interfaces.
 - Register ViewModels with `registerFactoryParam` when they need a Redux `Store`.
-- Screens and Sections resolve registered ViewModels; middleware handlers resolve registered use
-  cases and services through `sl<Type>()`.
+- Screens and Sections with their own presentation state resolve their registered ViewModels;
+  middleware handlers resolve registered use cases and services through `sl<Type>()`.
 - Reusable widgets, ViewModels, use cases, entities, repositories, and datasources never resolve
   dependencies from `GetIt`.
 - Call dependency initialization once before `runApp`.
