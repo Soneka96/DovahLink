@@ -494,9 +494,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     pageTitleLineHeight: pageTitleLineHeight ?? this.pageTitleLineHeight,
   );
 
-  /// Interpolates every color and the two continuous geometry values; discrete values (corner
-  /// style, font family, asset path, shadow, gradients, casing) snap to whichever side of [t] is closer,
-  /// since they have no meaningful halfway point.
+  /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
+  /// family, asset path, shadow, gradients, and casing) snap to whichever side of [t] is closer
+  /// because they have no meaningful halfway point.
   @override
   DovahThemeTokens lerp(ThemeExtension<DovahThemeTokens>? other, double t) {
     if (other is! DovahThemeTokens) {

@@ -2,6 +2,7 @@ import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
@@ -43,6 +44,7 @@ void main() {
   late MockConnectionsScreenViewModel viewModel;
   late MockAppearanceSectionViewModel appearanceViewModel;
   late List<HostEntity> selectedHosts;
+  late List<DovahThemePreset> selectedPresets;
 
   setUp(() async {
     await sl.reset();
@@ -50,6 +52,7 @@ void main() {
     viewModel = MockConnectionsScreenViewModel();
     appearanceViewModel = MockAppearanceSectionViewModel();
     selectedHosts = [];
+    selectedPresets = [];
 
     when(() => store.state).thenReturn(AppState.initial());
     when(
@@ -64,7 +67,7 @@ void main() {
     ).thenReturn(DovahThemePreset.dovah);
     when(
       () => appearanceViewModel.onSelectPreset,
-    ).thenReturn((DovahThemePreset preset) {});
+    ).thenReturn(selectedPresets.add);
     sl.registerFactoryParam<ConnectionsScreenViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => viewModel,
     );
@@ -394,6 +397,68 @@ void main() {
         expect(find.text('Appearance'), findsOneWidget);
         expect(find.byType(AppearanceSection), findsOneWidget);
         expect(find.text('Choose your Skyrim atmosphere'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen opens the appearance picker when its header action is activated by keyboard',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(
+          find.byKey(const Key('dovah-icon-button-focus-outline')),
+          findsOneWidget,
+        );
+        await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+        await tester.pumpAndSettle();
+
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(find.byType(AppearanceSection), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen moves keyboard focus from Appearance to the Host card, skipping disabled Discover',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+        expect(
+          find.byKey(const Key('dovah-icon-button-focus-outline')),
+          findsOneWidget,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+
+        expect(
+          find.byKey(const Key('dovah-icon-button-focus-outline')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('dovah-connection-card-focus-outline')),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen passes the selected appearance preset to its ViewModel',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tester.tap(find.byIcon(Icons.settings_outlined));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.text(DovahThemePreset.hearth.label));
+        await tester.pump();
+
+        expect(selectedPresets, [DovahThemePreset.hearth]);
       },
     );
 
