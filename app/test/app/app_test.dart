@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/app/app.dart';
+import 'package:dovahlink_client/app/app.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
@@ -31,7 +32,10 @@ void main() {
         await initDependencies();
         await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
-        expect(find.byKey(const Key('host-tile-Local Host')), findsOneWidget);
+        expect(
+          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          findsOneWidget,
+        );
         expect(find.text('Local Host'), findsOneWidget);
       },
     );
@@ -53,7 +57,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
+        expect(
+          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          findsNothing,
+        );
       },
     );
   });
@@ -72,7 +79,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
+        expect(
+          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          findsNothing,
+        );
       },
     );
   });
@@ -143,14 +153,19 @@ void main() {
         );
         await tester.pumpWidget(DovahLinkApp(store: store));
 
-        final StoreConnector<AppState, DovahThemePreset> connector = tester
-            .widget(find.byType(StoreConnector<AppState, DovahThemePreset>));
+        final StoreConnector<AppState, DovahLinkAppViewModel> connector = tester
+            .widget(
+              find.byType(StoreConnector<AppState, DovahLinkAppViewModel>),
+            );
         final ThemeData initialTheme = tester
             .widget<MaterialApp>(find.byType(MaterialApp))
             .theme!;
 
         expect(connector.distinct, isTrue);
-        expect(connector.converter(store), DovahThemePreset.hearth);
+        expect(
+          connector.converter(store).activePreset,
+          DovahThemePreset.hearth,
+        );
 
         store.dispatch(const PairingStartedAction());
         expect(

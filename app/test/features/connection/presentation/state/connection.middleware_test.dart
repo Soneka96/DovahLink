@@ -53,7 +53,7 @@ void main() {
 
   group('ConnectionMiddleware — ConnectionHostSelectedAction', () {
     test('navigates to the pairing route', () {
-      final HostEntity host = Fixtures.buildHostEntity();
+      final Host host = Fixtures.buildHost();
 
       middleware.call(store, ConnectionHostSelectedAction(host), next);
 

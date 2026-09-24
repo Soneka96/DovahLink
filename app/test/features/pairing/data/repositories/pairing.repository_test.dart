@@ -3,6 +3,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
+import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/data/repositories/pairing.repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
@@ -24,8 +25,8 @@ void main() {
     repository = PairingRepository(mockDataSource);
   });
 
-  group('PairingRepository', () {
-    test('PairingRepository is usable as IPairingRepository', () {
+  group('Behavior interface conformance behaves correctly', () {
+    test('PairingRepository implements IPairingRepository', () {
       expect(repository, isA<IPairingRepository>());
     });
   });
@@ -34,16 +35,16 @@ void main() {
     test(
       'Method authenticate returns Right when the data source succeeds',
       () async {
-        final PairingHandshakeEntity handshake =
-            Fixtures.buildPairingHandshakeEntity();
+        final PairingHandshakeModel handshake =
+            Fixtures.buildPairingHandshakeModel();
         when(
           () => mockDataSource.authenticate(),
         ).thenAnswer((_) async => Right(handshake));
 
-        final Either<Failure, PairingHandshakeEntity> result = await repository
+        final Either<Failure, PairingHandshake> result = await repository
             .authenticate();
 
-        expect(result, Right<Failure, PairingHandshakeEntity>(handshake));
+        expect(result, Right<Failure, PairingHandshake>(handshake));
         verify(() => mockDataSource.authenticate()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
@@ -57,10 +58,10 @@ void main() {
           () => mockDataSource.authenticate(),
         ).thenAnswer((_) async => const Left(failure));
 
-        final Either<Failure, PairingHandshakeEntity> result = await repository
+        final Either<Failure, PairingHandshake> result = await repository
             .authenticate();
 
-        expect(result, const Left<Failure, PairingHandshakeEntity>(failure));
+        expect(result, const Left<Failure, PairingHandshake>(failure));
         verify(() => mockDataSource.authenticate()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },

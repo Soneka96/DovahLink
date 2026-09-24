@@ -28,11 +28,11 @@ const DatabaseFailure _unexpectedAppearanceFailure = DatabaseFailure(
 
 /// Persists the active theme preset by name in [SharedPreferencesAsync].
 class AppearanceLocalDataSource implements IAppearanceLocalDataSource {
-  /// Creates a data source backed by [_preferences].
-  AppearanceLocalDataSource(this._preferences);
-
   /// The wrapped preferences store.
   final SharedPreferencesAsync _preferences;
+
+  /// Creates a data source backed by [_preferences].
+  AppearanceLocalDataSource(this._preferences);
 
   /// See [IAppearanceLocalDataSource.loadPreset]. A missing or unrecognized stored value
   /// resolves to [defaultThemePreset] rather than failing: this type always has a real preset to

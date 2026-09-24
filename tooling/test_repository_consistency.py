@@ -1226,9 +1226,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
         bootstrap step and its failure case, across the docs that reference them."""
         architecture = self._read("ai/context/flutter/architecture.md")
         self.assertIn(
-            "One primary public class or model per file. Datasource files are the documented "
-            "exception below:",
-            architecture,
+            "One primary public type per file. Datasource files are the documented exception "
+            "below: each contains both the abstract interface and its concrete implementation.",
+            self._normalize_whitespace(architecture),
         )
 
         testing = self._read("ai/context/integration/testing.md")
@@ -1988,9 +1988,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self.assertNotIn(retired_phrase, flutter_dart_style)
         # Flutter-architecture-specific documentation rules stay behind.
         self.assertIn(
-            "Describe dependencies in the architectural direction: Model to Entity, UseCase to "
-            "repository",
-            flutter_dart_style,
+            "Describe dependencies in the architectural direction: data Model to Entity, UseCase "
+            "to repository interface",
+            self._normalize_whitespace(flutter_dart_style),
         )
 
     def test_convention_updates_have_one_owner_and_no_planning_document_references(
@@ -2021,24 +2021,39 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("`<feature>.actions.dart` file", common)
         self.assertIn("exception in `ai/context/common.md`", flutter_architecture)
         self.assertNotIn("sole Flutter-specific", flutter_architecture)
-        self.assertIn("one private, widget-local `_<WidgetName>ViewModel`", dart_style)
+        self.assertIn(
+            "Every ViewModel is a named public class in its own `.viewmodel.dart` file.",
+            self._normalize_whitespace(dart_style),
+        )
 
-        for source_path, widget_name in (
+        for source_path, view_model_path, widget_name in (
             (
                 "app/lib/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart",
+                "app/lib/features/pairing/presentation/state/viewmodels/"
+                "pairing_renotify_button.viewmodel.dart",
                 "PairingRenotifyButton",
             ),
             (
                 "app/lib/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart",
+                "app/lib/features/pairing/presentation/state/viewmodels/"
+                "pairing_cancel_button.viewmodel.dart",
                 "PairingCancelButton",
             ),
         ):
             source = self._read(source_path)
-            self.assertIn(f"class _{widget_name}ViewModel", source)
+            view_model_name = f"{widget_name}ViewModel"
             self.assertIn(
-                f"/// Widget-local presentation values consumed by [{widget_name}]",
-                source,
+                f"StoreConnector<AppState, {view_model_name}>( distinct: true, converter: "
+                f"(Store<AppState> store) => sl<{view_model_name}>(param1: store),",
+                self._normalize_whitespace(source),
             )
+
+            view_model = self._read(view_model_path)
+            self.assertIn(
+                f"class {view_model_name}",
+                view_model,
+            )
+            self.assertIn(f"factory {view_model_name}.fromStore", view_model)
 
         for source_path in ("adapter/tests/plugin/dovahlink_adapter_plugin_test.cpp",):
             source = self._read(source_path)

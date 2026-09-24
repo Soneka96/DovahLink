@@ -9,7 +9,7 @@ abstract interface class IPairingRepository {
   /// Connects and authenticates, resolving this installation's trust
   /// standing. Recovers an interrupted pairing confirmation automatically
   /// when the session authenticates as unpaired.
-  Future<Either<Failure, PairingHandshakeEntity>> authenticate();
+  Future<Either<Failure, PairingHandshake>> authenticate();
 
   /// Starts, or queries the status of, a pairing challenge. A fresh or
   /// already-active code is shown in Skyrim; this resolves once the client

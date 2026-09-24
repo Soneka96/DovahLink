@@ -3,24 +3,25 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'package:flutter_redux/flutter_redux.dart';
+import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
+import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Displays a countdown timer for remaining seconds until pairing code expires.
 /// Rebuilds periodically to update the display.
 class PairingCountdown extends StatefulWidget {
-  const PairingCountdown({
-    this.textStyle,
-    this.formatSeconds = _defaultFormatSeconds,
-    super.key,
-  });
-
   /// Optional text style for the countdown display.
   final TextStyle? textStyle;
 
   /// Function to format remaining seconds for display.
   final String Function(int) formatSeconds;
+  const PairingCountdown({
+    this.textStyle,
+    this.formatSeconds = _defaultFormatSeconds,
+    super.key,
+  });
 
   static String _defaultFormatSeconds(int seconds) {
     final minutes = seconds ~/ 60;
@@ -57,10 +58,12 @@ class _PairingCountdownState extends State<PairingCountdown> {
 
   @override
   Widget build(BuildContext context) {
-    return StoreConnector<AppState, int?>(
-      converter: (store) =>
-          PairingSelectors.codeCountdownSecondsSelector(store.state),
-      builder: (context, remainingSeconds) {
+    return StoreConnector<AppState, PairingCountdownViewModel>(
+      distinct: true,
+      converter: (Store<AppState> store) =>
+          sl<PairingCountdownViewModel>(param1: store),
+      builder: (context, viewModel) {
+        final int? remainingSeconds = viewModel.remainingSeconds;
         if (remainingSeconds == null) {
           return const SizedBox.shrink();
         }

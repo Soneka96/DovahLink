@@ -9,18 +9,6 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// ViewModel representing the data required by [PairingScreen].
 class PairingScreenViewModel extends Equatable {
-  /// Creates a pairing screen ViewModel.
-  const PairingScreenViewModel({
-    required this.phase,
-    required this.statusLabel,
-    required this.hostVersion,
-    required this.error,
-    required this.onStart,
-    required this.onRequestCode,
-    required this.onSubmitCode,
-    required this.onBack,
-  });
-
   /// Current pairing lifecycle phase.
   final PairingPhase phase;
 
@@ -45,6 +33,22 @@ class PairingScreenViewModel extends Equatable {
   /// Dispatches [PairingBackRequestedAction].
   final void Function() onBack;
 
+  /// Dispatches [PairingDisposedAction] with trust captured from the current store state.
+  final void Function() onDispose;
+
+  /// Creates a pairing screen ViewModel.
+  const PairingScreenViewModel({
+    required this.phase,
+    required this.statusLabel,
+    required this.hostVersion,
+    required this.error,
+    required this.onStart,
+    required this.onRequestCode,
+    required this.onSubmitCode,
+    required this.onBack,
+    required this.onDispose,
+  });
+
   /// Builds a ViewModel from the Redux [store].
   factory PairingScreenViewModel.fromStore(Store<AppState> store) {
     final AppState state = store.state;
@@ -59,6 +63,13 @@ class PairingScreenViewModel extends Equatable {
         PairingCodeSubmittedAction(code: code, displayName: displayName),
       ),
       onBack: () => store.dispatch(const PairingBackRequestedAction()),
+      onDispose: () => store.dispatch(
+        PairingDisposedAction(
+          wasTrusted:
+              PairingSelectors.phaseSelector(store.state) ==
+              PairingPhase.trusted,
+        ),
+      ),
     );
   }
 

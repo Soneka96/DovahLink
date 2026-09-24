@@ -77,11 +77,9 @@ result/outcome value class) still gets its own file under the normal one-type-pe
 ## Class organization
 
 No private named classes in Dart production or test code. The only exceptions are generated JSON
-serialization code and private Flutter `State<T>` lifecycle subclasses. A Flutter widget may keep
-one private, widget-local `_<WidgetName>ViewModel` in its own file when that type is only the
-widget's `StoreConnector` presentation value. Document the ViewModel declaration, constructor, and
-fields like every other handwritten type. Other ViewModels are allowed only as named classes in
-their own files.
+serialization code and private Flutter `State<T>` lifecycle subclasses. Every ViewModel is a named
+public class in its own `.viewmodel.dart` file. Document the ViewModel declaration, constructor, and
+fields like every other handwritten type.
 
 Private fields remain the normal way to express internal state and invariants. Avoid private methods:
 a method with its own responsibility -- transforming data, generating a value, performing I/O,
@@ -106,11 +104,27 @@ delegated to domain or service layers.
 
 ## Member declaration order
 
-Within a class, declare static constants first, then `final` dependencies supplied by a constructor,
-then constructors and factories, then internally-created or mutable private state, public getters,
-public methods, and the remaining permitted private operations. This makes a type's dependencies
-visible before the constructor that wires them, while keeping state that does not come from callers
-next to the behavior that owns it.
+Within a class, declare members in this order:
+
+1. Static constants and static fields.
+2. All instance fields.
+3. Generative constructors: the unnamed constructor, then named constructors when present.
+4. Factory constructors.
+5. Getters and setters that are not overrides.
+6. Public methods.
+7. Overrides, including overridden getters and setters.
+8. Permitted private methods and operations.
+
+Every field comes before every constructor and factory constructor. This includes public and private
+fields, final and mutable fields, nullable fields, constructor-injected dependencies, internally
+created state, callbacks, collections, and presentation values. Do not distinguish dependencies
+from other fields when choosing declaration placement. A property stored in a field belongs with
+the fields; getters and setters are accessor behavior and follow constructors and factories unless
+they override an inherited member, in which case they belong with the overrides.
+
+When a class has several constructors, keep their existing natural order unless an obvious
+established convention applies. Keep methods in a sensible existing order within their section.
+Equatable's `props` remains with the overrides, after constructors and normal public behavior.
 
 ## Documentation
 

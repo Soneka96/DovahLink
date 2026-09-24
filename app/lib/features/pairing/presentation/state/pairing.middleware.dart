@@ -24,11 +24,6 @@ import 'package:dovahlink_client/shared/usecase/no_params.dart';
 /// Handles pairing actions, resolving its use cases through the shared [sl]
 /// container.
 class PairingMiddleware extends MiddlewareClass<AppState> {
-  /// Creates pairing middleware. [reconnectDelay] is the wait before
-  /// silently retrying after the host is found unreachable; injectable so
-  /// tests don't wait in real time.
-  PairingMiddleware({this.reconnectDelay = const Duration(seconds: 3)});
-
   /// Delay before automatically retrying after [PairingDisconnectedAction].
   final Duration reconnectDelay;
 
@@ -40,6 +35,11 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   /// [PairingSessionTrustedAction] for a new session starts a fresh subscription instead of
   /// reusing one still delivering events for the session that is now gone.
   StreamSubscription<PairingConnectionStatus>? _connectionStatusSubscription;
+
+  /// Creates pairing middleware. [reconnectDelay] is the wait before
+  /// silently retrying after the host is found unreachable; injectable so
+  /// tests don't wait in real time.
+  PairingMiddleware({this.reconnectDelay = const Duration(seconds: 3)});
 
   /// See [MiddlewareClass.call].
   @override
@@ -81,7 +81,7 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
           store.dispatch(PairingFailedAction(failure.message));
         }
       },
-      (PairingHandshakeEntity handshake) {
+      (PairingHandshake handshake) {
         store.dispatch(
           PairingAuthenticatedAction(
             hostVersion: handshake.hostVersion,

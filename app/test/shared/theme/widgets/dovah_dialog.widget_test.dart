@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -111,6 +112,39 @@ void main() {
       },
     );
 
+    testWidgets(
+      'DovahDialog.show lets ink-based content work without its own Material',
+      (WidgetTester tester) async {
+        int tapCount = 0;
+        await pumpDovahThemedWidget(
+          tester,
+          Builder(
+            builder: (BuildContext context) => ElevatedButton(
+              onPressed: () => DovahDialog.show<void>(
+                context,
+                title: 'Appearance',
+                child: InkWell(
+                  onTap: () => tapCount++,
+                  child: const Text('Pick a theme'),
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Pick a theme'));
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(tapCount, 1);
+      },
+    );
+
     testWidgets('DovahDialog.show closes when the close button is tapped', (
       WidgetTester tester,
     ) async {
@@ -138,6 +172,28 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Pick a theme'), findsNothing);
+    });
+
+    testWidgets('DovahDialog calls its supplied close callback', (
+      WidgetTester tester,
+    ) async {
+      int closeCount = 0;
+      await pumpDovahThemedWidget(
+        tester,
+        DovahDialog(
+          title: 'Appearance',
+          onClose: () => closeCount++,
+          child: const Text('Pick a theme'),
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pump();
+
+      expect(closeCount, 1);
+      expect(find.text('Pick a theme'), findsOneWidget);
     });
 
     testWidgets('DovahDialog.show closes when the backdrop is tapped', (
@@ -169,5 +225,84 @@ void main() {
       expect(find.text('Pick a theme'), findsNothing);
       expect(find.text('Open'), findsOneWidget);
     });
+
+    testWidgets('DovahDialog.show closes when Escape is pressed', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        Builder(
+          builder: (BuildContext context) => ElevatedButton(
+            onPressed: () => DovahDialog.show<void>(
+              context,
+              title: 'Appearance',
+              child: const Text('Pick a theme'),
+            ),
+            child: const Text('Open'),
+          ),
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pick a theme'), findsOneWidget);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pumpAndSettle();
+
+      expect(find.text('Pick a theme'), findsNothing);
+      expect(find.text('Open'), findsOneWidget);
+    });
+
+    testWidgets(
+      'DovahDialog.show keeps long content scrollable within its maximum size',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          Builder(
+            builder: (BuildContext context) => ElevatedButton(
+              onPressed: () => DovahDialog.show<void>(
+                context,
+                title: 'Appearance',
+                child: Column(
+                  children: List<Widget>.generate(
+                    40,
+                    (int index) => Text('Theme option $index'),
+                  ),
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(720, 480),
+        );
+
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+
+        final Finder dialog = find.byType(DovahDialog);
+        final Finder contentScrollView = find.descendant(
+          of: dialog,
+          matching: find.byType(Scrollable),
+        );
+        final ScrollableState scrollable = tester.state(contentScrollView);
+
+        expect(tester.takeException(), isNull);
+        expect(
+          tester.getSize(dialog).height,
+          lessThanOrEqualTo(480 - DovahThemeTokens.spacing24 * 2),
+        );
+        expect(scrollable.position.maxScrollExtent, greaterThan(0));
+
+        await tester.drag(contentScrollView, const Offset(0, -160));
+        await tester.pumpAndSettle();
+
+        expect(scrollable.position.pixels, greaterThan(0));
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 }

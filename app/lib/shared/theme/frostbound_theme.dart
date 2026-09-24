@@ -56,6 +56,15 @@ ThemeData buildFrostboundTheme() {
     densityScale: 0.85,
     displayFontFamily: 'Arial Narrow',
     environmentAssetPath: 'assets/themes/frostbound/frostbound-environment.png',
+    eyebrow: Color(0xFFBD5559),
+    rootHeaderHeight: 70,
+    pageTitleFontSize: 31,
+    connectionCardMinHeight: 68,
+    rootContentTopPadding: 20,
+    rootHeroBottomGap: 18,
+    pageTitleLineHeight: 1.0,
+    rootHeaderRuleFraction: 0.2,
+    uppercaseLabels: true,
   );
 
   return ThemeData(

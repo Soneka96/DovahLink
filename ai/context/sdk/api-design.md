@@ -105,13 +105,13 @@ does not reactivate them until an explicit user-initiated Retry succeeds, mirror
 credential/reconnect policy in `roadmap/03`'s Phase 3.3. An explicit SDK disconnect clears desired
 subscription intent; ordinary transport loss and administrative invalidation preserve it.
 
-## Reusable models versus presentation models
+## SDK domain types and app presentation values
 
-Typed models representing reusable DovahLink client/domain concepts belong to the SDK; the app maps
-SDK outputs into Redux state, ViewModels, presentation/status models, or localized user-facing
+Reusable typed DovahLink client/domain concepts belong to the SDK. The Flutter app maps SDK outputs
+into Redux state, Redux-backed ViewModels, immutable ViewData, or localized user-facing
 representations. Third-party SDK users must not need to depend on official-app domain entities,
-Redux, Flutter ViewModels, or product UI concepts, and official-app model architecture must not
-accidentally become the SDK's public API.
+Redux, Flutter ViewModels, or product UI concepts, and official-app presentation architecture must
+not accidentally become the SDK's public API.
 
 ## Security
 

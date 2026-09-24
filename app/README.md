@@ -5,8 +5,8 @@ root [ROADMAP.md](../ROADMAP.md); system boundaries live in
 [ARCHITECTURE.md](../ARCHITECTURE.md); Flutter-specific conventions live in
 [`ai/context/flutter/`](../ai/context/flutter/).
 
-Canonical messages and shared fixtures remain under [`protocol/`](../protocol/). Client models and
-adapters consume that contract without redefining it.
+Canonical messages and shared fixtures remain under [`protocol/`](../protocol/). Client data Models
+and adapters consume that contract without redefining it.
 
 ## SDK integration
 
@@ -30,5 +30,5 @@ flutter analyze
 flutter test
 ```
 
-Generated `.g.dart` files are committed beside their source models and are regenerated rather than
+Generated `.g.dart` files are committed beside their source data Models and are regenerated rather than
 edited by hand.

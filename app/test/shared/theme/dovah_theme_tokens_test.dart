@@ -35,6 +35,42 @@ void main() {
             DovahThemeTokens.appearancePresetCardMinimumWidth,
             DovahThemeTokens.appearancePreviewAccentHeight,
             DovahThemeTokens.appearanceSelectionIconSize,
+            DovahThemeTokens.buttonIconSize,
+            DovahThemeTokens.buttonIconGap,
+            DovahThemeTokens.iconButtonSize,
+            DovahThemeTokens.iconButtonIconSize,
+            DovahThemeTokens.uppercaseLetterSpacingEm,
+            DovahThemeTokens.bodyLineHeight,
+            DovahThemeTokens.buttonFontSize,
+            DovahThemeTokens.connectionTitleFontSize,
+            DovahThemeTokens.rootMinimumWidth,
+            DovahThemeTokens.rootContentMaxWidth,
+            DovahThemeTokens.rootContentSideMargin,
+            DovahThemeTokens.rootContentBottomPadding,
+            DovahThemeTokens.rootHeaderRuleHeight,
+            DovahThemeTokens.rootHeaderBackgroundOpacity,
+            DovahThemeTokens.rootHeaderBlurSigma,
+            DovahThemeTokens.rootBrandMarkSize,
+            DovahThemeTokens.rootBrandGap,
+            DovahThemeTokens.brandNameFontSize,
+            DovahThemeTokens.brandNameLetterSpacingEm,
+            DovahThemeTokens.brandTaglineFontSize,
+            DovahThemeTokens.brandTaglineLetterSpacingEm,
+            DovahThemeTokens.brandTaglineTopGap,
+            DovahThemeTokens.rootHeroGap,
+            DovahThemeTokens.eyebrowFontSize,
+            DovahThemeTokens.eyebrowLetterSpacingEm,
+            DovahThemeTokens.pageTitleLetterSpacingEm,
+            DovahThemeTokens.pageTitleUppercaseLetterSpacingEm,
+            DovahThemeTokens.pageTitleTopGap,
+            DovahThemeTokens.pageTitleBottomGap,
+            DovahThemeTokens.pageDescriptionFontSize,
+            DovahThemeTokens.sectionLabelFontSize,
+            DovahThemeTokens.sectionLabelLetterSpacingEm,
+            DovahThemeTokens.sectionLabelGap,
+            DovahThemeTokens.sectionLabelBottomGap,
+            DovahThemeTokens.rootListGap,
+            DovahThemeTokens.rootFooterFontSize,
             DovahThemeTokens.focusOutlineWidth,
             DovahThemeTokens.minimumTapTargetSize,
             DovahThemeTokens.focusGlowBlurRadius,
@@ -69,6 +105,42 @@ void main() {
             160.0,
             6.0,
             20.0,
+            17.0,
+            9.0,
+            40.0,
+            19.0,
+            0.045,
+            4 / 3,
+            16.0,
+            16.0,
+            720.0,
+            1180.0,
+            32.0,
+            40.0,
+            2.0,
+            0.88,
+            11.0,
+            44.0,
+            13.0,
+            18.0,
+            0.15,
+            9.0,
+            0.2,
+            3.0,
+            20.0,
+            10.0,
+            0.2,
+            0.02,
+            0.06,
+            7.0,
+            5.0,
+            14.0,
+            11.0,
+            0.15,
+            10.0,
+            11.0,
+            10.0,
+            12.0,
             2.0,
             48.0,
             8.0,
@@ -123,6 +195,40 @@ void main() {
       expect(copy.surfaceRaised, original.surfaceRaised);
       expect(copy.signal, original.signal);
       expect(copy.cornerRadius, original.cornerRadius);
+    });
+
+    test('Method copyWith replaces the root-screen tokens', () {
+      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
+
+      final DovahThemeTokens copy = original.copyWith(
+        eyebrow: const Color(0xFF123456),
+        rootHeaderHeight: 70,
+        pageTitleFontSize: 31,
+        connectionCardMinHeight: 61,
+        uppercaseLabels: true,
+        rootContentTopPadding: 20,
+        rootHeroBottomGap: 18,
+        rootHeaderRuleFraction: 0.2,
+        pageTitleLineHeight: 1.0,
+      );
+
+      expect(copy.pageTitleLineHeight, isA<double>());
+      expect(copy.pageTitleLineHeight, 1.0);
+      expect(copy.rootContentTopPadding, isA<double>());
+      expect(copy.rootContentTopPadding, 20);
+      expect(copy.rootHeroBottomGap, isA<double>());
+      expect(copy.rootHeroBottomGap, 18);
+      expect(copy.rootHeaderRuleFraction, isA<double>());
+      expect(copy.rootHeaderRuleFraction, 0.2);
+      expect(copy.eyebrow, const Color(0xFF123456));
+      expect(copy.rootHeaderHeight, isA<double>());
+      expect(copy.rootHeaderHeight, 70);
+      expect(copy.pageTitleFontSize, isA<double>());
+      expect(copy.pageTitleFontSize, 31);
+      expect(copy.connectionCardMinHeight, isA<double>());
+      expect(copy.connectionCardMinHeight, 61);
+      expect(copy.uppercaseLabels, isTrue);
+      expect(original.uppercaseLabels, isFalse);
     });
 
     test('Method copyWith omits environmentAssetPath when not passed', () {
@@ -221,6 +327,56 @@ void main() {
       expect(result.cornerCutSize, 10);
       expect(result.densityScale, isA<double>());
       expect(result.densityScale, 1);
+    });
+
+    test('Method lerp interpolates the root-screen metrics and colors', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
+        eyebrow: const Color(0xFF000000),
+        rootHeaderHeight: 60,
+        pageTitleFontSize: 30,
+        connectionCardMinHeight: 50,
+        rootContentTopPadding: 20,
+        rootHeroBottomGap: 10,
+        rootHeaderRuleFraction: 0.2,
+        pageTitleLineHeight: 1.0,
+      );
+      final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
+        eyebrow: const Color(0xFFFFFFFF),
+        rootHeaderHeight: 80,
+        pageTitleFontSize: 40,
+        connectionCardMinHeight: 90,
+        rootContentTopPadding: 30,
+        rootHeroBottomGap: 30,
+        rootHeaderRuleFraction: 0.6,
+        pageTitleLineHeight: 1.4,
+      );
+
+      final DovahThemeTokens result = tokens.lerp(other, 0.5);
+
+      expect(result.eyebrow, Color.lerp(tokens.eyebrow, other.eyebrow, 0.5));
+      expect(result.rootHeaderHeight, isA<double>());
+      expect(result.rootHeaderHeight, 70);
+      expect(result.pageTitleFontSize, isA<double>());
+      expect(result.pageTitleFontSize, 35);
+      expect(result.connectionCardMinHeight, isA<double>());
+      expect(result.connectionCardMinHeight, 70);
+      expect(result.rootContentTopPadding, isA<double>());
+      expect(result.rootContentTopPadding, 25);
+      expect(result.rootHeroBottomGap, isA<double>());
+      expect(result.rootHeroBottomGap, 20);
+      expect(result.rootHeaderRuleFraction, isA<double>());
+      expect(result.rootHeaderRuleFraction, closeTo(0.4, 0.0001));
+      expect(result.pageTitleLineHeight, isA<double>());
+      expect(result.pageTitleLineHeight, closeTo(1.2, 0.0001));
+    });
+
+    test('Method lerp switches uppercaseLabels at the midpoint', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens other = tokens.copyWith(uppercaseLabels: true);
+
+      expect(tokens.lerp(other, 0.25).uppercaseLabels, isFalse);
+      expect(tokens.lerp(other, 0.5).uppercaseLabels, isTrue);
+      expect(tokens.lerp(other, 0.75).uppercaseLabels, isTrue);
     });
 
     test('Method lerp blends action foreground and switches its gradient', () {
@@ -416,6 +572,25 @@ void main() {
       );
 
       expect(first, isNot(second));
+    });
+
+    test('Behavior equality fails when a root-screen token differs', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final List<DovahThemeTokens> others = <DovahThemeTokens>[
+        first.copyWith(eyebrow: const Color(0xFF000000)),
+        first.copyWith(rootHeaderHeight: 1),
+        first.copyWith(pageTitleFontSize: 1),
+        first.copyWith(connectionCardMinHeight: 1),
+        first.copyWith(uppercaseLabels: true),
+        first.copyWith(rootContentTopPadding: 1),
+        first.copyWith(rootHeroBottomGap: 1),
+        first.copyWith(rootHeaderRuleFraction: 0.01),
+        first.copyWith(pageTitleLineHeight: 0.5),
+      ];
+
+      for (final DovahThemeTokens other in others) {
+        expect(first, isNot(other));
+      }
     });
 
     test('Behavior equality fails when primaryActionForeground differs', () {

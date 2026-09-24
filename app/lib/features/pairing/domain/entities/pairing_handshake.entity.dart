@@ -1,14 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 /// The result of authenticating a host session for the pairing flow.
-class PairingHandshakeEntity extends Equatable {
-  /// Creates a pairing handshake result.
-  const PairingHandshakeEntity({
-    required this.hostVersion,
-    required this.trusted,
-    this.credentialRejectedMessage,
-  });
-
+class PairingHandshake extends Equatable {
   /// The Host's own release version reported by `hello_ack`.
   final String hostVersion;
 
@@ -22,6 +15,13 @@ class PairingHandshakeEntity extends Equatable {
   /// discarding the stale credential and re-authenticating as unpaired, so the caller can still
   /// tell the user why they are being asked to pair again.
   final String? credentialRejectedMessage;
+
+  /// Creates a pairing handshake result.
+  const PairingHandshake({
+    required this.hostVersion,
+    required this.trusted,
+    this.credentialRejectedMessage,
+  });
 
   /// See [Equatable.props].
   @override

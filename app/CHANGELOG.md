@@ -13,9 +13,15 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Added
 
-- The app's shared interface now renders in the Frostbound, Dovah, or Hearth style; theme selection
-  is not yet reachable through normal navigation.
+- The app's shared interface now renders in the Frostbound, Dovah, or Hearth style.
+- The Connections screen has an appearance button in its header that opens the theme picker.
+- The Connections screen shows a Discover Skyrim button, disabled until Host discovery exists.
 - The selected theme is saved locally and restored after relaunch.
+
+### Changed
+
+- The start screen is now the branded Connections screen, listing each Host as a themed card, in
+  place of the plain Host list.
 
 ### Fixed
 

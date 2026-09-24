@@ -5,32 +5,43 @@ import '../../../../fixtures/fixtures.dart';
 
 /// Exercises Host entity value preservation.
 void main() {
-  group('HostEntity', () {
-    test('stores the display name and endpoint', () {
-      final HostEntity host = Fixtures.buildHostEntity(
+  group('Property displayName behaves correctly', () {
+    test('Host.displayName stores the supplied display name', () {
+      final Host host = Fixtures.buildHost(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
 
       expect(host.displayName, 'Local Host');
-      expect(host.uri, Uri.parse('ws://127.0.0.1:58231/'));
     });
+  });
 
-    test('treats hosts with different endpoints as unequal', () {
-      final HostEntity first = Fixtures.buildHostEntity(
+  group('Property uri behaves correctly', () {
+    test('Host.uri stores the supplied endpoint', () {
+      final Host host = Fixtures.buildHost(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
-      final HostEntity second = Fixtures.buildHostEntity(
+
+      expect(host.uri, Uri.parse('ws://127.0.0.1:58231/'));
+    });
+  });
+
+  group('Behavior equality behaves correctly', () {
+    test('Host equality changes when endpoints differ', () {
+      final Host first = Fixtures.buildHost(
+        uri: Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      final Host second = Fixtures.buildHost(
         uri: Uri.parse('ws://127.0.0.1:9999/'),
       );
 
       expect(first == second, isFalse);
     });
 
-    test('treats hosts with different display names as unequal', () {
-      final HostEntity first = Fixtures.buildHostEntity(
+    test('Host equality changes when display names differ', () {
+      final Host first = Fixtures.buildHost(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
-      final HostEntity second = Fixtures.buildHostEntity(
+      final Host second = Fixtures.buildHost(
         displayName: 'Other Host',
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
@@ -38,15 +49,16 @@ void main() {
       expect(first == second, isFalse);
     });
 
-    test('treats hosts with the same display name and endpoint as equal', () {
-      final HostEntity first = Fixtures.buildHostEntity(
+    test('Host equality gives matching hashes for equal values', () {
+      final Host first = Fixtures.buildHost(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
-      final HostEntity second = Fixtures.buildHostEntity(
+      final Host second = Fixtures.buildHost(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
       );
 
       expect(first == second, isTrue);
+      expect(first.hashCode, second.hashCode);
     });
   });
 }
