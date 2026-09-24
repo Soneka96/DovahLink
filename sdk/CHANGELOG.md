@@ -11,6 +11,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-24
+
 ### Added
 
 - The Dart SDK exposes typed per-domain subscription intent and sends complete desired state-area

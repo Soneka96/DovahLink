@@ -16,6 +16,10 @@ void main() {
           returnsNormally,
         );
         expect(
+          () => validateHostVersionCompatibility('0.5.1'),
+          returnsNormally,
+        );
+        expect(
           () => validateHostVersionCompatibility('0.5.999'),
           returnsNormally,
         );
