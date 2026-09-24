@@ -44,6 +44,89 @@ void main() {
     }
   });
 
+  group('DovahButton renders its icon', () {
+    for (final DovahButtonVariant variant in DovahButtonVariant.values) {
+      testWidgets(
+        'DovahButton displays a $variant icon before its label in the label color',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(
+              label: 'Discover',
+              onPressed: () {},
+              variant: variant,
+              icon: Icons.zoom_in,
+            ),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
+
+          final Icon icon = tester.widget(find.byIcon(Icons.zoom_in));
+          final Text text = tester.widget<Text>(find.text('Discover'));
+
+          expect(icon.size, isA<double>());
+          expect(icon.size, DovahThemeTokens.buttonIconSize);
+          expect(icon.color, text.style!.color);
+          expect(
+            tester.getTopLeft(find.text('Discover')).dx -
+                tester.getTopRight(find.byIcon(Icons.zoom_in)).dx,
+            greaterThanOrEqualTo(DovahThemeTokens.buttonIconGap),
+          );
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    testWidgets('DovahButton contains no icon when none is given', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(label: 'Discover', onPressed: () {}),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expect(find.byType(Icon), findsNothing);
+    });
+
+    testWidgets('DovahButton keeps its label as the only semantics label', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      try {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(label: 'Discover', onPressed: () {}, icon: Icons.zoom_in),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(find.bySemanticsLabel('Discover'), findsOneWidget);
+      } finally {
+        semantics.dispose();
+      }
+    });
+
+    testWidgets('DovahButton renders a disabled icon button without error', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(
+          label: 'Discover',
+          onPressed: null,
+          icon: Icons.zoom_in,
+        ),
+        preset: DovahThemePreset.frostbound,
+        size: dovahTestSizes.first,
+      );
+
+      expect(find.byIcon(Icons.zoom_in), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
   group('DovahButton calls onPressed', () {
     testWidgets('DovahButton calls onPressed when tapped and enabled', (
       WidgetTester tester,

@@ -72,6 +72,18 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Size of the selected-preset indicator.
   static const double appearanceSelectionIconSize = 20;
 
+  /// Size of the icon inside a themed button.
+  static const double buttonIconSize = 17;
+
+  /// Gap between a themed button's icon and its label.
+  static const double buttonIconGap = 9;
+
+  /// Width and height of a themed icon-only button's visible surface.
+  static const double iconButtonSize = 40;
+
+  /// Size of the icon inside a themed icon-only button.
+  static const double iconButtonIconSize = 19;
+
   /// Width of themed focus outlines.
   static const double focusOutlineWidth = 2;
 
