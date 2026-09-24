@@ -12,6 +12,9 @@ class PairingState extends Equatable {
     required this.phase,
     required this.hostVersion,
     required this.error,
+
+    /// Typed Host reason for rejecting a previously stored credential, or `null` when absent.
+    this.credentialRejectionReason,
     required this.codeExpiresAt,
     required this.renotifyAvailableAt,
   });
@@ -21,6 +24,7 @@ class PairingState extends Equatable {
     phase: PairingPhase.none,
     hostVersion: null,
     error: null,
+    credentialRejectionReason: null,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
   );
@@ -35,6 +39,9 @@ class PairingState extends Equatable {
   /// The most recent user-safe pairing error, or `null`.
   final String? error;
 
+  /// The typed Host reason for rejecting a stored credential, or `null` when none was rejected.
+  final PairingCredentialRejectionReason? credentialRejectionReason;
+
   /// The absolute time when the active pairing code expires, or `null` when
   /// no challenge is active.
   final DateTime? codeExpiresAt;
@@ -48,6 +55,9 @@ class PairingState extends Equatable {
     PairingPhase? phase,
     Option<String>? hostVersion,
     Option<String>? error,
+
+    /// Replaces the rejection reason; pass `None()` to clear it.
+    Option<PairingCredentialRejectionReason>? credentialRejectionReason,
     Option<DateTime>? codeExpiresAt,
     Option<DateTime>? renotifyAvailableAt,
   }) => PairingState(
@@ -56,6 +66,9 @@ class PairingState extends Equatable {
         ? this.hostVersion
         : hostVersion.toNullable(),
     error: error == null ? this.error : error.toNullable(),
+    credentialRejectionReason: credentialRejectionReason == null
+        ? this.credentialRejectionReason
+        : credentialRejectionReason.toNullable(),
     codeExpiresAt: codeExpiresAt == null
         ? this.codeExpiresAt
         : codeExpiresAt.toNullable(),
@@ -70,6 +83,7 @@ class PairingState extends Equatable {
     phase,
     hostVersion,
     error,
+    credentialRejectionReason,
     codeExpiresAt,
     renotifyAvailableAt,
   ];

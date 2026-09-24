@@ -30,8 +30,9 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
@@ -183,25 +184,49 @@ void main() {
       expect(sl.isRegistered<ObserveConnectionStatusUseCase>(), isTrue);
     });
 
-    test('initDependencies registers the pairing ViewModel factory', () async {
-      await initDependencies();
+    test(
+      'initDependencies registers and resolves the pairing dialog ViewModel factory',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(AppState.initial());
 
-      expect(sl.isRegistered<PairingScreenViewModel>(), isTrue);
-    });
+        final PairingDialogViewModel viewModel = sl<PairingDialogViewModel>(
+          param1: store,
+        );
+
+        expect(sl.isRegistered<PairingDialogViewModel>(), isTrue);
+        expect(viewModel.title, 'Pair with this PC');
+      },
+    );
 
     test(
-      'initDependencies resolves PairingScreenViewModel from a Store',
+      'initDependencies registers and resolves the pairing section ViewModel factory',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(AppState.initial());
+
+        final PairingSectionViewModel viewModel = sl<PairingSectionViewModel>(
+          param1: store,
+        );
+
+        expect(sl.isRegistered<PairingSectionViewModel>(), isTrue);
+        expect(viewModel.phase, PairingPhase.none);
+      },
+    );
+
+    test(
+      'initDependencies resolves PairingSectionViewModel callbacks against a Store',
       () async {
         await initDependencies();
         final MockStore store = MockStore();
         when(() => store.state).thenReturn(AppState.initial());
         when(() => store.dispatch(any())).thenAnswer((_) {});
 
-        final PairingScreenViewModel viewModel = sl<PairingScreenViewModel>(
+        final PairingSectionViewModel viewModel = sl<PairingSectionViewModel>(
           param1: store,
         );
-
-        expect(viewModel.phase, PairingPhase.none);
         viewModel.onStart();
         viewModel.onDispose();
 

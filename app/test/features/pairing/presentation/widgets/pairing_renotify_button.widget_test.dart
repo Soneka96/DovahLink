@@ -8,7 +8,10 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// Mocks the redisplay button's Redux store subscription.
 class MockStore extends Mock implements Store<AppState> {}
@@ -58,6 +61,7 @@ void main() {
     String label = 'Send Code Again',
     String? cooldownLabel,
   }) => MaterialApp(
+    theme: dovahThemeDataFor(DovahThemePreset.dovah),
     home: StoreProvider<AppState>(
       store: store,
       child: Scaffold(
@@ -90,8 +94,8 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
 
-        final ElevatedButton button = tester.widget<ElevatedButton>(
-          find.byType(ElevatedButton),
+        final DovahButton button = tester.widget<DovahButton>(
+          find.byType(DovahButton),
         );
         expect(button.onPressed, isNotNull);
         expect(find.text('Send Code Again'), findsOneWidget);
@@ -103,8 +107,8 @@ void main() {
       (WidgetTester tester) async {
         await tester.pumpWidget(buildWidget());
 
-        final ElevatedButton button = tester.widget<ElevatedButton>(
-          find.byType(ElevatedButton),
+        final DovahButton button = tester.widget<DovahButton>(
+          find.byType(DovahButton),
         );
         expect(button.onPressed, isNull);
         expect(find.text('Send Code Again (3s)'), findsOneWidget);
@@ -160,7 +164,7 @@ void main() {
         ).thenReturn('Send Code Again');
 
         await tester.pumpWidget(buildWidget());
-        await tester.tap(find.byType(ElevatedButton));
+        await tester.tap(find.byType(DovahButton));
 
         expect(wasPressed, isTrue);
       },
@@ -173,10 +177,10 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
         expect(
-          tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+          tester.widget<DovahButton>(find.byType(DovahButton)).onPressed,
           isNull,
         );
-        await tester.tap(find.byType(ElevatedButton), warnIfMissed: false);
+        await tester.tap(find.byType(DovahButton), warnIfMissed: false);
       },
     );
   });
@@ -210,7 +214,7 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
         expect(
-          tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+          tester.widget<DovahButton>(find.byType(DovahButton)).onPressed,
           isNull,
         );
 
@@ -218,7 +222,7 @@ void main() {
 
         expect(resolutions, greaterThan(1));
         expect(
-          tester.widget<ElevatedButton>(find.byType(ElevatedButton)).onPressed,
+          tester.widget<DovahButton>(find.byType(DovahButton)).onPressed,
           isNotNull,
         );
         expect(find.text('Send Code Again'), findsOneWidget);

@@ -19,6 +19,9 @@ class PairingAuthenticatedAction extends Equatable {
   const PairingAuthenticatedAction({
     required this.hostVersion,
     required this.trusted,
+
+    /// Typed Host reason for rejecting a previously stored credential, or `null` when absent.
+    this.credentialRejectionReason,
     this.credentialRejectedMessage,
   });
 
@@ -28,14 +31,22 @@ class PairingAuthenticatedAction extends Equatable {
   /// Whether this session already holds a trusted credential.
   final bool trusted;
 
+  /// The typed Host reason for rejecting a stored credential, or `null` when none was rejected.
+  final PairingCredentialRejectionReason? credentialRejectionReason;
+
   /// A user-safe explanation, or `null` when not applicable. Set only when this authentication
-  /// recovered from a rejected `trusted_device_credential` hello (revoked or unrecognized) by
-  /// discarding the stale credential and re-authenticating as unpaired.
+  /// recovered from a rejected `trusted_device_credential` hello by discarding the stale
+  /// credential and re-authenticating as unpaired.
   final String? credentialRejectedMessage;
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [hostVersion, trusted, credentialRejectedMessage];
+  List<Object?> get props => [
+    hostVersion,
+    trusted,
+    credentialRejectionReason,
+    credentialRejectedMessage,
+  ];
 }
 
 /// Requests a pairing challenge.
@@ -113,16 +124,6 @@ class PairingFailedAction extends Equatable {
   /// See [Equatable.props].
   @override
   List<Object?> get props => [message];
-}
-
-/// Requests leaving the pairing screen and returning to home.
-class PairingBackRequestedAction extends Equatable {
-  /// Creates a back-navigation request.
-  const PairingBackRequestedAction();
-
-  /// See [Equatable.props].
-  @override
-  List<Object?> get props => [];
 }
 
 /// Closes the pairing session and resets its state.

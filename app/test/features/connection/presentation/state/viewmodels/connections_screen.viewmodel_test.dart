@@ -1,31 +1,17 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
-import 'package:dovahlink_client/injection_container.dart';
-import 'package:dovahlink_client/shared/navigation/app_routes.dart';
-import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 import '../../../../../fixtures/fixtures.dart';
 
-/// Mocktail double for [NavigatorService], matching this project's existing
-/// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
-class MockNavigatorService extends Mock implements NavigatorService {}
-
 /// Exercises [ConnectionsScreenViewModel.fromStore] projections.
 void main() {
-  late MockNavigatorService mockNavigatorService;
-
-  setUp(() async {
-    await sl.reset();
-    mockNavigatorService = MockNavigatorService();
-    sl.registerLazySingleton<NavigatorService>(() => mockNavigatorService);
-  });
-
   group('ConnectionsScreenViewModel fromStore()', () {
     test('fromStore selects the card for the static default Host', () {
       final Store<AppState> store = const CreateStore()();
@@ -37,28 +23,54 @@ void main() {
     });
 
     test(
-      'onSelectHost dispatches ConnectionHostSelectedAction, navigating to pairing',
+      'onSelectHost dispatches ConnectionHostSelectedAction, recording the selected Host',
       () {
-        final Store<AppState> store = const CreateStore()(
-          middleware: [ConnectionMiddleware().call],
-        );
+        final Store<AppState> store = const CreateStore()();
         final ConnectionsScreenViewModel viewModel =
             ConnectionsScreenViewModel.fromStore(store);
 
         viewModel.onSelectHost(viewModel.hostCards.single.host);
 
-        verify(() => mockNavigatorService.go(AppRoutes.pairing)).called(1);
+        expect(
+          ConnectionSelectors.selectedHostSelector(store.state),
+          Fixtures.buildHost(),
+        );
       },
     );
 
-    test('onSelectHost does not navigate before a Host is selected', () {
-      final Store<AppState> store = const CreateStore()(
-        middleware: [ConnectionMiddleware().call],
-      );
+    test('onSelectHost leaves no Host selected before it is called', () {
+      final Store<AppState> store = const CreateStore()();
       ConnectionsScreenViewModel.fromStore(store);
 
-      verifyNever(() => mockNavigatorService.go(any()));
+      expect(ConnectionSelectors.selectedHostSelector(store.state), isNull);
     });
+
+    test(
+      'onSelectHost records the second of two Hosts sharing a display name by URI',
+      () {
+        final Host first = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://192.168.1.10:1000/'),
+        );
+        final Host second = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://192.168.1.11:2000/'),
+        );
+        final Store<AppState> store = const CreateStore()(
+          initialState: AppState(
+            connection: ConnectionState(hosts: [first, second]),
+            pairing: PairingState.initial(),
+          ),
+        );
+
+        ConnectionsScreenViewModel.fromStore(store).onSelectHost(second);
+
+        expect(
+          ConnectionSelectors.selectedHostSelector(store.state)?.uri,
+          second.uri,
+        );
+      },
+    );
 
     test(
       'two ViewModels with the same cards are equal, regardless of callback identity',

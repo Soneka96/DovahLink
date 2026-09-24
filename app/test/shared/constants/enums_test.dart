@@ -4,6 +4,22 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Exercises stable labels for every enum declared in `shared/constants/enums.dart`.
 void main() {
+  group(
+    'Behavior values in PairingCredentialRejectionReason behave correctly',
+    () {
+      test(
+        'Behavior values in PairingCredentialRejectionReason include every Host rejection reason',
+        () {
+          expect(PairingCredentialRejectionReason.values, [
+            PairingCredentialRejectionReason.revoked,
+            PairingCredentialRejectionReason.unrecognized,
+            PairingCredentialRejectionReason.blocked,
+          ]);
+        },
+      );
+    },
+  );
+
   group('Property label in PairingPhase behaves correctly', () {
     test(
       'Property label in PairingPhase returns the concise label for every phase',

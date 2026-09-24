@@ -5,11 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
-import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
+import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
-import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
@@ -35,34 +34,30 @@ void main() {
       );
 
       expect(find.byType(ConnectionsScreen), findsOneWidget);
-      expect(find.byType(PairingScreen), findsNothing);
+      expect(find.byType(PairingSection), findsNothing);
     });
 
-    testWidgets('createRouter resolves the pairing route to PairingScreen', (
-      WidgetTester tester,
-    ) async {
-      final GoRouter router = createRouter();
-      await tester.pumpWidget(
-        StoreProvider<AppState>(
-          store: const CreateStore()(),
-          child: MaterialApp.router(
-            theme: dovahThemeDataFor(defaultThemePreset),
-            routerConfig: router,
+    testWidgets(
+      'createRouter no longer resolves a standalone pairing route, since pairing is a dialog',
+      (WidgetTester tester) async {
+        final GoRouter router = createRouter();
+        await tester.pumpWidget(
+          StoreProvider<AppState>(
+            store: const CreateStore()(),
+            child: MaterialApp.router(
+              theme: dovahThemeDataFor(defaultThemePreset),
+              routerConfig: router,
+            ),
           ),
-        ),
-      );
+        );
 
-      router.go(AppRoutes.pairing);
-      // Not pumpAndSettle: PairingScreen auto-starts a real connection attempt
-      // with no host listening in this test, so it retries forever by
-      // design and never quiesces. The route-transition duration is enough
-      // to mount the destination screen, which is all this asserts.
-      await tester.pump();
-      await tester.pump(const Duration(milliseconds: 500));
+        router.go('/pairing');
+        await tester.pumpAndSettle();
 
-      expect(find.byType(PairingScreen), findsOneWidget);
-      expect(find.byType(ConnectionsScreen), findsNothing);
-    });
+        expect(find.byType(ConnectionsScreen), findsNothing);
+        expect(find.byType(PairingSection), findsNothing);
+      },
+    );
 
     testWidgets(
       'createRouter falls back safely for an unmatched path instead of resolving a known screen',
@@ -82,7 +77,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(ConnectionsScreen), findsNothing);
-        expect(find.byType(PairingScreen), findsNothing);
+        expect(find.byType(PairingSection), findsNothing);
       },
     );
   });

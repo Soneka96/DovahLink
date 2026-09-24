@@ -6,6 +6,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -13,6 +14,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
@@ -22,8 +24,6 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.sta
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
-import 'package:dovahlink_client/shared/navigation/app_routes.dart';
-import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import '../../../../fixtures/fixtures.dart';
@@ -46,20 +46,16 @@ class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
 class MockObserveConnectionStatusUseCase extends Mock
     implements ObserveConnectionStatusUseCase {}
 
-/// Mocktail double for [NavigatorService], matching this project's existing
-/// mock-the-concrete-class convention for it (see `navigator_service_test.dart`'s `MockGoRouter`).
-class MockNavigatorService extends Mock implements NavigatorService {}
-
 /// Mocktail double for [Store], called directly rather than dispatched
 /// through -- `dispatch` and the middleware's own `next` both append to one
 /// action log, so no real reducer is involved and `store.state` is exactly
 /// whatever a test stubs.
 class MockStore extends Mock implements Store<AppState> {}
 
-/// Builds an [AppState] with the given pairing [phase], the only field
-/// [PairingMiddleware] itself ever reads from the Store.
-AppState _stateWithPhase(PairingPhase phase) => AppState(
-  connection: ConnectionState.initial(),
+/// Builds an [AppState] with the given pairing [phase] and the selected [host] (the representative
+/// Host when omitted) -- the two things [PairingMiddleware] itself reads from the Store.
+AppState _stateWithPhase(PairingPhase phase, {Host? host}) => AppState(
+  connection: ConnectionState(selectedHost: host ?? Fixtures.buildHost()),
   pairing: PairingState(
     phase: phase,
     hostVersion: null,
@@ -67,6 +63,12 @@ AppState _stateWithPhase(PairingPhase phase) => AppState(
     codeExpiresAt: null,
     renotifyAvailableAt: null,
   ),
+);
+
+/// Builds an [AppState] with no Host selected, in the initial pairing phase.
+AppState _stateWithoutSelectedHost() => AppState(
+  connection: ConnectionState.initial(),
+  pairing: PairingState.initial(),
 );
 
 /// Exercises [PairingMiddleware] in isolation: each test calls
@@ -81,7 +83,6 @@ void main() {
   late MockConfirmPairingCodeUseCase mockConfirmPairingCode;
   late MockDisconnectUseCase mockDisconnect;
   late MockObserveConnectionStatusUseCase mockObserveConnectionStatus;
-  late MockNavigatorService mockNavigatorService;
   late MockStore store;
   late List<Object?> actionLog;
 
@@ -89,6 +90,7 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(NoParams());
+    registerFallbackValue(Fixtures.buildAuthenticateParams());
   });
 
   setUp(() async {
@@ -99,7 +101,6 @@ void main() {
     mockConfirmPairingCode = MockConfirmPairingCodeUseCase();
     mockDisconnect = MockDisconnectUseCase();
     mockObserveConnectionStatus = MockObserveConnectionStatusUseCase();
-    mockNavigatorService = MockNavigatorService();
     sl.registerLazySingleton<AuthenticateUseCase>(() => mockAuthenticate);
     sl.registerLazySingleton<RequestPairingUseCase>(() => mockRequestPairing);
     sl.registerLazySingleton<ConfirmPairingCodeUseCase>(
@@ -115,7 +116,6 @@ void main() {
     sl.registerLazySingleton<ObserveConnectionStatusUseCase>(
       () => mockObserveConnectionStatus,
     );
-    sl.registerLazySingleton<NavigatorService>(() => mockNavigatorService);
 
     actionLog = [];
     store = MockStore();
@@ -136,13 +136,12 @@ void main() {
     reset(mockConfirmPairingCode);
     reset(mockDisconnect);
     reset(mockObserveConnectionStatus);
-    reset(mockNavigatorService);
     reset(store);
   });
 
   group('PairingMiddleware processes PairingStartedAction correctly', () {
     test(
-      'PairingStartedAction dispatches PairingAuthenticatedAction when authentication succeeds',
+      'PairingStartedAction dispatches PairingAuthenticatedAction then PairingCodeRequestedAction when an unpaired session authenticates',
       () async {
         final PairingHandshake handshake = Fixtures.buildPairingHandshake(
           trusted: false,
@@ -166,13 +165,201 @@ void main() {
         );
         expect(
           (actionLog[1] as PairingAuthenticatedAction)
+              .credentialRejectionReason,
+          isNull,
+        );
+        expect(
+          (actionLog[1] as PairingAuthenticatedAction)
               .credentialRejectedMessage,
           isNull,
         );
         // An untrusted (unpaired) session must not start observing invalidation -- there is no
-        // trusted session yet to invalidate.
-        expect(actionLog, hasLength(2));
+        // trusted session yet to invalidate -- and asks for its code through the dispatched
+        // action rather than calling the use case itself.
+        expect(actionLog, hasLength(3));
+        expect(actionLog[2], const PairingCodeRequestedAction());
         verify(() => mockAuthenticate(any())).called(1);
+        verifyNever(() => mockRequestPairing(any()));
+      },
+    );
+
+    test(
+      'PairingStartedAction dispatches PairingCodeRequestedAction exactly once per unpaired authentication',
+      () async {
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), hasLength(1));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), hasLength(2));
+        expect(actionLog.whereType<PairingAuthenticatedAction>(), hasLength(2));
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch PairingCodeRequestedAction when the session is already trusted',
+      () async {
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: true)),
+        );
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), isEmpty);
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch PairingCodeRequestedAction when a rejected credential needs confirmation',
+      () async {
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(
+            Fixtures.buildPairingHandshake(
+              trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.revoked,
+              credentialRejectedMessage: "This device's trust was revoked.",
+            ),
+          ),
+        );
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          isA<PairingStartedAction>(),
+          isA<PairingAuthenticatedAction>(),
+        ]);
+        verifyNever(() => mockRequestPairing(any()));
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch PairingCodeRequestedAction for a blocked credential',
+      () async {
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(
+            Fixtures.buildPairingHandshake(
+              trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.blocked,
+              credentialRejectedMessage: 'This device is blocked by the Host.',
+            ),
+          ),
+        );
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), isEmpty);
+        expect(
+          actionLog
+              .whereType<PairingAuthenticatedAction>()
+              .single
+              .credentialRejectionReason,
+          PairingCredentialRejectionReason.blocked,
+        );
+        verifyNever(() => mockRequestPairing(any()));
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch PairingCodeRequestedAction when authentication fails',
+      () async {
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => const Left(PairingFailure('rejected')));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), isEmpty);
+        expect(actionLog.whereType<PairingFailedAction>(), hasLength(1));
+      },
+    );
+
+    test(
+      'PairingStartedAction authenticates with exactly the selected Host URI',
+      () async {
+        final Host host = Fixtures.buildHost(
+          displayName: 'Second Host',
+          uri: Uri.parse('ws://192.168.1.11:2000/'),
+        );
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.none, host: host));
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        verify(
+          () => mockAuthenticate(
+            AuthenticateParams(hostUri: Uri.parse('ws://192.168.1.11:2000/')),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'PairingStartedAction authenticates by URI when two Hosts share a display name',
+      () async {
+        final Host first = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://192.168.1.10:1000/'),
+        );
+        final Host second = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://192.168.1.11:2000/'),
+        );
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.none, host: first));
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.none, host: second));
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        verifyInOrder([
+          () => mockAuthenticate(AuthenticateParams(hostUri: first.uri)),
+          () => mockAuthenticate(AuthenticateParams(hostUri: second.uri)),
+        ]);
+      },
+    );
+
+    test(
+      'PairingStartedAction dispatches PairingFailedAction and never authenticates when no Host is selected',
+      () async {
+        when(() => store.state).thenReturn(_stateWithoutSelectedHost());
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          isA<PairingStartedAction>(),
+          const PairingFailedAction('Select a Host to pair with.'),
+        ]);
+        verifyNever(() => mockAuthenticate(any()));
       },
     );
 
@@ -206,6 +393,7 @@ void main() {
       () async {
         final PairingHandshake handshake = Fixtures.buildPairingHandshake(
           trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.revoked,
           credentialRejectedMessage: "This device's trust was revoked.",
         );
         when(
@@ -219,6 +407,11 @@ void main() {
           (actionLog[1] as PairingAuthenticatedAction)
               .credentialRejectedMessage,
           "This device's trust was revoked.",
+        );
+        expect(
+          (actionLog[1] as PairingAuthenticatedAction)
+              .credentialRejectionReason,
+          PairingCredentialRejectionReason.revoked,
         );
       },
     );
@@ -742,15 +935,6 @@ void main() {
         expect(actionLog[1], const PairingFailedAction('connection lost'));
       },
     );
-  });
-
-  group('PairingMiddleware processes PairingBackRequestedAction correctly', () {
-    test('PairingBackRequestedAction navigates to the home route', () {
-      middleware.call(store, const PairingBackRequestedAction(), next);
-
-      expect(actionLog, [const PairingBackRequestedAction()]);
-      verify(() => mockNavigatorService.go(AppRoutes.home)).called(1);
-    });
   });
 
   group('PairingMiddleware processes PairingSessionTrustedAction correctly', () {

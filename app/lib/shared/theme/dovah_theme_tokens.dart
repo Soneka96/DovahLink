@@ -34,12 +34,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Shared panel and connection-card padding.
   static const double spacing18 = 18;
 
-  /// Shared dialog-header padding.
-  static const double spacing19 = 19;
-
-  /// Shared dialog-content padding.
-  static const double spacing22 = 22;
-
   /// Shared dialog-backdrop padding.
   static const double spacing24 = 24;
 
@@ -193,6 +187,57 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Disabled-control opacity.
   static const double disabledControlOpacity = 0.46;
 
+  /// Gap between pairing-code digit boxes.
+  static const double pairingCodeBoxGap = 8;
+
+  /// Font size of a digit inside a pairing-code digit box.
+  static const double pairingCodeBoxFontSize = 22;
+
+  /// Width of the halo around the focused pairing-code digit box.
+  static const double pairingCodeBoxFocusRingWidth = 3;
+
+  /// Font size of an inline form error message.
+  static const double formErrorFontSize = 12;
+
+  /// Gap between adjacent action buttons in a dialog.
+  static const double dialogActionGap = 10;
+
+  /// Maximum width of a pairing state's content column.
+  static const double pairingContentMaxWidth = 520;
+
+  /// Maximum width of a pairing state's body copy.
+  static const double pairingBodyMaxWidth = 430;
+
+  /// Font size of a pairing state's body copy.
+  static const double pairingBodyFontSize = 14;
+
+  /// Font size of a pairing state's footnote.
+  static const double pairingNoteFontSize = 12;
+
+  /// Width and height of a pairing success mark.
+  static const double pairingSuccessMarkSize = 62;
+
+  /// Gap below a pairing success mark.
+  static const double pairingSuccessMarkBottomGap = 17;
+
+  /// Size of the check glyph inside a pairing success mark.
+  static const double pairingSuccessGlyphSize = 29;
+
+  /// Opacity of the status tone filling a pairing success mark.
+  static const double statusMarkFillOpacity = 0.1;
+
+  /// Opacity of the status tone outlining a pairing success mark.
+  static const double statusMarkBorderOpacity = 0.36;
+
+  /// Width and height of an inline progress spinner.
+  static const double progressIndicatorSize = 15;
+
+  /// Stroke width of an inline progress spinner.
+  static const double progressIndicatorStrokeWidth = 2;
+
+  /// Gap between an inline progress spinner and its status text.
+  static const double progressStatusGap = 10;
+
   /// Brightness increase applied to hovered primary buttons.
   static const double primaryButtonHoverBrightness = 0.07;
 
@@ -206,10 +251,16 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   static const double dialogBackdropBlurSigma = 8;
 
   /// Opacity of the themed-dialog backdrop scrim.
-  static const double dialogBackdropOpacity = 0.35;
+  static const double dialogBackdropOpacity = 0.76;
 
   /// Color of the themed-dialog backdrop scrim.
-  static const Color dialogBackdropColor = Colors.black;
+  static const Color dialogBackdropColor = Color(0xFF020407);
+
+  /// Maximum width of a themed dialog.
+  static const double dialogMaxWidth = 720;
+
+  /// Fraction of the window width a themed dialog may fill, up to [dialogMaxWidth].
+  static const double dialogWidthFraction = 0.88;
 
   /// Opacity of the environment-background scrim at the top edge.
   static const double environmentTopScrimOpacity = 0.82;

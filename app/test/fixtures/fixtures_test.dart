@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -38,6 +39,24 @@ void main() {
       expect(first, second);
       expect(first.hashCode, second.hashCode);
       expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildAuthenticateParams behaves correctly', () {
+    test('Method buildAuthenticateParams targets the representative Host', () {
+      final AuthenticateParams params = Fixtures.buildAuthenticateParams();
+
+      expect(params.hostUri, defaultHostUri);
+    });
+
+    test('Method buildAuthenticateParams preserves the named override', () {
+      final Uri uri = Uri.parse('ws://127.0.0.1:2/');
+
+      final AuthenticateParams params = Fixtures.buildAuthenticateParams(
+        hostUri: uri,
+      );
+
+      expect(params.hostUri, uri);
     });
   });
 
@@ -93,6 +112,7 @@ void main() {
       expect(handshake.hostVersion, '1.2.3');
       expect(handshake.trusted, isA<bool>());
       expect(handshake.trusted, isTrue);
+      expect(handshake.credentialRejectionReason, isNull);
       expect(handshake.credentialRejectedMessage, isNull);
     });
 
@@ -100,6 +120,7 @@ void main() {
       final PairingHandshake handshake = Fixtures.buildPairingHandshake(
         hostVersion: '2.0.0',
         trusted: false,
+        credentialRejectionReason: PairingCredentialRejectionReason.revoked,
         credentialRejectedMessage: 'Pairing is required again.',
       );
 
@@ -107,6 +128,10 @@ void main() {
       expect(handshake.hostVersion, '2.0.0');
       expect(handshake.trusted, isA<bool>());
       expect(handshake.trusted, isFalse);
+      expect(
+        handshake.credentialRejectionReason,
+        PairingCredentialRejectionReason.revoked,
+      );
       expect(handshake.credentialRejectedMessage, isA<String>());
       expect(handshake.credentialRejectedMessage, 'Pairing is required again.');
     });
@@ -122,6 +147,7 @@ void main() {
             );
 
         expect(untrustedWithoutMessage.trusted, isFalse);
+        expect(untrustedWithoutMessage.credentialRejectionReason, isNull);
         expect(untrustedWithoutMessage.credentialRejectedMessage, isNull);
         expect(trustedWithMessage.trusted, isTrue);
         expect(
@@ -150,6 +176,7 @@ void main() {
 
         expect(model.hostVersion, '1.2.3');
         expect(model.trusted, isTrue);
+        expect(model.credentialRejectionReason, isNull);
         expect(model.credentialRejectedMessage, isNull);
       },
     );
@@ -158,11 +185,16 @@ void main() {
       final PairingHandshakeModel model = Fixtures.buildPairingHandshakeModel(
         hostVersion: '2.0.0',
         trusted: false,
+        credentialRejectionReason: PairingCredentialRejectionReason.blocked,
         credentialRejectedMessage: 'Pairing is required again.',
       );
 
       expect(model.hostVersion, '2.0.0');
       expect(model.trusted, isFalse);
+      expect(
+        model.credentialRejectionReason,
+        PairingCredentialRejectionReason.blocked,
+      );
       expect(model.credentialRejectedMessage, 'Pairing is required again.');
     });
   });

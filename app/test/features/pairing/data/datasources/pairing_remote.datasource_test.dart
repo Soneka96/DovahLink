@@ -7,7 +7,6 @@ import 'package:mocktail/mocktail.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
-import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 import '../../../../fixtures/fixtures.dart';
@@ -19,6 +18,7 @@ class MockDovahLinkClient extends Mock implements DovahLinkClient {}
 void main() {
   late MockDovahLinkClient mockClient;
   late PairingRemoteDataSource dataSource;
+  final Uri hostUri = Uri.parse('ws://192.168.1.20:4000/');
 
   setUpAll(() {
     registerFallbackValue(Uri.parse('ws://127.0.0.1:58231/'));
@@ -41,7 +41,7 @@ void main() {
         );
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -49,7 +49,7 @@ void main() {
             Fixtures.buildPairingHandshakeModel(),
           ),
         );
-        verify(() => mockClient.authenticate(defaultHostUri)).called(1);
+        verify(() => mockClient.authenticate(hostUri)).called(1);
         verifyNever(() => mockClient.recoverPendingPairing());
       },
     );
@@ -68,7 +68,7 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.trusted);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -94,7 +94,7 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -120,15 +120,16 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
           Right<Failure, PairingHandshakeModel>(
             Fixtures.buildPairingHandshakeModel(
               trusted: false,
-              credentialRejectedMessage:
-                  "This device's trust was revoked. Requesting a new pairing code.",
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.revoked,
+              credentialRejectedMessage: "This device's trust was revoked.",
             ),
           ),
         );
@@ -150,13 +151,15 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
           Right<Failure, PairingHandshakeModel>(
             Fixtures.buildPairingHandshakeModel(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.blocked,
               credentialRejectedMessage:
                   'This device is blocked by the host and cannot be paired again until an '
                   'administrator unblocks it.',
@@ -182,15 +185,17 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
           Right<Failure, PairingHandshakeModel>(
             Fixtures.buildPairingHandshakeModel(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.unrecognized,
               credentialRejectedMessage:
-                  "This device isn't recognized by this host. Requesting a new pairing code.",
+                  "This device isn't recognized by this host.",
             ),
           ),
         );
@@ -209,7 +214,7 @@ void main() {
         ).thenReturn(DovahLinkConnectionState.disconnected);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -232,7 +237,7 @@ void main() {
         ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -264,7 +269,7 @@ void main() {
         ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -289,7 +294,7 @@ void main() {
         );
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -308,7 +313,7 @@ void main() {
         ).thenThrow(const DovahLinkStorageException('corrupt store'));
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -333,7 +338,7 @@ void main() {
         ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,
@@ -352,7 +357,7 @@ void main() {
         ).thenThrow(StateError('boom'));
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(
           result,

@@ -13,8 +13,9 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairin
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
@@ -60,11 +61,17 @@ void initPairingDependencies() {
   ) {
     return PairingCountdownViewModel.fromStore(store);
   });
-  sl.registerFactoryParam<PairingScreenViewModel, Store<AppState>, void>((
+  sl.registerFactoryParam<PairingDialogViewModel, Store<AppState>, void>((
     Store<AppState> store,
     void _,
   ) {
-    return PairingScreenViewModel.fromStore(store);
+    return PairingDialogViewModel.fromStore(store);
+  });
+  sl.registerFactoryParam<PairingSectionViewModel, Store<AppState>, void>((
+    Store<AppState> store,
+    void _,
+  ) {
+    return PairingSectionViewModel.fromStore(store);
   });
   sl.registerFactoryParam<
     PairingRenotifyButtonViewModel,

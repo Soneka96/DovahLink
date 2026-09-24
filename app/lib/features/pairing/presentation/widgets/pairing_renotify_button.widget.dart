@@ -7,7 +7,9 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// Button to request pairing code redisplay, disabled when in cooldown. [PairingState.
 /// renotifyAvailableAt] is a static absolute time (matching [PairingCountdown]'s own
@@ -56,14 +58,14 @@ class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
       converter: (Store<AppState> store) =>
           sl<PairingRenotifyButtonViewModel>(param1: store),
       builder: (context, viewModel) {
-        return ElevatedButton(
-          onPressed: viewModel.onPressed,
-          child: Text(
-            viewModel.displayLabel(
-              label: widget.label,
-              cooldownLabel: widget.cooldownLabel,
-            ),
+        return DovahButton(
+          key: const Key('pairing-renotify-button'),
+          label: viewModel.displayLabel(
+            label: widget.label,
+            cooldownLabel: widget.cooldownLabel,
           ),
+          variant: DovahButtonVariant.secondary,
+          onPressed: viewModel.onPressed,
         );
       },
     );
