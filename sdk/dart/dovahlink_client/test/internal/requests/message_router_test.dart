@@ -145,6 +145,81 @@ void main() {
           ProtocolErrorCode.malformedMessage,
         );
         expect(verification.captured[1], isFalse);
+        verifyNever(() => unsolicitedMessageHandler.handle(any()));
+      },
+    );
+
+    test(
+      'Method handleIncoming resolves a matched state snapshot as a pending reply',
+      () {
+        when(() => bookkeeping.resolveReply(any(), any())).thenReturn(true);
+
+        router.handleIncoming(
+          rawEnvelope(
+            messageType: 'state_snapshot',
+            payload: const <String, dynamic>{
+              'stateArea': 'character_health',
+              'revision': 2,
+              'occurredAt': '2026-09-23T12:00:00Z',
+              'data': <String, dynamic>{'value': 90.0},
+            },
+            correlationId: 'pending-snapshot-request',
+          ),
+        );
+
+        final Envelope resolved =
+            verify(
+                  () => bookkeeping.resolveReply(
+                    'pending-snapshot-request',
+                    captureAny(),
+                  ),
+                ).captured.single
+                as Envelope;
+        expect(resolved.messageType, ProtocolMessageType.stateSnapshot);
+        verifyNever(() => unsolicitedMessageHandler.handle(any()));
+        verifyNever(
+          () => sessionService.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handleIncoming routes an unmatched correlated state snapshot',
+      () {
+        when(() => bookkeeping.resolveReply(any(), any())).thenReturn(false);
+
+        router.handleIncoming(
+          rawEnvelope(
+            messageType: 'state_snapshot',
+            payload: const <String, dynamic>{
+              'stateArea': 'character_health',
+              'revision': 2,
+              'occurredAt': '2026-09-23T12:00:00Z',
+              'data': <String, dynamic>{'value': 90.0},
+            },
+            correlationId: 'completed-subscribe-request',
+          ),
+        );
+
+        final Envelope routed =
+            verify(
+                  () => unsolicitedMessageHandler.handle(captureAny()),
+                ).captured.single
+                as Envelope;
+        expect(routed.messageType, ProtocolMessageType.stateSnapshot);
+        expect(routed.correlationId, 'completed-subscribe-request');
+        verify(
+          () => bookkeeping.resolveReply('completed-subscribe-request', any()),
+        ).called(1);
+        verifyNever(
+          () => sessionService.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
       },
     );
 

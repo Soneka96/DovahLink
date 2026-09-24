@@ -525,6 +525,29 @@ void main() {
           'stateArea': 'character_level',
           'knownRevision': 2,
         });
+
+        final Future<void> correlatedBaselineReceived = expectLater(
+          client.characterLevelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 6 &&
+                  state.value?.value == 15,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_level',
+            revision: 6,
+            value: 15,
+            correlationId: snapshotRequest['messageId'] as String,
+          ),
+        );
+
+        await correlatedBaselineReceived;
+        expect(client.connectionState, DovahLinkConnectionState.connected);
       },
     );
   });

@@ -28,7 +28,7 @@ class MessageRouter implements IMessageRouter {
   /// detects are reported.
   final ISessionService _sessionService;
 
-  /// Routes uncorrelated Host messages to their typed lifecycle and state owners.
+  /// Routes uncorrelated Host messages and unmatched baseline snapshots to their typed owners.
   final IUnsolicitedMessageHandler _unsolicitedMessageHandler;
 
   /// Creates a message router resolving correlated replies and reporting anomalies through
@@ -46,9 +46,9 @@ class MessageRouter implements IMessageRouter {
 
   /// Decodes and routes one inbound message. Matches a correlated reply to its pending operation
   /// strictly by `correlationId`/`messageId` through [PendingOperationBookkeeping.resolveReply];
-  /// routes an unsolicited (`correlationId: null`) message by type; reports a protocol violation
-  /// for a non-null `correlationId` matching no pending operation, and for malformed JSON, rather
-  /// than letting either escape as an uncaught error.
+  /// routes unsolicited messages and unmatched `state_snapshot` messages by type; reports a
+  /// protocol violation for other unmatched non-null `correlationId` values; and reports malformed
+  /// JSON rather than letting it escape as an uncaught error.
   /// @param raw The UTF-8 JSON message received from the current socket.
   @override
   void handleIncoming(String raw) {
@@ -77,6 +77,11 @@ class MessageRouter implements IMessageRouter {
 
     final bool resolved = _bookkeeping.resolveReply(correlationId, envelope);
     if (!resolved) {
+      if (envelope.messageType == ProtocolMessageType.stateSnapshot) {
+        _unsolicitedMessageHandler.handle(envelope);
+        return;
+      }
+
       // Protocol violation, not ordinary connectivity loss -- see the malformed-JSON branch
       // above for why this never orphans a retry-safe operation either.
       _sessionService.onProtocolViolation(

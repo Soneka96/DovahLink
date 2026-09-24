@@ -18,6 +18,11 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before
   admitting a session.
 
+### Fixed
+
+- The Dart SDK routes later baseline snapshots even when they reuse a completed request's
+  correlation ID.
+
 ## [0.4.0] - 2026-09-23
 
 ### Fixed
