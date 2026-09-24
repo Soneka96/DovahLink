@@ -7,11 +7,11 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 /// The connections screen's title row: the "Your Skyrim" eyebrow, the page title, a supporting
 /// description, and the Discover Skyrim action aligned to the row's bottom edge.
 class ConnectionsHero extends StatelessWidget {
-  /// Creates the connections title row.
-  const ConnectionsHero({required this.onDiscover, super.key});
-
   /// Called when Discover Skyrim is tapped, or `null` to show the action disabled.
   final VoidCallback? onDiscover;
+
+  /// Creates the connections title row.
+  const ConnectionsHero({required this.onDiscover, super.key});
 
   /// See [StatelessWidget.build].
   @override

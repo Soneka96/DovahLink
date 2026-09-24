@@ -10,6 +10,12 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// ViewModel representing the data required by [ConnectionsScreen].
 class ConnectionsScreenViewModel extends Equatable {
+  /// The display data for each Host available to select.
+  final List<HostCardViewData> hostCards;
+
+  /// Called when the user selects [host] to pair or connect with.
+  final void Function(Host host) onSelectHost;
+
   /// Creates a connections screen ViewModel.
   const ConnectionsScreenViewModel({
     required this.hostCards,
@@ -25,12 +31,6 @@ class ConnectionsScreenViewModel extends Equatable {
           store.dispatch(ConnectionHostSelectedAction(host)),
     );
   }
-
-  /// The display data for each Host available to select.
-  final List<HostCardViewData> hostCards;
-
-  /// Called when the user selects [host] to pair or connect with.
-  final void Function(Host host) onSelectHost;
 
   /// See [Equatable.props].
   @override

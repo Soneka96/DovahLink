@@ -8,14 +8,6 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart'
 /// `.icon-btn`). It takes a label, an icon, and a callback as props; the label is both its tooltip
 /// and its single screen-reader label.
 class DovahIconButton extends StatelessWidget {
-  /// Creates a themed icon-only button.
-  const DovahIconButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    super.key,
-  });
-
   /// The icon drawn on the button.
   final IconData icon;
 
@@ -24,6 +16,14 @@ class DovahIconButton extends StatelessWidget {
 
   /// Called when the button is tapped, or `null` to render it disabled.
   final VoidCallback? onPressed;
+
+  /// Creates a themed icon-only button.
+  const DovahIconButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    super.key,
+  });
 
   /// See [StatelessWidget.build].
   @override

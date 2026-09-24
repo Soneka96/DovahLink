@@ -9,19 +9,18 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Button to cancel the active pairing challenge, enabled only during code entry.
 class PairingCancelButton extends StatelessWidget {
-  const PairingCancelButton({
-    this.label = 'Cancel',
-    this.style = _defaultButtonStyle,
-    super.key,
-  });
+  static const ButtonStyle? _defaultButtonStyle = null;
 
   /// Label displayed on the button.
   final String label;
 
   /// Optional button style override.
   final ButtonStyle? style;
-
-  static const ButtonStyle? _defaultButtonStyle = null;
+  const PairingCancelButton({
+    this.label = 'Cancel',
+    this.style = _defaultButtonStyle,
+    super.key,
+  });
 
   @override
   Widget build(BuildContext context) {

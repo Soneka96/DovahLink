@@ -11,11 +11,11 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// The root Flutter application for DovahLink.
 class DovahLinkApp extends StatelessWidget {
-  /// Creates the application around the supplied Redux [store].
-  const DovahLinkApp({required this.store, super.key});
-
   /// The application-wide Redux store.
   final Store<AppState> store;
+
+  /// Creates the application around the supplied Redux [store].
+  const DovahLinkApp({required this.store, super.key});
 
   /// See [StatelessWidget.build].
   @override

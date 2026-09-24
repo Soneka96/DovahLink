@@ -10,18 +10,18 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widg
 /// [DovahConnectionCard] per Host. It shows the supplied display data and reports which Host a
 /// card selects; it does not read state.
 class ConnectionsHostSection extends StatelessWidget {
+  /// The cards to show, in order.
+  final List<HostCardViewData> cards;
+
+  /// Called with the Host of the card the user taps.
+  final void Function(Host host) onSelectHost;
+
   /// Creates the Host section.
   const ConnectionsHostSection({
     required this.cards,
     required this.onSelectHost,
     super.key,
   });
-
-  /// The cards to show, in order.
-  final List<HostCardViewData> cards;
-
-  /// Called with the Host of the card the user taps.
-  final void Function(Host host) onSelectHost;
 
   /// See [StatelessWidget.build].
   @override

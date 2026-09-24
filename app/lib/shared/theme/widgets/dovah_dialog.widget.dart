@@ -13,6 +13,15 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 /// card supplies its own transparent [Material], which a dialog route does not, so ink-based
 /// content such as an [InkWell] works inside it.
 class DovahDialog extends StatelessWidget {
+  /// The dialog's title.
+  final String title;
+
+  /// The dialog's scrollable content.
+  final Widget child;
+
+  /// Called when the close affordance is tapped, or `null` to pop the current route.
+  final VoidCallback? onClose;
+
   /// Creates a themed dialog card.
   const DovahDialog({
     required this.title,
@@ -44,15 +53,6 @@ class DovahDialog extends StatelessWidget {
       ),
     ),
   );
-
-  /// The dialog's title.
-  final String title;
-
-  /// The dialog's scrollable content.
-  final Widget child;
-
-  /// Called when the close affordance is tapped, or `null` to pop the current route.
-  final VoidCallback? onClose;
 
   /// See [StatelessWidget.build].
   @override

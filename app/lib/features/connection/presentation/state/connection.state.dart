@@ -7,6 +7,9 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 /// Immutable Redux state for the Host connection.
 @immutable
 class ConnectionState extends Equatable {
+  /// The Hosts available to select.
+  final List<Host> hosts;
+
   /// Creates connection state with an explicit Host list.
   const ConnectionState({this.hosts = const <Host>[]});
 
@@ -15,9 +18,6 @@ class ConnectionState extends Equatable {
   factory ConnectionState.initial() => ConnectionState(
     hosts: [Host(displayName: 'Local Host', uri: defaultHostUri)],
   );
-
-  /// The Hosts available to select.
-  final List<Host> hosts;
 
   /// Returns a copy with selected values replaced.
   ConnectionState copyWith({List<Host>? hosts}) =>

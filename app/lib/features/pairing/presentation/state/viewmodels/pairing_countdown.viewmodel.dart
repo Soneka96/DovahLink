@@ -6,11 +6,11 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Redux-backed presentation value for the pairing code countdown.
 class PairingCountdownViewModel extends Equatable {
-  /// Creates a pairing countdown ViewModel.
-  const PairingCountdownViewModel({required this.remainingSeconds});
-
   /// Remaining seconds until the pairing code expires, or null when no code is active.
   final int? remainingSeconds;
+
+  /// Creates a pairing countdown ViewModel.
+  const PairingCountdownViewModel({required this.remainingSeconds});
 
   /// Creates the ViewModel from the current Redux [store].
   factory PairingCountdownViewModel.fromStore(Store<AppState> store) =>

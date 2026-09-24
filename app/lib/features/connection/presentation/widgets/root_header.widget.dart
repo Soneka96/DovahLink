@@ -11,11 +11,11 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
 /// action on the right, over a translucent blurred surface with a gradient rule along its bottom
 /// edge. Takes its one callback as a prop.
 class RootHeader extends StatelessWidget {
-  /// Creates the root header.
-  const RootHeader({required this.onOpenAppearance, super.key});
-
   /// Called when the appearance action is tapped.
   final VoidCallback onOpenAppearance;
+
+  /// Creates the root header.
+  const RootHeader({required this.onOpenAppearance, super.key});
 
   /// See [StatelessWidget.build].
   @override

@@ -8,15 +8,6 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart'
 /// A DovahLink themed button. Primary buttons use each preset's approved action fill and label
 /// color; secondary buttons use the theme's raised material and primary text tone.
 class DovahButton extends StatefulWidget {
-  /// Creates a themed button.
-  const DovahButton({
-    required this.label,
-    required this.onPressed,
-    this.variant = DovahButtonVariant.primary,
-    this.icon,
-    super.key,
-  });
-
   /// The button's visible text.
   final String label;
 
@@ -28,6 +19,15 @@ class DovahButton extends StatefulWidget {
 
   /// An optional icon shown before the label, in the label's color.
   final IconData? icon;
+
+  /// Creates a themed button.
+  const DovahButton({
+    required this.label,
+    required this.onPressed,
+    this.variant = DovahButtonVariant.primary,
+    this.icon,
+    super.key,
+  });
 
   /// Creates the state that tracks the prototype's primary-button hover treatment.
   @override

@@ -10,16 +10,6 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart'
 /// A DovahLink connection entry styled by [DovahConnectionCardState]. It takes display data and a
 /// callback as props without reading connection or host state.
 class DovahConnectionCard extends StatelessWidget {
-  /// Creates a themed connection card.
-  const DovahConnectionCard({
-    required this.title,
-    required this.subtitle,
-    required this.detail,
-    required this.state,
-    this.onTap,
-    super.key,
-  });
-
   /// The connection's display name (for example a Host's name).
   final String title;
 
@@ -34,6 +24,16 @@ class DovahConnectionCard extends StatelessWidget {
 
   /// Called when the card is tapped, or `null` to render it non-interactive.
   final VoidCallback? onTap;
+
+  /// Creates a themed connection card.
+  const DovahConnectionCard({
+    required this.title,
+    required this.subtitle,
+    required this.detail,
+    required this.state,
+    this.onTap,
+    super.key,
+  });
 
   /// See [StatelessWidget.build].
   @override

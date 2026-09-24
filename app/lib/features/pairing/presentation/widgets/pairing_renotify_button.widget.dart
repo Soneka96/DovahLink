@@ -15,17 +15,16 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// would trigger a rebuild once the cooldown elapses, and the button would stay disabled
 /// indefinitely until an unrelated Redux dispatch happened to reshuffle state.
 class PairingRenotifyButton extends StatefulWidget {
-  const PairingRenotifyButton({
-    this.label = 'Send Code Again',
-    this.cooldownLabel,
-    super.key,
-  });
-
   /// Label displayed when button is enabled.
   final String label;
 
   /// Label displayed during cooldown; if null, shows "[label] (Xs)" format.
   final String? cooldownLabel;
+  const PairingRenotifyButton({
+    this.label = 'Send Code Again',
+    this.cooldownLabel,
+    super.key,
+  });
 
   @override
   State<PairingRenotifyButton> createState() => _PairingRenotifyButtonState();

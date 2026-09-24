@@ -217,51 +217,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Opacity of the environment-background scrim at the bottom edge.
   static const double environmentBottomScrimOpacity = 0.55;
 
-  /// Creates a complete token set. Every field is required so no theme can be assembled with an
-  /// accidentally-inherited default.
-  const DovahThemeTokens({
-    required this.background,
-    required this.surface,
-    required this.surfaceRaised,
-    required this.surface3,
-    required this.lineSubtle,
-    required this.lineStrong,
-    required this.textPrimary,
-    required this.textMuted,
-    required this.textFaint,
-    required this.accentPrimary,
-    required this.accentSecondary,
-    required this.signal,
-    required this.ember,
-    required this.success,
-    required this.warning,
-    required this.danger,
-    required this.primaryActionGradient,
-    required this.primaryActionForeground,
-    required this.soft,
-    required this.health,
-    required this.magicka,
-    required this.stamina,
-    required this.cornerStyle,
-    required this.cornerRadius,
-    required this.cornerCutSize,
-    required this.panelShadow,
-    required this.materialGradient,
-    required this.materialRaisedGradient,
-    required this.densityScale,
-    required this.displayFontFamily,
-    required this.environmentAssetPath,
-    required this.eyebrow,
-    required this.rootHeaderHeight,
-    required this.pageTitleFontSize,
-    required this.connectionCardMinHeight,
-    required this.uppercaseLabels,
-    required this.rootContentTopPadding,
-    required this.rootHeroBottomGap,
-    required this.rootHeaderRuleFraction,
-    required this.pageTitleLineHeight,
-  });
-
   /// The canvas behind every surface.
   final Color background;
 
@@ -393,6 +348,51 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
 
   /// Line height, as a multiple of font size, of a page title.
   final double pageTitleLineHeight;
+
+  /// Creates a complete token set. Every field is required so no theme can be assembled with an
+  /// accidentally-inherited default.
+  const DovahThemeTokens({
+    required this.background,
+    required this.surface,
+    required this.surfaceRaised,
+    required this.surface3,
+    required this.lineSubtle,
+    required this.lineStrong,
+    required this.textPrimary,
+    required this.textMuted,
+    required this.textFaint,
+    required this.accentPrimary,
+    required this.accentSecondary,
+    required this.signal,
+    required this.ember,
+    required this.success,
+    required this.warning,
+    required this.danger,
+    required this.primaryActionGradient,
+    required this.primaryActionForeground,
+    required this.soft,
+    required this.health,
+    required this.magicka,
+    required this.stamina,
+    required this.cornerStyle,
+    required this.cornerRadius,
+    required this.cornerCutSize,
+    required this.panelShadow,
+    required this.materialGradient,
+    required this.materialRaisedGradient,
+    required this.densityScale,
+    required this.displayFontFamily,
+    required this.environmentAssetPath,
+    required this.eyebrow,
+    required this.rootHeaderHeight,
+    required this.pageTitleFontSize,
+    required this.connectionCardMinHeight,
+    required this.uppercaseLabels,
+    required this.rootContentTopPadding,
+    required this.rootHeroBottomGap,
+    required this.rootHeaderRuleFraction,
+    required this.pageTitleLineHeight,
+  });
 
   /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
   /// threaded through [Option] to keep "omitted", "cleared to null", and "set" distinct.

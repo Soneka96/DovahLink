@@ -5,9 +5,6 @@ import 'package:flutter/material.dart';
 /// SVG paths and brand colors directly, so the app needs no SVG-rendering dependency; the
 /// colors belong to the sigil asset, not to the theme tokens.
 class DovahSigilPainter extends CustomPainter {
-  /// Creates the sigil painter.
-  const DovahSigilPainter();
-
   /// The side length of the sigil's view box.
   static const double viewBoxSize = 100;
 
@@ -16,6 +13,9 @@ class DovahSigilPainter extends CustomPainter {
 
   /// The fill of the sigil's lower-right arrow.
   static const Color lowerColor = Color(0xFF74BDE8);
+
+  /// Creates the sigil painter.
+  const DovahSigilPainter();
 
   /// See [CustomPainter.paint].
   @override

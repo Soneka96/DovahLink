@@ -52,11 +52,11 @@ const PairingFailure _unexpectedPairingFailure = PairingFailure(
 /// outside that documented set is also converted rather than left to escape this boundary, as
 /// [_unexpectedPairingFailure].
 class PairingRemoteDataSource implements IPairingRemoteDataSource {
-  /// Creates a data source backed by [_client].
-  PairingRemoteDataSource(this._client);
-
   /// The wrapped SDK client.
   final DovahLinkClient _client;
+
+  /// Creates a data source backed by [_client].
+  PairingRemoteDataSource(this._client);
 
   /// See [IPairingRemoteDataSource.authenticate]. Delegates to [DovahLinkClient.authenticate],
   /// which recovers from a rejected `trusted_device_credential` hello by discarding the stale

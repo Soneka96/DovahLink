@@ -12,17 +12,16 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Displays a countdown timer for remaining seconds until pairing code expires.
 /// Rebuilds periodically to update the display.
 class PairingCountdown extends StatefulWidget {
-  const PairingCountdown({
-    this.textStyle,
-    this.formatSeconds = _defaultFormatSeconds,
-    super.key,
-  });
-
   /// Optional text style for the countdown display.
   final TextStyle? textStyle;
 
   /// Function to format remaining seconds for display.
   final String Function(int) formatSeconds;
+  const PairingCountdown({
+    this.textStyle,
+    this.formatSeconds = _defaultFormatSeconds,
+    super.key,
+  });
 
   static String _defaultFormatSeconds(int seconds) {
     final minutes = seconds ~/ 60;
