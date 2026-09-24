@@ -198,6 +198,47 @@ void main() {
       },
     );
 
+    testWidgets('DovahConnectionCard maps each state to its theme color', (
+      WidgetTester tester,
+    ) async {
+      final DovahThemeTokens tokens = dovahThemeDataFor(
+        DovahThemePreset.dovah,
+      ).extension<DovahThemeTokens>()!;
+      const Map<DovahConnectionCardState, String> labels = {
+        DovahConnectionCardState.available: 'Connected',
+        DovahConnectionCardState.unknown: 'Not connected',
+        DovahConnectionCardState.offline: 'Offline',
+        DovahConnectionCardState.repair: 'Pair again',
+      };
+      final Map<DovahConnectionCardState, Color> colors = {
+        DovahConnectionCardState.available: tokens.success,
+        DovahConnectionCardState.unknown: tokens.textMuted,
+        DovahConnectionCardState.offline: tokens.textFaint,
+        DovahConnectionCardState.repair: tokens.warning,
+      };
+
+      for (final DovahConnectionCardState state
+          in DovahConnectionCardState.values) {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahConnectionCard(
+            title: 'Gaming PC',
+            subtitle: 'DovahLink Host',
+            detail: '127.0.0.1:58231',
+            state: state,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final Icon marker = tester.widget(find.byIcon(Icons.circle).first);
+        final Text label = tester.widget(find.text(labels[state]!));
+
+        expect(marker.color, colors[state]);
+        expect(label.style?.color, colors[state]);
+      }
+    });
+
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
         'DovahConnectionCard uses shared icon and caption metrics under $preset',

@@ -148,6 +148,27 @@ void main() {
       expect(find.byIcon(Icons.zoom_in), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    testWidgets('DovahButton dims its disabled appearance', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(label: 'Discover', onPressed: null),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      final Opacity opacity = tester.widget(
+        find.descendant(
+          of: find.byType(DovahButton),
+          matching: find.byType(Opacity),
+        ),
+      );
+
+      expect(opacity.opacity, isA<double>());
+      expect(opacity.opacity, DovahThemeTokens.disabledControlOpacity);
+    });
   });
 
   group('DovahButton calls onPressed', () {
