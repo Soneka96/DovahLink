@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -35,6 +36,50 @@ void main() {
     test('Method buildHostEntity returns a fresh value per call', () {
       final HostEntity first = Fixtures.buildHostEntity();
       final HostEntity second = Fixtures.buildHostEntity();
+
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
+      expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildHostCardViewModel behaves correctly', () {
+    test('Method buildHostCardViewModel builds representative defaults', () {
+      final HostCardViewModel card = Fixtures.buildHostCardViewModel();
+
+      expect(card.host, Fixtures.buildHostEntity());
+      expect(card.title, isA<String>());
+      expect(card.title, 'Local Host');
+      expect(card.subtitle, isA<String>());
+      expect(card.subtitle, 'DovahLink Host');
+      expect(card.detail, isA<String>());
+      expect(card.detail, '127.0.0.1:58231');
+      expect(card.state, DovahConnectionCardState.unknown);
+    });
+
+    test('Method buildHostCardViewModel preserves named overrides', () {
+      final HostEntity host = Fixtures.buildHostEntity(displayName: 'Other');
+      final HostCardViewModel card = Fixtures.buildHostCardViewModel(
+        host: host,
+        title: 'Other',
+        subtitle: 'Sub',
+        detail: 'Detail',
+        state: DovahConnectionCardState.repair,
+      );
+
+      expect(card.host, host);
+      expect(card.title, isA<String>());
+      expect(card.title, 'Other');
+      expect(card.subtitle, isA<String>());
+      expect(card.subtitle, 'Sub');
+      expect(card.detail, isA<String>());
+      expect(card.detail, 'Detail');
+      expect(card.state, DovahConnectionCardState.repair);
+    });
+
+    test('Method buildHostCardViewModel returns a fresh value per call', () {
+      final HostCardViewModel first = Fixtures.buildHostCardViewModel();
+      final HostCardViewModel second = Fixtures.buildHostCardViewModel();
 
       expect(first, second);
       expect(first.hashCode, second.hashCode);
