@@ -28,6 +28,18 @@
     <None Include="..\..\adapter-host-ipc\fixtures\live-state-catalog.json"
           Link="adapter-host-ipc\fixtures\live-state-catalog.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\subscriptions\subscribe-add-area.json"
+          Link="protocol\fixtures\subscriptions\subscribe-add-area.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\subscriptions\subscribe.json"
+          Link="protocol\fixtures\subscriptions\subscribe.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\subscriptions\subscribe-replacement.json"
+          Link="protocol\fixtures\subscriptions\subscribe-replacement.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\subscriptions\subscribe-empty.json"
+          Link="protocol\fixtures\subscriptions\subscribe-empty.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

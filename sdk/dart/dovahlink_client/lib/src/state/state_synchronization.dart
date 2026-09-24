@@ -31,7 +31,7 @@ class StateSynchronization<T> {
     required this.revision,
   });
 
-  /// Creates the initial view before any state subscription has been requested.
+  /// Creates a view for a domain not accepted by the current Host session.
   const StateSynchronization.notSubscribed()
     : status = DovahLinkStateStatus.notSubscribed,
       value = null,

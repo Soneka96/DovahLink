@@ -60,14 +60,19 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 
 ## Current position
 
-- **Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phase 5.2 is complete and
-  Phase 5.3 is the next planned delivery phase. Stages 3 and 3A are complete. Stage 4 — Live State
+- **Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phases 5.1–5.3 are complete and
+  Phase 5.4 is the next planned delivery phase. Stages 3 and 3A are complete. Stage 4 — Live State
   Synchronization Foundation is complete on Host + Adapter, including Phase 4.5's version-impact
   audit.
-- **Current phase:** Phase 5.3 — Subscription, Reconnect, and Session Lifecycle (**Planned**). Phase
-  5.2 completed the SDK State Synchronization API. Phase 5.1 completed the typed protocol boundary
-  and Host-version compatibility checks, accepting `0.4.x` and rejecting incompatible or malformed
-  Host versions before session admission. Stage 4 delivered the typed
+- **Current phase:** Phase 5.4 — Flutter Middleware and Minimal Live-State Proof (**Planned**).
+  Phase 5.3 completed per-domain subscribe/unsubscribe with Host complete-set reconciliation and
+  trusted-session restoration, including ordinary reconnect, administrative dormancy, explicit
+  pairing recovery, and intentional-disconnect cleanup. Phase 5.2 completed the SDK State
+  Synchronization API. Phase 5.1 completed the typed protocol boundary
+  and Host-version compatibility checks. The Phase 5.3 complete-set subscription contract is
+  incompatible with released Host `0.4.0`'s additive behavior, so the SDK now accepts `0.5.x` and
+  rejects incompatible or malformed Host versions before session admission. The `0.5.0` release
+  version bump remains a later dedicated release-branch task. Stage 4 delivered the typed
   Host/client contract, Host-owned bounded live-state publication, and real Skyrim capture for
   health, magicka, stamina, XP, and level. The maintainer recorded live runtime validation on
   2026-09-23, and a deterministic process-level test proves the Host/Adapter/public-client path using
@@ -94,7 +99,7 @@ Stage 4+ development continues only on Host + Adapter.
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
 | 4 | Complete. Host/Adapter live-state delivery, real Skyrim capture, automated process-level proof, runtime validation, and the Phase 4.5 version-impact audit are complete. The next release is recommended as 0.4.0; its version bump belongs to a later release branch. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
-| 5 | Active. Phases 5.1 and 5.2 are complete; Phase 5.3 is the next planned target. The package scaffold, protocol/transport layer, pairing persistence, and bounded reconnect were partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
+| 5 | Active. Phases 5.1–5.3 are complete; Phase 5.4 is next. The package scaffold, protocol/transport layer, pairing persistence, and bounded reconnect were partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |

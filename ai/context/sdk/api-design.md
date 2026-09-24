@@ -102,7 +102,8 @@ Host to stop traffic for that domain/client rather than only detaching the local
 ordinary reconnect, the SDK restores previously desired subscriptions automatically. After
 administrative invalidation, desired subscriptions remain remembered but stay dormant — the SDK
 does not reactivate them until an explicit user-initiated Retry succeeds, mirroring the
-credential/reconnect policy in `roadmap/03`'s Phase 3.3.
+credential/reconnect policy in `roadmap/03`'s Phase 3.3. An explicit SDK disconnect clears desired
+subscription intent; ordinary transport loss and administrative invalidation preserve it.
 
 ## SDK domain types and app presentation values
 

@@ -70,22 +70,24 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
       return;
     }
     _stateChanges = _domain.tracker.changes.listen((StateSynchronization<T> _) {
-      final DovahLinkStateStatus status = _domain.tracker.current.status;
+      final StateSynchronization<T> current = _domain.tracker.current;
       if (_recoveryTask != null) {
-        if (status == DovahLinkStateStatus.stale &&
+        if (current.status == DovahLinkStateStatus.stale &&
             _domain.tracker.recoveryBufferOverflowed) {
           _restartAfterSnapshot = true;
         }
         return;
       }
-      if (status == DovahLinkStateStatus.stale ||
-          status == DovahLinkStateStatus.recovering) {
+      if (current.status == DovahLinkStateStatus.stale ||
+          (current.status == DovahLinkStateStatus.recovering &&
+              current.stateAuthorityId != null)) {
         unawaited(recover());
       }
     });
-    final DovahLinkStateStatus currentStatus = _domain.tracker.current.status;
-    if (currentStatus == DovahLinkStateStatus.stale ||
-        currentStatus == DovahLinkStateStatus.recovering) {
+    final StateSynchronization<T> current = _domain.tracker.current;
+    if (current.status == DovahLinkStateStatus.stale ||
+        (current.status == DovahLinkStateStatus.recovering &&
+            current.stateAuthorityId != null)) {
       unawaited(recover());
     }
   }
@@ -97,12 +99,18 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
       await _recoveryTask;
       return;
     }
+    if (_domainIsNotSubscribed) {
+      return;
+    }
     final Completer<void> completion = Completer<void>();
     _recoveryTask = completion.future;
     _domain.tracker.beginRecovery();
     int retryIndex = 0;
     try {
       while (true) {
+        if (_domainIsNotSubscribed) {
+          return;
+        }
         _restartAfterSnapshot = false;
         final DovahLinkTrustState? trustState =
             _sessionService.currentTrustState;
@@ -128,6 +136,9 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
             ),
           );
         } on DovahLinkProtocolException catch (error) {
+          if (_domainIsNotSubscribed) {
+            return;
+          }
           if (error.code == ProtocolErrorCode.malformedMessage) {
             _domain.tracker.failRecovery();
             _sessionService.onProtocolViolation(
@@ -159,6 +170,9 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           }
           return;
         } on Exception catch (error) {
+          if (_domainIsNotSubscribed) {
+            return;
+          }
           final DovahLinkStateStatus status = _domain.tracker.current.status;
           if (status == DovahLinkStateStatus.synchronized ||
               status == DovahLinkStateStatus.unavailable) {
@@ -172,6 +186,9 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           return;
         }
 
+        if (_domainIsNotSubscribed) {
+          return;
+        }
         final StateSnapshotPayload payload = ProtocolPayloadDecoder.decode(
           StateSnapshotPayload.fromJson,
           envelope.payload,
@@ -212,6 +229,9 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           isUnavailable: decoded.isUnavailable,
         );
         final DovahLinkStateStatus status = _domain.tracker.current.status;
+        if (status == DovahLinkStateStatus.notSubscribed) {
+          return;
+        }
         if (status == DovahLinkStateStatus.stale) {
           _domain.tracker.beginRecovery();
           continue;
@@ -231,12 +251,18 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
         _domain.tracker.beginRecovery();
       }
     } on DovahLinkProtocolException catch (error) {
+      if (_domainIsNotSubscribed) {
+        return;
+      }
       _domain.tracker.failRecovery();
       _sessionService.onProtocolViolation(
         error,
         orphanRetrySafeOperations: false,
       );
     } on Exception catch (error) {
+      if (_domainIsNotSubscribed) {
+        return;
+      }
       _domain.tracker.failRecovery();
       if (_sessionService.connectionState ==
           DovahLinkConnectionState.connected) {
@@ -248,4 +274,8 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
       completion.complete();
     }
   }
+
+  /// Whether the subscription gate has removed this domain during recovery.
+  bool get _domainIsNotSubscribed =>
+      _domain.tracker.current.status == DovahLinkStateStatus.notSubscribed;
 }

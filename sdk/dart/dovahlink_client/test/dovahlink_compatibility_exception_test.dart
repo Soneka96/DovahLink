@@ -10,13 +10,13 @@ void main() {
       () {
         const DovahLinkCompatibilityException error =
             DovahLinkCompatibilityException(
-              hostVersion: '0.5.0',
-              supportedHostVersionRange: '0.4.x',
+              hostVersion: '0.6.0',
+              supportedHostVersionRange: '0.5.x',
               failure: HostVersionCompatibilityFailure.hostTooNew,
             );
 
-        expect(error.hostVersion, '0.5.0');
-        expect(error.supportedHostVersionRange, '0.4.x');
+        expect(error.hostVersion, '0.6.0');
+        expect(error.supportedHostVersionRange, '0.5.x');
         expect(error.failure, HostVersionCompatibilityFailure.hostTooNew);
         expect(
           error.toString(),

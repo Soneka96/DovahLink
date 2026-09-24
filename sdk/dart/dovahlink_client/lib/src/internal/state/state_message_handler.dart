@@ -9,6 +9,10 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Decodes and routes one state envelope to its typed domain revision tracker.
 abstract interface class IStateMessageHandler {
+  /// Replaces the areas whose state messages this client may apply, marking new areas as recovering.
+  /// @param stateAreas The complete accepted set for the current Host session.
+  void setSubscribedStateAreas(Set<String> stateAreas);
+
   /// Handles one canonical state Snapshot or Event envelope.
   /// @param envelope The state envelope from the single inbound reader.
   void handle(Envelope envelope);
@@ -22,6 +26,9 @@ class StateMessageHandler implements IStateMessageHandler {
   /// Looks up each supported state area by its canonical name.
   final Map<String, IStateDomainDefinition<Object?>> _domains;
 
+  /// State areas the current Host session accepted for this client.
+  final Set<String> _subscribedStateAreas = <String>{};
+
   /// Creates a handler over the supplied state-area registrations.
   /// @param sessionService Reports malformed messages to the lifecycle.
   /// @param domains The typed definitions for supported state areas.
@@ -33,6 +40,24 @@ class StateMessageHandler implements IStateMessageHandler {
          for (final IStateDomainDefinition<Object?> domain in domains)
            domain.stateArea: domain,
        };
+
+  /// Implements [IStateMessageHandler.setSubscribedStateAreas].
+  @override
+  void setSubscribedStateAreas(Set<String> stateAreas) {
+    final Set<String> addedAreas = stateAreas.difference(_subscribedStateAreas);
+    for (final String area in addedAreas) {
+      _domains[area]?.tracker.beginRecovery();
+    }
+    final Set<String> removedAreas = _subscribedStateAreas.difference(
+      stateAreas,
+    );
+    for (final String area in removedAreas) {
+      _domains[area]?.tracker.resetToNotSubscribed();
+    }
+    _subscribedStateAreas
+      ..clear()
+      ..addAll(stateAreas);
+  }
 
   /// See [IStateMessageHandler.handle].
   @override
@@ -53,6 +78,9 @@ class StateMessageHandler implements IStateMessageHandler {
               retryable: false,
             );
           }
+          if (!_subscribedStateAreas.contains(payload.stateArea)) {
+            break;
+          }
           domain.applySnapshot(envelope: envelope, payload: payload);
           break;
         case ProtocolMessageType.stateEvent:
@@ -68,6 +96,9 @@ class StateMessageHandler implements IStateMessageHandler {
               message: 'Received an unregistered state area.',
               retryable: false,
             );
+          }
+          if (!_subscribedStateAreas.contains(payload.stateArea)) {
+            break;
           }
           domain.applyEvent(envelope: envelope, payload: payload);
           break;

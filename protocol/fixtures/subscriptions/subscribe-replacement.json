@@ -1,10 +1,10 @@
 {
   "messageType": "subscribe",
-  "messageId": "message-subscribe-1",
+  "messageId": "message-subscribe-3",
   "sessionId": "session-1",
   "correlationId": null,
   "payload": {
-    "stateAreas": ["character_xp"]
+    "stateAreas": ["character_health"]
   },
   "playContextId": null,
   "clientId": "client-1"
