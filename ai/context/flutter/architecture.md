@@ -97,16 +97,11 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   exception: action declarations and their closely related action value types are intentionally
   grouped there. The datasource interface/implementation pairing above and the `StatefulWidget`/
   `State<T>` pairing below are the other two.
-- `ai/context/dart/dart-style.md`'s single private, widget-local `_<WidgetName>ViewModel` allowance
-  is not a fourth entry on this list: it permits one otherwise-prohibited private class name inside
-  the widget's own file, not a second type sharing a file with something else. It answers a
-  different question (which private names `dart-style.md`'s no-private-named-classes rule allows)
-  than this list (which types may share one file), so it does not change the count above.
 - A `StatefulWidget` and its paired `State<T>` class may also share a file.
 - A private widget class, or a method that returns widgets for a parent to render, still gets its
   own file with the appropriate suffix; being private is not a one-class-per-file exemption.
 - Keep use cases to one public operation.
-- Keep view models as thin presentation connectors; business logic belongs in domain or state logic.
+- Keep ViewModels as presentation connectors; business logic belongs in domain or state logic.
 - Keep Flutter and DovahLink protocol types separate. Map protocol DTOs at the client boundary.
 - Protocol DTOs must not cross into widgets or domain entities.
 - Protocol wire DTOs, encoding/decoding, session validation, and transport-facing adapters belong in the feature's `data` boundary or an explicitly approved client-infrastructure area. Convert them to Flutter-facing models before they enter domain or presentation code.
@@ -117,45 +112,45 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - A Section is bespoke content nested inside a Screen alongside sibling content.
 - A Widget is a reusable or repeatable unit with one cohesive purpose.
 - Routability and the presence of a ViewModel do not decide the classification.
-- Each Screen owns one Store-backed Screen ViewModel and resolves it from DI. A Section may own one
-  Store-backed Section ViewModel when it has cohesive, independently updating presentation state
-  whose changes should not rebuild the whole Screen. A Section ViewModel is registered in DI, built
-  from `Store<AppState>`, and resolved only by its owning Section.
-- A reusable Widget normally receives plain values, models, entities, and callbacks through
-  constructor props. It may use a private, widget-local StoreConnector projection (or a primitive
-  selector value) for cohesive, independently updating Store state when that limits rebuilds to the
-  owning Widget. A widget-local projection stays in the Widget's file and is not registered in DI.
-  This allowance does not apply to prop-only visual components, such as Host cards and themed
-  buttons that only display supplied props.
-- `AppearanceSection` is a Section ViewModel boundary: preset selection updates the picker without
-  rebuilding the Connections screen.
-- `PairingCancelButton` and `PairingRenotifyButton` keep widget-local projections because their
-  enabled state updates independently from the pairing screen; the renotify button also ticks while
-  its cooldown elapses.
-- `PairingCountdown` uses a primitive selector value for its independent time display instead of a
-  named ViewModel class.
+- Any presentation widget may own one ViewModel when it needs Redux-backed state or Redux actions.
+  A ViewModel belongs to exactly one widget and is named `<WidgetName>ViewModel`.
+- A Redux-backed ViewModel is a named public class in its own `.viewmodel.dart` file. It exposes
+  `factory WidgetNameViewModel.fromStore(Store<AppState> store)` and owns selector calls, Redux-backed
+  presentation values, and action callbacks.
+- Register every Redux-backed ViewModel in `sl` with `registerFactoryParam`, passing its
+  `Store<AppState>` to `fromStore`.
+- A widget that owns a ViewModel uses this connector pattern:
+
+  ```dart
+  StoreConnector<AppState, WidgetNameViewModel>(
+    distinct: true,
+    converter: (Store<AppState> store) =>
+        sl<WidgetNameViewModel>(param1: store),
+    builder: ...,
+  )
+  ```
+
+  The converter only resolves the ViewModel through `sl`.
+- A widget that owns a ViewModel does not call selectors, read `store.state`, derive Redux-backed
+  values, call `store.dispatch`, create Redux callbacks, or perform Redux mapping in its converter.
+- Widgets without Redux-backed state or actions receive values, presentation Models, entities, and
+  callbacks through constructor parameters. A presentation Model is immutable data passed between
+  presentation components; it does not receive a Store or get registered in `sl`.
 
 ## Redux flow
 
 - Use Redux when a value is read by another screen, drives a use case, or must persist beyond one
   widget rebuild. Purely local presentation state stays in the smallest widget's `State`.
-- Keep shared presentation state in its owning Screen or Section ViewModel and pass it to reusable
-  child widgets through props. Use a Widget-local connector only for independently updating state
-  owned by that Widget. Keep purely local presentation state in the smallest widget's `State`.
-- The normal chain is `Screen/Section -> ViewModel -> Action -> Middleware -> ResultAction ->
-  Reducer -> AppState -> StoreConnector`.
-- Screens and Sections never call `store.dispatch`, use cases, repositories, or services directly.
-- ViewModels are thin connectors; Screen and Section ViewModels are resolved through DI, while a
-  Widget-local connector projection stays private to its owning Widget. They read selectors and
-  create dispatch callbacks without re-deriving business state.
-- Redux state is read only through selectors and changed only through reducers. This is absolute
-  and applies everywhere a `Store`/`AppState` is reachable, not only ViewModels and widgets:
-  middleware handlers and `StoreConnector`'s `onInit`/`onDispose` hooks read state the same way.
-  Never inline `store.state.<feature>.<field>` or `AppState`'s fields directly, anywhere; call the
-  feature's `.selectors.dart` function instead (`PairingSelectors.phaseSelector(store.state)`, not
-  `store.state.pairing.phase`), even from a middleware handler deciding whether to retry, or a
-  screen's `onDispose` computing a value to capture in a dispatched action. Selectors may compose
-  derived presentation values from simpler selectors.
+- Keep shared presentation state in its owning widget's ViewModel and pass it to child widgets
+  through props. Keep purely local presentation state in the smallest widget's `State`.
+- The normal chain is `Widget -> ViewModel -> Selectors / Store / Actions -> Middleware -> Reducer`.
+- Widgets do not call selectors or `store.dispatch`, read `store.state`, or map Redux state.
+- ViewModels read Redux state through selectors and create dispatch callbacks. State extraction and
+  feature-level state decisions belong in selectors; ViewModels map selector results to their
+  widget's presentation contract.
+- Redux state is read only through selectors and changed only through reducers. Never read state
+  fields directly. Widgets that own a ViewModel keep Redux reads and dispatches in that ViewModel,
+  including work associated with connector lifecycle callbacks.
 - The store is built exactly once through `CreateStore`; every `StoreConnector` uses
   `distinct: true`.
 - Reducers use `combineReducers` and typed reducers, never an `if (action is ...)` chain.
@@ -166,9 +161,9 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   once, before handling the action, so handlers see reduced state -- then dispatches to a private
   handler through a `switch (action)` with one `case <Action> _:` per handled action type. Unhandled
   action types fall through with no default case.
-- Each `case` calls exactly one private handler, named after its action with the trailing `Action`
-  removed and the result lowerCamelCased (`PairingDisposedAction` -> `_pairingDisposed`). Do not name
-  the handler after what it does instead; the action name is the contract.
+- Each `case` calls exactly one private handler named after its action, with the trailing `Action`
+  removed and the result lowerCamelCased. Do not name the handler after what it does instead; the
+  action name is the contract.
 - Handler methods are private, take `Store<AppState>` and the specific typed Action -- even when the
   action carries no fields or the handler does not read `store`, for a uniform, self-documenting
   signature -- and resolve use cases and services through `sl<Type>()` directly rather than through
@@ -201,11 +196,14 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
   are registered in the manual `GetIt` container.
 - Register concrete implementations behind domain interfaces.
 - Register use cases as DI dependencies and construct them with repository interfaces.
-- Register ViewModels with `registerFactoryParam` when they need a Redux `Store`.
-- Screens and Sections with their own presentation state resolve their registered ViewModels;
+- Register Redux-backed ViewModels with `registerFactoryParam`, receiving `Store<AppState>` and
+  returning the ViewModel created by `fromStore`.
+- Redux-backed ViewModels are presentation values, not behavior-bearing services; register and
+  resolve their concrete classes as described above.
+- An owning widget resolves its ViewModel through `sl` in its `StoreConnector` converter;
   middleware handlers resolve registered use cases and services through `sl<Type>()`.
-- Reusable widgets, ViewModels, use cases, entities, repositories, and datasources never resolve
-  dependencies from `GetIt`.
+- ViewModels, use cases, entities, repositories, and datasources never resolve dependencies from
+  `GetIt`.
 - Call dependency initialization once before `runApp`.
 
 ## Services
@@ -248,8 +246,8 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Until navigation is approved, do not add routing infrastructure or route constants. Once approved, route paths belong only in the approved navigation boundary and must never be repeated as inline strings.
 - Keep purely local presentation state local to the widget.
 - Use shared state only when another screen, use case, or process needs the value.
-- Keep state extraction and derived state logic in selectors. Do not place filtering, mapping,
-  fallback selection, or other state-derived decisions in ViewModels or widgets.
+- Keep feature-level state extraction and decisions in selectors. A ViewModel may map selector
+  results into its owning widget's presentation values; widgets do not derive Redux-backed values.
 - DovahLink uses Redux for shared client state, with the store created once in the application composition root. Features add their reducers and middleware through the approved store-construction boundary.
 - Do not introduce another state-management package without maintainer approval.
 
