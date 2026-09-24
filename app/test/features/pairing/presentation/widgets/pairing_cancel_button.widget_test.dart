@@ -1,417 +1,136 @@
-import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
-import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// Exercises [PairingCancelButton] dispatch behavior and enabled/disabled states.
+/// Mocks the cancel button's Redux store subscription.
+class MockStore extends Mock implements Store<AppState> {}
+
+/// Mocks the cancel button's presentation contract.
+class MockPairingCancelButtonViewModel extends Mock
+    implements PairingCancelButtonViewModel {}
+
+/// Exercises [PairingCancelButton] using its ViewModel presentation contract.
 void main() {
-  group('PairingCancelButton', () {
-    testWidgets(
-      'PairingCancelButton displays enabled button during awaiting-code phase',
-      (WidgetTester tester) async {
-        final store = Store<AppState>(
-          (AppState state, dynamic action) => state,
-          initialState: AppState(
-            connection: ConnectionState.initial(),
-            pairing: const PairingState(
-              phase: PairingPhase.awaitingCode,
-              hostVersion: null,
-              error: null,
-              codeExpiresAt: null,
-              renotifyAvailableAt: null,
-            ),
-          ),
-        );
+  late MockStore store;
+  late MockPairingCancelButtonViewModel viewModel;
+  Store<AppState>? resolvedStore;
 
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: store,
-              child: const Scaffold(body: PairingCancelButton()),
-            ),
-          ),
-        );
-
-        final button = tester.widget<ElevatedButton>(
-          find.byType(ElevatedButton),
-        );
-        expect(button.onPressed, isNotNull);
-
-        final text = tester.widget<Text>(find.byType(Text));
-        expect(text.data, 'Cancel');
-      },
-    );
-
-    testWidgets(
-      'PairingCancelButton displays disabled button in disconnected phase',
-      (WidgetTester tester) async {
-        final store = Store<AppState>(
-          (AppState state, dynamic action) => state,
-          initialState: AppState(
-            connection: ConnectionState.initial(),
-            pairing: const PairingState(
-              phase: PairingPhase.disconnected,
-              hostVersion: null,
-              error: null,
-              codeExpiresAt: null,
-              renotifyAvailableAt: null,
-            ),
-          ),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: store,
-              child: const Scaffold(body: PairingCancelButton()),
-            ),
-          ),
-        );
-
-        final button = tester.widget<ElevatedButton>(
-          find.byType(ElevatedButton),
-        );
-        expect(button.onPressed, isNull);
-      },
-    );
-
-    testWidgets(
-      'PairingCancelButton displays disabled button in failed phase',
-      (WidgetTester tester) async {
-        final store = Store<AppState>(
-          (AppState state, dynamic action) => state,
-          initialState: AppState(
-            connection: ConnectionState.initial(),
-            pairing: const PairingState(
-              phase: PairingPhase.failed,
-              hostVersion: null,
-              error: 'Challenge cancelled',
-              codeExpiresAt: null,
-              renotifyAvailableAt: null,
-            ),
-          ),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: store,
-              child: const Scaffold(body: PairingCancelButton()),
-            ),
-          ),
-        );
-
-        final button = tester.widget<ElevatedButton>(
-          find.byType(ElevatedButton),
-        );
-        expect(button.onPressed, isNull);
-      },
-    );
-
-    testWidgets(
-      'PairingCancelButton displays disabled button in succeeded phase',
-      (WidgetTester tester) async {
-        final store = Store<AppState>(
-          (AppState state, dynamic action) => state,
-          initialState: AppState(
-            connection: ConnectionState.initial(),
-            pairing: const PairingState(
-              phase: PairingPhase.trusted,
-              hostVersion: null,
-              error: null,
-              codeExpiresAt: null,
-              renotifyAvailableAt: null,
-            ),
-          ),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: store,
-              child: const Scaffold(body: PairingCancelButton()),
-            ),
-          ),
-        );
-
-        final button = tester.widget<ElevatedButton>(
-          find.byType(ElevatedButton),
-        );
-        expect(button.onPressed, isNull);
-      },
-    );
-
-    testWidgets(
-      'PairingCancelButton dispatches PairingCancelRequestedAction on tap',
-      (WidgetTester tester) async {
-        final actions = <dynamic>[];
-        final store = Store<AppState>(
-          (AppState state, dynamic action) {
-            actions.add(action);
-            return state;
-          },
-          initialState: AppState(
-            connection: ConnectionState.initial(),
-            pairing: const PairingState(
-              phase: PairingPhase.awaitingCode,
-              hostVersion: null,
-              error: null,
-              codeExpiresAt: null,
-              renotifyAvailableAt: null,
-            ),
-          ),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: store,
-              child: const Scaffold(body: PairingCancelButton()),
-            ),
-          ),
-        );
-
-        await tester.tap(find.byType(ElevatedButton));
-
-        expect(actions, contains(isA<PairingCancelRequestedAction>()));
-      },
-    );
-
-    testWidgets('PairingCancelButton does not dispatch action when disabled', (
-      WidgetTester tester,
-    ) async {
-      final actions = <dynamic>[];
-      final store = Store<AppState>(
-        (AppState state, dynamic action) {
-          actions.add(action);
-          return state;
-        },
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: const PairingState(
-            phase: PairingPhase.disconnected,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: null,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(body: PairingCancelButton()),
-          ),
-        ),
-      );
-
-      final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-      expect(button.onPressed, isNull);
-
-      await tester.tap(find.byType(ElevatedButton), warnIfMissed: false);
-
-      expect(actions.whereType<PairingCancelRequestedAction>(), isEmpty);
-    });
-
-    testWidgets('PairingCancelButton uses custom label when provided', (
-      WidgetTester tester,
-    ) async {
-      final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: const PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: null,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(label: 'Exit Pairing'),
-            ),
-          ),
-        ),
-      );
-
-      final text = tester.widget<Text>(find.byType(Text));
-      expect(text.data, 'Exit Pairing');
-    });
-
-    testWidgets('PairingCancelButton updates when phase changes', (
-      WidgetTester tester,
-    ) async {
-      final store = Store<AppState>(
-        (AppState state, dynamic action) {
-          if (action is _TransitionPhaseAction) {
-            return AppState(
-              connection: ConnectionState.initial(),
-              pairing: const PairingState(
-                phase: PairingPhase.disconnected,
-                hostVersion: null,
-                error: null,
-                codeExpiresAt: null,
-                renotifyAvailableAt: null,
-              ),
-            );
-          }
-          return state;
-        },
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: const PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: null,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(body: PairingCancelButton()),
-          ),
-        ),
-      );
-
-      var button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-      expect(button.onPressed, isNotNull);
-
-      store.dispatch(_TransitionPhaseAction(PairingPhase.disconnected));
-      await tester.pump();
-
-      button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-      expect(button.onPressed, isNull);
-    });
-
-    testWidgets(
-      'PairingCancelButton re-enables when phase returns to awaiting-code',
-      (WidgetTester tester) async {
-        final store = Store<AppState>(
-          (AppState state, dynamic action) {
-            if (action is _TransitionPhaseAction) {
-              if (action.toPhase == PairingPhase.awaitingCode) {
-                return AppState(
-                  connection: ConnectionState.initial(),
-                  pairing: const PairingState(
-                    phase: PairingPhase.awaitingCode,
-                    hostVersion: null,
-                    error: null,
-                    codeExpiresAt: null,
-                    renotifyAvailableAt: null,
-                  ),
-                );
-              } else {
-                return AppState(
-                  connection: ConnectionState.initial(),
-                  pairing: PairingState(
-                    phase: action.toPhase,
-                    hostVersion: null,
-                    error: null,
-                    codeExpiresAt: null,
-                    renotifyAvailableAt: null,
-                  ),
-                );
-              }
-            }
-            return state;
-          },
-          initialState: AppState(
-            connection: ConnectionState.initial(),
-            pairing: const PairingState(
-              phase: PairingPhase.awaitingCode,
-              hostVersion: null,
-              error: null,
-              codeExpiresAt: null,
-              renotifyAvailableAt: null,
-            ),
-          ),
-        );
-
-        await tester.pumpWidget(
-          MaterialApp(
-            home: StoreProvider<AppState>(
-              store: store,
-              child: const Scaffold(body: PairingCancelButton()),
-            ),
-          ),
-        );
-
-        var button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-        expect(button.onPressed, isNotNull);
-
-        store.dispatch(_TransitionPhaseAction(PairingPhase.failed));
-        await tester.pump();
-
-        button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-        expect(button.onPressed, isNull);
-
-        store.dispatch(_TransitionPhaseAction(PairingPhase.awaitingCode));
-        await tester.pump();
-
-        button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-        expect(button.onPressed, isNotNull);
-      },
-    );
-
-    testWidgets('PairingCancelButton applies custom style when provided', (
-      WidgetTester tester,
-    ) async {
-      const customStyle = ButtonStyle(
-        backgroundColor: WidgetStatePropertyAll<Color>(Colors.red),
-      );
-      final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
-        initialState: AppState(
-          connection: ConnectionState.initial(),
-          pairing: const PairingState(
-            phase: PairingPhase.awaitingCode,
-            hostVersion: null,
-            error: null,
-            codeExpiresAt: null,
-            renotifyAvailableAt: null,
-          ),
-        ),
-      );
-
-      await tester.pumpWidget(
-        MaterialApp(
-          home: StoreProvider<AppState>(
-            store: store,
-            child: const Scaffold(
-              body: PairingCancelButton(style: customStyle),
-            ),
-          ),
-        ),
-      );
-
-      final button = tester.widget<ElevatedButton>(find.byType(ElevatedButton));
-      expect(button.style, customStyle);
+  setUp(() async {
+    await sl.reset();
+    store = MockStore();
+    viewModel = MockPairingCancelButtonViewModel();
+    resolvedStore = null;
+    when(
+      () => store.onChange,
+    ).thenAnswer((_) => const Stream<AppState>.empty());
+    when(() => viewModel.isEnabled).thenReturn(false);
+    when(() => viewModel.onPressed).thenReturn(null);
+    sl.registerFactoryParam<
+      PairingCancelButtonViewModel,
+      Store<AppState>,
+      void
+    >((Store<AppState> storeParam, void _) {
+      resolvedStore = storeParam;
+      return viewModel;
     });
   });
-}
 
-class _TransitionPhaseAction {
-  _TransitionPhaseAction(this.toPhase);
-  final PairingPhase toPhase;
+  tearDown(() async {
+    await sl.reset();
+  });
+
+  Widget buildWidget({String label = 'Cancel', ButtonStyle? style}) =>
+      MaterialApp(
+        home: StoreProvider<AppState>(
+          store: store,
+          child: Scaffold(
+            body: PairingCancelButton(label: label, style: style),
+          ),
+        ),
+      );
+
+  group('PairingCancelButton displays', () {
+    testWidgets('PairingCancelButton resolves its ViewModel with its Store', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildWidget());
+
+      expect(resolvedStore, same(store));
+    });
+
+    testWidgets(
+      'PairingCancelButton displays an enabled button from its ViewModel',
+      (WidgetTester tester) async {
+        when(() => viewModel.isEnabled).thenReturn(true);
+        when(() => viewModel.onPressed).thenReturn(() {});
+
+        await tester.pumpWidget(buildWidget());
+
+        final ElevatedButton button = tester.widget<ElevatedButton>(
+          find.byType(ElevatedButton),
+        );
+        expect(button.onPressed, isNotNull);
+      },
+    );
+
+    testWidgets(
+      'PairingCancelButton displays a disabled button from its ViewModel',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(buildWidget());
+
+        final ElevatedButton button = tester.widget<ElevatedButton>(
+          find.byType(ElevatedButton),
+        );
+        expect(button.onPressed, isNull);
+      },
+    );
+
+    testWidgets('PairingCancelButton displays the supplied label', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildWidget(label: 'Exit Pairing'));
+
+      expect(find.text('Exit Pairing'), findsOneWidget);
+    });
+  });
+
+  group('PairingCancelButton calls callbacks', () {
+    testWidgets(
+      'PairingCancelButton calls the ViewModel callback when tapped',
+      (WidgetTester tester) async {
+        bool wasPressed = false;
+        when(() => viewModel.isEnabled).thenReturn(true);
+        when(() => viewModel.onPressed).thenReturn(() => wasPressed = true);
+
+        await tester.pumpWidget(buildWidget());
+        await tester.tap(find.byType(ElevatedButton));
+
+        expect(wasPressed, isTrue);
+      },
+    );
+  });
+
+  group('PairingCancelButton applies styles', () {
+    testWidgets('PairingCancelButton applies the supplied button style', (
+      WidgetTester tester,
+    ) async {
+      const ButtonStyle style = ButtonStyle(
+        backgroundColor: WidgetStatePropertyAll<Color>(Colors.red),
+      );
+
+      await tester.pumpWidget(buildWidget(style: style));
+
+      final ElevatedButton button = tester.widget<ElevatedButton>(
+        find.byType(ElevatedButton),
+      );
+      expect(button.style, style);
+    });
+  });
 }

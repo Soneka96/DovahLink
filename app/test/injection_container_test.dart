@@ -13,6 +13,7 @@ import 'package:dovahlink_client/features/appearance/domain/usecases/set_theme_p
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
@@ -23,6 +24,9 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.use
 import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -42,6 +46,7 @@ void main() {
     registerFallbackValue(
       const ThemePresetSelectedAction(DovahThemePreset.dovah),
     );
+    registerFallbackValue(const PairingCancelRequestedAction());
   });
 
   setUp(() async {
@@ -156,6 +161,37 @@ void main() {
 
       expect(sl.isRegistered<PairingScreenViewModel>(), isTrue);
     });
+
+    test(
+      'initDependencies resolves PairingCancelButtonViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: const PairingState(
+              phase: PairingPhase.awaitingCode,
+              hostVersion: null,
+              error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: null,
+            ),
+          ),
+        );
+        when(() => store.dispatch(any())).thenAnswer((_) {});
+
+        final PairingCancelButtonViewModel viewModel =
+            sl<PairingCancelButtonViewModel>(param1: store);
+
+        expect(viewModel.isEnabled, isTrue);
+        expect(viewModel.onPressed, isNotNull);
+        viewModel.onPressed!();
+        verify(
+          () => store.dispatch(const PairingCancelRequestedAction()),
+        ).called(1);
+      },
+    );
 
     test('RequestPairingRenotifyUseCase is a singleton', () async {
       await initDependencies();

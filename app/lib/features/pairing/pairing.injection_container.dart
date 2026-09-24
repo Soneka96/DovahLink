@@ -11,6 +11,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.use
 import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -45,6 +46,12 @@ void initPairingDependencies() {
   sl.registerLazySingleton<ObserveConnectionStatusUseCase>(
     () => ObserveConnectionStatusUseCase(sl<IPairingRepository>()),
   );
+  sl.registerFactoryParam<PairingCancelButtonViewModel, Store<AppState>, void>((
+    Store<AppState> store,
+    void _,
+  ) {
+    return PairingCancelButtonViewModel.fromStore(store);
+  });
   sl.registerFactoryParam<PairingScreenViewModel, Store<AppState>, void>((
     Store<AppState> store,
     void _,
