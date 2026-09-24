@@ -297,6 +297,21 @@ the one that legitimately performs them — `AuthenticationService` and `Pairing
 respectively, and nothing else. This is enforced by the dependency graph itself: no other consumer
 is ever given either interface.
 
+## State synchronization composition
+
+`DovahLinkClient` remains the SDK composition root for state synchronization. It creates each
+replayable state stream and its `StateRevisionTracker<T>`, registers the typed decoders and
+availability rules as `StateDomainDefinition<T>` values, and gives those registrations to
+`StateMessageHandler`. The handler selects a definition by the payload's `stateArea`; it does not
+branch on individual area names. Each definition applies typed Snapshots and applies Events only
+when that area is registered for Event updates. Unknown areas remain protocol violations.
+
+`StateMessageHandler` is composed before `RequestService` because the inbound router depends on the
+unsolicited state handler. The current level `StateRecoveryService<T>` is composed after
+`RequestService`, because recovery sends its correlated `snapshot_request` through
+`IRequestService`. `DovahLinkClient` constructs the handler first and recovery after requests are
+available.
+
 ## Session-state ownership
 
 `SessionState` is created exactly once, by the composition root (`DovahLinkClient`), and is the

@@ -10,12 +10,14 @@
 `ai/context/sdk/persistence.md`. Delivery is decomposed into the public typed protocol boundary,
 synchronization API, subscription/recovery lifecycle, Flutter middleware proof, and phase-end version
 auditing.
-Phase 5.1 — SDK Typed Protocol and Host Compatibility Boundary is complete. State revisions,
-subscriptions, snapshots, recovery, and completing the app's SDK integration remain for the rest of
-Stage 5. The app's current `features/connection/` area owns Host selection and navigation rather
-than a separate protocol client. The single inbound SDK receiver/router and initial per-operation
-retry-safety/session-requirement/timeout-class policy were similarly pulled forward by Phase 3.3
-(`roadmap/03`), per `ai/context/sdk/architecture.md` and `ai/context/sdk/api-design.md`.
+Phases 5.1 and 5.2 — the typed protocol/compatibility boundary and state synchronization API — are
+complete. State revision tracking, typed Snapshot handling, level Events, and revision-gap recovery
+are implemented. Phase 5.3's subscription/reconnect/session lifecycle and Phase 5.4's Flutter
+middleware integration remain, followed by Phase 5.5's version-impact audit and Stage 5 closure.
+The app's current `features/connection/` area owns Host selection and navigation rather than a
+separate protocol client. Phase 3.3 (`roadmap/03`) similarly pulled forward the single inbound SDK
+receiver/router and initial per-operation retry-safety/session-requirement/timeout-class policy,
+per `ai/context/sdk/architecture.md` and `ai/context/sdk/api-design.md`.
 
 ### Outcome
 
