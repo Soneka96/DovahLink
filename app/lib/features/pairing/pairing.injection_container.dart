@@ -15,6 +15,7 @@ import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
@@ -59,6 +60,12 @@ void initPairingDependencies() {
     void _,
   ) {
     return PairingCountdownViewModel.fromStore(store);
+  });
+  sl.registerFactoryParam<PairingSectionViewModel, Store<AppState>, void>((
+    Store<AppState> store,
+    void _,
+  ) {
+    return PairingSectionViewModel.fromStore(store);
   });
   sl.registerFactoryParam<PairingScreenViewModel, Store<AppState>, void>((
     Store<AppState> store,

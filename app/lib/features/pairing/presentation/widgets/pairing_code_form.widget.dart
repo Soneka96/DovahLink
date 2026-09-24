@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_boxes.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_message.widget.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
@@ -107,11 +108,6 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Text(
-          'Enter the code shown in Skyrim.',
-          style: TextStyle(color: tokens.textMuted),
-        ),
-        const SizedBox(height: DovahThemeTokens.spacing8),
         SizedBox(
           width: PairingCodeBoxes.width,
           height: DovahThemeTokens.pairingCodeBoxHeight,
@@ -156,22 +152,9 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
           ),
         ),
         const SizedBox(height: DovahThemeTokens.spacing8),
-        ConstrainedBox(
-          constraints: const BoxConstraints(
-            minHeight: DovahThemeTokens.formErrorMinHeight,
-          ),
-          child: Semantics(
-            liveRegion: true,
-            child: Text(
-              message ?? '',
-              key: const Key('pairing-code-message'),
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                color: tokens.danger,
-                fontSize: DovahThemeTokens.formErrorFontSize,
-              ),
-            ),
-          ),
+        PairingMessage(
+          key: const Key('pairing-code-message'),
+          message: message,
         ),
         const SizedBox(height: DovahThemeTokens.spacing8),
         SizedBox(

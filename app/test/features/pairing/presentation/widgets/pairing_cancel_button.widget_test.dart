@@ -8,7 +8,10 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// Mocks the cancel button's Redux store subscription.
 class MockStore extends Mock implements Store<AppState> {}
@@ -47,15 +50,13 @@ void main() {
     await sl.reset();
   });
 
-  Widget buildWidget({String label = 'Cancel', ButtonStyle? style}) =>
-      MaterialApp(
-        home: StoreProvider<AppState>(
-          store: store,
-          child: Scaffold(
-            body: PairingCancelButton(label: label, style: style),
-          ),
-        ),
-      );
+  Widget buildWidget({String label = 'Cancel'}) => MaterialApp(
+    theme: dovahThemeDataFor(DovahThemePreset.dovah),
+    home: StoreProvider<AppState>(
+      store: store,
+      child: Scaffold(body: PairingCancelButton(label: label)),
+    ),
+  );
 
   group('PairingCancelButton displays', () {
     testWidgets('PairingCancelButton resolves its ViewModel with its Store', (
@@ -74,8 +75,8 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
 
-        final ElevatedButton button = tester.widget<ElevatedButton>(
-          find.byType(ElevatedButton),
+        final DovahButton button = tester.widget<DovahButton>(
+          find.byType(DovahButton),
         );
         expect(button.onPressed, isNotNull);
       },
@@ -86,10 +87,27 @@ void main() {
       (WidgetTester tester) async {
         await tester.pumpWidget(buildWidget());
 
-        final ElevatedButton button = tester.widget<ElevatedButton>(
-          find.byType(ElevatedButton),
+        final DovahButton button = tester.widget<DovahButton>(
+          find.byType(DovahButton),
         );
         expect(button.onPressed, isNull);
+      },
+    );
+
+    testWidgets(
+      'PairingCancelButton displays Cancel when no label is supplied',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dovahThemeDataFor(DovahThemePreset.dovah),
+            home: StoreProvider<AppState>(
+              store: store,
+              child: const Scaffold(body: PairingCancelButton()),
+            ),
+          ),
+        );
+
+        expect(find.text('Cancel'), findsOneWidget);
       },
     );
 
@@ -111,27 +129,10 @@ void main() {
         when(() => viewModel.onPressed).thenReturn(() => wasPressed = true);
 
         await tester.pumpWidget(buildWidget());
-        await tester.tap(find.byType(ElevatedButton));
+        await tester.tap(find.byType(DovahButton));
 
         expect(wasPressed, isTrue);
       },
     );
-  });
-
-  group('PairingCancelButton applies styles', () {
-    testWidgets('PairingCancelButton applies the supplied button style', (
-      WidgetTester tester,
-    ) async {
-      const ButtonStyle style = ButtonStyle(
-        backgroundColor: WidgetStatePropertyAll<Color>(Colors.red),
-      );
-
-      await tester.pumpWidget(buildWidget(style: style));
-
-      final ElevatedButton button = tester.widget<ElevatedButton>(
-        find.byType(ElevatedButton),
-      );
-      expect(button.style, style);
-    });
   });
 }

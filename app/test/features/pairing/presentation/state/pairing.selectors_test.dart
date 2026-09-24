@@ -149,4 +149,26 @@ void main() {
       expect(PairingSelectors.renotifyCooldownSecondsSelector(state), 0);
     });
   });
+  group('Selector canDismissSelector behaves correctly', () {
+    test('Selector canDismissSelector returns false only while confirming', () {
+      for (final PairingPhase phase in PairingPhase.values) {
+        final AppState state = AppState(
+          connection: ConnectionState.initial(),
+          pairing: PairingState(
+            phase: phase,
+            hostVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
+          ),
+        );
+
+        expect(
+          PairingSelectors.canDismissSelector(state),
+          phase != PairingPhase.confirming,
+          reason: '$phase',
+        );
+      }
+    });
+  });
 }

@@ -15,6 +15,11 @@ abstract final class ConnectionSelectors {
   static Host? selectedHostSelector(AppState state) =>
       state.connection.selectedHost;
 
+  /// Returns the display name of the Host the user most recently selected, or `null` before any
+  /// selection.
+  static String? selectedHostNameSelector(AppState state) =>
+      selectedHostSelector(state)?.displayName;
+
   /// Returns one card's display data per Host, in Host order. Reachability is not known on the
   /// connections screen, so every card is [DovahConnectionCardState.unknown]; its detail is the
   /// Host endpoint's authority (host and port), or the whole endpoint when it has none.

@@ -53,6 +53,34 @@ void main() {
     });
   });
 
+  group('Selector selectedHostNameSelector behaves correctly', () {
+    test(
+      'Selector selectedHostNameSelector returns null before any selection',
+      () {
+        expect(
+          ConnectionSelectors.selectedHostNameSelector(
+            stateWith([Fixtures.buildHost()]),
+          ),
+          isNull,
+        );
+      },
+    );
+
+    test(
+      'Selector selectedHostNameSelector returns the selected Host name',
+      () {
+        final Host host = Fixtures.buildHost(displayName: 'Bedroom PC');
+
+        final String? name = ConnectionSelectors.selectedHostNameSelector(
+          stateWith([host], selectedHost: host),
+        );
+
+        expect(name, isA<String>());
+        expect(name, 'Bedroom PC');
+      },
+    );
+  });
+
   group('Selector hostCardsSelector behaves correctly', () {
     test('Selector hostCardsSelector maps a Host to its display data', () {
       final Host host = Fixtures.buildHost();

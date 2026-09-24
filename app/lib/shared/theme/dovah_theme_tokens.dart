@@ -217,6 +217,63 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Gap between adjacent action buttons in a dialog.
   static const double dialogActionGap = 10;
 
+  /// Maximum width of a pairing state's content column.
+  static const double pairingContentMaxWidth = 520;
+
+  /// Maximum width of a pairing state's body copy.
+  static const double pairingBodyMaxWidth = 430;
+
+  /// Width and height of a pairing state's icon tile.
+  static const double pairingMarkSize = 42;
+
+  /// Size of the icon inside a pairing state's icon tile.
+  static const double pairingMarkIconSize = 20;
+
+  /// Gap below a pairing state's icon tile.
+  static const double pairingMarkBottomGap = 8;
+
+  /// Font size of a pairing state's heading.
+  static const double pairingHeadingFontSize = 22;
+
+  /// Gap below a pairing state's heading.
+  static const double pairingHeadingBottomGap = 5;
+
+  /// Font size of a pairing state's body copy.
+  static const double pairingBodyFontSize = 14;
+
+  /// Line height, as a multiple of font size, of a pairing state's body copy.
+  static const double pairingBodyLineHeight = 1.35;
+
+  /// Gap below a pairing state's body copy.
+  static const double pairingBodyBottomGap = 10;
+
+  /// Font size of a pairing state's footnote.
+  static const double pairingNoteFontSize = 12;
+
+  /// Gap above a pairing state's footnote.
+  static const double pairingNoteTopGap = 8;
+
+  /// Width and height of a pairing success mark.
+  static const double pairingSuccessMarkSize = 62;
+
+  /// Size of the check glyph inside a pairing success mark.
+  static const double pairingSuccessGlyphSize = 29;
+
+  /// Opacity of the status tone filling a pairing success mark.
+  static const double statusMarkFillOpacity = 0.1;
+
+  /// Opacity of the status tone outlining a pairing success mark.
+  static const double statusMarkBorderOpacity = 0.36;
+
+  /// Width and height of an inline progress spinner.
+  static const double progressIndicatorSize = 15;
+
+  /// Stroke width of an inline progress spinner.
+  static const double progressIndicatorStrokeWidth = 2;
+
+  /// Gap between an inline progress spinner and its status text.
+  static const double progressStatusGap = 10;
+
   /// Brightness increase applied to hovered primary buttons.
   static const double primaryButtonHoverBrightness = 0.07;
 

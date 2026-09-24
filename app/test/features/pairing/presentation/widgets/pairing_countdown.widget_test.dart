@@ -48,14 +48,16 @@ void main() {
   Widget buildWidget({
     TextStyle? textStyle,
     String Function(int seconds)? formatSeconds,
+    String label = '',
   }) => MaterialApp(
     home: StoreProvider<AppState>(
       store: store,
       child: Scaffold(
         body: formatSeconds == null
-            ? PairingCountdown(textStyle: textStyle)
+            ? PairingCountdown(textStyle: textStyle, label: label)
             : PairingCountdown(
                 textStyle: textStyle,
+                label: label,
                 formatSeconds: formatSeconds,
               ),
       ),
@@ -89,6 +91,26 @@ void main() {
         expect(find.text('2:05'), findsOneWidget);
       },
     );
+
+    testWidgets('PairingCountdown displays its label before the time', (
+      WidgetTester tester,
+    ) async {
+      when(() => viewModel.remainingSeconds).thenReturn(125);
+
+      await tester.pumpWidget(buildWidget(label: 'Code expires in '));
+
+      expect(find.text('Code expires in 2:05'), findsOneWidget);
+    });
+
+    testWidgets('PairingCountdown displays no label text by default', (
+      WidgetTester tester,
+    ) async {
+      when(() => viewModel.remainingSeconds).thenReturn(125);
+
+      await tester.pumpWidget(buildWidget());
+
+      expect(find.text('2:05'), findsOneWidget);
+    });
 
     testWidgets('PairingCountdown displays zero for an expired code', (
       WidgetTester tester,

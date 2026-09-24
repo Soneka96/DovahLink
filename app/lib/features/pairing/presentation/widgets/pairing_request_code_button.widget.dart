@@ -1,18 +1,20 @@
 import 'package:flutter/material.dart';
 
-/// A button requesting a new pairing challenge from the host.
-class PairingRequestCodeButton extends StatelessWidget {
-  /// Creates a pairing request-code button.
-  const PairingRequestCodeButton({required this.onRequestCode, super.key});
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
+/// The primary action that asks the Host to show a pairing code in Skyrim.
+class PairingRequestCodeButton extends StatelessWidget {
   /// Called when the button is pressed.
   final VoidCallback onRequestCode;
 
+  /// Creates a request-code button.
+  const PairingRequestCodeButton({required this.onRequestCode, super.key});
+
   /// See [StatelessWidget.build].
   @override
-  Widget build(BuildContext context) => ElevatedButton(
+  Widget build(BuildContext context) => DovahButton(
     key: const Key('pairing-request-code-button'),
+    label: 'Request Pairing Code',
     onPressed: onRequestCode,
-    child: const Text('Request Pairing Code'),
   );
 }

@@ -371,7 +371,14 @@ void main() {
       await tester.pumpWidget(buildForm());
 
       expect(
-        tester.widget<Text>(find.byKey(const Key('pairing-code-message'))).data,
+        tester
+            .widget<Text>(
+              find.descendant(
+                of: find.byKey(const Key('pairing-code-message')),
+                matching: find.byType(Text),
+              ),
+            )
+            .data,
         '',
       );
     });

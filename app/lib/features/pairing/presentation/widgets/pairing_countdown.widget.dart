@@ -17,8 +17,12 @@ class PairingCountdown extends StatefulWidget {
 
   /// Function to format remaining seconds for display.
   final String Function(int) formatSeconds;
+
+  /// Text shown before the formatted time, such as `Code expires in `.
+  final String label;
   const PairingCountdown({
     this.textStyle,
+    this.label = '',
     this.formatSeconds = _defaultFormatSeconds,
     super.key,
   });
@@ -68,7 +72,7 @@ class _PairingCountdownState extends State<PairingCountdown> {
           return const SizedBox.shrink();
         }
         return Text(
-          widget.formatSeconds(remainingSeconds),
+          '${widget.label}${widget.formatSeconds(remainingSeconds)}',
           style: widget.textStyle,
         );
       },
