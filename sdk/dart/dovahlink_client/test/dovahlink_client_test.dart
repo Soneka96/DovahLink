@@ -222,14 +222,55 @@ class TrackingClientStorage implements IClientStorage {
 String _rawFixture(String relativePath) =>
     File('../../../protocol/fixtures/$relativePath').readAsStringSync();
 
+/// Reads a canonical hello acknowledgement fixture as the next compatible Host release.
+String _compatibleHelloAckFixture(String relativePath) {
+  final JsonMap envelope = jsonDecode(_rawFixture(relativePath)) as JsonMap;
+  final JsonMap payload = envelope['payload'] as JsonMap;
+  payload['hostVersion'] = '0.5.0';
+  return jsonEncode(envelope);
+}
+
 /// Builds an unsolicited `session_invalidated` envelope for [reason] (a raw wire value, e.g.
 /// `'revoked'`).
-String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
+String _rawSessionInvalidated(
+  String reason, {
+  String sessionId = 'session-1',
+}) => jsonEncode(<String, dynamic>{
   'messageType': 'session_invalidated',
   'messageId': 'message-session-invalidated-1',
-  'sessionId': 'session-1',
+  'sessionId': sessionId,
   'correlationId': null,
   'payload': <String, dynamic>{'reason': reason},
+  'playContextId': null,
+  'clientId': null,
+});
+
+/// Returns the decoded subscription updates sent by [transport].
+/// @param transport The fake transport whose writes are inspected.
+/// @return The client-originated `subscribe` envelopes, in send order.
+List<JsonMap> _sentSubscriptionUpdates(FakeDovahLinkTransport transport) =>
+    transport.sent
+        .map((String raw) => jsonDecode(raw) as JsonMap)
+        .where((JsonMap envelope) => envelope['messageType'] == 'subscribe')
+        .toList();
+
+/// Builds a correlated `subscription_ack` for the fake Host.
+/// @param accepted The state areas the Host accepted.
+/// @param rejected The state areas the Host rejected.
+/// @return The raw acknowledgement envelope.
+String _rawSubscriptionAck({
+  required List<String> accepted,
+  List<String> rejected = const <String>[],
+  String sessionId = 'session-paired-1',
+}) => jsonEncode(<String, dynamic>{
+  'messageType': 'subscription_ack',
+  'messageId': 'message-subscription-ack-1',
+  'sessionId': sessionId,
+  'correlationId': 'subscribe-placeholder',
+  'payload': <String, dynamic>{
+    'acceptedStateAreas': accepted,
+    'rejectedStateAreas': rejected,
+  },
   'playContextId': null,
   'clientId': null,
 });
@@ -304,9 +345,50 @@ Future<void> _connectAndHello(
   DovahLinkClient client,
 ) async {
   await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-  transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+  transport.queueResponse(
+    _compatibleHelloAckFixture('connection/hello-ack.json'),
+  );
   transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
   await client.hello();
+}
+
+/// Connects [client] to the fake transport and admits a trusted session.
+/// @param transport The fake transport supplying Host replies.
+/// @param client The client to authenticate.
+Future<void> _connectAndTrustedHello(
+  FakeDovahLinkTransport transport,
+  DovahLinkClient client,
+) async {
+  await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+  transport.queueResponse(
+    _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
+  );
+  transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
+  await client.hello();
+}
+
+/// Requests each [areas] entry cumulatively and confirms the complete accepted set.
+/// @param transport The fake transport supplying subscription acknowledgements.
+/// @param client The trusted client whose desired set is updated.
+/// @param areas The areas to add in order.
+Future<void> _subscribeStateAreas(
+  FakeDovahLinkTransport transport,
+  DovahLinkClient client,
+  Iterable<DovahLinkStateArea> areas,
+) async {
+  final Set<DovahLinkStateArea> desiredAreas = <DovahLinkStateArea>{};
+  for (final DovahLinkStateArea area in areas) {
+    desiredAreas.add(area);
+    transport.queueResponse(
+      _rawSubscriptionAck(
+        accepted: <String>[
+          for (final DovahLinkStateArea value in DovahLinkStateArea.values)
+            if (desiredAreas.contains(value)) value.protocolValue,
+        ],
+      ),
+    );
+    await client.subscribeStateArea(area);
+  }
 }
 
 /// Builds a public client whose reconnect attempts run without production-scale delays.
@@ -370,7 +452,12 @@ void main() {
     test(
       'Property character state streams receive typed Snapshots, level Events, and recovery updates',
       () async {
-        await _connectAndHello(transport, client);
+        await _connectAndTrustedHello(transport, client);
+        await _subscribeStateAreas(
+          transport,
+          client,
+          DovahLinkStateArea.values,
+        );
 
         final Future<void> experienceReceived = expectLater(
           client.characterXpChanges,
@@ -515,7 +602,6 @@ void main() {
             value: 14,
           ),
         );
-
         await recoveredLevelReceived;
 
         final JsonMap snapshotRequest =
@@ -590,6 +676,481 @@ void main() {
     );
   });
 
+  group(
+    'Methods subscribeStateArea and unsubscribeStateArea behave correctly',
+    () {
+      test(
+        'Method subscribeStateArea keeps Host-rejected domains inactive',
+        () async {
+          await _connectAndTrustedHello(transport, client);
+          transport.queueResponse(
+            _rawSubscriptionAck(
+              accepted: const <String>[],
+              rejected: <String>['character_xp'],
+            ),
+          );
+
+          expect(
+            await client.subscribeStateArea(DovahLinkStateArea.characterXp),
+            <DovahLinkStateArea>{DovahLinkStateArea.characterXp},
+          );
+          transport.queueRawResponse(
+            _rawStateSnapshot(
+              stateArea: 'character_xp',
+              revision: 1,
+              value: 42.5,
+            ),
+          );
+          await pumpEventQueue();
+
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.notSubscribed,
+          );
+          expect(client.connectionState, DovahLinkConnectionState.connected);
+        },
+      );
+
+      test(
+        'Methods send the complete desired set and stop applying removed areas',
+        () async {
+          await _connectAndTrustedHello(transport, client);
+
+          transport.queueResponse(
+            _rawSubscriptionAck(accepted: <String>['character_xp']),
+          );
+          expect(
+            await client.subscribeStateArea(DovahLinkStateArea.characterXp),
+            isEmpty,
+          );
+          expect(
+            (jsonDecode(transport.sent.last) as JsonMap)['payload'],
+            (jsonDecode(_rawFixture('subscriptions/subscribe.json'))
+                as JsonMap)['payload'],
+          );
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.recovering,
+          );
+
+          transport.queueResponse(
+            _rawSubscriptionAck(
+              accepted: <String>['character_xp', 'character_health'],
+            ),
+          );
+          expect(
+            await client.subscribeStateArea(DovahLinkStateArea.characterHealth),
+            isEmpty,
+          );
+          expect(
+            (jsonDecode(transport.sent.last) as JsonMap)['payload'],
+            (jsonDecode(_rawFixture('subscriptions/subscribe-add-area.json'))
+                as JsonMap)['payload'],
+          );
+
+          transport.queueRawResponse(
+            _rawStateSnapshot(
+              stateArea: 'character_xp',
+              revision: 1,
+              value: 42.5,
+            ),
+          );
+          transport.queueRawResponse(
+            _rawStateSnapshot(
+              stateArea: 'character_health',
+              revision: 1,
+              value: 100,
+            ),
+          );
+          await pumpEventQueue();
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.synchronized,
+          );
+          expect(
+            (await client.characterHealthChanges.first).status,
+            DovahLinkStateStatus.synchronized,
+          );
+
+          transport.queueResponse(
+            _rawSubscriptionAck(accepted: <String>['character_health']),
+          );
+          expect(
+            await client.unsubscribeStateArea(DovahLinkStateArea.characterXp),
+            isEmpty,
+          );
+          expect(
+            (jsonDecode(transport.sent.last) as JsonMap)['payload'],
+            (jsonDecode(_rawFixture('subscriptions/subscribe-replacement.json'))
+                as JsonMap)['payload'],
+          );
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.notSubscribed,
+          );
+
+          transport.queueRawResponse(
+            _rawStateSnapshot(
+              stateArea: 'character_xp',
+              revision: 2,
+              value: 50,
+            ),
+          );
+          transport.queueRawResponse(
+            _rawStateEvent(
+              stateArea: 'character_xp',
+              baseRevision: 1,
+              revision: 2,
+              value: 50,
+            ),
+          );
+          await pumpEventQueue();
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.notSubscribed,
+          );
+          expect(client.connectionState, DovahLinkConnectionState.connected);
+
+          transport.queueResponse(
+            _rawSubscriptionAck(accepted: const <String>[]),
+          );
+          expect(
+            await client.unsubscribeStateArea(
+              DovahLinkStateArea.characterHealth,
+            ),
+            isEmpty,
+          );
+          expect(
+            (jsonDecode(transport.sent.last) as JsonMap)['payload'],
+            (jsonDecode(_rawFixture('subscriptions/subscribe-empty.json'))
+                as JsonMap)['payload'],
+          );
+          expect(
+            (await client.characterHealthChanges.first).status,
+            DovahLinkStateStatus.notSubscribed,
+          );
+        },
+      );
+    },
+  );
+
+  group('Behavior subscription session lifecycle behaves correctly', () {
+    test(
+      'Behavior successful pending-pairing recovery restores remembered subscriptions',
+      () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'a1b2c3d4e5f6',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        await _connectAndHello(transport, client);
+        await expectLater(
+          client.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(
+            accepted: <String>['character_xp'],
+            sessionId: 'session-1',
+          ),
+        );
+        expect(
+          await client.recoverPendingPairing(),
+          DovahLinkTrustState.trusted,
+        );
+
+        for (
+          int attempt = 0;
+          attempt < 20 && _sentSubscriptionUpdates(transport).isEmpty;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          _sentSubscriptionUpdates(transport).single['payload'],
+          <String, dynamic>{
+            'stateAreas': <String>['character_xp'],
+          },
+        );
+      },
+    );
+
+    test(
+      'Behavior ordinary reconnect restores only desired areas and waits for a fresh Snapshot',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _subscribeStateAreas(
+          reconnectTransport,
+          reconnectClient,
+          <DovahLinkStateArea>[
+            DovahLinkStateArea.characterXp,
+            DovahLinkStateArea.characterHealth,
+          ],
+        );
+
+        reconnectTransport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_health']),
+        );
+        await reconnectClient.unsubscribeStateArea(
+          DovahLinkStateArea.characterXp,
+        );
+        reconnectTransport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_health',
+            revision: 7,
+            value: 87.5,
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          (await reconnectClient.characterHealthChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+
+        reconnectTransport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_health']),
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+        for (
+          int attempt = 0;
+          attempt < 30 &&
+              _sentSubscriptionUpdates(reconnectTransport).length < 4;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+
+        final List<JsonMap> updates = _sentSubscriptionUpdates(
+          reconnectTransport,
+        );
+        expect(updates, hasLength(4));
+        expect(updates.last['payload'], <String, dynamic>{
+          'stateAreas': <String>['character_health'],
+        });
+        expect(
+          (await reconnectClient.characterHealthChanges.first).status,
+          DovahLinkStateStatus.recovering,
+        );
+        expect(
+          (await reconnectClient.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+
+        reconnectTransport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_health',
+            revision: 1,
+            value: 75,
+            correlationId:
+                _sentSubscriptionUpdates(reconnectTransport).last['messageId']
+                    as String,
+          ),
+        );
+        await pumpEventQueue();
+        final StateSynchronization<CharacterHealthState> recovered =
+            await reconnectClient.characterHealthChanges.first;
+        expect(recovered.status, DovahLinkStateStatus.synchronized);
+        expect(recovered.revision, 1);
+        expect(recovered.value?.value, 75);
+        expect(
+          (await reconnectClient.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+      },
+    );
+
+    test(
+      'Behavior administrative invalidation stays dormant until explicit pairing succeeds',
+      () async {
+        await _connectAndTrustedHello(transport, client);
+        await _subscribeStateAreas(transport, client, <DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          (await client.characterXpChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+
+        transport.queueRawResponse(
+          _rawSessionInvalidated('revoked', sessionId: 'session-paired-1'),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(stateArea: 'character_xp', revision: 2, value: 43),
+        );
+        transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_xp',
+            baseRevision: 1,
+            revision: 2,
+            value: 43,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(
+          client.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(transport.connectCalls, hasLength(1));
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          (await client.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        final HelloResult retry = await client.authenticate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        expect(retry.trustState, DovahLinkTrustState.unpaired);
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-status-available.json'),
+        );
+        await client.requestPairing();
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+        );
+        final String credential = await client.confirmPairingCode(
+          code: '123456',
+          displayName: 'My PC',
+        );
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(
+            accepted: <String>['character_xp'],
+            sessionId: 'session-1',
+          ),
+        );
+        await client.acknowledgeTrustedCredential(credential);
+
+        for (
+          int attempt = 0;
+          attempt < 20 && _sentSubscriptionUpdates(transport).length < 2;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(_sentSubscriptionUpdates(transport), hasLength(2));
+        final String restoredSubscriptionMessageId =
+            _sentSubscriptionUpdates(transport).last['messageId'] as String;
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+            correlationId: restoredSubscriptionMessageId,
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          (await client.characterXpChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(client.trustState, DovahLinkTrustState.trusted);
+      },
+    );
+
+    test(
+      'Behavior intentional disconnect during reconnect clears intent before a later session',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = buildDovahLinkClientForTesting(
+          transport: reconnectTransport,
+          storage: InMemoryClientStorage(),
+          reconnectAttemptDelays: const <Duration>[
+            Duration.zero,
+            Duration(milliseconds: 200),
+          ],
+          reconnectDeadline: const Duration(seconds: 5),
+        );
+        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _subscribeStateAreas(
+          reconnectTransport,
+          reconnectClient,
+          <DovahLinkStateArea>[DovahLinkStateArea.characterXp],
+        );
+        reconnectTransport.failConnectWith = const SocketException(
+          'Host remains unavailable',
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (
+          int attempt = 0;
+          attempt < 20 &&
+              reconnectClient.connectionState !=
+                  DovahLinkConnectionState.reconnecting;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.reconnecting,
+        );
+
+        await reconnectClient.disconnect();
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(
+          (await reconnectClient.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        reconnectTransport.failConnectWith = null;
+        await reconnectClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        reconnectTransport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await reconnectClient.hello();
+        await pumpEventQueue();
+
+        expect(_sentSubscriptionUpdates(reconnectTransport), hasLength(1));
+      },
+    );
+  });
+
   group('Behavior default transport composition behaves correctly', () {
     test(
       'Behavior default transport composition connects and completes hello over '
@@ -623,7 +1184,8 @@ void main() {
         final JsonMap request =
             jsonDecode(await requestFrame.future.timeout(timeout)) as JsonMap;
         final JsonMap helloAck =
-            jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+            jsonDecode(_compatibleHelloAckFixture('connection/hello-ack.json'))
+                as JsonMap;
         helloAck['correlationId'] = request['messageId'];
         socket.add(jsonEncode(helloAck));
         socket.add(_rawFixture('capabilities/capabilities-host.json'));
@@ -634,7 +1196,7 @@ void main() {
           defaultClient.connectionState,
           DovahLinkConnectionState.connected,
         );
-        expect(result.hostVersion, '0.4.0');
+        expect(result.hostVersion, '0.5.0');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
@@ -773,7 +1335,9 @@ void main() {
       'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        final String helloAckFixture = _rawFixture('connection/hello-ack.json');
+        final String helloAckFixture = _compatibleHelloAckFixture(
+          'connection/hello-ack.json',
+        );
         final JsonMap helloAckPayload =
             (jsonDecode(helloAckFixture) as JsonMap)['payload'] as JsonMap;
         transport.queueResponse(helloAckFixture);
@@ -847,7 +1411,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.4.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -862,7 +1426,7 @@ void main() {
             isA<DovahLinkCompatibilityException>().having(
               (DovahLinkCompatibilityException error) => error.failure,
               'failure',
-              HostVersionCompatibilityFailure.hostTooNew,
+              HostVersionCompatibilityFailure.hostTooOld,
             ),
           ),
         );
@@ -914,7 +1478,9 @@ void main() {
       // capabilities. Queuing a malformed protocol message in its place proves the persistent receiver's own
       // cleanup covers state set moments earlier in this same call, not just the "never got
       // that far" case above -- even though it now runs after hello() has already returned.
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse('not valid json');
       transport.failCloseWith = const SocketException('socket already gone');
 
@@ -971,7 +1537,9 @@ void main() {
     test(
       'Method authenticate delegates to connect and hello when nothing is rejected',
       () async {
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -996,7 +1564,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.4.0',
+              'hostVersion': '0.5.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1018,7 +1586,7 @@ void main() {
             'sessionId': 'session-2',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.4.0',
+              'hostVersion': '0.5.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1276,7 +1844,9 @@ void main() {
       'Method disconnect closes the transport and resets session state',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1303,7 +1873,9 @@ void main() {
         addTearDown(subscription.cancel);
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1329,7 +1901,9 @@ void main() {
         ),
       );
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -1355,7 +1929,9 @@ void main() {
         );
         await client.forgetCredential();
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1375,7 +1951,9 @@ void main() {
       'Behavior inbound message routing gives sequential requests their own correlated replies',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1400,7 +1978,9 @@ void main() {
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
 
       final HelloResult result = await client.hello();
 
@@ -1453,7 +2033,9 @@ void main() {
 
         runZonedGuarded(() async {
           await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-          transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+          transport.queueResponse(
+            _compatibleHelloAckFixture('connection/hello-ack.json'),
+          );
           await client.hello();
 
           transport.queueRawResponse('not valid json');
@@ -1475,7 +2057,9 @@ void main() {
       'Behavior session_invalidated handling exposes the typed invalidationReason',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1505,7 +2089,9 @@ void main() {
       addTearDown(subscription.cancel);
 
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -1535,7 +2121,7 @@ void main() {
           );
           await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
           transport.queueResponse(
-            _rawFixture('connection/hello-ack-paired.json'),
+            _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
           );
           transport.queueResponse(
             _rawFixture('capabilities/capabilities-host.json'),
@@ -1565,7 +2151,7 @@ void main() {
         );
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -1601,7 +2187,7 @@ void main() {
 
         await trackingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
         trackingTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         trackingTransport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -1638,7 +2224,7 @@ void main() {
 
         await failingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
         failingTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         failingTransport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -1665,7 +2251,9 @@ void main() {
       'while it awaits a reply',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1707,7 +2295,9 @@ void main() {
     test('Behavior session_invalidated handling preserves its typed reason during a transport '
         'failure race', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -1770,7 +2360,9 @@ void main() {
       );
 
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -1807,7 +2399,9 @@ void main() {
     test('Behavior retry-safe reconnect retransmits an orphaned operation and resolves its caller, '
         'via automatic reconnect', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -1817,7 +2411,9 @@ void main() {
       await pumpEventQueue();
       // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
       // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -1837,7 +2433,9 @@ void main() {
     test('Behavior retry-safe reconnect fails without retransmission when trust state changes, via '
         'automatic reconnect', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -1856,7 +2454,7 @@ void main() {
           'sessionId': 'session-2',
           'correlationId': 'irrelevant',
           'payload': <String, dynamic>{
-            'hostVersion': '0.4.0',
+            'hostVersion': '0.5.0',
             'clientIdentityKind': 'paired',
           },
           'stateAuthorityId': 'state-authority-1',
@@ -1880,7 +2478,9 @@ void main() {
       'Behavior retry-safe reconnect does not orphan a retried operation a second time',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1898,7 +2498,9 @@ void main() {
         // Queued ahead of the drop so automatic reconnect's own connect()+hello() finds them
         // ready, retransmitting the orphaned request as its one retry once the fresh session is
         // admitted.
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1914,7 +2516,9 @@ void main() {
         // The retry itself now also drops, with no reply ever queued for it, so the next
         // automatic reconnect's own hello() succeeds but never resurrects the already-retried
         // operation.
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1937,7 +2541,9 @@ void main() {
         // A third connect/hello round must not resurrect it for a second retry.
         await client.disconnect();
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1953,7 +2559,9 @@ void main() {
       'Behavior retry-safe reconnect fails a non-retry-safe operation immediately',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1995,7 +2603,7 @@ void main() {
 
       await reconnectClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
       reconnectTransport.queueResponse(
-        _rawFixture('connection/hello-ack.json'),
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
@@ -2006,7 +2614,7 @@ void main() {
       // them ready the moment its first (zero-delay) attempt runs -- nothing in this test drives
       // reconnect by hand.
       reconnectTransport.queueResponse(
-        _rawFixture('connection/hello-ack.json'),
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
@@ -2069,7 +2677,7 @@ void main() {
       );
       // Answers the second automatic attempt with success.
       reconnectTransport.queueResponse(
-        _rawFixture('connection/hello-ack.json'),
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
@@ -2115,7 +2723,7 @@ void main() {
         );
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -2169,7 +2777,9 @@ void main() {
       'Behavior stale receiver isolation does not consume a late reply for a new operation',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2199,7 +2809,9 @@ void main() {
         await client.disconnect();
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2286,7 +2898,9 @@ void main() {
         ),
       );
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2299,7 +2913,9 @@ void main() {
       await pumpEventQueue();
       // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
       // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2318,7 +2934,9 @@ void main() {
       'protocol violation',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2350,7 +2968,9 @@ void main() {
 
         // Confirmed not orphaned: a fresh connect/hello does not retransmit it.
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2363,7 +2983,9 @@ void main() {
       'disconnect() also fails an already-orphaned operation, not just a currently pending one',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2403,7 +3025,9 @@ void main() {
       // dead connection and close its transport once. Service tests isolate their collaborators;
       // this test covers the composed teardown path.
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );

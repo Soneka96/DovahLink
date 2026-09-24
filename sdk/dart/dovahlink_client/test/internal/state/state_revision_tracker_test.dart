@@ -707,6 +707,39 @@ void main() {
     );
   });
 
+  group('Method resetToNotSubscribed behaves correctly', () {
+    test('Method resetToNotSubscribed clears the cached baseline', () {
+      final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+      tracker.applySnapshot(
+        stateAuthorityId: 'authority-1',
+        playContextId: 'context-1',
+        revision: 9,
+        value: 90,
+        isUnavailable: false,
+      );
+
+      tracker.resetToNotSubscribed();
+
+      expect(tracker.current.status, DovahLinkStateStatus.notSubscribed);
+      expect(tracker.current.value, isNull);
+      expect(tracker.current.stateAuthorityId, isNull);
+      expect(tracker.current.playContextId, isNull);
+      expect(tracker.current.revision, isNull);
+    });
+
+    test(
+      'Method resetToNotSubscribed is a no-op before any baseline exists',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+        final StateSynchronization<int?> initial = tracker.current;
+
+        tracker.resetToNotSubscribed();
+
+        expect(identical(tracker.current, initial), isTrue);
+      },
+    );
+  });
+
   group('Method failRecovery behaves correctly', () {
     test(
       'Method failRecovery marks failure and preserves the last known state',

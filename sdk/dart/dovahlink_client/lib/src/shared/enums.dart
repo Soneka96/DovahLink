@@ -449,9 +449,48 @@ enum HostVersionCompatibilityFailure {
 
 // ---- State synchronization ----
 
-/// The synchronization standing of one subscribed state domain.
+/// A public state domain the SDK client can subscribe to.
+enum DovahLinkStateArea {
+  /// The character's current experience and progress to the next level.
+  characterXp('character_xp'),
+
+  /// The character's current health.
+  characterHealth('character_health'),
+
+  /// The character's current magicka.
+  characterMagicka('character_magicka'),
+
+  /// The character's current stamina.
+  characterStamina('character_stamina'),
+
+  /// The character's current level.
+  characterLevel('character_level');
+
+  /// The canonical protocol value for this area.
+  final String protocolValue;
+
+  /// Creates a state-area value with its canonical protocol name.
+  const DovahLinkStateArea(this.protocolValue);
+
+  /// Resolves a canonical protocol value to its typed SDK domain.
+  /// @param value The state-area identifier from a protocol message.
+  /// @return The matching domain, or `null` when the identifier is unknown.
+  static DovahLinkStateArea? fromProtocolValue(String value) {
+    for (final DovahLinkStateArea area in DovahLinkStateArea.values) {
+      if (area.protocolValue == value) {
+        return area;
+      }
+    }
+    return null;
+  }
+}
+
+/// The synchronization standing of one state domain relative to the active Host session.
 enum DovahLinkStateStatus {
-  /// The consumer has not requested this domain.
+  /// The Host has not accepted this domain for the current session.
+  ///
+  /// This describes active Host subscription state, not local desired intent; intent may be
+  /// retained while a session is absent or awaiting recovery.
   notSubscribed,
 
   /// A synchronized snapshot established that the current value is unavailable.

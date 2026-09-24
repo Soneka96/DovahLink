@@ -496,6 +496,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             ackPayload);
         connectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
 
+        subscription?.SendSupersededSnapshotRequestErrors();
         subscription?.EstablishAcceptedBaselines(accepted, envelope.MessageId);
     }
 

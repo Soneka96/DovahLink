@@ -1180,7 +1180,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "The app no longer keeps observing a stale connection status", app_changelog
         )
         self.assertIn(
-            "rejects Host versions outside its declared `0.4.x` compatibility range",
+            "requires Host `0.5.x` for its complete-set subscription API and rejects released",
             sdk_changelog,
         )
         self.assertIn(
@@ -1301,20 +1301,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )[0]
         self.assertIn(
             "**Current stage:** Stage 5 — Dart Client SDK Foundation is active; "
-            "Phase 5.2 is complete and",
+            "Phases 5.1–5.3 are complete and",
             current_position,
         )
         self.assertIn(
-            "**Current phase:** Phase 5.3 — Subscription, Reconnect, and Session "
-            "Lifecycle (**Planned**). Phase",
+            "**Current phase:** Phase 5.4 — Flutter Middleware and Minimal Live-State "
+            "Proof (**Planned**).",
             current_position,
         )
         ordered_stages = root_roadmap.split("## Ordered stages", 1)[1].split(
             "## Major dependencies", 1
         )[0]
         self.assertIn(
-            "| 5 | Active. Phases 5.1 and 5.2 are complete; Phase 5.3 is the next "
-            "planned target.",
+            "| 5 | Active. Phases 5.1–5.3 are complete; Phase 5.4 is next.",
             ordered_stages,
         )
         self.assertIn(
@@ -1323,7 +1322,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("recommends `0.4.0`", current_position)
         self.assertNotIn("Stage 4 remains Active", current_position)
-        # Stage 5 is active because Phases 5.1 and 5.2 are complete and Phase 5.3 is next;
+        # Stage 5 is active because Phases 5.1–5.3 are complete and Phase 5.4 is next;
         # the status line also records work pulled forward for Phase 3's pairing needs.
         phase_5_status = (
             "**Status:** Active. The package scaffold, protocol/transport layer, and "
@@ -1336,13 +1335,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             )[0]
         )
         self.assertIn(
-            "Phases 5.1 and 5.2 — the typed protocol/compatibility boundary and state "
-            "synchronization API — are complete.",
+            "Phases 5.1–5.3 — the typed protocol/compatibility boundary, state synchronization "
+            "API, and subscription/reconnect/session lifecycle — are complete.",
             phase_5_summary,
         )
         self.assertIn(
-            "Phase 5.3's subscription/reconnect/session lifecycle and Phase 5.4's Flutter "
-            "middleware integration remain",
+            "Phase 5.4's Flutter middleware integration remains, followed by Phase 5.5's "
+            "version-impact audit",
             phase_5_summary,
         )
 
@@ -1873,7 +1872,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "sdk/\n  dart/\n    dovahlink_client/",
             "It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic\nreconnection after ordinary transport loss",
             "The official\nFlutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public\nclient for pairing and authentication through `PairingRemoteDataSource`.",
-            "The SDK supports Host releases in the `0.4.x` range and rejects older or newer Host "
+            "The SDK supports Host releases in the `0.5.x` range and rejects older or newer Host "
             "versions during\n`hello`, before admitting a session.",
             "Phase 5.2 is complete: the public client exposes replayable typed\n"
             "state streams for XP, health, magicka, stamina, and level",

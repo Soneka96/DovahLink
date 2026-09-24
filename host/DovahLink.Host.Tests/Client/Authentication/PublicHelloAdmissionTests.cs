@@ -1885,6 +1885,92 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicMessageType.StateSnapshot, snapshotEnvelope.MessageType);
     }
 
+    /// <summary>
+    /// Verifies that unsubscribing an area terminates its pending snapshot request exactly once,
+    /// after the replacement acknowledgement, and that a later value is not published.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_UnsubscribingPendingSnapshotRequest_SendsAckThenOneRetryableError()
+    {
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("area_one"));
+        var feed = new FakeStatePublicationFeed();
+        var subscription = new PublicStateSubscription(
+            policy,
+            feed,
+            new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()),
+            new FakePlayContextTracker(),
+            Fixtures.BuildStateAuthorityLifecycle());
+        var context = new TestContext(subscription: subscription);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+
+        byte[] initialSubscribe = context.Codec.Encode(
+            PublicMessageType.Subscribe,
+            "msg-2",
+            sessionId,
+            null,
+            null,
+            clientId,
+            new SubscribePayload { StateAreas = ["area_one"] });
+        context.Handler.HandleMessageAsync(context.Connection, initialSubscribe, CancellationToken.None);
+        int sentAfterInitialSubscribe = context.FakeConnection.SentPayloads.Count;
+
+        byte[] snapshotRequest = context.Codec.Encode(
+            PublicMessageType.SnapshotRequest,
+            "msg-3",
+            sessionId,
+            null,
+            null,
+            clientId,
+            new SnapshotRequestPayload { StateArea = "area_one" });
+        context.Handler.HandleMessageAsync(context.Connection, snapshotRequest, CancellationToken.None);
+        Assert.Equal(sentAfterInitialSubscribe, context.FakeConnection.SentPayloads.Count);
+        int sentBeforeUnsubscribe = context.FakeConnection.SentPayloads.Count;
+
+        byte[] replacementSubscribe = context.Codec.Encode(
+            PublicMessageType.Subscribe,
+            "msg-4",
+            sessionId,
+            null,
+            null,
+            clientId,
+            new SubscribePayload { StateAreas = [] });
+        context.Handler.HandleMessageAsync(context.Connection, replacementSubscribe, CancellationToken.None);
+
+        Assert.Equal(sentBeforeUnsubscribe + 2, context.FakeConnection.SentPayloads.Count);
+        (PublicEnvelope ackEnvelope, SubscriptionAckPayload ack) = DecodeSent<SubscriptionAckPayload>(
+            context.Codec,
+            context.FakeConnection.SentPayloads[sentBeforeUnsubscribe]);
+        Assert.Equal(PublicMessageType.SubscriptionAck, ackEnvelope.MessageType);
+        Assert.Equal("msg-4", ackEnvelope.CorrelationId);
+        Assert.Empty(ack.AcceptedStateAreas);
+        Assert.Empty(ack.RejectedStateAreas);
+
+        (PublicEnvelope errorEnvelope, ErrorPayload error) = DecodeSent<ErrorPayload>(
+            context.Codec,
+            context.FakeConnection.SentPayloads[sentBeforeUnsubscribe + 1]);
+        Assert.Equal(PublicMessageType.Error, errorEnvelope.MessageType);
+        Assert.Equal("msg-3", errorEnvelope.CorrelationId);
+        Assert.Equal(PublicProtocolErrorCode.TemporarilyUnavailable, error.Code);
+        Assert.True(error.Retryable);
+
+        feed.SetSnapshot(new StateAreaId("area_one"), BuildStateSnapshotPublication("area_one"));
+        feed.RaiseSnapshotChanged(BuildStateSnapshotPublication("area_one"));
+        Assert.Equal(sentBeforeUnsubscribe + 2, context.FakeConnection.SentPayloads.Count);
+
+        int requestTerminalErrors = 0;
+        foreach (byte[] sentPayload in context.FakeConnection.SentPayloads)
+        {
+            Assert.True(context.Codec.TryDecode(sentPayload, out PublicEnvelope? envelope));
+            if (envelope!.MessageType == PublicMessageType.Error && envelope.CorrelationId == "msg-3")
+            {
+                requestTerminalErrors++;
+            }
+        }
+
+        Assert.Equal(1, requestTerminalErrors);
+    }
+
     /// <summary>Verifies that a malformed post-admission subscribe message is rejected as malformed_message.</summary>
     [Fact]
     public void HandleMessageAsync_MalformedSubscribePostAdmission_RejectsAsMalformed()

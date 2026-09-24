@@ -23,10 +23,9 @@ class RequestPolicy {
 
   /// The trust state the current session must already be at before this request may be sent, or
   /// `null` for `hello` alone -- the one bootstrap request that establishes the session and
-  /// therefore requires only a live transport connection, no existing trust state. Every other
-  /// Phase 3.3 operation requires [DovahLinkTrustState.unpaired] (a session must already exist).
-  /// A queued retry-safe operation that survives a reconnect is revalidated against this value
-  /// before it is retransmitted.
+  /// therefore requires only a live transport connection, no existing trust state. A queued
+  /// retry-safe operation that survives a reconnect is revalidated against this value before it
+  /// is retransmitted.
   final DovahLinkTrustState? requiredTrustState;
 
   /// The centralized bounded timeout category this request is classified against; see

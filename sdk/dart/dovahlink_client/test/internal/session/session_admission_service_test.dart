@@ -5,6 +5,7 @@ import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart'
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../state/mock_subscription_service.dart';
 
 /// Mock session state used to isolate [SessionAdmissionService]'s own behavior, per
 /// `ai/context/sdk/testing.md`'s "Service test boundaries".
@@ -19,6 +20,7 @@ class MockRequestService extends Mock implements IRequestService {}
 void main() {
   late MockSessionState state;
   late MockRequestService requestService;
+  late MockSubscriptionService subscriptionService;
   late SessionAdmissionService service;
 
   setUpAll(() {
@@ -28,6 +30,7 @@ void main() {
   setUp(() {
     state = MockSessionState();
     requestService = MockRequestService();
+    subscriptionService = MockSubscriptionService();
     when(
       () => state.admit(
         sessionId: any(named: 'sessionId'),
@@ -35,9 +38,13 @@ void main() {
       ),
     ).thenAnswer((_) {});
     when(() => requestService.retryOrphanedOperations()).thenAnswer((_) {});
+    when(
+      () => subscriptionService.restoreDesiredStateAreas(),
+    ).thenAnswer((_) {});
     service = SessionAdmissionService(
       state: state,
       requestService: requestService,
+      subscriptionService: subscriptionService,
     );
   });
 
@@ -64,16 +71,34 @@ void main() {
       () {
         service.admitSession(
           sessionId: 'session-1',
-          trustState: DovahLinkTrustState.unpaired,
+          trustState: DovahLinkTrustState.trusted,
         );
 
         verifyInOrder(<void Function()>[
           () => state.admit(
             sessionId: 'session-1',
-            trustState: DovahLinkTrustState.unpaired,
+            trustState: DovahLinkTrustState.trusted,
           ),
           () => requestService.retryOrphanedOperations(),
+          () => subscriptionService.restoreDesiredStateAreas(),
         ]);
+      },
+    );
+
+    test(
+      'Method admitSession restores desired areas only for a trusted session',
+      () {
+        service.admitSession(
+          sessionId: 'session-unpaired',
+          trustState: DovahLinkTrustState.unpaired,
+        );
+        verifyNever(() => subscriptionService.restoreDesiredStateAreas());
+
+        service.admitSession(
+          sessionId: 'session-trusted',
+          trustState: DovahLinkTrustState.trusted,
+        );
+        verify(() => subscriptionService.restoreDesiredStateAreas()).called(1);
       },
     );
   });

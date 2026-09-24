@@ -13,16 +13,21 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Added
 
+- The Dart SDK exposes typed per-domain subscription intent and sends complete desired state-area
+  sets to the Host.
+- The Dart SDK restores desired subscriptions after trusted recovery and clears intent on explicit
+  disconnect.
 - The Dart SDK exposes replayable typed synchronization streams for character XP, health, magicka,
   stamina, and level.
-- The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before
-  admitting a session.
+- The Dart SDK requires Host `0.5.x` for its complete-set subscription API and rejects released
+  Host `0.4.0` before admitting a session.
 
 ### Fixed
 
 - The Dart SDK retries temporarily unavailable state Snapshots without interrupting the session.
 - The Dart SDK routes later baseline snapshots even when they reuse a completed request's
   correlation ID.
+- The Dart SDK ignores in-flight recovery outcomes after their state area is unsubscribed.
 
 ## [0.4.0] - 2026-09-23
 

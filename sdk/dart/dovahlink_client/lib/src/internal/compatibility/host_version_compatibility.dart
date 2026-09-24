@@ -3,19 +3,19 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// The explicit Host release range supported by this SDK version.
-const String supportedHostVersionRange = '0.4.x';
+const String supportedHostVersionRange = '0.5.x';
 
 /// The oldest Host major version this SDK accepts.
 const int _minimumHostMajor = 0;
 
 /// The oldest Host minor version this SDK accepts.
-const int _minimumHostMinor = 4;
+const int _minimumHostMinor = 5;
 
 /// The Host major version accepted by this SDK release.
 const int _acceptedHostMajor = 0;
 
 /// The highest Host minor version accepted by this SDK release.
-const int _acceptedHostMinor = 4;
+const int _acceptedHostMinor = 5;
 
 /// Matches a complete numeric Host release version without prerelease metadata.
 final RegExp _releaseVersionPattern = RegExp(

@@ -10,10 +10,15 @@
 `ai/context/sdk/persistence.md`. Delivery is decomposed into the public typed protocol boundary,
 synchronization API, subscription/recovery lifecycle, Flutter middleware proof, and phase-end version
 auditing.
-Phases 5.1 and 5.2 — the typed protocol/compatibility boundary and state synchronization API — are
-complete. State revision tracking, typed Snapshot handling, level Events, and revision-gap recovery
-are implemented. Phase 5.3's subscription/reconnect/session lifecycle and Phase 5.4's Flutter
-middleware integration remain, followed by Phase 5.5's version-impact audit and Stage 5 closure.
+Phases 5.1–5.3 — the typed protocol/compatibility boundary, state synchronization API, and
+subscription/reconnect/session lifecycle — are complete. Phase 5.3 adds canonical complete-set
+subscription updates with Host reconciliation, SDK per-domain intent, ordinary reconnect
+restoration, administrative dormancy until explicit recovery, and intentional-disconnect cleanup.
+Its complete-set subscription meaning is incompatible with released Host `0.4.0`'s additive behavior;
+the SDK's supported Host line is `0.5.x`, with the release version bump deferred to a dedicated
+release branch.
+Phase 5.4's Flutter middleware integration remains, followed by Phase 5.5's version-impact audit
+and Stage 5 closure.
 The app's current `features/connection/` area owns Host selection and navigation rather than a
 separate protocol client. Phase 3.3 (`roadmap/03`) similarly pulled forward the single inbound SDK
 receiver/router and initial per-operation retry-safety/session-requirement/timeout-class policy,
@@ -61,8 +66,9 @@ prevent raw JSON, transport types, and internal codecs from crossing the public 
 
 The SDK reads `hello_ack.hostVersion`, applies the repository's pre-1.0 same-major/same-minor and
 post-1.0 accepted-minor rules, and closes before capabilities or state traffic when the Host is
-incompatible. The SDK owns the explanation; the Host only advertises its version and does not
-reject SDK versions.
+incompatible. Phase 5.3's complete-set subscription semantics make released Host `0.4.0`
+incompatible with the public subscription API; the next supported Host line is `0.5.x`. The SDK owns
+the explanation; the Host only advertises its version and does not reject SDK versions.
 
 #### 5.2 SDK State Synchronization API
 
@@ -80,11 +86,19 @@ typed values and statuses rather than protocol envelopes.
 
 #### 5.3 Subscription, Reconnect, and Session Lifecycle
 
-Provide explicit SDK subscription intent and lifecycle operations for the middleware. A trusted
-connection starts the desired state subscriptions; an intentional disconnect removes them. Ordinary
-transport loss keeps the desired intent, exposes reconnecting/recovery state, and restores the
-remote subscriptions after authentication followed by fresh snapshots. Administrative invalidation
-leaves desired subscriptions dormant until explicit user-initiated recovery.
+Provide explicit SDK per-domain subscription intent and lifecycle operations for the middleware.
+The existing `subscribe.stateAreas` field represents the complete desired set for that connection;
+`stateAreas: []` removes all active areas. Each Host update replaces its active set, removes omitted
+or rejected areas, and stops future publication for them. The SDK returns rejected domains, applies
+only Host-accepted areas, resets removed state streams to `notSubscribed`, and ignores late messages
+for areas no longer active.
+
+A trusted session starts the desired subscriptions. An intentional SDK disconnect clears desired
+intent and closes the session. Ordinary transport loss preserves intent, exposes the reconnecting
+lifecycle, and restores the desired set after trusted session admission; successful explicit pairing
+also restores it. Each accepted area receives a fresh Snapshot baseline before its state is
+synchronized. Administrative invalidation clears the active state gate but leaves intent dormant
+until explicit user authentication or pairing recovery succeeds.
 
 The SDK's single inbound receiver remains the only raw transport reader. Correlated replies,
 unsolicited state messages, session invalidation, protocol violations, and late messages from older
@@ -151,6 +165,9 @@ from the Dart SDK.
   Dart SDK.
 - Middleware owns SDK state-stream subscriptions and translates typed values/statuses into Redux
   actions; widgets and screens do not consume SDK streams directly.
+- Shared protocol fixtures and Host/SDK tests prove complete-set subscription transitions, including
+  adding and removing individual areas and clearing the set, and verify that removed areas stop
+  publishing.
 - The minimal live-state proof demonstrates the character Snapshot domains and `character_level`
   Event state, revision-gap recovery,
   ordinary reconnect restoration, administrative-invalidation dormancy, and incompatible-Host
