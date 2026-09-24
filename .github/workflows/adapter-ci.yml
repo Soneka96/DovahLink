@@ -48,6 +48,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "$env:RUNNER_TEMP\vcpkg-binary-cache" | Out-Null
 
       - name: Install pinned CMake
+        id: cmake-tool
         # windows-2022 ships an older CMake than the pinned version; a direct download of the
         # official release archive is faster and no less trustworthy than a Chocolatey install.
         run: |
@@ -63,7 +64,11 @@ jobs:
           Expand-Archive -Path "$env:RUNNER_TEMP\$cmakeArchive" -DestinationPath "$env:RUNNER_TEMP\cmake" -Force
           $cmakeBin | Out-File -FilePath $env:GITHUB_PATH -Encoding utf8 -Append
           $env:Path = "$cmakeBin;$env:Path"
-          cmake --version
+          $actualCmakeVersion = ((cmake --version | Select-Object -First 1) -replace '^cmake version ', '').Trim()
+          if ($actualCmakeVersion -ne $cmakeVersion) {
+            throw "Expected CMake $cmakeVersion, but found '$actualCmakeVersion'."
+          }
+          "version=$actualCmakeVersion" >> $env:GITHUB_OUTPUT
 
       - name: Set up the MSVC 2022 developer environment
         # Maintained stable release; no stable Node 24 replacement is available yet.
@@ -78,6 +83,10 @@ jobs:
             throw "MSVC setup did not expose VCToolsVersion."
           }
           "version=$($env:VCToolsVersion.Trim())" >> $env:GITHUB_OUTPUT
+          "powershell_version=$($PSVersionTable.PSVersion.ToString())" >> $env:GITHUB_OUTPUT
+          $compilerPath = (Get-Command cl.exe -ErrorAction Stop).Source
+          $compilerHash = (Get-FileHash -LiteralPath $compilerPath -Algorithm SHA256).Hash.ToLowerInvariant()
+          "compiler_sha256=$compilerHash" >> $env:GITHUB_OUTPUT
 
       - name: Verify pinned Ninja is available in the build environment
         # Check after the MSVC setup because CMake runs with this step's resulting PATH.
@@ -121,8 +130,9 @@ jobs:
         uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
         with:
           path: ${{ runner.temp }}\vcpkg-binary-cache
-          # vcpkg ABI includes MSVC; fallback archives are reused only when their package ABI matches.
-          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}-msvc-${{ steps.msvc-toolset.outputs.version }}
+          # vcpkg ABI includes the compiler executable and CMake/PowerShell versions; include them
+          # so changed ABIs can be saved under a new immutable Actions cache key.
+          key: ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}-cmake-${{ steps.cmake-tool.outputs.version }}-pwsh-${{ steps.msvc-toolset.outputs.powershell_version }}-msvc-${{ steps.msvc-toolset.outputs.version }}-${{ steps.msvc-toolset.outputs.compiler_sha256 }}
           restore-keys: |
             ${{ runner.os }}-vcpkg-${{ env.VCPKG_BASELINE_COMMIT }}-${{ hashFiles('adapter/vcpkg.json', 'adapter/vcpkg-configuration.json', 'tooling/vcpkg-ports/**', 'tooling/vcpkg-triplets/**', 'adapter/CMakePresets.json') }}
 
