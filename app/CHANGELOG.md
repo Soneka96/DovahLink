@@ -22,14 +22,21 @@ Repository releases share root `VERSION`. When an app change is included in a re
   and success or failure with the reason.
 - Pairing code entry shows one box per digit of the 6-digit code, and Pair stays disabled until the
   code is complete.
+- The pairing dialog's title follows the step: the Host name while pairing, Skyrim isn’t running
+  while the Host is unreachable, Pairing required when trust changed, and Connected once paired.
+- When a Host's trust was removed or is no longer recognized, the pairing dialog explains why and
+  asks you to confirm Pair again before requesting a new code.
 
 ### Changed
 
 - The start screen is now the branded Connections screen, listing each Host as a themed card, in
   place of the plain Host list.
 - Pairing connects to the Host you selected instead of always the default Host.
-- Dialogs use the prototype's darker backdrop, compact header and content padding, header rule, and
-  size limits.
+- Dialogs use the prototype's darker backdrop, header rule, and size limits, with roomier padding
+  and larger pairing content on taller windows and tighter spacing on short ones.
+- Pairing asks Skyrim for the code as soon as you select a Host, instead of waiting for you to
+  request it.
+- Pairing no longer asks for a device name.
 
 ### Fixed
 
