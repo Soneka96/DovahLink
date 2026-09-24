@@ -1,152 +1,412 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
+import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
+import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
-/// Exercises PairingCodeForm rendering, submission, and accessibility
-/// behavior.
+/// The pairing code field's key.
+const Key codeFieldKey = Key('pairing-code-field');
+
+/// The Pair button's key.
+const Key confirmButtonKey = Key('pairing-confirm-button');
+
+/// Builds a form wrapped in a themed [MaterialApp], recording submissions into [submissions].
+Widget buildForm({
+  List<(String, String?)>? submissions,
+  String? errorMessage,
+  List<Widget> secondaryActions = const <Widget>[],
+}) => MaterialApp(
+  theme: dovahThemeDataFor(DovahThemePreset.dovah),
+  home: Scaffold(
+    body: Center(
+      child: PairingCodeForm(
+        onSubmit: (String code, String? displayName) =>
+            submissions?.add((code, displayName)),
+        errorMessage: errorMessage,
+        secondaryActions: secondaryActions,
+      ),
+    ),
+  ),
+);
+
+/// Finds the semantics node of the Pair button's own control.
+Finder pairSemantics() => find.descendant(
+  of: find.byKey(confirmButtonKey),
+  matching: find.byKey(const Key('dovah-button-semantics')),
+);
+
+/// Whether the Pair button is enabled.
+bool isPairEnabled(WidgetTester tester) =>
+    tester.widget<DovahButton>(find.byKey(confirmButtonKey)).onPressed != null;
+
+/// The current text of the code field.
+String codeText(WidgetTester tester) =>
+    tester.widget<TextField>(find.byKey(codeFieldKey)).controller!.text;
+
+/// Exercises PairingCodeForm rendering, code entry, submission, and accessibility behavior.
 void main() {
   group('PairingCodeForm contains widgets', () {
     testWidgets(
-      'PairingCodeForm contains the code and display-name fields and a confirm button',
+      'PairingCodeForm contains the code and display-name fields and a Pair button',
       (WidgetTester tester) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
-          ),
-        );
+        await tester.pumpWidget(buildForm());
 
-        expect(find.byKey(const Key('pairing-code-field')), findsOneWidget);
+        expect(find.byKey(codeFieldKey), findsOneWidget);
         expect(
           find.byKey(const Key('pairing-display-name-field')),
           findsOneWidget,
         );
-        expect(find.byKey(const Key('pairing-confirm-button')), findsOneWidget);
+        expect(find.byKey(confirmButtonKey), findsOneWidget);
+        expect(find.text('Pair'), findsOneWidget);
       },
     );
 
-    testWidgets(
-      'PairingCodeForm submitting the form calls onSubmit with the entered values',
-      (WidgetTester tester) async {
-        String? submittedCode;
-        String? submittedDisplayName;
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: PairingCodeForm(
-                onSubmit: (code, displayName) {
-                  submittedCode = code;
-                  submittedDisplayName = displayName;
-                },
-              ),
-            ),
-          ),
-        );
+    testWidgets('PairingCodeForm contains one digit box per code digit', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
 
-        await tester.enterText(
-          find.byKey(const Key('pairing-code-field')),
-          '123456',
-        );
-        await tester.enterText(
-          find.byKey(const Key('pairing-display-name-field')),
-          'Desktop',
-        );
-        await tester.tap(find.byKey(const Key('pairing-confirm-button')));
-        await tester.pump();
+      for (int index = 0; index < pairingCodeLength; index++) {
+        expect(find.byKey(Key('pairing-code-box-$index')), findsOneWidget);
+      }
+    });
 
-        expect(submittedCode, '123456');
-        expect(submittedDisplayName, 'Desktop');
-      },
-    );
+    testWidgets('PairingCodeForm contains secondary actions before Pair', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        buildForm(
+          secondaryActions: const [SizedBox(key: Key('secondary'), width: 40)],
+        ),
+      );
 
-    testWidgets(
-      'PairingCodeForm submitting the form with no display name calls onSubmit with a null displayName',
-      (WidgetTester tester) async {
-        String? submittedDisplayName = 'not null yet';
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: PairingCodeForm(
-                onSubmit: (_, displayName) =>
-                    submittedDisplayName = displayName,
-              ),
-            ),
-          ),
-        );
-
-        await tester.enterText(
-          find.byKey(const Key('pairing-code-field')),
-          '123456',
-        );
-        await tester.tap(find.byKey(const Key('pairing-confirm-button')));
-        await tester.pump();
-
-        expect(submittedDisplayName, isNull);
-      },
-    );
+      expect(
+        tester.getTopLeft(find.byKey(const Key('secondary'))).dx,
+        lessThan(tester.getTopLeft(find.byKey(confirmButtonKey)).dx),
+      );
+    });
 
     testWidgets('PairingCodeForm disposes cleanly when unmounted', (
       WidgetTester tester,
     ) async {
-      await tester.pumpWidget(
-        MaterialApp(
-          home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
-        ),
-      );
+      await tester.pumpWidget(buildForm());
 
       await tester.pumpWidget(const MaterialApp(home: SizedBox.shrink()));
 
       expect(tester.takeException(), isNull);
     });
+  });
 
-    testWidgets(
-      'PairingCodeForm submitting with an empty code still calls onSubmit with an empty string',
-      (WidgetTester tester) async {
-        String? submittedCode = 'not called yet';
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(
-              body: PairingCodeForm(
-                onSubmit: (code, _) => submittedCode = code,
-              ),
-            ),
+  group('PairingCodeForm accepts only a complete code', () {
+    testWidgets('PairingCodeForm disables Pair before any digit is entered', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+
+      expect(isPairEnabled(tester), isFalse);
+    });
+
+    testWidgets('PairingCodeForm keeps Pair disabled for an incomplete code', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+
+      await tester.enterText(find.byKey(codeFieldKey), '12345');
+      await tester.pump();
+
+      expect(isPairEnabled(tester), isFalse);
+    });
+
+    testWidgets('PairingCodeForm enables Pair for a complete code', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+
+      await tester.enterText(find.byKey(codeFieldKey), '123456');
+      await tester.pump();
+
+      expect(isPairEnabled(tester), isTrue);
+    });
+
+    testWidgets('PairingCodeForm disables Pair again when a digit is deleted', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+      await tester.enterText(find.byKey(codeFieldKey), '123456');
+      await tester.pump();
+
+      await tester.enterText(find.byKey(codeFieldKey), '12345');
+      await tester.pump();
+
+      expect(isPairEnabled(tester), isFalse);
+    });
+
+    testWidgets('PairingCodeForm drops digits beyond the code length', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+
+      await tester.enterText(find.byKey(codeFieldKey), '12345678');
+      await tester.pump();
+
+      expect(codeText(tester), '123456');
+    });
+
+    testWidgets('PairingCodeForm strips non-digits from typed or pasted text', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+
+      await tester.enterText(find.byKey(codeFieldKey), '12-3 a4');
+      await tester.pump();
+
+      expect(codeText(tester), '1234');
+    });
+
+    testWidgets('PairingCodeForm shows each entered digit in its box', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+
+      await tester.enterText(find.byKey(codeFieldKey), '4821');
+      await tester.pump();
+
+      for (final (int index, String digit) in [
+        (0, '4'),
+        (1, '8'),
+        (2, '2'),
+        (3, '1'),
+      ]) {
+        expect(
+          find.descendant(
+            of: find.byKey(Key('pairing-code-box-$index')),
+            matching: find.text(digit),
           ),
+          findsOneWidget,
         );
+      }
+    });
+  });
 
-        await tester.tap(find.byKey(const Key('pairing-confirm-button')));
+  group('PairingCodeForm submits', () {
+    testWidgets(
+      'PairingCodeForm tapping Pair calls onSubmit with the code and display name',
+      (WidgetTester tester) async {
+        final List<(String, String?)> submissions = [];
+        await tester.pumpWidget(buildForm(submissions: submissions));
+
+        await tester.enterText(find.byKey(codeFieldKey), '123456');
+        await tester.enterText(
+          find.byKey(const Key('pairing-display-name-field')),
+          '  Desktop  ',
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(confirmButtonKey));
         await tester.pump();
 
-        expect(submittedCode, '');
+        expect(submissions, [('123456', 'Desktop')]);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm tapping Pair with no display name calls onSubmit with a null displayName',
+      (WidgetTester tester) async {
+        final List<(String, String?)> submissions = [];
+        await tester.pumpWidget(buildForm(submissions: submissions));
+
+        await tester.enterText(find.byKey(codeFieldKey), '123456');
+        await tester.pump();
+        await tester.tap(find.byKey(confirmButtonKey));
+        await tester.pump();
+
+        expect(submissions, [('123456', null)]);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm tapping Pair with a whitespace-only display name calls onSubmit with a null displayName',
+      (WidgetTester tester) async {
+        final List<(String, String?)> submissions = [];
+        await tester.pumpWidget(buildForm(submissions: submissions));
+
+        await tester.enterText(find.byKey(codeFieldKey), '123456');
+        await tester.enterText(
+          find.byKey(const Key('pairing-display-name-field')),
+          '   ',
+        );
+        await tester.pump();
+        await tester.tap(find.byKey(confirmButtonKey));
+        await tester.pump();
+
+        expect(submissions, [('123456', null)]);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm pressing Enter in the display-name field with an incomplete code shows a message and does not call onSubmit',
+      (WidgetTester tester) async {
+        final List<(String, String?)> submissions = [];
+        await tester.pumpWidget(buildForm(submissions: submissions));
+        await tester.enterText(find.byKey(codeFieldKey), '12');
+
+        await tester.enterText(
+          find.byKey(const Key('pairing-display-name-field')),
+          'Laptop',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+
+        expect(submissions, isEmpty);
+        expect(
+          find.text('Enter the $pairingCodeLength-digit code shown in Skyrim.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm tapping a disabled Pair does not call onSubmit',
+      (WidgetTester tester) async {
+        final List<(String, String?)> submissions = [];
+        await tester.pumpWidget(buildForm(submissions: submissions));
+
+        await tester.enterText(find.byKey(codeFieldKey), '123');
+        await tester.pump();
+        await tester.tap(find.byKey(confirmButtonKey));
+        await tester.pump();
+
+        expect(submissions, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm pressing Enter in the code field submits a complete code',
+      (WidgetTester tester) async {
+        final List<(String, String?)> submissions = [];
+        await tester.pumpWidget(buildForm(submissions: submissions));
+
+        await tester.enterText(find.byKey(codeFieldKey), '654321');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+
+        expect(submissions, [('654321', null)]);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm pressing Enter in the display-name field submits a complete code',
+      (WidgetTester tester) async {
+        final List<(String, String?)> submissions = [];
+        await tester.pumpWidget(buildForm(submissions: submissions));
+        await tester.enterText(find.byKey(codeFieldKey), '654321');
+
+        await tester.enterText(
+          find.byKey(const Key('pairing-display-name-field')),
+          'Laptop',
+        );
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+
+        expect(submissions, [('654321', 'Laptop')]);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm pressing Enter with an incomplete code shows a message and does not call onSubmit',
+      (WidgetTester tester) async {
+        final List<(String, String?)> submissions = [];
+        await tester.pumpWidget(buildForm(submissions: submissions));
+
+        await tester.enterText(find.byKey(codeFieldKey), '123');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+
+        expect(submissions, isEmpty);
+        expect(
+          find.text('Enter the $pairingCodeLength-digit code shown in Skyrim.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm clears the incomplete-code message when the code is edited',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(buildForm());
+        await tester.enterText(find.byKey(codeFieldKey), '123');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+
+        await tester.enterText(find.byKey(codeFieldKey), '1234');
+        await tester.pump();
+
+        expect(
+          find.text('Enter the $pairingCodeLength-digit code shown in Skyrim.'),
+          findsNothing,
+        );
+      },
+    );
+  });
+
+  group('PairingCodeForm shows messages', () {
+    testWidgets('PairingCodeForm displays errorMessage in the message slot', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        buildForm(errorMessage: 'That code is not correct.'),
+      );
+
+      expect(find.text('That code is not correct.'), findsOneWidget);
+    });
+
+    testWidgets('PairingCodeForm displays an empty message slot without one', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+
+      expect(
+        tester.widget<Text>(find.byKey(const Key('pairing-code-message'))).data,
+        '',
+      );
+    });
+
+    testWidgets(
+      'PairingCodeForm shows the incomplete-code message ahead of errorMessage',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          buildForm(errorMessage: 'That code is not correct.'),
+        );
+
+        await tester.enterText(find.byKey(codeFieldKey), '12');
+        await tester.testTextInput.receiveAction(TextInputAction.done);
+        await tester.pump();
+
+        expect(find.text('That code is not correct.'), findsNothing);
+        expect(
+          find.text('Enter the $pairingCodeLength-digit code shown in Skyrim.'),
+          findsOneWidget,
+        );
       },
     );
   });
 
   group('PairingCodeForm meets accessibility recommended guidelines', () {
     testWidgets(
-      'PairingCodeForm labels the confirm button and meets its minimum interactive size',
+      'PairingCodeForm labels the code field for assistive technology',
       (WidgetTester tester) async {
-        // See the equivalent check on the pairing screen's request-code
-        // button for why this checks labeledTapTargetGuideline +
-        // kMinInteractiveDimension directly rather than the mobile-specific
-        // tap-target guidelines: DovahLink is a Windows desktop app, and the
-        // app theme's default VisualDensity.adaptivePlatformDensity shrinks
-        // targets below the 48dp mobile touch guideline by design.
         final SemanticsHandle handle = tester.ensureSemantics();
         try {
-          await tester.pumpWidget(
-            MaterialApp(
-              home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
-            ),
-          );
+          await tester.pumpWidget(buildForm());
 
-          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
-          final Size buttonSize = tester.getSize(
-            find.byKey(const Key('pairing-confirm-button')),
-          );
           expect(
-            buttonSize.height,
-            greaterThanOrEqualTo(kMinInteractiveDimension),
+            tester.getSemantics(find.byKey(codeFieldKey)).label,
+            contains('Pairing code, $pairingCodeLength digits'),
           );
         } finally {
           handle.dispose();
@@ -155,40 +415,99 @@ void main() {
     );
 
     testWidgets(
-      'PairingCodeForm lays out without overflow at a large text scale',
+      'PairingCodeForm labels the Pair button and reports it disabled until the code is complete',
       (WidgetTester tester) async {
-        await tester.pumpWidget(
-          MediaQuery(
-            data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
-            child: MaterialApp(
-              home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
-            ),
-          ),
-        );
+        final SemanticsHandle handle = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(buildForm());
 
-        expect(tester.takeException(), isNull);
-        expect(find.byKey(const Key('pairing-code-field')), findsOneWidget);
-        expect(find.byKey(const Key('pairing-confirm-button')), findsOneWidget);
+          expect(
+            tester.getSemantics(pairSemantics()),
+            isSemantics(
+              label: 'Pair',
+              isButton: true,
+              hasEnabledState: true,
+              isEnabled: false,
+            ),
+          );
+
+          await tester.enterText(find.byKey(codeFieldKey), '123456');
+          await tester.pump();
+
+          expect(
+            tester.getSemantics(pairSemantics()),
+            isSemantics(
+              label: 'Pair',
+              isButton: true,
+              hasEnabledState: true,
+              isEnabled: true,
+              hasTapAction: true,
+            ),
+          );
+        } finally {
+          handle.dispose();
+        }
       },
     );
+
+    testWidgets('PairingCodeForm announces its message as a live region', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        await tester.pumpWidget(buildForm(errorMessage: 'Wrong code.'));
+
+        expect(
+          tester.getSemantics(find.text('Wrong code.')),
+          isSemantics(label: 'Wrong code.', isLiveRegion: true),
+        );
+      } finally {
+        handle.dispose();
+      }
+    });
+
+    testWidgets('PairingCodeForm hides the digit boxes from semantics', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle handle = tester.ensureSemantics();
+      try {
+        await tester.pumpWidget(buildForm());
+        await tester.enterText(find.byKey(codeFieldKey), '4821');
+        await tester.pump();
+
+        expect(find.bySemanticsLabel('4'), findsNothing);
+      } finally {
+        handle.dispose();
+      }
+    });
+
+    testWidgets('PairingCodeForm focuses the code field when it appears', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildForm());
+      await tester.pump();
+
+      final FocusNode codeFocusNode = tester
+          .widget<EditableText>(
+            find.descendant(
+              of: find.byKey(codeFieldKey),
+              matching: find.byType(EditableText),
+            ),
+          )
+          .focusNode;
+      expect(codeFocusNode.hasFocus, isTrue);
+    });
 
     testWidgets(
       'PairingCodeForm traverses focus from the code field to the display-name field in order',
       (WidgetTester tester) async {
-        await tester.pumpWidget(
-          MaterialApp(
-            home: Scaffold(body: PairingCodeForm(onSubmit: (_, _) {})),
-          ),
-        );
+        await tester.pumpWidget(buildForm());
+        await tester.pump();
 
-        final Finder codeField = find.byKey(const Key('pairing-code-field'));
-        final Finder displayNameField = find.byKey(
-          const Key('pairing-display-name-field'),
-        );
         final FocusNode codeFocusNode = tester
             .widget<EditableText>(
               find.descendant(
-                of: codeField,
+                of: find.byKey(codeFieldKey),
                 matching: find.byType(EditableText),
               ),
             )
@@ -196,23 +515,109 @@ void main() {
         final FocusNode displayNameFocusNode = tester
             .widget<EditableText>(
               find.descendant(
-                of: displayNameField,
+                of: find.byKey(const Key('pairing-display-name-field')),
                 matching: find.byType(EditableText),
               ),
             )
             .focusNode;
-
-        await tester.tap(codeField);
-        await tester.pump();
         expect(codeFocusNode.hasFocus, isTrue);
         expect(displayNameFocusNode.hasFocus, isFalse);
 
-        codeFocusNode.nextFocus();
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
 
         expect(codeFocusNode.hasFocus, isFalse);
         expect(displayNameFocusNode.hasFocus, isTrue);
       },
     );
+
+    testWidgets(
+      'PairingCodeForm traverses focus back from the display-name field to the code field with Shift+Tab',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(buildForm());
+        await tester.pump();
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+        await tester.pump();
+
+        final FocusNode codeFocusNode = tester
+            .widget<EditableText>(
+              find.descendant(
+                of: find.byKey(codeFieldKey),
+                matching: find.byType(EditableText),
+              ),
+            )
+            .focusNode;
+        expect(codeFocusNode.hasFocus, isTrue);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm keeps the Pair button at the minimum interactive size',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(buildForm());
+
+        final Size buttonSize = tester.getSize(find.byKey(confirmButtonKey));
+        expect(
+          buttonSize.height,
+          greaterThanOrEqualTo(kMinInteractiveDimension),
+        );
+        expect(
+          buttonSize.width,
+          greaterThanOrEqualTo(kMinInteractiveDimension),
+        );
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm lays out without overflow at a large text scale',
+      (WidgetTester tester) async {
+        await tester.binding.setSurfaceSize(const Size(900, 560));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        await tester.pumpWidget(
+          MediaQuery(
+            data: const MediaQueryData(textScaler: TextScaler.linear(2.0)),
+            child: buildForm(errorMessage: 'That code is not correct.'),
+          ),
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(find.byKey(codeFieldKey), findsOneWidget);
+        expect(find.byKey(confirmButtonKey), findsOneWidget);
+      },
+    );
+  });
+
+  group('PairingCodeForm lays out at supported sizes', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      for (final Size size in const [Size(720, 480), ...dovahTestSizes]) {
+        testWidgets(
+          'PairingCodeForm renders under $preset at $size without overflow',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              Center(
+                child: PairingCodeForm(
+                  onSubmit: (_, _) {},
+                  errorMessage: 'That code is not correct.',
+                  secondaryActions: const [
+                    SizedBox(width: 120, height: 48),
+                    SizedBox(width: 120, height: 48),
+                  ],
+                ),
+              ),
+              preset: preset,
+              size: size,
+            );
+
+            expect(tester.takeException(), isNull);
+          },
+        );
+      }
+    }
   });
 }

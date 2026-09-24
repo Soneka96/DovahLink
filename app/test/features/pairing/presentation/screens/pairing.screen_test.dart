@@ -22,6 +22,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_t
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// Mocktail double for [PairingScreenViewModel], the DI-resolved dependency
 /// [PairingScreen] converts to -- mocked the same as any other, never
@@ -118,6 +119,7 @@ void main() {
       StoreProvider<AppState>(
         store: store,
         child: MaterialApp(
+          theme: dovahThemeDataFor(DovahThemePreset.dovah),
           builder: (BuildContext context, Widget? child) => MediaQuery(
             data: MediaQuery.of(context).copyWith(textScaler: textScaler),
             child: child ?? const SizedBox.shrink(),
@@ -367,6 +369,7 @@ void main() {
           find.byKey(const Key('pairing-code-field')),
           '123456',
         );
+        await tester.pump();
         await tester.tap(find.byKey(const Key('pairing-confirm-button')));
         await tester.pump();
 

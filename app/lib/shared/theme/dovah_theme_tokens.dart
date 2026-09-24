@@ -193,6 +193,30 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Disabled-control opacity.
   static const double disabledControlOpacity = 0.46;
 
+  /// Width of one pairing-code digit box.
+  static const double pairingCodeBoxWidth = 45;
+
+  /// Height of one pairing-code digit box.
+  static const double pairingCodeBoxHeight = 48;
+
+  /// Gap between pairing-code digit boxes.
+  static const double pairingCodeBoxGap = 8;
+
+  /// Font size of a digit inside a pairing-code digit box.
+  static const double pairingCodeBoxFontSize = 22;
+
+  /// Width of the halo around the focused pairing-code digit box.
+  static const double pairingCodeBoxFocusRingWidth = 3;
+
+  /// Font size of an inline form error message.
+  static const double formErrorFontSize = 12;
+
+  /// Height reserved for an inline form error message, so showing one does not shift the layout.
+  static const double formErrorMinHeight = 14;
+
+  /// Gap between adjacent action buttons in a dialog.
+  static const double dialogActionGap = 10;
+
   /// Brightness increase applied to hovered primary buttons.
   static const double primaryButtonHoverBrightness = 0.07;
 
