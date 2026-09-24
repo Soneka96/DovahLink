@@ -20,6 +20,10 @@ for the player-facing summary posted with each Nexus Mods package. See
   areas; this contract requires Host `0.5.x` because released Host `0.4.0` applied updates
   additively.
 
+### Fixed
+
+- Host now terminates a pending snapshot request after its state area is unsubscribed.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

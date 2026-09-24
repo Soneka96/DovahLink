@@ -39,8 +39,10 @@ public interface IPublicStateSubscription
 
     /// <summary>
     /// Reconciles this connection's active set to a <c>subscribe</c> request's complete desired set,
-    /// then answers the accept/reject decision only -- it sends nothing. Areas omitted from the
-    /// request, or rejected by it, stop receiving new state publications. Accepts each requested
+    /// then answers the accept/reject decision only -- it sends nothing. Pending client
+    /// <c>snapshot_request</c>s owned by removed areas are queued for termination after the caller
+    /// sends its <c>subscription_ack</c>. Areas omitted from the request, or rejected by it, stop
+    /// receiving new state publications. Accepts each requested
     /// area that is both registered and, when it does not already have a live
     /// baseline, fits within the reserved Control/Recovery lane's remaining capacity once
     /// <paramref name="reservedControlCapacity"/> is set aside for the caller's own upcoming send;
@@ -60,6 +62,9 @@ public interface IPublicStateSubscription
     /// <returns>The requested areas partitioned into accepted and rejected, for the caller's own <c>subscription_ack</c>.</returns>
     (IReadOnlyList<string> Accepted, IReadOnlyList<string> Rejected) HandleSubscribe(
         IReadOnlyList<string> requestedStateAreas, int reservedControlCapacity);
+
+    /// <summary>Sends one retryable terminal error for each removed pending <c>snapshot_request</c>, after the replacement ACK has been sent.</summary>
+    void SendSupersededSnapshotRequestErrors();
 
     /// <summary>
     /// Sends a baseline (correlated to <paramref name="correlationMessageId"/>) for each of
@@ -122,9 +127,12 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <summary>Every state area this connection has accepted via <see cref="HandleSubscribe"/>.</summary>
     private readonly HashSet<StateAreaId> acceptedAreas = [];
 
+    /// <summary>Pending client snapshot-request correlations to terminate after the next subscription acknowledgement.</summary>
+    private readonly List<string> supersededSnapshotRequestCorrelations = [];
+
     /// <summary>
-    /// Every accepted state area's own recovery-barrier bookkeeping, created on first use and never
-    /// removed for the lifetime of this subscription. Absence is equivalent to
+    /// Recovery-barrier bookkeeping for currently accepted areas, created on first use and removed
+    /// when complete-set reconciliation unsubscribes an area. Absence is equivalent to
     /// <see cref="AreaDeliveryPhase.AwaitingBaseline"/>.
     /// </summary>
     private readonly Dictionary<StateAreaId, AreaState> areaStates = [];
@@ -267,6 +275,12 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 acceptedAreas.Remove(previouslyAccepted);
                 if (areaStates.Remove(previouslyAccepted, out AreaState? state))
                 {
+                    if (state.SnapshotRequestPending
+                        && state.RecoveryCorrelationMessageId is string correlationMessageId)
+                    {
+                        supersededSnapshotRequestCorrelations.Add(correlationMessageId);
+                    }
+
                     CancelPendingBaselineDeadlineLocked(state);
                     state.RecoveryEpoch++;
                     state.RecoveryCorrelationMessageId = null;
@@ -283,6 +297,35 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         }
 
         return (accepted, rejected);
+    }
+
+    /// <inheritdoc/>
+    public void SendSupersededSnapshotRequestErrors()
+    {
+        IPublicConnectionContext? currentConnectionContext;
+        SessionId? currentSessionId;
+        string[] correlationMessageIds;
+        lock (gate)
+        {
+            currentConnectionContext = connectionContext;
+            currentSessionId = sessionId;
+            correlationMessageIds = supersededSnapshotRequestCorrelations.ToArray();
+            supersededSnapshotRequestCorrelations.Clear();
+        }
+
+        if (currentConnectionContext is null || currentSessionId is null)
+        {
+            return;
+        }
+
+        foreach (string correlationMessageId in correlationMessageIds)
+        {
+            SendTemporarilyUnavailableError(
+                currentConnectionContext,
+                currentSessionId.Value,
+                correlationMessageId,
+                "This snapshot_request was superseded because its state area was unsubscribed.");
+        }
     }
 
     /// <inheritdoc/>

@@ -74,9 +74,9 @@ public class PublicStateSubscriptionTests
     /// <summary>
     /// Drives a full <c>subscribe</c> exchange the way a caller with no competing Control/Recovery
     /// lane send of its own would: the decision-only <see cref="PublicStateSubscription.HandleSubscribe"/>
-    /// immediately followed by <see cref="PublicStateSubscription.EstablishAcceptedBaselines"/> for
-    /// whatever it accepted. Most tests care about the combined outcome, not the two-call split
-    /// itself -- that split is exercised directly by the tests that name it.
+    /// followed by the deferred-error flush and baseline delivery for whatever it accepted. The
+    /// production caller sends the ACK between reconciliation and that flush; most tests care about
+    /// the combined outcome, not the call split itself.
     /// </summary>
     /// <param name="subscription">The subscription under test.</param>
     /// <param name="subscribeMessageId">The <c>subscribe</c> message's own id.</param>
@@ -86,6 +86,7 @@ public class PublicStateSubscriptionTests
         PublicStateSubscription subscription, string subscribeMessageId, IReadOnlyList<string> requestedStateAreas, int reservedControlCapacity = 0)
     {
         (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe(requestedStateAreas, reservedControlCapacity);
+        subscription.SendSupersededSnapshotRequestErrors();
         subscription.EstablishAcceptedBaselines(accepted, subscribeMessageId);
         return (accepted, rejected);
     }
@@ -1154,6 +1155,65 @@ public class PublicStateSubscriptionTests
         subscription.HandleSnapshotRequest("area_a", "req-1");
 
         Assert.Single(connectionContext.SentPayloads);
+    }
+
+    /// <summary>
+    /// Verifies that removing an area while its pending client snapshot request is fetching a
+    /// baseline invalidates the in-flight result and sends one correlated terminal error only after
+    /// the replacement acknowledgement.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_RemovingAreaDuringSnapshotFetch_TerminatesRequestAfterAckAndDiscardsSnapshot()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        SessionId sessionId = SessionId.NewId();
+        subscription.Bind(connectionContext, sessionId);
+        (IReadOnlyList<string> accepted, _) = subscription.HandleSubscribe(["area_a"], reservedControlCapacity: 1);
+        subscription.EstablishAcceptedBaselines(accepted, "sub-1");
+        Assert.Empty(connectionContext.SentPayloads);
+
+        feed.OnTryGetSnapshot = () =>
+        {
+            feed.OnTryGetSnapshot = null;
+            feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a"));
+            (IReadOnlyList<string> removed, IReadOnlyList<string> rejected) = subscription.HandleSubscribe([], reservedControlCapacity: 1);
+            Assert.Empty(removed);
+            Assert.Empty(rejected);
+            Assert.Empty(connectionContext.SentPayloads);
+
+            byte[] ack = codec.Encode(
+                PublicMessageType.SubscriptionAck,
+                "ack-2",
+                sessionId.ToString(),
+                "sub-2",
+                null,
+                null,
+                new SubscriptionAckPayload { AcceptedStateAreas = [], RejectedStateAreas = [] });
+            connectionContext.TrySend(ack, PublicOutboundLane.ControlOrRecovery);
+            subscription.SendSupersededSnapshotRequestErrors();
+        };
+
+        Assert.True(subscription.HandleSnapshotRequest("area_a", "req-1"));
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[0].Payload, out PublicEnvelope? ackEnvelope));
+        Assert.Equal(PublicMessageType.SubscriptionAck, ackEnvelope!.MessageType);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[1].Payload, out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+        Assert.Equal("req-1", errorEnvelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(errorEnvelope, out ErrorPayload? errorPayload));
+        Assert.Equal(PublicProtocolErrorCode.TemporarilyUnavailable, errorPayload!.Code);
+        Assert.True(errorPayload.Retryable);
+
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 2));
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 2, revision: 3));
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.All(connectionContext.SentPayloads, sent =>
+        {
+            Assert.True(codec.TryDecode(sent.Payload, out PublicEnvelope? envelope));
+            Assert.False(envelope!.MessageType == PublicMessageType.StateSnapshot && envelope.CorrelationId == "req-1");
+        });
     }
 
     /// <summary>
