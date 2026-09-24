@@ -8,9 +8,18 @@ import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Applies decoded messages to the typed tracker registered for one state area.
-abstract interface class IStateDomainDefinition {
+abstract interface class IStateDomainDefinition<T> {
   /// The canonical state-area name this definition handles.
   String get stateArea;
+
+  /// Applies revisions to the synchronization tracker owned by this domain.
+  IStateRevisionTracker<T> get tracker;
+
+  /// Decodes one area's data and determines whether its value is unavailable.
+  /// @param data The typed protocol data object for this state area.
+  /// @return The decoded state and its explicit availability status.
+  /// @throws [DovahLinkProtocolException] when the data is malformed.
+  ({T value, bool isUnavailable}) decodeState(JsonMap data);
 
   /// Decodes and applies a Snapshot for this state area.
   /// @param envelope The envelope carrying authority and play-context identity.
@@ -31,7 +40,7 @@ abstract interface class IStateDomainDefinition {
 }
 
 /// Binds one state's decoder and availability rule to its revision tracker.
-class StateDomainDefinition<T> implements IStateDomainDefinition {
+class StateDomainDefinition<T> implements IStateDomainDefinition<T> {
   /// The canonical state-area name handled by this definition.
   @override
   final String stateArea;
@@ -65,19 +74,30 @@ class StateDomainDefinition<T> implements IStateDomainDefinition {
        _isUnavailable = isUnavailable,
        _supportsEvents = supportsEvents;
 
+  /// The revision tracker that owns this domain's accepted state.
+  @override
+  IStateRevisionTracker<T> get tracker => _tracker;
+
+  /// See [IStateDomainDefinition.decodeState].
+  @override
+  ({T value, bool isUnavailable}) decodeState(JsonMap data) {
+    final T value = ProtocolPayloadDecoder.decode(_decode, data);
+    return (value: value, isUnavailable: _isUnavailable(value));
+  }
+
   /// See [IStateDomainDefinition.applySnapshot].
   @override
   void applySnapshot({
     required Envelope envelope,
     required StateSnapshotPayload payload,
   }) {
-    final T value = ProtocolPayloadDecoder.decode(_decode, payload.data);
+    final ({T value, bool isUnavailable}) decoded = decodeState(payload.data);
     _tracker.applySnapshot(
       stateAuthorityId: envelope.stateAuthorityId!,
       playContextId: envelope.playContextId,
       revision: payload.revision,
-      value: value,
-      isUnavailable: _isUnavailable(value),
+      value: decoded.value,
+      isUnavailable: decoded.isUnavailable,
     );
   }
 
@@ -95,14 +115,14 @@ class StateDomainDefinition<T> implements IStateDomainDefinition {
       );
     }
 
-    final T value = ProtocolPayloadDecoder.decode(_decode, payload.data);
+    final ({T value, bool isUnavailable}) decoded = decodeState(payload.data);
     _tracker.applyEvent(
       stateAuthorityId: envelope.stateAuthorityId!,
       playContextId: envelope.playContextId,
       baseRevision: payload.baseRevision,
       revision: payload.revision,
-      value: value,
-      isUnavailable: _isUnavailable(value),
+      value: decoded.value,
+      isUnavailable: decoded.isUnavailable,
     );
   }
 }

@@ -13,7 +13,7 @@ import 'mock_session_service.dart';
 
 /// Mock state-domain definition used to isolate handler routing behavior.
 class MockStateDomainDefinition extends Mock
-    implements IStateDomainDefinition {}
+    implements IStateDomainDefinition<Object?> {}
 
 /// Builds a state Snapshot envelope with one registered area.
 /// @param area The canonical state area on the payload.
@@ -74,7 +74,7 @@ Envelope buildEventEnvelope({
 /// @return The state-message handler under test.
 IStateMessageHandler buildStateMessageHandler({
   required MockSessionService session,
-  required List<IStateDomainDefinition> domains,
+  required List<IStateDomainDefinition<Object?>> domains,
 }) => StateMessageHandler(sessionService: session, domains: domains);
 
 /// Runs state-message-handler behavior tests.
@@ -143,7 +143,7 @@ void main() {
     ).thenAnswer((_) {});
     handler = buildStateMessageHandler(
       session: session,
-      domains: <IStateDomainDefinition>[
+      domains: <IStateDomainDefinition<Object?>>[
         experience,
         health,
         magicka,
@@ -262,7 +262,7 @@ void main() {
         when(() => customDomain.stateArea).thenReturn('custom_area');
         final IStateMessageHandler customHandler = StateMessageHandler(
           sessionService: session,
-          domains: <IStateDomainDefinition>[customDomain],
+          domains: <IStateDomainDefinition<Object?>>[customDomain],
         );
 
         customHandler.handle(
@@ -439,6 +439,38 @@ void main() {
             area: 'character_health',
             baseRevision: 1,
             revision: 2,
+            data: const <String, dynamic>{'value': 10},
+          ),
+        );
+
+        verify(
+          () => session.onProtocolViolation(
+            failure,
+            orphanRetrySafeOperations: false,
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method handle reports registered-domain Snapshot failures to the session',
+      () {
+        const DovahLinkProtocolException failure = DovahLinkProtocolException(
+          code: ProtocolErrorCode.malformedMessage,
+          message: 'Snapshot rejected by its domain.',
+          retryable: false,
+        );
+        when(
+          () => health.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ).thenThrow(failure);
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'character_health',
+            revision: 1,
             data: const <String, dynamic>{'value': 10},
           ),
         );

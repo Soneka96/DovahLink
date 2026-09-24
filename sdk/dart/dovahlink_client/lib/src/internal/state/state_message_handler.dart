@@ -20,17 +20,17 @@ class StateMessageHandler implements IStateMessageHandler {
   final ISessionService _sessionService;
 
   /// Looks up each supported state area by its canonical name.
-  final Map<String, IStateDomainDefinition> _domains;
+  final Map<String, IStateDomainDefinition<Object?>> _domains;
 
   /// Creates a handler over the supplied state-area registrations.
   /// @param sessionService Reports malformed messages to the lifecycle.
   /// @param domains The typed definitions for supported state areas.
   StateMessageHandler({
     required ISessionService sessionService,
-    required List<IStateDomainDefinition> domains,
+    required List<IStateDomainDefinition<Object?>> domains,
   }) : _sessionService = sessionService,
-       _domains = <String, IStateDomainDefinition>{
-         for (final IStateDomainDefinition domain in domains)
+       _domains = <String, IStateDomainDefinition<Object?>>{
+         for (final IStateDomainDefinition<Object?> domain in domains)
            domain.stateArea: domain,
        };
 
@@ -44,7 +44,8 @@ class StateMessageHandler implements IStateMessageHandler {
             StateSnapshotPayload.fromJson,
             envelope.payload,
           );
-          final IStateDomainDefinition? domain = _domains[payload.stateArea];
+          final IStateDomainDefinition<Object?>? domain =
+              _domains[payload.stateArea];
           if (domain == null) {
             throw const DovahLinkProtocolException(
               code: ProtocolErrorCode.malformedMessage,
@@ -59,7 +60,8 @@ class StateMessageHandler implements IStateMessageHandler {
             StateEventPayload.fromJson,
             envelope.payload,
           );
-          final IStateDomainDefinition? domain = _domains[payload.stateArea];
+          final IStateDomainDefinition<Object?>? domain =
+              _domains[payload.stateArea];
           if (domain == null) {
             throw const DovahLinkProtocolException(
               code: ProtocolErrorCode.malformedMessage,

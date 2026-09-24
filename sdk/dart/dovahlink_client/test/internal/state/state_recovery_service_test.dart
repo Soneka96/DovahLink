@@ -5,10 +5,10 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
-import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import '../../fixtures/fixtures.dart';
@@ -16,28 +16,9 @@ import 'controlled_request_service.dart';
 import 'mock_session_service.dart';
 import 'mock_state_revision_tracker.dart';
 
-/// Builds a typed state-area decoder for the integer recovery cases in these tests.
-/// @param data The canonical state-area value object.
-/// @return The decoded value and its explicit availability status.
-({int? value, bool isUnavailable}) decodeIntegerState(JsonMap data) {
-  if (!data.containsKey('value')) {
-    throw const ProtocolFormatException('State data is missing value.');
-  }
-  final Object? rawValue = data['value'];
-  if (rawValue == null) {
-    return (value: null, isUnavailable: true);
-  }
-  if (rawValue is! num ||
-      !rawValue.isFinite ||
-      rawValue < 0 ||
-      rawValue > 65535 ||
-      rawValue != rawValue.toInt()) {
-    throw const ProtocolFormatException(
-      'State level is outside its valid range.',
-    );
-  }
-  return (value: rawValue.toInt(), isUnavailable: false);
-}
+/// Mock state-domain definition used to isolate recovery-service behavior.
+class MockStateDomainDefinition<T> extends Mock
+    implements IStateDomainDefinition<T> {}
 
 /// Builds a correlated state-snapshot reply envelope for recovery tests.
 /// @param revision The authoritative baseline revision.
@@ -69,24 +50,23 @@ Envelope buildStateSnapshotEnvelope({
 );
 
 /// Builds one recovery service over test-controlled collaborators.
-/// @param tracker The mock domain revision tracker.
+/// @param domain The mock registered state-domain policy and tracker.
 /// @param requests The request fake controlling correlated Snapshot replies.
 /// @param session The mock connection lifecycle service.
 /// @return The state recovery service under test.
 IStateRecoveryService<int?> buildStateRecoveryService({
-  required MockStateRevisionTracker<int?> tracker,
+  required MockStateDomainDefinition<int?> domain,
   required ControlledRequestService requests,
   required MockSessionService session,
 }) => StateRecoveryService<int?>(
-  stateArea: 'character_level',
-  tracker: tracker,
+  domain: domain,
   requestService: requests,
   sessionService: session,
-  decodeState: decodeIntegerState,
 );
 
 /// Runs state-recovery-service behavior tests.
 void main() {
+  late MockStateDomainDefinition<int?> domain;
   late MockStateRevisionTracker<int?> tracker;
   late ControlledRequestService requests;
   late MockSessionService session;
@@ -97,10 +77,12 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(Exception('fallback for any()'));
+    registerFallbackValue(<String, dynamic>{});
     registerFallbackValue(Fixtures.buildStateSynchronization<int?>());
   });
 
   setUp(() {
+    domain = MockStateDomainDefinition<int?>();
     tracker = MockStateRevisionTracker<int?>();
     requests = ControlledRequestService();
     session = MockSessionService();
@@ -140,6 +122,11 @@ void main() {
       );
       stateChanges.add(currentState);
     });
+    when(() => domain.stateArea).thenReturn('character_level');
+    when(() => domain.tracker).thenReturn(tracker);
+    when(
+      () => domain.decodeState(any()),
+    ).thenReturn((value: 50, isUnavailable: false));
     when(
       () => tracker.applySnapshot(
         stateAuthorityId: any(named: 'stateAuthorityId'),
@@ -176,7 +163,7 @@ void main() {
       ),
     ).thenAnswer((_) {});
     service = buildStateRecoveryService(
-      tracker: tracker,
+      domain: domain,
       requests: requests,
       session: session,
     );
@@ -193,6 +180,27 @@ void main() {
       revision: 1,
     );
     recoveryBufferOverflowed = false;
+    stateChanges.add(currentState);
+  }
+
+  /// Replaces the live baseline while a recovery request is awaiting its Snapshot.
+  /// @param stateAuthorityId The current authority identity.
+  /// @param playContextId The current play-context identity.
+  /// @param revision The newer live revision.
+  /// @param value The current typed state value.
+  void replaceCurrentState({
+    required String stateAuthorityId,
+    required String? playContextId,
+    required int revision,
+    required int? value,
+  }) {
+    currentState = Fixtures.buildStateSynchronization<int?>(
+      status: DovahLinkStateStatus.synchronized,
+      value: value,
+      stateAuthorityId: stateAuthorityId,
+      playContextId: playContextId,
+      revision: revision,
+    );
     stateChanges.add(currentState);
   }
 
@@ -226,6 +234,10 @@ void main() {
       );
       await service.recover();
 
+      final JsonMap decodedData =
+          verify(() => domain.decodeState(captureAny())).captured.single
+              as JsonMap;
+      expect(decodedData, <String, dynamic>{'value': 50});
       verify(
         () => tracker.applySnapshot(
           stateAuthorityId: 'authority-1',
@@ -320,6 +332,32 @@ void main() {
       },
     );
 
+    test(
+      'Method recover does not report a non-retryable Host error as unhealthy',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        requests.requests.single.reply.completeError(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.temporarilyUnavailable,
+            message: 'State is unavailable.',
+            retryable: false,
+          ),
+        );
+        await service.recover();
+
+        verify(() => tracker.failRecovery()).called(1);
+        verifyNever(() => session.onUnhealthy(any()));
+        verifyNever(
+          () => session.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
     test('Method recover stays offline without an active session', () async {
       when(() => session.currentTrustState).thenReturn(null);
       when(
@@ -376,7 +414,171 @@ void main() {
       ).called(1);
     });
 
+    test(
+      'Method recover discards a Snapshot from a superseded state authority',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+        replaceCurrentState(
+          stateAuthorityId: 'authority-2',
+          playContextId: 'context-1',
+          revision: 5,
+          value: 20,
+        );
+
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(
+            revision: 6,
+            value: 60,
+            stateAuthorityId: 'authority-1',
+          ),
+        );
+        await service.recover();
+
+        verifyNever(
+          () => tracker.applySnapshot(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+            revision: any(named: 'revision'),
+            value: any(named: 'value'),
+            isUnavailable: any(named: 'isUnavailable'),
+          ),
+        );
+        expect(currentState.stateAuthorityId, 'authority-2');
+        expect(currentState.value, 20);
+      },
+    );
+
+    test(
+      'Method recover discards a Snapshot from a superseded play context',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+        replaceCurrentState(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-2',
+          revision: 5,
+          value: 20,
+        );
+
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(
+            revision: 6,
+            value: 60,
+            playContextId: 'context-1',
+          ),
+        );
+        await service.recover();
+
+        verifyNever(
+          () => tracker.applySnapshot(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+            revision: any(named: 'revision'),
+            value: any(named: 'value'),
+            isUnavailable: any(named: 'isUnavailable'),
+          ),
+        );
+        expect(currentState.playContextId, 'context-2');
+        expect(currentState.value, 20);
+      },
+    );
+
+    test(
+      'Method recover discards a Snapshot at an already-reached revision',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+        replaceCurrentState(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+          revision: 6,
+          value: 60,
+        );
+
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(revision: 5, value: 50),
+        );
+        await service.recover();
+
+        verifyNever(
+          () => tracker.applySnapshot(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+            revision: any(named: 'revision'),
+            value: any(named: 'value'),
+            isUnavailable: any(named: 'isUnavailable'),
+          ),
+        );
+        expect(currentState.revision, 6);
+        expect(currentState.value, 60);
+      },
+    );
+
+    test('Method recover rejects a Snapshot for another state area', () async {
+      emitStaleState();
+      await Future<void>.delayed(Duration.zero);
+
+      requests.requests.single.reply.complete(
+        buildStateSnapshotEnvelope(
+          revision: 5,
+          value: 50,
+          stateArea: 'character_health',
+        ),
+      );
+      await service.recover();
+
+      verify(() => tracker.failRecovery()).called(1);
+      final DovahLinkProtocolException error =
+          verify(
+                () => session.onProtocolViolation(
+                  captureAny(),
+                  orphanRetrySafeOperations: false,
+                ),
+              ).captured.single
+              as DovahLinkProtocolException;
+      expect(error.code, ProtocolErrorCode.malformedMessage);
+      expect(error.retryable, isFalse);
+      expect(error.message, contains('character_level'));
+    });
+
+    test('Method recover rejects a malformed outer Snapshot payload', () async {
+      emitStaleState();
+      await Future<void>.delayed(Duration.zero);
+
+      requests.requests.single.reply.complete(
+        Fixtures.buildEnvelope(
+          messageType: ProtocolMessageType.stateSnapshot,
+          messageId: 'snapshot-5',
+          correlationId: 'request-5',
+          payload: const <String, dynamic>{},
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+        ),
+      );
+      await service.recover();
+
+      verify(() => tracker.failRecovery()).called(1);
+      final DovahLinkProtocolException error =
+          verify(
+                () => session.onProtocolViolation(
+                  captureAny(),
+                  orphanRetrySafeOperations: false,
+                ),
+              ).captured.single
+              as DovahLinkProtocolException;
+      expect(error.code, ProtocolErrorCode.malformedMessage);
+      expect(error.retryable, isFalse);
+    });
+
     test('Method recover rejects malformed state data', () async {
+      when(() => domain.decodeState(any())).thenThrow(
+        const DovahLinkProtocolException(
+          code: ProtocolErrorCode.malformedMessage,
+          message: 'State level is outside its valid range.',
+          retryable: false,
+        ),
+      );
       emitStaleState();
       await Future<void>.delayed(Duration.zero);
 
@@ -390,12 +592,18 @@ void main() {
       await service.recover();
 
       verify(() => tracker.failRecovery()).called(1);
-      verify(
-        () => session.onProtocolViolation(
-          any(),
-          orphanRetrySafeOperations: false,
-        ),
-      ).called(1);
+      final DovahLinkProtocolException error =
+          verify(
+                () => session.onProtocolViolation(
+                  captureAny(),
+                  orphanRetrySafeOperations: false,
+                ),
+              ).captured.single
+              as DovahLinkProtocolException;
+      expect(error.code, ProtocolErrorCode.malformedMessage);
+      expect(error.retryable, isFalse);
+      verifyNever(() => session.onUnhealthy(any()));
+      verify(() => domain.decodeState(any())).called(1);
     });
   });
 }

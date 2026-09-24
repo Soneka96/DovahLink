@@ -31,7 +31,6 @@ import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storage.dart';
-import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -145,9 +144,17 @@ class DovahLinkClient {
       state: characterLevelStream,
     );
 
+    final StateDomainDefinition<CharacterLevelState> characterLevelDomain =
+        StateDomainDefinition<CharacterLevelState>(
+          stateArea: 'character_level',
+          decode: CharacterLevelState.fromJson,
+          tracker: _characterLevelTracker,
+          isUnavailable: (CharacterLevelState state) => state.value == null,
+          supportsEvents: true,
+        );
     final IStateMessageHandler stateMessageHandler = StateMessageHandler(
       sessionService: _sessionService,
-      domains: <IStateDomainDefinition>[
+      domains: <IStateDomainDefinition<Object?>>[
         StateDomainDefinition<CharacterXpState>(
           stateArea: 'character_xp',
           decode: CharacterXpState.fromJson,
@@ -172,13 +179,7 @@ class DovahLinkClient {
           tracker: _characterStaminaTracker,
           isUnavailable: (CharacterStaminaState state) => state.value == null,
         ),
-        StateDomainDefinition<CharacterLevelState>(
-          stateArea: 'character_level',
-          decode: CharacterLevelState.fromJson,
-          tracker: _characterLevelTracker,
-          isUnavailable: (CharacterLevelState state) => state.value == null,
-          supportsEvents: true,
-        ),
+        characterLevelDomain,
       ],
     );
     final IUnsolicitedMessageHandler unsolicitedMessageHandler =
@@ -215,16 +216,9 @@ class DovahLinkClient {
 
     final StateRecoveryService<CharacterLevelState> levelRecoveryService =
         StateRecoveryService<CharacterLevelState>(
-          stateArea: 'character_level',
-          tracker: _characterLevelTracker,
+          domain: characterLevelDomain,
           requestService: _requestService,
           sessionService: _sessionService,
-          decodeState: (JsonMap data) {
-            final CharacterLevelState value = CharacterLevelState.fromJson(
-              data,
-            );
-            return (value: value, isUnavailable: value.value == null);
-          },
         );
     levelRecoveryService.start();
 

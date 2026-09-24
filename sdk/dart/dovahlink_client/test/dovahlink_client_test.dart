@@ -368,7 +368,7 @@ void main() {
     );
 
     test(
-      'Property character state streams receive typed Snapshots and level Events',
+      'Property character state streams receive typed Snapshots, level Events, and recovery updates',
       () async {
         await _connectAndHello(transport, client);
 
@@ -547,6 +547,44 @@ void main() {
         );
 
         await correlatedBaselineReceived;
+        expect(client.connectionState, DovahLinkConnectionState.connected);
+
+        final Future<void> unavailableRecoveryReceived = expectLater(
+          client.characterLevelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.unavailable &&
+                  state.revision == 9 &&
+                  state.value?.value == null,
+            ),
+          ),
+        );
+        transport.queueResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_level',
+            revision: 9,
+            value: null,
+            correlationId: 'snapshot-request-placeholder',
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: 8,
+            revision: 9,
+            value: 20,
+          ),
+        );
+
+        await unavailableRecoveryReceived;
+        final JsonMap unavailableRecoveryRequest =
+            jsonDecode(transport.sent.last) as JsonMap;
+        expect(unavailableRecoveryRequest['messageType'], 'snapshot_request');
+        expect(unavailableRecoveryRequest['payload'], <String, dynamic>{
+          'stateArea': 'character_level',
+          'knownRevision': 6,
+        });
         expect(client.connectionState, DovahLinkConnectionState.connected);
       },
     );

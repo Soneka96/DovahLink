@@ -309,8 +309,9 @@ when that area is registered for Event updates. Unknown areas remain protocol vi
 `StateMessageHandler` is composed before `RequestService` because the inbound router depends on the
 unsolicited state handler. The current level `StateRecoveryService<T>` is composed after
 `RequestService`, because recovery sends its correlated `snapshot_request` through
-`IRequestService`. `DovahLinkClient` constructs the handler first and recovery after requests are
-available.
+`IRequestService`. It receives the same typed level definition used by normal message handling, so
+the recovery request area, tracker, decoder, and unavailable-value rule come from that registration.
+`DovahLinkClient` constructs the handler first and recovery after requests are available.
 
 ## Session-state ownership
 

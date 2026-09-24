@@ -85,6 +85,48 @@ void main() {
     );
   });
 
+  group('Method decodeState behaves correctly', () {
+    test('Method decodeState returns the typed available value and status', () {
+      final ({CharacterHealthState value, bool isUnavailable}) decoded =
+          definition.decodeState(const <String, dynamic>{'value': 87.5});
+
+      expect(decoded.value.value, 87.5);
+      expect(decoded.isUnavailable, isFalse);
+    });
+
+    test('Method decodeState marks an explicit null value unavailable', () {
+      final ({CharacterHealthState value, bool isUnavailable}) decoded =
+          definition.decodeState(const <String, dynamic>{'value': null});
+
+      expect(decoded.value.value, isNull);
+      expect(decoded.isUnavailable, isTrue);
+    });
+
+    test(
+      'Method decodeState reports malformed typed data as a protocol error',
+      () {
+        expect(
+          () => definition.decodeState(const <String, dynamic>{
+            'value': 'not a number',
+          }),
+          throwsA(
+            isA<DovahLinkProtocolException>()
+                .having(
+                  (DovahLinkProtocolException error) => error.code,
+                  'code',
+                  ProtocolErrorCode.malformedMessage,
+                )
+                .having(
+                  (DovahLinkProtocolException error) => error.retryable,
+                  'retryable',
+                  isFalse,
+                ),
+          ),
+        );
+      },
+    );
+  });
+
   group('Method applySnapshot behaves correctly', () {
     test(
       'Method applySnapshot decodes the value and forwards its identity and revision',
