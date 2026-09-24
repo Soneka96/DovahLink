@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -57,7 +59,7 @@ class AppearancePresetCard extends StatelessWidget {
                     ? BoxDecoration(
                         border: Border.all(
                           color: previewTokens.signal,
-                          width: DovahThemeTokens.focusOutlineWidth,
+                          width: DovahControlMetrics.focusOutlineWidth,
                         ),
                         borderRadius: BorderRadius.circular(
                           previewTokens.cornerRadius,
@@ -65,7 +67,7 @@ class AppearancePresetCard extends StatelessWidget {
                         boxShadow: <BoxShadow>[
                           BoxShadow(
                             color: previewTokens.soft,
-                            blurRadius: DovahThemeTokens.focusGlowBlurRadius,
+                            blurRadius: DovahControlMetrics.focusGlowBlurRadius,
                           ),
                         ],
                       )
@@ -73,14 +75,14 @@ class AppearancePresetCard extends StatelessWidget {
                 child: DovahSurface(
                   key: const Key('appearance-preset-card-surface'),
                   raised: selected,
-                  padding: const EdgeInsets.all(DovahThemeTokens.spacing12),
+                  padding: const EdgeInsets.all(12),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Container(
                         key: const Key('appearance-preset-card-preview'),
-                        height: DovahThemeTokens.appearancePreviewHeight,
+                        height: appearancePreviewHeight,
                         decoration: BoxDecoration(
                           gradient: previewTokens.materialGradient,
                           image: preset == DovahThemePreset.dovah
@@ -96,8 +98,7 @@ class AppearancePresetCard extends StatelessWidget {
                         child: Align(
                           alignment: Alignment.bottomCenter,
                           child: SizedBox(
-                            height:
-                                DovahThemeTokens.appearancePreviewAccentHeight,
+                            height: appearancePreviewAccentHeight,
                             child: Row(
                               children: [
                                 Expanded(
@@ -113,7 +114,7 @@ class AppearancePresetCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      const SizedBox(height: DovahThemeTokens.spacing8),
+                      const SizedBox(height: 8),
                       Row(
                         children: [
                           Expanded(
@@ -129,8 +130,7 @@ class AppearancePresetCard extends StatelessWidget {
                             Icon(
                               Icons.check_circle,
                               color: previewTokens.signal,
-                              size:
-                                  DovahThemeTokens.appearanceSelectionIconSize,
+                              size: appearanceSelectionIconSize,
                             ),
                         ],
                       ),

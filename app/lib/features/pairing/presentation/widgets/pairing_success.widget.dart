@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
@@ -32,27 +33,27 @@ class PairingSuccess extends StatelessWidget {
       mark: ExcludeSemantics(
         child: Container(
           key: const Key('pairing-success-mark'),
-          width: DovahThemeTokens.pairingSuccessMarkSize,
-          height: DovahThemeTokens.pairingSuccessMarkSize,
+          width: DovahDialogMetrics.successMarkSize,
+          height: DovahDialogMetrics.successMarkSize,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             color: tokens.success.withValues(
-              alpha: DovahThemeTokens.statusMarkFillOpacity,
+              alpha: DovahDialogMetrics.statusMarkFillOpacity,
             ),
             border: Border.all(
               color: tokens.success.withValues(
-                alpha: DovahThemeTokens.statusMarkBorderOpacity,
+                alpha: DovahDialogMetrics.statusMarkBorderOpacity,
               ),
             ),
           ),
           child: Icon(
             Icons.check,
-            size: DovahThemeTokens.pairingSuccessGlyphSize,
+            size: DovahDialogMetrics.successGlyphSize,
             color: tokens.success,
           ),
         ),
       ),
-      markBottomGap: DovahThemeTokens.pairingSuccessMarkBottomGap,
+      markBottomGap: DovahDialogMetrics.successMarkBottomGap,
       heading: 'You’re connected',
       body: '',
       highlight: hostName,

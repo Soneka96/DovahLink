@@ -17,6 +17,18 @@ final Uri defaultHostUri = Uri.parse('ws://127.0.0.1:58231/');
 /// || 'dovah'`).
 const DovahThemePreset defaultThemePreset = DovahThemePreset.dovah;
 
+/// Height of an appearance-preset preview.
+const double appearancePreviewHeight = 48;
+
+/// Minimum width of an appearance-preset card before it wraps to another row.
+const double appearancePresetCardMinimumWidth = 160;
+
+/// Height of the accent strip in an appearance-preset preview.
+const double appearancePreviewAccentHeight = 6;
+
+/// Size of the selected-preset indicator.
+const double appearanceSelectionIconSize = 20;
+
 // ---- Pairing ----
 
 /// The number of digits in a pairing code. Matches the Host's own

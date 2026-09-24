@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -80,13 +81,13 @@ class DovahConnectionCard extends StatelessWidget {
                   ? BoxDecoration(
                       border: Border.all(
                         color: tokens.signal,
-                        width: DovahThemeTokens.focusOutlineWidth,
+                        width: DovahControlMetrics.focusOutlineWidth,
                       ),
                       borderRadius: BorderRadius.circular(tokens.cornerRadius),
                       boxShadow: <BoxShadow>[
                         BoxShadow(
                           color: tokens.soft,
-                          blurRadius: DovahThemeTokens.focusGlowBlurRadius,
+                          blurRadius: DovahControlMetrics.focusGlowBlurRadius,
                         ),
                       ],
                     )

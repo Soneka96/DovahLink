@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -44,8 +45,9 @@ class _DovahButtonState extends State<DovahButton> {
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
     final EdgeInsets padding = EdgeInsets.symmetric(
-      vertical: DovahThemeTokens.spacing12 * tokens.densityScale,
-      horizontal: DovahThemeTokens.spacing17 * tokens.densityScale,
+      vertical: DovahControlMetrics.buttonVerticalPadding * tokens.densityScale,
+      horizontal:
+          DovahControlMetrics.buttonHorizontalPadding * tokens.densityScale,
     );
     final bool enabled = widget.onPressed != null;
 
@@ -57,7 +59,7 @@ class _DovahButtonState extends State<DovahButton> {
       widget.label,
       style: TextStyle(
         color: foreground,
-        fontSize: DovahThemeTokens.buttonFontSize,
+        fontSize: DovahControlMetrics.buttonFontSize,
         fontWeight: primary ? FontWeight.w800 : FontWeight.w700,
         height: DovahThemeTokens.bodyLineHeight,
       ),
@@ -76,10 +78,10 @@ class _DovahButtonState extends State<DovahButton> {
                 children: [
                   Icon(
                     widget.icon,
-                    size: DovahThemeTokens.buttonIconSize,
+                    size: DovahControlMetrics.buttonIconSize,
                     color: foreground,
                   ),
-                  const SizedBox(width: DovahThemeTokens.buttonIconGap),
+                  const SizedBox(width: DovahControlMetrics.buttonIconGap),
                   label,
                 ],
               ),
@@ -98,12 +100,12 @@ class _DovahButtonState extends State<DovahButton> {
               enabled &&
                   widget.variant == DovahButtonVariant.primary &&
                   _isHovered
-              ? 1 + DovahThemeTokens.primaryButtonHoverBrightness
+              ? 1 + DovahControlMetrics.primaryButtonHoverBrightness
               : 1,
         ),
         duration: MediaQuery.disableAnimationsOf(context)
             ? Duration.zero
-            : DovahThemeTokens.buttonHoverDuration,
+            : DovahControlMetrics.buttonHoverDuration,
         curve: Curves.ease,
         builder: (BuildContext context, double brightness, Widget? child) {
           final Widget button = brightness == 1
@@ -138,13 +140,13 @@ class _DovahButtonState extends State<DovahButton> {
             offset: Offset(
               0,
               -((brightness - 1) /
-                  DovahThemeTokens.primaryButtonHoverBrightness),
+                  DovahControlMetrics.primaryButtonHoverBrightness),
             ),
             child: button,
           );
         },
         child: Opacity(
-          opacity: enabled ? 1 : DovahThemeTokens.disabledControlOpacity,
+          opacity: enabled ? 1 : DovahControlMetrics.disabledControlOpacity,
           child: Semantics(
             key: const Key('dovah-button-semantics'),
             excludeSemantics: true,
@@ -169,7 +171,7 @@ class _DovahButtonState extends State<DovahButton> {
                         ? BoxDecoration(
                             border: Border.all(
                               color: tokens.signal,
-                              width: DovahThemeTokens.focusOutlineWidth,
+                              width: DovahControlMetrics.focusOutlineWidth,
                             ),
                             borderRadius: BorderRadius.circular(
                               tokens.cornerRadius,
@@ -178,15 +180,15 @@ class _DovahButtonState extends State<DovahButton> {
                               BoxShadow(
                                 color: tokens.soft,
                                 blurRadius:
-                                    DovahThemeTokens.focusGlowBlurRadius,
+                                    DovahControlMetrics.focusGlowBlurRadius,
                               ),
                             ],
                           )
                         : null,
                     child: ConstrainedBox(
                       constraints: const BoxConstraints(
-                        minWidth: DovahThemeTokens.minimumTapTargetSize,
-                        minHeight: DovahThemeTokens.minimumTapTargetSize,
+                        minWidth: DovahControlMetrics.minimumTapTargetSize,
+                        minHeight: DovahControlMetrics.minimumTapTargetSize,
                       ),
                       child: Center(child: surface),
                     ),

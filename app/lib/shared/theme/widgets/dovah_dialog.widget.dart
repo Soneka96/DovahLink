@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -60,7 +61,7 @@ class DovahDialog extends StatelessWidget {
         sigmaY: DovahThemeTokens.dialogBackdropBlurSigma,
       ),
       child: Padding(
-        padding: const EdgeInsets.all(DovahThemeTokens.spacing24),
+        padding: const EdgeInsets.all(DovahDialogMetrics.backdropPadding),
         child: Center(child: builder(dialogContext)),
       ),
     ),
@@ -77,8 +78,8 @@ class DovahDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: math.min(
-            DovahThemeTokens.dialogMaxWidth,
-            window.width * DovahThemeTokens.dialogWidthFraction,
+            DovahDialogMetrics.maxWidth,
+            window.width * DovahDialogMetrics.widthFraction,
           ),
           maxHeight: window.height * metrics.heightFraction,
         ),
@@ -104,7 +105,7 @@ class DovahDialog extends StatelessWidget {
                         title,
                         style: TextStyle(
                           fontFamily: tokens.displayFontFamily,
-                          fontSize: DovahThemeTokens.dialogTitleFontSize,
+                          fontSize: DovahDialogMetrics.titleFontSize,
                           fontWeight: FontWeight.w500,
                           color: tokens.textPrimary,
                         ),
@@ -116,8 +117,8 @@ class DovahDialog extends StatelessWidget {
                           onClose ?? () => Navigator.of(context).maybePop(),
                       tooltip: 'Close',
                       constraints: const BoxConstraints(
-                        minWidth: DovahThemeTokens.minimumTapTargetSize,
-                        minHeight: DovahThemeTokens.minimumTapTargetSize,
+                        minWidth: DovahControlMetrics.minimumTapTargetSize,
+                        minHeight: DovahControlMetrics.minimumTapTargetSize,
                       ),
                     ),
                   ],

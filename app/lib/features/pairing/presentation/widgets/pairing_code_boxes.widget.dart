@@ -36,8 +36,7 @@ class PairingCodeBoxes extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           for (int index = 0; index < pairingCodeLength; index++) ...[
-            if (index > 0)
-              const SizedBox(width: DovahThemeTokens.pairingCodeBoxGap),
+            if (index > 0) const SizedBox(width: DovahDialogMetrics.codeBoxGap),
             Container(
               key: Key('pairing-code-box-$index'),
               width: metrics.codeBoxWidth,
@@ -56,7 +55,7 @@ class PairingCodeBoxes extends StatelessWidget {
                         BoxShadow(
                           color: tokens.soft,
                           spreadRadius:
-                              DovahThemeTokens.pairingCodeBoxFocusRingWidth,
+                              DovahDialogMetrics.codeBoxFocusRingWidth,
                         ),
                       ]
                     : null,
@@ -65,7 +64,7 @@ class PairingCodeBoxes extends StatelessWidget {
                 index < code.length ? code[index] : '',
                 style: TextStyle(
                   color: tokens.textPrimary,
-                  fontSize: DovahThemeTokens.pairingCodeBoxFontSize,
+                  fontSize: DovahDialogMetrics.codeBoxFontSize,
                   fontWeight: FontWeight.w800,
                 ),
               ),

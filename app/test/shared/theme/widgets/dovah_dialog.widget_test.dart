@@ -4,6 +4,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'dovah_widget_test_helpers.dart';
@@ -30,7 +32,7 @@ void main() {
             expect(find.text('Appearance'), findsOneWidget);
             expect(find.text('Dialog body content'), findsOneWidget);
             final Text title = tester.widget(find.text('Appearance'));
-            expect(title.style?.fontSize, DovahThemeTokens.dialogTitleFontSize);
+            expect(title.style?.fontSize, DovahDialogMetrics.titleFontSize);
           },
         );
       }
@@ -103,11 +105,11 @@ void main() {
 
         expect(
           size.width,
-          greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+          greaterThanOrEqualTo(DovahControlMetrics.minimumTapTargetSize),
         );
         expect(
           size.height,
-          greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+          greaterThanOrEqualTo(DovahControlMetrics.minimumTapTargetSize),
         );
       },
     );
@@ -293,7 +295,7 @@ void main() {
         expect(tester.takeException(), isNull);
         expect(
           tester.getSize(dialog).height,
-          lessThanOrEqualTo(480 - DovahThemeTokens.spacing24 * 2),
+          lessThanOrEqualTo(480 - DovahDialogMetrics.backdropPadding * 2),
         );
         expect(scrollable.position.maxScrollExtent, greaterThan(0));
 

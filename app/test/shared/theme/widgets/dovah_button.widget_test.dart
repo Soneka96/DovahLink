@@ -8,6 +8,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
@@ -59,7 +60,7 @@ void main() {
           final Text text = tester.widget<Text>(find.text('Confirm'));
 
           expect(text.style?.fontSize, isA<double>());
-          expect(text.style?.fontSize, DovahThemeTokens.buttonFontSize);
+          expect(text.style?.fontSize, DovahControlMetrics.buttonFontSize);
           expect(text.style?.height, isA<double>());
           expect(text.style?.height, DovahThemeTokens.bodyLineHeight);
         },
@@ -88,12 +89,12 @@ void main() {
           final Text text = tester.widget<Text>(find.text('Discover'));
 
           expect(icon.size, isA<double>());
-          expect(icon.size, DovahThemeTokens.buttonIconSize);
+          expect(icon.size, DovahControlMetrics.buttonIconSize);
           expect(icon.color, text.style!.color);
           expect(
             tester.getTopLeft(find.text('Discover')).dx -
                 tester.getTopRight(find.byIcon(Icons.zoom_in)).dx,
-            greaterThanOrEqualTo(DovahThemeTokens.buttonIconGap),
+            greaterThanOrEqualTo(DovahControlMetrics.buttonIconGap),
           );
           expect(tester.takeException(), isNull);
         },
@@ -167,7 +168,7 @@ void main() {
       );
 
       expect(opacity.opacity, isA<double>());
-      expect(opacity.opacity, DovahThemeTokens.disabledControlOpacity);
+      expect(opacity.opacity, DovahControlMetrics.disabledControlOpacity);
     });
   });
 
@@ -341,11 +342,11 @@ void main() {
 
           expect(
             size.width,
-            greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+            greaterThanOrEqualTo(DovahControlMetrics.minimumTapTargetSize),
           );
           expect(
             size.height,
-            greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+            greaterThanOrEqualTo(DovahControlMetrics.minimumTapTargetSize),
           );
         },
       );
@@ -373,11 +374,11 @@ void main() {
 
         expect(
           interactiveSize.height,
-          greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+          greaterThanOrEqualTo(DovahControlMetrics.minimumTapTargetSize),
         );
         expect(
           visibleSurfaceSize.height,
-          lessThan(DovahThemeTokens.minimumTapTargetSize),
+          lessThan(DovahControlMetrics.minimumTapTargetSize),
         );
       },
     );
@@ -627,7 +628,7 @@ void main() {
         await tester.pump();
         await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
         await tester.pump();
-        await tester.pump(DovahThemeTokens.buttonHoverDuration);
+        await tester.pump(DovahControlMetrics.buttonHoverDuration);
 
         final TweenAnimationBuilder<double> animation = tester.widget(
           find.byKey(const Key('dovah-button-hover-effect')),
@@ -639,10 +640,10 @@ void main() {
           ),
         );
 
-        expect(animation.duration, DovahThemeTokens.buttonHoverDuration);
+        expect(animation.duration, DovahControlMetrics.buttonHoverDuration);
         expect(
           animation.tween.end,
-          1 + DovahThemeTokens.primaryButtonHoverBrightness,
+          1 + DovahControlMetrics.primaryButtonHoverBrightness,
         );
         expect(transform.transform.storage[13], closeTo(-1, 0.001));
         expect(
@@ -685,7 +686,7 @@ void main() {
       await pointer.addPointer(location: const Offset(899, 559));
       await tester.pump();
       await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
-      await tester.pump(DovahThemeTokens.buttonHoverDuration);
+      await tester.pump(DovahControlMetrics.buttonHoverDuration);
 
       final TweenAnimationBuilder<double> animation = tester.widget(
         find.byKey(const Key('dovah-button-hover-effect')),
@@ -716,7 +717,7 @@ void main() {
       await pointer.addPointer(location: const Offset(899, 559));
       await tester.pump();
       await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
-      await tester.pump(DovahThemeTokens.buttonHoverDuration);
+      await tester.pump(DovahControlMetrics.buttonHoverDuration);
 
       final TweenAnimationBuilder<double> animation = tester.widget(
         find.byKey(const Key('dovah-button-hover-effect')),

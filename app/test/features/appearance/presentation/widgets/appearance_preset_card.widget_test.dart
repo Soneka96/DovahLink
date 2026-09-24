@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_card.widget.dart';
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -81,11 +82,8 @@ void main() {
           find.byIcon(Icons.check_circle),
         );
 
-        expect(previewSize.height, DovahThemeTokens.appearancePreviewHeight);
-        expect(
-          selectionIcon.size,
-          DovahThemeTokens.appearanceSelectionIconSize,
-        );
+        expect(previewSize.height, appearancePreviewHeight);
+        expect(selectionIcon.size, appearanceSelectionIconSize);
       },
     );
 

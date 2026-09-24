@@ -49,7 +49,7 @@ class PairingStateLayout extends StatelessWidget {
     return Center(
       child: ConstrainedBox(
         constraints: const BoxConstraints(
-          maxWidth: DovahThemeTokens.pairingContentMaxWidth,
+          maxWidth: DovahDialogMetrics.contentMaxWidth,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -74,7 +74,7 @@ class PairingStateLayout extends StatelessWidget {
             SizedBox(height: metrics.headingBottomGap),
             ConstrainedBox(
               constraints: const BoxConstraints(
-                maxWidth: DovahThemeTokens.pairingBodyMaxWidth,
+                maxWidth: DovahDialogMetrics.bodyMaxWidth,
               ),
               child: Text.rich(
                 TextSpan(
@@ -95,7 +95,7 @@ class PairingStateLayout extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   color: tokens.textMuted,
-                  fontSize: DovahThemeTokens.pairingBodyFontSize,
+                  fontSize: DovahDialogMetrics.bodyFontSize,
                   height: metrics.bodyLineHeight,
                 ),
               ),

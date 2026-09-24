@@ -7,6 +7,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
@@ -44,9 +45,9 @@ void main() {
 
             expect(tester.takeException(), isNull);
             expect(icon.size, isA<double>());
-            expect(icon.size, DovahThemeTokens.iconButtonIconSize);
-            expect(surface.width, DovahThemeTokens.iconButtonSize);
-            expect(surface.height, DovahThemeTokens.iconButtonSize);
+            expect(icon.size, DovahControlMetrics.iconButtonIconSize);
+            expect(surface.width, DovahControlMetrics.iconButtonSize);
+            expect(surface.height, DovahControlMetrics.iconButtonSize);
           },
         );
       }
@@ -186,7 +187,7 @@ void main() {
       );
 
       expect(opacity.opacity, isA<double>());
-      expect(opacity.opacity, DovahThemeTokens.disabledControlOpacity);
+      expect(opacity.opacity, DovahControlMetrics.disabledControlOpacity);
       expect(
         find.byKey(const Key('dovah-icon-button-focus-outline')),
         findsNothing,
@@ -322,11 +323,11 @@ void main() {
 
       expect(
         size.width,
-        greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+        greaterThanOrEqualTo(DovahControlMetrics.minimumTapTargetSize),
       );
       expect(
         size.height,
-        greaterThanOrEqualTo(DovahThemeTokens.minimumTapTargetSize),
+        greaterThanOrEqualTo(DovahControlMetrics.minimumTapTargetSize),
       );
     });
   });

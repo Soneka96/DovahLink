@@ -16,32 +16,17 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Smallest shared spacing unit.
   static const double spacing4 = 4;
 
-  /// Shared spacing for compact card gutters.
-  static const double spacing6 = 6;
-
   /// Shared spacing for small layout gaps.
   static const double spacing8 = 8;
-
-  /// Shared spacing for button padding and compact surfaces.
-  static const double spacing12 = 12;
 
   /// Shared spacing for section and connection-card gaps.
   static const double spacing16 = 16;
 
-  /// Shared horizontal button padding.
-  static const double spacing17 = 17;
-
   /// Shared panel and connection-card padding.
   static const double spacing18 = 18;
 
-  /// Shared dialog-backdrop padding.
-  static const double spacing24 = 24;
-
   /// Font size for supporting text and compact labels.
   static const double compactFontSize = 13;
-
-  /// Font size for dialog titles.
-  static const double dialogTitleFontSize = 23;
 
   /// Diameter of the connection-state marker.
   static const double connectionStateMarkerSize = 8;
@@ -54,30 +39,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
 
   /// Size of the icon inside a connection-card icon tile before density scaling.
   static const double connectionIconSize = 21;
-
-  /// Height of an appearance-preset preview.
-  static const double appearancePreviewHeight = 48;
-
-  /// Minimum width of an appearance-preset card before it wraps to another row.
-  static const double appearancePresetCardMinimumWidth = 160;
-
-  /// Height of the accent strip in an appearance-preset preview.
-  static const double appearancePreviewAccentHeight = 6;
-
-  /// Size of the selected-preset indicator.
-  static const double appearanceSelectionIconSize = 20;
-
-  /// Size of the icon inside a themed button.
-  static const double buttonIconSize = 17;
-
-  /// Gap between a themed button's icon and its label.
-  static const double buttonIconGap = 9;
-
-  /// Width and height of a themed icon-only button's visible surface.
-  static const double iconButtonSize = 40;
-
-  /// Size of the icon inside a themed icon-only button.
-  static const double iconButtonIconSize = 19;
 
   /// Letter spacing, in ems, of labels a theme renders in uppercase.
   static const double uppercaseLetterSpacingEm = 0.045;
@@ -169,80 +130,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Line height, as a multiple of font size, of body and label text.
   static const double bodyLineHeight = 4 / 3;
 
-  /// Font size of a themed button's label.
-  static const double buttonFontSize = 16;
-
   /// Font size of a connection card's title.
   static const double connectionTitleFontSize = 16;
-
-  /// Width of themed focus outlines.
-  static const double focusOutlineWidth = 2;
-
-  /// Minimum interactive target width and height for themed controls.
-  static const double minimumTapTargetSize = 48;
-
-  /// Blur radius of themed focus glows.
-  static const double focusGlowBlurRadius = 8;
-
-  /// Disabled-control opacity.
-  static const double disabledControlOpacity = 0.46;
-
-  /// Gap between pairing-code digit boxes.
-  static const double pairingCodeBoxGap = 8;
-
-  /// Font size of a digit inside a pairing-code digit box.
-  static const double pairingCodeBoxFontSize = 22;
-
-  /// Width of the halo around the focused pairing-code digit box.
-  static const double pairingCodeBoxFocusRingWidth = 3;
-
-  /// Font size of an inline form error message.
-  static const double formErrorFontSize = 12;
-
-  /// Gap between adjacent action buttons in a dialog.
-  static const double dialogActionGap = 10;
-
-  /// Maximum width of a pairing state's content column.
-  static const double pairingContentMaxWidth = 520;
-
-  /// Maximum width of a pairing state's body copy.
-  static const double pairingBodyMaxWidth = 430;
-
-  /// Font size of a pairing state's body copy.
-  static const double pairingBodyFontSize = 14;
-
-  /// Font size of a pairing state's footnote.
-  static const double pairingNoteFontSize = 12;
-
-  /// Width and height of a pairing success mark.
-  static const double pairingSuccessMarkSize = 62;
-
-  /// Gap below a pairing success mark.
-  static const double pairingSuccessMarkBottomGap = 17;
-
-  /// Size of the check glyph inside a pairing success mark.
-  static const double pairingSuccessGlyphSize = 29;
-
-  /// Opacity of the status tone filling a pairing success mark.
-  static const double statusMarkFillOpacity = 0.1;
-
-  /// Opacity of the status tone outlining a pairing success mark.
-  static const double statusMarkBorderOpacity = 0.36;
-
-  /// Width and height of an inline progress spinner.
-  static const double progressIndicatorSize = 15;
-
-  /// Stroke width of an inline progress spinner.
-  static const double progressIndicatorStrokeWidth = 2;
-
-  /// Gap between an inline progress spinner and its status text.
-  static const double progressStatusGap = 10;
-
-  /// Brightness increase applied to hovered primary buttons.
-  static const double primaryButtonHoverBrightness = 0.07;
-
-  /// Duration of the primary-button hover transition.
-  static const Duration buttonHoverDuration = Duration(milliseconds: 160);
 
   /// Border width shared by themed surfaces.
   static const double surfaceBorderWidth = 1;
@@ -255,12 +144,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
 
   /// Color of the themed-dialog backdrop scrim.
   static const Color dialogBackdropColor = Color(0xFF020407);
-
-  /// Maximum width of a themed dialog.
-  static const double dialogMaxWidth = 720;
-
-  /// Fraction of the window width a themed dialog may fill, up to [dialogMaxWidth].
-  static const double dialogWidthFraction = 0.88;
 
   /// Opacity of the environment-background scrim at the top edge.
   static const double environmentTopScrimOpacity = 0.82;

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -32,7 +33,7 @@ class DovahIconButton extends StatelessWidget {
     final bool enabled = onPressed != null;
 
     return Opacity(
-      opacity: enabled ? 1 : DovahThemeTokens.disabledControlOpacity,
+      opacity: enabled ? 1 : DovahControlMetrics.disabledControlOpacity,
       child: Semantics(
         key: const Key('dovah-icon-button-semantics'),
         excludeSemantics: true,
@@ -59,7 +60,7 @@ class DovahIconButton extends StatelessWidget {
                       ? BoxDecoration(
                           border: Border.all(
                             color: tokens.signal,
-                            width: DovahThemeTokens.focusOutlineWidth,
+                            width: DovahControlMetrics.focusOutlineWidth,
                           ),
                           borderRadius: BorderRadius.circular(
                             tokens.cornerRadius,
@@ -67,26 +68,27 @@ class DovahIconButton extends StatelessWidget {
                           boxShadow: <BoxShadow>[
                             BoxShadow(
                               color: tokens.soft,
-                              blurRadius: DovahThemeTokens.focusGlowBlurRadius,
+                              blurRadius:
+                                  DovahControlMetrics.focusGlowBlurRadius,
                             ),
                           ],
                         )
                       : null,
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(
-                      minWidth: DovahThemeTokens.minimumTapTargetSize,
-                      minHeight: DovahThemeTokens.minimumTapTargetSize,
+                      minWidth: DovahControlMetrics.minimumTapTargetSize,
+                      minHeight: DovahControlMetrics.minimumTapTargetSize,
                     ),
                     child: Center(
                       child: SizedBox(
-                        width: DovahThemeTokens.iconButtonSize,
-                        height: DovahThemeTokens.iconButtonSize,
+                        width: DovahControlMetrics.iconButtonSize,
+                        height: DovahControlMetrics.iconButtonSize,
                         child: DovahSurface(
                           raised: true,
                           child: Center(
                             child: Icon(
                               icon,
-                              size: DovahThemeTokens.iconButtonIconSize,
+                              size: DovahControlMetrics.iconButtonIconSize,
                               color: tokens.textPrimary,
                             ),
                           ),

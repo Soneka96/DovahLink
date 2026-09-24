@@ -5,8 +5,8 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_m
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_request_code_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// The pairing state where a Host no longer accepts this device's trust, the approved prototype's
@@ -48,8 +48,8 @@ class PairingRepair extends StatelessWidget {
         SizedBox(height: context.dovahDialogMetrics.actionsTopGap),
         Wrap(
           alignment: WrapAlignment.center,
-          spacing: DovahThemeTokens.dialogActionGap,
-          runSpacing: DovahThemeTokens.dialogActionGap,
+          spacing: DovahDialogMetrics.actionGap,
+          runSpacing: DovahDialogMetrics.actionGap,
           children: [
             UnconstrainedBox(
               child: DovahButton(

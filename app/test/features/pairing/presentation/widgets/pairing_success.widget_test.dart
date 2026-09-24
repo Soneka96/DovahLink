@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_success.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Pumps a [PairingSuccess], counting completions into [dones].
@@ -44,7 +44,7 @@ void main() {
 
       expect(
         tester.getSize(find.byKey(const Key('pairing-success-mark'))),
-        const Size.square(DovahThemeTokens.pairingSuccessMarkSize),
+        const Size.square(DovahDialogMetrics.successMarkSize),
       );
       expect(find.byIcon(Icons.check), findsOneWidget);
     });

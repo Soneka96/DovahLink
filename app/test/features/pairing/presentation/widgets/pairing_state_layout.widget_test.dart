@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Pumps a [PairingStateLayout] with the given body parts under the Dovah preset.
@@ -195,7 +195,7 @@ void main() {
             expect(tester.takeException(), isNull);
             expect(
               tester.getSize(find.byKey(const Key('pairing-body'))).width,
-              lessThanOrEqualTo(DovahThemeTokens.pairingBodyMaxWidth),
+              lessThanOrEqualTo(DovahDialogMetrics.bodyMaxWidth),
             );
           },
         );

@@ -2,6 +2,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
@@ -86,8 +87,8 @@ class RootHeader extends StatelessWidget {
                   // visible surface, not the invisible margin, meets the content edge.
                   Transform.translate(
                     offset: const Offset(
-                      (DovahThemeTokens.minimumTapTargetSize -
-                              DovahThemeTokens.iconButtonSize) /
+                      (DovahControlMetrics.minimumTapTargetSize -
+                              DovahControlMetrics.iconButtonSize) /
                           2,
                       0,
                     ),
