@@ -27,6 +27,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The Dart SDK retries temporarily unavailable state Snapshots without interrupting the session.
 - The Dart SDK routes later baseline snapshots even when they reuse a completed request's
   correlation ID.
+- The Dart SDK ignores in-flight recovery outcomes after their state area is unsubscribed.
 
 ## [0.4.0] - 2026-09-23
 

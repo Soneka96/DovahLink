@@ -215,6 +215,17 @@ void main() {
     stateChanges.add(currentState);
   }
 
+  /// Simulates the subscription gate resetting the domain during recovery.
+  void unsubscribeCurrentState() {
+    when(() => tracker.resetToNotSubscribed()).thenAnswer((_) {
+      currentState = Fixtures.buildStateSynchronization<int?>(
+        status: DovahLinkStateStatus.notSubscribed,
+      );
+      stateChanges.add(currentState);
+    });
+    tracker.resetToNotSubscribed();
+  }
+
   group('Method start behaves correctly', () {
     test(
       'Method start waits for the Host baseline for a newly accepted subscription',
@@ -356,6 +367,81 @@ void main() {
       await concurrentRecovery;
       expect(requests.requests, hasLength(1));
     });
+
+    test(
+      'Method recover ignores a late Snapshot after the domain becomes notSubscribed',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(requests.requests, hasLength(1));
+        unsubscribeCurrentState();
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(revision: 5, value: 50),
+        );
+        await service.recover();
+
+        expect(currentState.status, DovahLinkStateStatus.notSubscribed);
+        verifyNever(() => domain.decodeState(any()));
+        verifyNever(
+          () => tracker.applySnapshot(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+            revision: any(named: 'revision'),
+            value: any(named: 'value'),
+            isUnavailable: any(named: 'isUnavailable'),
+          ),
+        );
+        verifyNever(() => tracker.failRecovery());
+        verifyNever(() => session.onUnhealthy(any()));
+        verify(() => tracker.beginRecovery()).called(1);
+        expect(requests.requests, hasLength(1));
+      },
+    );
+
+    test(
+      'Method recover ignores a request failure after the domain becomes notSubscribed',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        unsubscribeCurrentState();
+        requests.requests.single.reply.completeError(
+          const DovahLinkConnectionException('recovery transport failed'),
+        );
+        await service.recover();
+
+        expect(currentState.status, DovahLinkStateStatus.notSubscribed);
+        verifyNever(() => tracker.failRecovery());
+        verifyNever(() => session.onUnhealthy(any()));
+        verify(() => tracker.beginRecovery()).called(1);
+        expect(requests.requests, hasLength(1));
+      },
+    );
+
+    test(
+      'Method recover does not retry a superseded retryable Host error after unsubscribe',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        unsubscribeCurrentState();
+        requests.requests.single.reply.completeError(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.temporarilyUnavailable,
+            message: 'The snapshot request was superseded.',
+            retryable: true,
+          ),
+        );
+        await service.recover();
+
+        expect(currentState.status, DovahLinkStateStatus.notSubscribed);
+        verifyNever(() => tracker.failRecovery());
+        verifyNever(() => session.onUnhealthy(any()));
+        verify(() => tracker.beginRecovery()).called(1);
+        expect(requests.requests, hasLength(1));
+      },
+    );
 
     test(
       'Method recover retries a temporarily unavailable Snapshot without making the '
