@@ -199,6 +199,7 @@ void main() {
       final expiresIn30Seconds = now.add(
         const Duration(seconds: 30, milliseconds: 500),
       );
+      final List<int> formattedSeconds = [];
 
       final store = Store<AppState>(
         (AppState state, dynamic action) {
@@ -232,37 +233,61 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(body: PairingCountdown()),
+            child: Scaffold(
+              body: PairingCountdown(
+                formatSeconds: (int seconds) {
+                  formattedSeconds.add(seconds);
+                  return '${seconds}s';
+                },
+              ),
+            ),
           ),
         ),
       );
 
       var textWidget = tester.widget<Text>(find.byType(Text));
-      expect(textWidget.data, '1:00');
+      expect(textWidget.data, '60s');
+      expect(formattedSeconds, [60]);
+
+      store.dispatch(_UpdateCountdownAction(expiresIn60Seconds));
+      await tester.pump();
+
+      expect(formattedSeconds, [60]);
 
       store.dispatch(_UpdateCountdownAction(expiresIn30Seconds));
       await tester.pump();
 
       textWidget = tester.widget<Text>(find.byType(Text));
-      expect(textWidget.data, '0:30');
+      expect(textWidget.data, '30s');
+      expect(formattedSeconds, [60, 30]);
     });
 
     testWidgets('PairingCountdown maintains timer during widget rebuild', (
       WidgetTester tester,
     ) async {
-      final now = DateTime.now();
-      final expiresIn60Seconds = now.add(
-        const Duration(seconds: 60, milliseconds: 500),
-      );
       final store = Store<AppState>(
-        (AppState state, dynamic action) => state,
+        (AppState state, dynamic action) {
+          if (action is _UpdateCountdownAction) {
+            return AppState(
+              connection: state.connection,
+              pairing: PairingState(
+                phase: state.pairing.phase,
+                hostVersion: state.pairing.hostVersion,
+                error: state.pairing.error,
+                codeExpiresAt: action.newExpiry,
+                renotifyAvailableAt: state.pairing.renotifyAvailableAt,
+              ),
+            );
+          }
+          return state;
+        },
         initialState: AppState(
           connection: ConnectionState.initial(),
-          pairing: PairingState(
+          pairing: const PairingState(
             phase: PairingPhase.awaitingCode,
             hostVersion: null,
             error: null,
-            codeExpiresAt: expiresIn60Seconds,
+            codeExpiresAt: null,
             renotifyAvailableAt: null,
           ),
         ),
@@ -272,18 +297,36 @@ void main() {
         MaterialApp(
           home: StoreProvider<AppState>(
             store: store,
-            child: const Scaffold(body: PairingCountdown()),
+            child: Scaffold(
+              body: PairingCountdown(
+                formatSeconds: (int seconds) => '$seconds',
+              ),
+            ),
           ),
         ),
       );
 
-      final textBefore = (tester.widget<Text>(find.byType(Text))).data;
-      expect(textBefore, '1:00');
-
+      store.dispatch(
+        _UpdateCountdownAction(DateTime.now().add(const Duration(seconds: 10))),
+      );
       await tester.pump();
 
-      final textAfter = (tester.widget<Text>(find.byType(Text))).data;
-      expect(textAfter, isNotNull);
+      final int initialSeconds = int.parse(
+        tester.widget<Text>(find.byType(Text)).data!,
+      );
+      expect(initialSeconds, greaterThan(0));
+
+      // The selector reads real time; pump advances the widget timer.
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 1100)),
+      );
+      await tester.pump(const Duration(seconds: 1));
+
+      final int elapsedSeconds = int.parse(
+        tester.widget<Text>(find.byType(Text)).data!,
+      );
+      expect(elapsedSeconds, lessThan(initialSeconds));
+      expect(elapsedSeconds, greaterThan(0));
     });
   });
 }

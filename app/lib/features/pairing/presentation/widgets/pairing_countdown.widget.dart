@@ -57,6 +57,7 @@ class _PairingCountdownState extends State<PairingCountdown> {
   @override
   Widget build(BuildContext context) {
     return StoreConnector<AppState, int?>(
+      distinct: true,
       converter: (store) =>
           PairingSelectors.codeCountdownSecondsSelector(store.state),
       builder: (context, remainingSeconds) {

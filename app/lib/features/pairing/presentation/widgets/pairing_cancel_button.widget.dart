@@ -1,3 +1,4 @@
+import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 
@@ -25,6 +26,7 @@ class PairingCancelButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return StoreConnector<AppState, _PairingCancelButtonViewModel>(
+      distinct: true,
       converter: (store) {
         final phase = PairingSelectors.phaseSelector(store.state);
         final isEnabled = phase == PairingPhase.awaitingCode;
@@ -47,7 +49,7 @@ class PairingCancelButton extends StatelessWidget {
 }
 
 /// Widget-local presentation values consumed by [PairingCancelButton]'s store connector.
-class _PairingCancelButtonViewModel {
+class _PairingCancelButtonViewModel extends Equatable {
   /// Creates the presentation values used to render the pairing-cancel button.
   _PairingCancelButtonViewModel({
     required this.isEnabled,
@@ -59,4 +61,8 @@ class _PairingCancelButtonViewModel {
 
   /// Callback that cancels pairing when the button is enabled.
   final VoidCallback? onPressed;
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [isEnabled];
 }

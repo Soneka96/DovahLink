@@ -120,24 +120,34 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Each Screen owns one Store-backed Screen ViewModel and resolves it from DI. A Section may own one
   Store-backed Section ViewModel when it has cohesive, independently updating presentation state
   whose changes should not rebuild the whole Screen. A Section ViewModel is registered in DI, built
-  from `Store<AppState>`, and resolved only by its owning Section. Reusable widgets receive plain
-  values, models, entities, and callbacks through constructor props; they do not resolve DI
-  dependencies or connect directly to the Store.
+  from `Store<AppState>`, and resolved only by its owning Section.
+- A reusable Widget normally receives plain values, models, entities, and callbacks through
+  constructor props. It may use a private, widget-local StoreConnector projection (or a primitive
+  selector value) for cohesive, independently updating Store state when that limits rebuilds to the
+  owning Widget. A widget-local projection stays in the Widget's file and is not registered in DI.
+  This allowance does not apply to prop-only visual components, such as Host cards and themed
+  buttons that only display supplied props.
 - `AppearanceSection` is a Section ViewModel boundary: preset selection updates the picker without
   rebuilding the Connections screen.
+- `PairingCancelButton` and `PairingRenotifyButton` keep widget-local projections because their
+  enabled state updates independently from the pairing screen; the renotify button also ticks while
+  its cooldown elapses.
+- `PairingCountdown` uses a primitive selector value for its independent time display instead of a
+  named ViewModel class.
 
 ## Redux flow
 
 - Use Redux when a value is read by another screen, drives a use case, or must persist beyond one
   widget rebuild. Purely local presentation state stays in the smallest widget's `State`.
 - Keep shared presentation state in its owning Screen or Section ViewModel and pass it to reusable
-  child widgets through props. Keep purely local presentation state in the smallest widget's
-  `State`.
+  child widgets through props. Use a Widget-local connector only for independently updating state
+  owned by that Widget. Keep purely local presentation state in the smallest widget's `State`.
 - The normal chain is `Screen/Section -> ViewModel -> Action -> Middleware -> ResultAction ->
   Reducer -> AppState -> StoreConnector`.
 - Screens and Sections never call `store.dispatch`, use cases, repositories, or services directly.
-- ViewModels are thin connectors resolved through DI; they read selectors and create dispatch
-  callbacks without re-deriving business state.
+- ViewModels are thin connectors; Screen and Section ViewModels are resolved through DI, while a
+  Widget-local connector projection stays private to its owning Widget. They read selectors and
+  create dispatch callbacks without re-deriving business state.
 - Redux state is read only through selectors and changed only through reducers. This is absolute
   and applies everywhere a `Store`/`AppState` is reachable, not only ViewModels and widgets:
   middleware handlers and `StoreConnector`'s `onInit`/`onDispose` hooks read state the same way.

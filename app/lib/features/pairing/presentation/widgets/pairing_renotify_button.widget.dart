@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:equatable/equatable.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 
@@ -51,6 +52,7 @@ class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
   @override
   Widget build(BuildContext context) {
     return StoreConnector<AppState, _PairingRenotifyButtonViewModel>(
+      distinct: true,
       converter: (store) {
         final cooldownSeconds =
             PairingSelectors.renotifyCooldownSecondsSelector(store.state);
@@ -85,7 +87,7 @@ class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
 }
 
 /// Widget-local presentation values consumed by [PairingRenotifyButton]'s store connector.
-class _PairingRenotifyButtonViewModel {
+class _PairingRenotifyButtonViewModel extends Equatable {
   /// Creates the presentation values used to render the pairing-renotify button.
   _PairingRenotifyButtonViewModel({
     required this.isAvailable,
@@ -101,4 +103,8 @@ class _PairingRenotifyButtonViewModel {
 
   /// Callback that requests redisplay when the button is enabled.
   final VoidCallback? onPressed;
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [isAvailable, cooldownSeconds];
 }
