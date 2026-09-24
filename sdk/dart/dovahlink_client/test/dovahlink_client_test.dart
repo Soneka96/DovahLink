@@ -234,6 +234,26 @@ String _rawSessionInvalidated(String reason) => jsonEncode(<String, dynamic>{
   'clientId': null,
 });
 
+/// Builds a correlated `subscription_ack` for the fake Host.
+/// @param accepted The state areas the Host accepted.
+/// @param rejected The state areas the Host rejected.
+/// @return The raw acknowledgement envelope.
+String _rawSubscriptionAck({
+  required List<String> accepted,
+  List<String> rejected = const <String>[],
+}) => jsonEncode(<String, dynamic>{
+  'messageType': 'subscription_ack',
+  'messageId': 'message-subscription-ack-1',
+  'sessionId': 'session-paired-1',
+  'correlationId': 'subscribe-placeholder',
+  'payload': <String, dynamic>{
+    'acceptedStateAreas': accepted,
+    'rejectedStateAreas': rejected,
+  },
+  'playContextId': null,
+  'clientId': null,
+});
+
 /// Builds one uncorrelated canonical state Snapshot message for fake-host delivery.
 /// @param stateArea The registered state area.
 /// @param revision The authoritative area revision.
@@ -309,6 +329,43 @@ Future<void> _connectAndHello(
   await client.hello();
 }
 
+/// Connects [client] to the fake transport and admits a trusted session.
+/// @param transport The fake transport supplying Host replies.
+/// @param client The client to authenticate.
+Future<void> _connectAndTrustedHello(
+  FakeDovahLinkTransport transport,
+  DovahLinkClient client,
+) async {
+  await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+  transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+  transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
+  await client.hello();
+}
+
+/// Requests each [areas] entry cumulatively and confirms the complete accepted set.
+/// @param transport The fake transport supplying subscription acknowledgements.
+/// @param client The trusted client whose desired set is updated.
+/// @param areas The areas to add in order.
+Future<void> _subscribeStateAreas(
+  FakeDovahLinkTransport transport,
+  DovahLinkClient client,
+  Iterable<DovahLinkStateArea> areas,
+) async {
+  final Set<DovahLinkStateArea> desiredAreas = <DovahLinkStateArea>{};
+  for (final DovahLinkStateArea area in areas) {
+    desiredAreas.add(area);
+    transport.queueResponse(
+      _rawSubscriptionAck(
+        accepted: <String>[
+          for (final DovahLinkStateArea value in DovahLinkStateArea.values)
+            if (desiredAreas.contains(value)) value.protocolValue,
+        ],
+      ),
+    );
+    await client.subscribeStateArea(area);
+  }
+}
+
 /// Builds a public client whose reconnect attempts run without production-scale delays.
 DovahLinkClient _buildFastReconnectClient(
   FakeDovahLinkTransport transport,
@@ -370,7 +427,12 @@ void main() {
     test(
       'Property character state streams receive typed Snapshots, level Events, and recovery updates',
       () async {
-        await _connectAndHello(transport, client);
+        await _connectAndTrustedHello(transport, client);
+        await _subscribeStateAreas(
+          transport,
+          client,
+          DovahLinkStateArea.values,
+        );
 
         final Future<void> experienceReceived = expectLater(
           client.characterXpChanges,
@@ -589,6 +651,160 @@ void main() {
       },
     );
   });
+
+  group(
+    'Methods subscribeStateArea and unsubscribeStateArea behave correctly',
+    () {
+      test(
+        'Method subscribeStateArea keeps Host-rejected domains inactive',
+        () async {
+          await _connectAndTrustedHello(transport, client);
+          transport.queueResponse(
+            _rawSubscriptionAck(
+              accepted: const <String>[],
+              rejected: <String>['character_xp'],
+            ),
+          );
+
+          expect(
+            await client.subscribeStateArea(DovahLinkStateArea.characterXp),
+            <DovahLinkStateArea>{DovahLinkStateArea.characterXp},
+          );
+          transport.queueRawResponse(
+            _rawStateSnapshot(
+              stateArea: 'character_xp',
+              revision: 1,
+              value: 42.5,
+            ),
+          );
+          await pumpEventQueue();
+
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.notSubscribed,
+          );
+          expect(client.connectionState, DovahLinkConnectionState.connected);
+        },
+      );
+
+      test(
+        'Methods send the complete desired set and stop applying removed areas',
+        () async {
+          await _connectAndTrustedHello(transport, client);
+
+          transport.queueResponse(
+            _rawSubscriptionAck(accepted: <String>['character_xp']),
+          );
+          expect(
+            await client.subscribeStateArea(DovahLinkStateArea.characterXp),
+            isEmpty,
+          );
+          expect(
+            (jsonDecode(transport.sent.last) as JsonMap)['payload'],
+            (jsonDecode(_rawFixture('subscriptions/subscribe.json'))
+                as JsonMap)['payload'],
+          );
+
+          transport.queueResponse(
+            _rawSubscriptionAck(
+              accepted: <String>['character_xp', 'character_health'],
+            ),
+          );
+          expect(
+            await client.subscribeStateArea(DovahLinkStateArea.characterHealth),
+            isEmpty,
+          );
+          expect(
+            (jsonDecode(transport.sent.last) as JsonMap)['payload'],
+            (jsonDecode(_rawFixture('subscriptions/subscribe-add-area.json'))
+                as JsonMap)['payload'],
+          );
+
+          transport.queueRawResponse(
+            _rawStateSnapshot(
+              stateArea: 'character_xp',
+              revision: 1,
+              value: 42.5,
+            ),
+          );
+          transport.queueRawResponse(
+            _rawStateSnapshot(
+              stateArea: 'character_health',
+              revision: 1,
+              value: 100,
+            ),
+          );
+          await pumpEventQueue();
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.synchronized,
+          );
+          expect(
+            (await client.characterHealthChanges.first).status,
+            DovahLinkStateStatus.synchronized,
+          );
+
+          transport.queueResponse(
+            _rawSubscriptionAck(accepted: <String>['character_health']),
+          );
+          expect(
+            await client.unsubscribeStateArea(DovahLinkStateArea.characterXp),
+            isEmpty,
+          );
+          expect(
+            (jsonDecode(transport.sent.last) as JsonMap)['payload'],
+            (jsonDecode(_rawFixture('subscriptions/subscribe-replacement.json'))
+                as JsonMap)['payload'],
+          );
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.notSubscribed,
+          );
+
+          transport.queueRawResponse(
+            _rawStateSnapshot(
+              stateArea: 'character_xp',
+              revision: 2,
+              value: 50,
+            ),
+          );
+          transport.queueRawResponse(
+            _rawStateEvent(
+              stateArea: 'character_xp',
+              baseRevision: 1,
+              revision: 2,
+              value: 50,
+            ),
+          );
+          await pumpEventQueue();
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.notSubscribed,
+          );
+          expect(client.connectionState, DovahLinkConnectionState.connected);
+
+          transport.queueResponse(
+            _rawSubscriptionAck(accepted: const <String>[]),
+          );
+          expect(
+            await client.unsubscribeStateArea(
+              DovahLinkStateArea.characterHealth,
+            ),
+            isEmpty,
+          );
+          expect(
+            (jsonDecode(transport.sent.last) as JsonMap)['payload'],
+            (jsonDecode(_rawFixture('subscriptions/subscribe-empty.json'))
+                as JsonMap)['payload'],
+          );
+          expect(
+            (await client.characterHealthChanges.first).status,
+            DovahLinkStateStatus.notSubscribed,
+          );
+        },
+      );
+    },
+  );
 
   group('Behavior default transport composition behaves correctly', () {
     test(

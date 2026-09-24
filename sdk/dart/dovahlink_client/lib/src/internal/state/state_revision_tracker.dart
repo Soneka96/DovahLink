@@ -19,6 +19,9 @@ abstract interface class IStateRevisionTracker<T> {
   /// Marks the domain as waiting for an authoritative Snapshot.
   void beginRecovery();
 
+  /// Clears cached state after the consumer unsubscribes from this domain.
+  void resetToNotSubscribed();
+
   /// Marks recovery as failed while retaining the last known state as diagnostics.
   void failRecovery();
 
@@ -115,6 +118,17 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
         revision: previous.revision,
       ),
     );
+  }
+
+  /// See [IStateRevisionTracker.resetToNotSubscribed].
+  @override
+  void resetToNotSubscribed() {
+    _bufferedEvents.clear();
+    _recoveryBufferOverflowed = false;
+    if (current.status == DovahLinkStateStatus.notSubscribed) {
+      return;
+    }
+    _state.update(StateSynchronization<T>.notSubscribed());
   }
 
   /// See [IStateRevisionTracker.failRecovery].

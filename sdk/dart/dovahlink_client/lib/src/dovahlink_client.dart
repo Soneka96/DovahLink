@@ -26,6 +26,7 @@ import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.
 import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_revision_tracker.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
@@ -146,7 +147,7 @@ class DovahLinkClient {
 
     final StateDomainDefinition<CharacterLevelState> characterLevelDomain =
         StateDomainDefinition<CharacterLevelState>(
-          stateArea: 'character_level',
+          stateArea: DovahLinkStateArea.characterLevel.protocolValue,
           decode: CharacterLevelState.fromJson,
           tracker: _characterLevelTracker,
           isUnavailable: (CharacterLevelState state) => state.value == null,
@@ -156,25 +157,25 @@ class DovahLinkClient {
       sessionService: _sessionService,
       domains: <IStateDomainDefinition<Object?>>[
         StateDomainDefinition<CharacterXpState>(
-          stateArea: 'character_xp',
+          stateArea: DovahLinkStateArea.characterXp.protocolValue,
           decode: CharacterXpState.fromJson,
           tracker: _characterXpTracker,
           isUnavailable: (CharacterXpState state) => state.value == null,
         ),
         StateDomainDefinition<CharacterHealthState>(
-          stateArea: 'character_health',
+          stateArea: DovahLinkStateArea.characterHealth.protocolValue,
           decode: CharacterHealthState.fromJson,
           tracker: _characterHealthTracker,
           isUnavailable: (CharacterHealthState state) => state.value == null,
         ),
         StateDomainDefinition<CharacterMagickaState>(
-          stateArea: 'character_magicka',
+          stateArea: DovahLinkStateArea.characterMagicka.protocolValue,
           decode: CharacterMagickaState.fromJson,
           tracker: _characterMagickaTracker,
           isUnavailable: (CharacterMagickaState state) => state.value == null,
         ),
         StateDomainDefinition<CharacterStaminaState>(
-          stateArea: 'character_stamina',
+          stateArea: DovahLinkStateArea.characterStamina.protocolValue,
           decode: CharacterStaminaState.fromJson,
           tracker: _characterStaminaTracker,
           isUnavailable: (CharacterStaminaState state) => state.value == null,
@@ -213,6 +214,11 @@ class DovahLinkClient {
       messageRouter: messageRouter,
     );
     _sessionService.onIncomingMessage = _requestService.handleIncoming;
+    _subscriptionService = SubscriptionService(
+      requestService: _requestService,
+      sessionService: _sessionService,
+      stateMessageHandler: stateMessageHandler,
+    );
 
     final StateRecoveryService<CharacterLevelState> levelRecoveryService =
         StateRecoveryService<CharacterLevelState>(
@@ -280,6 +286,9 @@ class DovahLinkClient {
 
   /// Owns pending requests, timeouts, and retry behavior for this client's session.
   late final IRequestService _requestService;
+
+  /// Owns desired state-area subscriptions and their current Host acknowledgement.
+  late final ISubscriptionService _subscriptionService;
 
   /// Owns [IAuthenticationService.hello] and saved-credential rejection recovery.
   late final IAuthenticationService _authenticationService;
@@ -364,6 +373,23 @@ class DovahLinkClient {
   /// @return The current level view immediately on listen and after each accepted update.
   Stream<StateSynchronization<CharacterLevelState>> get characterLevelChanges =>
       _characterLevelTracker.changes;
+
+  /// Requests [area] as part of this client's complete desired state-area set.
+  /// @param area The state domain to request.
+  /// @return The areas the Host rejected from the resulting desired set.
+  /// @throws [DovahLinkConnectionException] if no trusted session is active.
+  /// @throws [DovahLinkProtocolException] if the Host returns a malformed acknowledgement.
+  Future<Set<DovahLinkStateArea>> subscribeStateArea(DovahLinkStateArea area) =>
+      _subscriptionService.subscribeStateArea(area);
+
+  /// Removes [area] from this client's complete desired state-area set.
+  /// @param area The state domain to remove.
+  /// @return The areas the Host rejected from the resulting desired set.
+  /// @throws [DovahLinkConnectionException] if no trusted session is active.
+  /// @throws [DovahLinkProtocolException] if the Host returns a malformed acknowledgement.
+  Future<Set<DovahLinkStateArea>> unsubscribeStateArea(
+    DovahLinkStateArea area,
+  ) => _subscriptionService.unsubscribeStateArea(area);
 
   /// Establishes the transport connection to [uri]. Must be called before [DovahLinkClient.hello].
   /// @throws [DovahLinkConnectionException] if the socket cannot be established.

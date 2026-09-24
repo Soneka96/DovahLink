@@ -16,33 +16,46 @@ JsonMap _readPayload(String relativePath) {
 /// Runs [SubscribePayload.toJson] behavior tests.
 void main() {
   group('Method toJson behaves correctly', () {
-    test('Method toJson matches the canonical subscribe fixture', () {
-      const SubscribePayload payload = SubscribePayload(
-        stateAreas: <String>['example_area'],
-      );
-
-      expect(payload.toJson(), _readPayload('subscriptions/subscribe.json'));
-    });
-
     test(
-      'Method toJson encodes an empty stateAreas list as an unsubscribe',
+      'Method toJson matches the canonical single-area subscription fixture',
       () {
         const SubscribePayload payload = SubscribePayload(
-          stateAreas: <String>[],
+          stateAreas: <String>['character_xp'],
         );
 
-        expect(payload.toJson(), <String, dynamic>{'stateAreas': <String>[]});
+        expect(payload.toJson(), _readPayload('subscriptions/subscribe.json'));
       },
     );
 
-    test('Method toJson encodes multiple requested state areas', () {
+    test('Method toJson matches the canonical complete multi-area set', () {
       const SubscribePayload payload = SubscribePayload(
-        stateAreas: <String>['area_a', 'area_b'],
+        stateAreas: <String>['character_xp', 'character_health'],
       );
 
-      expect(payload.toJson(), <String, dynamic>{
-        'stateAreas': <String>['area_a', 'area_b'],
-      });
+      expect(
+        payload.toJson(),
+        _readPayload('subscriptions/subscribe-add-area.json'),
+      );
+    });
+
+    test('Method toJson matches the canonical replacement set', () {
+      const SubscribePayload payload = SubscribePayload(
+        stateAreas: <String>['character_health'],
+      );
+
+      expect(
+        payload.toJson(),
+        _readPayload('subscriptions/subscribe-replacement.json'),
+      );
+    });
+
+    test('Method toJson matches the canonical empty desired set', () {
+      const SubscribePayload payload = SubscribePayload(stateAreas: <String>[]);
+
+      expect(
+        payload.toJson(),
+        _readPayload('subscriptions/subscribe-empty.json'),
+      );
     });
   });
 }

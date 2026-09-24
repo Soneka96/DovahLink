@@ -13,6 +13,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Added
 
+- The Dart SDK exposes typed per-domain subscription intent and sends complete desired state-area
+  sets to the Host.
 - The Dart SDK exposes replayable typed synchronization streams for character XP, health, magicka,
   stamina, and level.
 - The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before

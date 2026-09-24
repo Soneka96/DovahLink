@@ -132,7 +132,7 @@ When a supporting collaborator's dependency shape does not already match a real 
 with its own contract and depend on that contract. Never let a `ServiceImpl` implement the
 collaborator's own dependency port and pass `this`.
 
-The seven Services:
+The eight Services:
 
 - `ISessionService`/`SessionService` — owns transport lifecycle, connection state, and stream
   ownership: `connect`, `disconnect`, reads (`connectionState`, `currentSessionId`,
@@ -155,6 +155,10 @@ The seven Services:
 - `IReconnectService`/`ReconnectService` — bounded automatic recovery from ordinary transport
   loss, reconnecting and re-authenticating up to an attempt budget and a hard deadline without
   taking over transport or authentication state from `ISessionService`/`IAuthenticationService`.
+- `ISubscriptionService`/`SubscriptionService` — owns the client's desired state-area set and
+  reconciles it with the Host using the canonical complete-set `subscribe` operation. It applies
+  only Host-accepted areas to `StateMessageHandler`; rejected and removed areas stop updating their
+  typed state streams.
 
 Each interface and its implementation are named classes in their own files under `src/`, absent
 from the public barrel per `ai/context/sdk/api-design.md`'s "curated public exports".
@@ -182,17 +186,18 @@ remains acceptable for a real sequencing collaborator (`ConnectionTeardownCoordi
 ordered, generation-checked sequencing is a genuinely different shape from a Service's
 request/response or command/report shape.
 
-The seven Service interfaces (`ISessionService`, `ISessionAdmissionService`,
+The original seven Service interfaces (`ISessionService`, `ISessionAdmissionService`,
 `ISessionTrustService`, `IRequestService`, `IAuthenticationService`, `IPairingService`,
 `IReconnectService`) and the two platform ports (`IClientStorage`, `IDovahLinkTransport`, including
 the two public exports) were renamed to this convention as an intentional pre-1.0 breaking API
 migration, since the SDK has no supported public release yet (`ai/context/common.md`'s "Pre-release
-compatibility"). Each Service's implementation dropped its `Impl` suffix in the same migration (for
-example `SessionServiceImpl` became `SessionService`), so the bare name is no longer available for
-anything but the concrete implementation. No compatibility shim or deprecated alias was added for
-the previous unprefixed interface names or the removed `Impl` suffix. This is a naming migration
-only: every renamed type's existing responsibilities, collaborator set, and consumer wiring from
-Phase 3.3 are unchanged.
+compatibility"). Each original Service's implementation dropped its `Impl` suffix in the same
+migration (for example `SessionServiceImpl` became `SessionService`), so the bare name is no longer
+available for anything but the concrete implementation. New Service contracts, including
+`ISubscriptionService`, follow the same convention. No compatibility shim or deprecated alias was
+added for the previous unprefixed interface names or the removed `Impl` suffix. This is a naming
+migration only: every renamed type's existing responsibilities, collaborator set, and consumer
+wiring from Phase 3.3 are unchanged.
 
 ### Dependency injection
 
@@ -303,11 +308,15 @@ is ever given either interface.
 replayable state stream and its `StateRevisionTracker<T>`, registers the typed decoders and
 availability rules as `StateDomainDefinition<T>` values, and gives those registrations to
 `StateMessageHandler`. The handler selects a definition by the payload's `stateArea`; it does not
-branch on individual area names. Each definition applies typed Snapshots and applies Events only
-when that area is registered for Event updates. Unknown areas remain protocol violations.
+branch on individual area names. It applies state messages only for areas accepted by the current
+session's subscription acknowledgement; removed areas reset to `notSubscribed`, and late messages
+for them are ignored. Each definition applies typed Snapshots and applies Events only when that area
+is registered for Event updates. Unknown areas remain protocol violations.
 
 `StateMessageHandler` is composed before `RequestService` because the inbound router depends on the
-unsolicited state handler. The current level `StateRecoveryService<T>` is composed after
+unsolicited state handler. `SubscriptionService` is composed after `RequestService`, using the
+already-created state handler to update its accepted-area gate when a correlated
+`subscription_ack` arrives. The current level `StateRecoveryService<T>` is composed after
 `RequestService`, because recovery sends its correlated `snapshot_request` through
 `IRequestService`. It receives the same typed level definition used by normal message handling, so
 the recovery request area, tracker, decoder, and unavailable-value rule come from that registration.

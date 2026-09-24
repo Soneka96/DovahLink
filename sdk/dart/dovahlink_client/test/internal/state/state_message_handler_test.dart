@@ -10,6 +10,7 @@ import 'package:dovahlink_client_sdk/src/protocol/state_event_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'mock_session_service.dart';
+import 'mock_state_revision_tracker.dart';
 
 /// Mock state-domain definition used to isolate handler routing behavior.
 class MockStateDomainDefinition extends Mock
@@ -75,7 +76,17 @@ Envelope buildEventEnvelope({
 IStateMessageHandler buildStateMessageHandler({
   required MockSessionService session,
   required List<IStateDomainDefinition<Object?>> domains,
-}) => StateMessageHandler(sessionService: session, domains: domains);
+}) {
+  final StateMessageHandler handler = StateMessageHandler(
+    sessionService: session,
+    domains: domains,
+  );
+  handler.setSubscribedStateAreas(<String>{
+    for (final IStateDomainDefinition<Object?> domain in domains)
+      domain.stateArea,
+  });
+  return handler;
+}
 
 /// Runs state-message-handler behavior tests.
 void main() {
@@ -85,6 +96,11 @@ void main() {
   late MockStateDomainDefinition magicka;
   late MockStateDomainDefinition stamina;
   late MockStateDomainDefinition level;
+  late MockStateRevisionTracker<Object?> experienceTracker;
+  late MockStateRevisionTracker<Object?> healthTracker;
+  late MockStateRevisionTracker<Object?> magickaTracker;
+  late MockStateRevisionTracker<Object?> staminaTracker;
+  late MockStateRevisionTracker<Object?> levelTracker;
   late IStateMessageHandler handler;
 
   setUpAll(() {
@@ -130,11 +146,31 @@ void main() {
     magicka = MockStateDomainDefinition();
     stamina = MockStateDomainDefinition();
     level = MockStateDomainDefinition();
+    experienceTracker = MockStateRevisionTracker<Object?>();
+    healthTracker = MockStateRevisionTracker<Object?>();
+    magickaTracker = MockStateRevisionTracker<Object?>();
+    staminaTracker = MockStateRevisionTracker<Object?>();
+    levelTracker = MockStateRevisionTracker<Object?>();
     when(() => experience.stateArea).thenReturn('character_xp');
     when(() => health.stateArea).thenReturn('character_health');
     when(() => magicka.stateArea).thenReturn('character_magicka');
     when(() => stamina.stateArea).thenReturn('character_stamina');
     when(() => level.stateArea).thenReturn('character_level');
+    when(() => experience.tracker).thenReturn(experienceTracker);
+    when(() => health.tracker).thenReturn(healthTracker);
+    when(() => magicka.tracker).thenReturn(magickaTracker);
+    when(() => stamina.tracker).thenReturn(staminaTracker);
+    when(() => level.tracker).thenReturn(levelTracker);
+    for (final MockStateRevisionTracker<Object?> tracker
+        in <MockStateRevisionTracker<Object?>>[
+          experienceTracker,
+          healthTracker,
+          magickaTracker,
+          staminaTracker,
+          levelTracker,
+        ]) {
+      when(() => tracker.resetToNotSubscribed()).thenAnswer((_) {});
+    }
     when(
       () => session.onProtocolViolation(
         any(),
@@ -264,6 +300,7 @@ void main() {
           sessionService: session,
           domains: <IStateDomainDefinition<Object?>>[customDomain],
         );
+        customHandler.setSubscribedStateAreas(<String>{'custom_area'});
 
         customHandler.handle(
           buildSnapshotEnvelope(
@@ -282,6 +319,49 @@ void main() {
                 ).captured.single
                 as StateSnapshotPayload;
         expect(payload.stateArea, 'custom_area');
+        verifyNever(
+          () => session.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handle ignores state messages for removed areas and resets their trackers',
+      () {
+        handler.setSubscribedStateAreas(<String>{'character_health'});
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'character_xp',
+            revision: 2,
+            data: const <String, dynamic>{'value': 42.5},
+          ),
+        );
+        handler.handle(
+          buildEventEnvelope(
+            area: 'character_xp',
+            baseRevision: 1,
+            revision: 2,
+            data: const <String, dynamic>{'value': 42.5},
+          ),
+        );
+
+        verify(() => experienceTracker.resetToNotSubscribed()).called(1);
+        verifyNever(
+          () => experience.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        );
+        verifyNever(
+          () => experience.applyEvent(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        );
         verifyNever(
           () => session.onProtocolViolation(
             any(),

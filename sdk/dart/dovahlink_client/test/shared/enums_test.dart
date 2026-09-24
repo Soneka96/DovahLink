@@ -4,6 +4,36 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Runs [CredentialRejectionReason.fromProtocolErrorCode] behavior tests.
 void main() {
+  group('DovahLinkStateArea behaves correctly', () {
+    test('protocolValue maps every typed state area to its canonical name', () {
+      expect(
+        DovahLinkStateArea.values.map(
+          (DovahLinkStateArea area) => area.protocolValue,
+        ),
+        <String>[
+          'character_xp',
+          'character_health',
+          'character_magicka',
+          'character_stamina',
+          'character_level',
+        ],
+      );
+    });
+
+    test(
+      'fromProtocolValue round-trips each known area and rejects unknown names',
+      () {
+        for (final DovahLinkStateArea area in DovahLinkStateArea.values) {
+          expect(
+            DovahLinkStateArea.fromProtocolValue(area.protocolValue),
+            area,
+          );
+        }
+        expect(DovahLinkStateArea.fromProtocolValue('unknown_area'), isNull);
+      },
+    );
+  });
+
   group('Method fromProtocolErrorCode behaves correctly', () {
     test(
       'Method fromProtocolErrorCode maps recoverable typed protocol errors',
