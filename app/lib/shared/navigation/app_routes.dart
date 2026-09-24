@@ -4,7 +4,4 @@
 abstract final class AppRoutes {
   /// The root/entry screen: the connections screen listing the Hosts available to select.
   static const String home = '/';
-
-  /// The pairing flow: requesting a code, entering it, and confirming trust.
-  static const String pairing = '/pairing';
 }

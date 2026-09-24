@@ -1,23 +1,44 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/services.dart';
 
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:go_router/go_router.dart';
+import 'package:fpdart/fpdart.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/app/app.dart';
 import 'package:dovahlink_client/app/app.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
+import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
+import 'package:dovahlink_client/shared/usecase/no_params.dart';
+import '../fixtures/fixtures.dart';
+
+/// Mocks the authentication use case the real pairing middleware resolves.
+class MockAuthenticateUseCase extends Mock implements AuthenticateUseCase {}
+
+/// Mocks the disconnect use case the real pairing middleware resolves on dismissal.
+class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
 
 /// Exercises the root application shell before connection.
 void main() {
@@ -41,26 +62,166 @@ void main() {
     );
   });
 
-  group('DovahLinkApp resolves pairing navigation', () {
-    testWidgets(
-      'DovahLinkApp resolves the pairing route through the real app shell',
-      (WidgetTester tester) async {
-        await initDependencies();
-        await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
+  group('DovahLinkApp opens pairing from Connections', () {
+    late MockAuthenticateUseCase authenticate;
+    late MockDisconnectUseCase disconnect;
 
-        sl<GoRouter>().go(AppRoutes.pairing);
-        // Not pumpAndSettle: PairingScreen auto-starts a real connection attempt
-        // with no host listening in this test, so it retries forever by
-        // design and never quiesces. The route-transition duration is enough
-        // to mount the destination screen, which is all this asserts.
+    setUpAll(() {
+      registerFallbackValue(Fixtures.buildAuthenticateParams());
+      registerFallbackValue(NoParams());
+    });
+
+    setUp(() async {
+      await sl.reset();
+      await initDependencies();
+      authenticate = MockAuthenticateUseCase();
+      disconnect = MockDisconnectUseCase();
+      when(() => authenticate(any())).thenAnswer(
+        (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+      );
+      when(() => disconnect(any())).thenAnswer((_) async => const Right(unit));
+      sl.unregister<AuthenticateUseCase>();
+      sl.registerLazySingleton<AuthenticateUseCase>(() => authenticate);
+      sl.unregister<DisconnectUseCase>();
+      sl.registerLazySingleton<DisconnectUseCase>(() => disconnect);
+    });
+
+    tearDown(() async {
+      await sl.reset();
+    });
+
+    /// Builds the real app over a real store with the real pairing middleware, over [hosts].
+    Store<AppState> buildStore(List<Host> hosts) => const CreateStore()(
+      middleware: [PairingMiddleware().call],
+      initialState: AppState(
+        connection: ConnectionState(hosts: hosts),
+        pairing: PairingState.initial(),
+      ),
+    );
+
+    testWidgets(
+      'DovahLinkApp opens the pairing dialog, not a route, when a Host is tapped',
+      (WidgetTester tester) async {
+        final Store<AppState> store = buildStore([Fixtures.buildHost()]);
+        await tester.pumpWidget(DovahLinkApp(store: store));
+
+        await tester.tap(
+          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+        );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
 
-        expect(find.byKey(const Key('pairing-status')), findsOneWidget);
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(find.text('Pair with Local Host'), findsOneWidget);
+        expect(find.byType(PairingSection), findsOneWidget);
+        expect(find.byType(ConnectionsScreen), findsOneWidget);
         expect(
-          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
-          findsNothing,
+          ConnectionSelectors.selectedHostSelector(store.state),
+          Fixtures.buildHost(),
         );
+      },
+    );
+
+    testWidgets(
+      'DovahLinkApp authenticates with the second Host when two Hosts share a display name',
+      (WidgetTester tester) async {
+        final Host first = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://192.168.1.10:1000/'),
+        );
+        final Host second = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://192.168.1.11:2000/'),
+        );
+        await tester.binding.setSurfaceSize(const Size(1280, 900));
+        addTearDown(() => tester.binding.setSurfaceSize(null));
+        final Store<AppState> store = buildStore([first, second]);
+        await tester.pumpWidget(DovahLinkApp(store: store));
+
+        await tester.tap(
+          find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        verify(
+          () => authenticate(AuthenticateParams(hostUri: second.uri)),
+        ).called(1);
+        verifyNever(() => authenticate(AuthenticateParams(hostUri: first.uri)));
+        expect(find.text('Pair this device'), findsOneWidget);
+        expect(
+          ConnectionSelectors.selectedHostSelector(store.state)?.uri,
+          second.uri,
+        );
+      },
+    );
+
+    testWidgets(
+      'DovahLinkApp ends pairing and disconnects when the dialog is closed',
+      (WidgetTester tester) async {
+        final Store<AppState> store = buildStore([Fixtures.buildHost()]);
+        await tester.pumpWidget(DovahLinkApp(store: store));
+        await tester.tap(
+          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(
+          PairingSelectors.phaseSelector(store.state),
+          PairingPhase.unpaired,
+        );
+
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.byType(DovahDialog), findsNothing);
+        expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
+        verify(() => disconnect(any())).called(1);
+      },
+    );
+
+    testWidgets('DovahLinkApp closes the pairing dialog on Escape', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(
+        DovahLinkApp(store: buildStore([Fixtures.buildHost()])),
+      );
+      await tester.tap(
+        find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+      );
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.byType(DovahDialog), findsNothing);
+    });
+
+    testWidgets(
+      'DovahLinkApp starts a fresh pairing session when the dialog is reopened',
+      (WidgetTester tester) async {
+        final Store<AppState> store = buildStore([Fixtures.buildHost()]);
+        await tester.pumpWidget(DovahLinkApp(store: store));
+        final Finder card = find.byKey(
+          const Key('host-card-ws://127.0.0.1:58231/'),
+        );
+
+        await tester.tap(card);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.tap(card);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(find.text('Pair this device'), findsOneWidget);
+        verify(() => authenticate(any())).called(2);
       },
     );
   });
@@ -72,13 +233,9 @@ void main() {
         await initDependencies();
         await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
-        sl<NavigatorService>().go(AppRoutes.pairing);
-        // See the comment above: PairingScreen never quiesces without a real
-        // host, so this waits out the route transition instead.
-        await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
+        sl<NavigatorService>().go('/somewhere-else');
+        await tester.pumpAndSettle();
 
-        expect(find.byKey(const Key('pairing-status')), findsOneWidget);
         expect(
           find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
           findsNothing,

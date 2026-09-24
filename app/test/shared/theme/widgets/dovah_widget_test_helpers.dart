@@ -17,8 +17,10 @@ Future<void> pumpDovahThemedWidget(
   required DovahThemePreset preset,
   required Size size,
 }) async {
-  await tester.binding.setSurfaceSize(size);
-  addTearDown(() => tester.binding.setSurfaceSize(null));
+  // Sets the view itself, not just the surface, so MediaQuery reports [size] too. The device
+  // pixel ratio is left at the test default so density-dependent guidelines behave as before.
+  tester.view.physicalSize = size * tester.view.devicePixelRatio;
+  addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
       theme: dovahThemeDataFor(preset),

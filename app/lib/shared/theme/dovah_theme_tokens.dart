@@ -37,8 +37,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Shared dialog-header padding.
   static const double spacing19 = 19;
 
-  /// Shared dialog-content padding.
-  static const double spacing22 = 22;
+  /// Shared dialog-content vertical padding.
+  static const double spacing13 = 13;
 
   /// Shared dialog-backdrop padding.
   static const double spacing24 = 24;
@@ -287,10 +287,19 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   static const double dialogBackdropBlurSigma = 8;
 
   /// Opacity of the themed-dialog backdrop scrim.
-  static const double dialogBackdropOpacity = 0.35;
+  static const double dialogBackdropOpacity = 0.76;
 
   /// Color of the themed-dialog backdrop scrim.
-  static const Color dialogBackdropColor = Colors.black;
+  static const Color dialogBackdropColor = Color(0xFF020407);
+
+  /// Maximum width of a themed dialog.
+  static const double dialogMaxWidth = 720;
+
+  /// Fraction of the window width a themed dialog may fill, up to [dialogMaxWidth].
+  static const double dialogWidthFraction = 0.88;
+
+  /// Fraction of the window height a themed dialog may fill.
+  static const double dialogHeightFraction = 0.92;
 
   /// Opacity of the environment-background scrim at the top edge.
   static const double environmentTopScrimOpacity = 0.82;

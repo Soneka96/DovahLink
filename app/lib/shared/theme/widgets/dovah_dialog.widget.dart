@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
@@ -58,18 +59,30 @@ class DovahDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
+    final Size window = MediaQuery.sizeOf(context);
     return Material(
       type: MaterialType.transparency,
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 720, maxHeight: 640),
+        constraints: BoxConstraints(
+          maxWidth: math.min(
+            DovahThemeTokens.dialogMaxWidth,
+            window.width * DovahThemeTokens.dialogWidthFraction,
+          ),
+          maxHeight: window.height * DovahThemeTokens.dialogHeightFraction,
+        ),
         child: DovahPanel(
           padding: EdgeInsets.zero,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              Padding(
-                padding: EdgeInsets.all(
-                  DovahThemeTokens.spacing19 * tokens.densityScale,
+              Container(
+                key: const Key('dovah-dialog-header'),
+                padding: EdgeInsets.symmetric(
+                  horizontal: DovahThemeTokens.spacing19 * tokens.densityScale,
+                  vertical: DovahThemeTokens.spacing12 * tokens.densityScale,
+                ),
+                decoration: BoxDecoration(
+                  border: Border(bottom: BorderSide(color: tokens.lineSubtle)),
                 ),
                 child: Row(
                   children: [
@@ -79,6 +92,7 @@ class DovahDialog extends StatelessWidget {
                         style: TextStyle(
                           fontFamily: tokens.displayFontFamily,
                           fontSize: DovahThemeTokens.dialogTitleFontSize,
+                          fontWeight: FontWeight.w500,
                           color: tokens.textPrimary,
                         ),
                       ),
@@ -98,8 +112,10 @@ class DovahDialog extends StatelessWidget {
               ),
               Flexible(
                 child: Padding(
-                  padding: EdgeInsets.all(
-                    DovahThemeTokens.spacing22 * tokens.densityScale,
+                  padding: EdgeInsets.symmetric(
+                    horizontal:
+                        DovahThemeTokens.spacing17 * tokens.densityScale,
+                    vertical: DovahThemeTokens.spacing13 * tokens.densityScale,
                   ),
                   child: SingleChildScrollView(child: child),
                 ),

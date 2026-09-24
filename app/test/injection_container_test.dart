@@ -31,7 +31,6 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.sta
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -184,12 +183,6 @@ void main() {
       expect(sl.isRegistered<ObserveConnectionStatusUseCase>(), isTrue);
     });
 
-    test('initDependencies registers the pairing ViewModel factory', () async {
-      await initDependencies();
-
-      expect(sl.isRegistered<PairingScreenViewModel>(), isTrue);
-    });
-
     test(
       'initDependencies registers and resolves the pairing section ViewModel factory',
       () async {
@@ -207,18 +200,16 @@ void main() {
     );
 
     test(
-      'initDependencies resolves PairingScreenViewModel from a Store',
+      'initDependencies resolves PairingSectionViewModel callbacks against a Store',
       () async {
         await initDependencies();
         final MockStore store = MockStore();
         when(() => store.state).thenReturn(AppState.initial());
         when(() => store.dispatch(any())).thenAnswer((_) {});
 
-        final PairingScreenViewModel viewModel = sl<PairingScreenViewModel>(
+        final PairingSectionViewModel viewModel = sl<PairingSectionViewModel>(
           param1: store,
         );
-
-        expect(viewModel.phase, PairingPhase.none);
         viewModel.onStart();
         viewModel.onDispose();
 
