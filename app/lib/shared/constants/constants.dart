@@ -16,3 +16,10 @@ final Uri defaultHostUri = Uri.parse('ws://127.0.0.1:58231/');
 /// recognized -- the approved prototype's own default (`localStorage.getItem('dovahlink-preset')
 /// || 'dovah'`).
 const DovahThemePreset defaultThemePreset = DovahThemePreset.dovah;
+
+// ---- Pairing ----
+
+/// The number of digits in a pairing code. Matches the Host's own
+/// `Constants.PairingChallengeCodeDigits`, which rejects a `pairing_confirm` code of any other
+/// length; the approved prototype's five-digit boxes predate that contract.
+const int pairingCodeLength = 6;

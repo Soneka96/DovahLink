@@ -9,6 +9,54 @@ import '../../fixtures/fixtures.dart';
 
 /// Exercises [DovahThemeTokens]'s `copyWith`, `lerp`, and equality contracts.
 void main() {
+  group('Behavior pairing visual tokens behave correctly', () {
+    test(
+      'Behavior pairing visual tokens keep the prototype pairing metrics',
+      () {
+        expect(
+          <Object>[
+            DovahThemeTokens.pairingCodeBoxGap,
+            DovahThemeTokens.pairingCodeBoxFontSize,
+            DovahThemeTokens.pairingCodeBoxFocusRingWidth,
+            DovahThemeTokens.formErrorFontSize,
+            DovahThemeTokens.dialogActionGap,
+            DovahThemeTokens.pairingContentMaxWidth,
+            DovahThemeTokens.pairingBodyMaxWidth,
+            DovahThemeTokens.pairingBodyFontSize,
+            DovahThemeTokens.pairingNoteFontSize,
+            DovahThemeTokens.pairingSuccessMarkSize,
+            DovahThemeTokens.pairingSuccessMarkBottomGap,
+            DovahThemeTokens.pairingSuccessGlyphSize,
+            DovahThemeTokens.statusMarkFillOpacity,
+            DovahThemeTokens.statusMarkBorderOpacity,
+            DovahThemeTokens.progressIndicatorSize,
+            DovahThemeTokens.progressIndicatorStrokeWidth,
+            DovahThemeTokens.progressStatusGap,
+          ],
+          <Object>[
+            8.0,
+            22.0,
+            3.0,
+            12.0,
+            10.0,
+            520.0,
+            430.0,
+            14.0,
+            12.0,
+            62.0,
+            17.0,
+            29.0,
+            0.1,
+            0.36,
+            15.0,
+            2.0,
+            10.0,
+          ],
+        );
+      },
+    );
+  });
+
   group('Behavior shared visual tokens behave correctly', () {
     test(
       'Behavior shared visual tokens keep the approved component metrics',
@@ -22,8 +70,6 @@ void main() {
             DovahThemeTokens.spacing16,
             DovahThemeTokens.spacing17,
             DovahThemeTokens.spacing18,
-            DovahThemeTokens.spacing19,
-            DovahThemeTokens.spacing22,
             DovahThemeTokens.spacing24,
             DovahThemeTokens.compactFontSize,
             DovahThemeTokens.dialogTitleFontSize,
@@ -81,6 +127,8 @@ void main() {
             DovahThemeTokens.dialogBackdropBlurSigma,
             DovahThemeTokens.dialogBackdropOpacity,
             DovahThemeTokens.dialogBackdropColor,
+            DovahThemeTokens.dialogMaxWidth,
+            DovahThemeTokens.dialogWidthFraction,
             DovahThemeTokens.environmentTopScrimOpacity,
             DovahThemeTokens.environmentBottomScrimOpacity,
           ],
@@ -92,8 +140,6 @@ void main() {
             16.0,
             17.0,
             18.0,
-            19.0,
-            22.0,
             24.0,
             13.0,
             23.0,
@@ -149,8 +195,10 @@ void main() {
             const Duration(milliseconds: 160),
             1.0,
             8.0,
-            0.35,
-            Colors.black,
+            0.76,
+            const Color(0xFF020407),
+            720.0,
+            0.88,
             0.82,
             0.55,
           ],

@@ -10,6 +10,32 @@ abstract final class PairingSelectors {
   static String statusLabelSelector(AppState state) =>
       phaseSelector(state).label;
 
+  /// Returns whether the pairing flow may be dismissed. It may not while a submitted code is
+  /// being confirmed, because leaving then would disconnect mid-way through committing trust.
+  static bool canDismissSelector(AppState state) =>
+      phaseSelector(state) != PairingPhase.confirming;
+
+  /// Returns whether the unpaired session may be repaired after a revoked or unrecognized
+  /// credential. A blocked credential is not repairable.
+  static bool isRepairSelector(AppState state) =>
+      phaseSelector(state) == PairingPhase.unpaired &&
+      switch (credentialRejectionReasonSelector(state)) {
+        PairingCredentialRejectionReason.revoked ||
+        PairingCredentialRejectionReason.unrecognized => true,
+        PairingCredentialRejectionReason.blocked || null => false,
+      };
+
+  /// Returns whether the unpaired session is blocked from pairing by the Host.
+  static bool isBlockedSelector(AppState state) =>
+      phaseSelector(state) == PairingPhase.unpaired &&
+      credentialRejectionReasonSelector(state) ==
+          PairingCredentialRejectionReason.blocked;
+
+  /// Returns the typed credential rejection reason, or `null` when none was reported.
+  static PairingCredentialRejectionReason? credentialRejectionReasonSelector(
+    AppState state,
+  ) => state.pairing.credentialRejectionReason;
+
   /// Returns the reported host version, or `null` when unknown.
   static String? hostVersionSelector(AppState state) =>
       state.pairing.hostVersion;

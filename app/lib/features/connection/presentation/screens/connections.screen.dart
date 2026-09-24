@@ -6,11 +6,13 @@ import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/sections/appearance.section.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_footer.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
@@ -20,8 +22,9 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_backgrou
 
 /// The root screen: DovahLink's branded header, the "Connections" title with its Discover Skyrim
 /// action, and the Hosts available to select, over the theme's atmosphere. Selecting a Host
-/// navigates to pairing; the header's appearance action opens the theme picker. Content is capped
-/// at a comfortable reading width and scrolls both ways below its minimum width.
+/// records it and opens the pairing dialog for it; the header's appearance action opens the theme
+/// picker. Content is capped at a comfortable reading width and scrolls both ways below its
+/// minimum width.
 class ConnectionsScreen extends StatelessWidget {
   /// Creates the connections screen.
   const ConnectionsScreen({super.key});
@@ -73,7 +76,10 @@ class ConnectionsScreen extends StatelessWidget {
                                 SizedBox(height: tokens.rootHeroBottomGap),
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
-                                  onSelectHost: viewModel.onSelectHost,
+                                  onSelectHost: (Host host) {
+                                    viewModel.onSelectHost(host);
+                                    PairingDialog.show(context);
+                                  },
                                 ),
                                 const ConnectionsFooter(),
                                 const SizedBox(

@@ -2,12 +2,15 @@ import 'dart:async';
 
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
@@ -16,8 +19,6 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.sel
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
-import 'package:dovahlink_client/shared/navigation/app_routes.dart';
-import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 
@@ -59,20 +60,32 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
         _pairingCancelRequested(store, action);
       case PairingDisposedAction _:
         _pairingDisposed(store, action);
-      case PairingBackRequestedAction _:
-        _pairingBackRequested(store, action);
       case PairingSessionTrustedAction _:
         _pairingSessionTrusted(store, action);
     }
   }
 
-  /// Handles [PairingStartedAction] by authenticating through
-  /// [AuthenticateUseCase].
+  /// Handles [PairingStartedAction] by authenticating with the Host the user selected through
+  /// [AuthenticateUseCase]. With no Host selected there is nothing to connect to, so it
+  /// dispatches [PairingFailedAction] rather than falling back to some default Host. The silent
+  /// reconnect scheduled by [_scheduleReconnect] re-enters here and so reuses the same selection.
+  /// Selecting a Host already expresses the intent to pair, so an unpaired session with no
+  /// rejected credential goes on to dispatch [PairingCodeRequestedAction] itself, once per
+  /// authentication. A session that recovered from a rejected credential does not automatically
+  /// request one; repairable rejections wait for explicit confirmation and blocked credentials
+  /// cannot be repaired.
   Future<void> _pairingStarted(
     Store<AppState> store,
     PairingStartedAction action,
   ) async {
-    (await sl<AuthenticateUseCase>()(NoParams())).fold(
+    final Host? host = ConnectionSelectors.selectedHostSelector(store.state);
+    if (host == null) {
+      store.dispatch(const PairingFailedAction('Select a Host to pair with.'));
+      return;
+    }
+    (await sl<AuthenticateUseCase>()(
+      AuthenticateParams(hostUri: host.uri),
+    )).fold(
       (Failure failure) {
         if (failure is NetworkFailure) {
           store.dispatch(const PairingDisconnectedAction());
@@ -86,11 +99,14 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
           PairingAuthenticatedAction(
             hostVersion: handshake.hostVersion,
             trusted: handshake.trusted,
+            credentialRejectionReason: handshake.credentialRejectionReason,
             credentialRejectedMessage: handshake.credentialRejectedMessage,
           ),
         );
         if (handshake.trusted) {
           store.dispatch(const PairingSessionTrustedAction());
+        } else if (handshake.credentialRejectionReason == null) {
+          store.dispatch(const PairingCodeRequestedAction());
         }
       },
     );
@@ -219,14 +235,6 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
       return;
     }
     await sl<DisconnectUseCase>()(NoParams());
-  }
-
-  /// Handles [PairingBackRequestedAction] by navigating to home.
-  void _pairingBackRequested(
-    Store<AppState> store,
-    PairingBackRequestedAction action,
-  ) {
-    sl<NavigatorService>().go(AppRoutes.home);
   }
 
   /// Handles [PairingSessionTrustedAction] by starting [_connectionStatusSubscription] through

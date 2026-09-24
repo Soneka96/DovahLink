@@ -49,6 +49,18 @@ enum PairingPhase {
   };
 }
 
+/// The Host's typed reason for rejecting a previously stored pairing credential.
+enum PairingCredentialRejectionReason {
+  /// The Host revoked this device's previously trusted credential.
+  revoked,
+
+  /// The Host no longer recognizes this device's previously trusted credential.
+  unrecognized,
+
+  /// The Host blocked this device from pairing.
+  blocked,
+}
+
 /// The host connection's status while a trusted pairing session is active, observed from the
 /// SDK's full `connectionStateChanges` feed rather than a narrower administrative-only slice.
 enum PairingConnectionStatus {

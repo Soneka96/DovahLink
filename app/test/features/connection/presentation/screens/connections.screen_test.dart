@@ -16,6 +16,10 @@ import 'package:dovahlink_client/features/connection/presentation/screens/connec
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -34,6 +38,14 @@ class MockConnectionsScreenViewModel extends Mock
 class MockAppearanceSectionViewModel extends Mock
     implements AppearanceSectionViewModel {}
 
+/// Mock ViewModel supplied to the [PairingDialog] the screen opens.
+class MockPairingDialogViewModel extends Mock
+    implements PairingDialogViewModel {}
+
+/// Mock ViewModel supplied to the [PairingSection] the screen's dialog shows.
+class MockPairingSectionViewModel extends Mock
+    implements PairingSectionViewModel {}
+
 /// Mock Store supplied to the screen's [StoreConnector].
 class MockStore extends Mock implements Store<AppState> {}
 
@@ -43,6 +55,9 @@ void main() {
   late MockStore store;
   late MockConnectionsScreenViewModel viewModel;
   late MockAppearanceSectionViewModel appearanceViewModel;
+  late MockPairingSectionViewModel pairingViewModel;
+  late MockPairingDialogViewModel pairingDialogViewModel;
+  late List<String> pairingCalls;
   late List<Host> selectedHosts;
   late List<DovahThemePreset> selectedPresets;
 
@@ -51,6 +66,10 @@ void main() {
     store = MockStore();
     viewModel = MockConnectionsScreenViewModel();
     appearanceViewModel = MockAppearanceSectionViewModel();
+    pairingViewModel = MockPairingSectionViewModel();
+    pairingDialogViewModel = MockPairingDialogViewModel();
+    when(() => pairingDialogViewModel.title).thenReturn('Pair with Local Host');
+    pairingCalls = [];
     selectedHosts = [];
     selectedPresets = [];
 
@@ -68,6 +87,26 @@ void main() {
     when(
       () => appearanceViewModel.onSelectPreset,
     ).thenReturn(selectedPresets.add);
+    when(() => pairingViewModel.phase).thenReturn(PairingPhase.unpaired);
+    when(() => pairingViewModel.hostName).thenReturn('Local Host');
+    when(() => pairingViewModel.error).thenReturn(null);
+    when(() => pairingViewModel.isRepair).thenReturn(false);
+    when(() => pairingViewModel.isBlocked).thenReturn(false);
+    when(() => pairingViewModel.canDismiss).thenReturn(true);
+    when(
+      () => pairingViewModel.onStart,
+    ).thenReturn(() => pairingCalls.add('start'));
+    when(() => pairingViewModel.onRequestCode).thenReturn(() {});
+    when(() => pairingViewModel.onSubmitCode).thenReturn((String _) {});
+    when(
+      () => pairingViewModel.onDispose,
+    ).thenReturn(() => pairingCalls.add('dispose'));
+    sl.registerFactoryParam<PairingDialogViewModel, Store<AppState>, void>(
+      (Store<AppState> _, void _) => pairingDialogViewModel,
+    );
+    sl.registerFactoryParam<PairingSectionViewModel, Store<AppState>, void>(
+      (Store<AppState> _, void _) => pairingViewModel,
+    );
     sl.registerFactoryParam<ConnectionsScreenViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => viewModel,
     );
@@ -80,6 +119,8 @@ void main() {
     await sl.reset();
     reset(viewModel);
     reset(appearanceViewModel);
+    reset(pairingViewModel);
+    reset(pairingDialogViewModel);
     reset(store);
   });
 
@@ -109,6 +150,13 @@ void main() {
   Future<void> useSurface(WidgetTester tester, Size size) async {
     await tester.binding.setSurfaceSize(size);
     addTearDown(() => tester.binding.setSurfaceSize(null));
+  }
+
+  /// Sizes the test view itself to [size] logical pixels, so [MediaQuery] reports it too. Needed
+  /// where layout depends on the window size, as a dialog's width and height caps do.
+  void useWindow(WidgetTester tester, Size size) {
+    tester.view.physicalSize = size * tester.view.devicePixelRatio;
+    addTearDown(tester.view.reset);
   }
 
   group('ConnectionsScreen contains widgets', () {
@@ -382,6 +430,290 @@ void main() {
         await tester.pump();
 
         expect(selectedHosts, isEmpty);
+      },
+    );
+  });
+
+  group('ConnectionsScreen opens the pairing UI', () {
+    /// Taps the card keyed for [uri] and settles the dialog's opening transition.
+    Future<void> tapHost(WidgetTester tester, String uri) async {
+      // A window below the root's minimum width scrolls sideways, so bring the card into view.
+      await tester.ensureVisible(find.byKey(Key('host-card-$uri')));
+      await tester.pump();
+      await tester.tap(find.byKey(Key('host-card-$uri')));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+    }
+
+    testWidgets(
+      'ConnectionsScreen opens the pairing section in a DovahDialog titled by the pairing dialog ViewModel when a Host is tapped',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        expect(find.byType(PairingDialog), findsOneWidget);
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(find.text('Pair with Local Host'), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(DovahDialog),
+            matching: find.byType(PairingSection),
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen selects the Host before the pairing section starts',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        expect(selectedHosts, [Fixtures.buildHost()]);
+        expect(pairingCalls, ['start']);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen does not open pairing before a Host is tapped',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.byType(DovahDialog), findsNothing);
+        expect(find.byType(PairingSection), findsNothing);
+        expect(pairingCalls, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen selects the second Host and opens the pairing dialog when it is tapped',
+      (WidgetTester tester) async {
+        final Host first = Fixtures.buildHost(
+          displayName: 'First Host',
+          uri: Uri.parse('ws://127.0.0.1:1/'),
+        );
+        final Host second = Fixtures.buildHost(
+          displayName: 'Second Host',
+          uri: Uri.parse('ws://127.0.0.1:2/'),
+        );
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewData(host: first, title: 'First Host'),
+          Fixtures.buildHostCardViewData(host: second, title: 'Second Host'),
+        ]);
+        useWindow(tester, const Size(1280, 900));
+        await tester.pumpWidget(buildWidget());
+
+        await tapHost(tester, 'ws://127.0.0.1:2/');
+
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(selectedHosts, [second]);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen selects the tapped Host by identity when Hosts share a display name',
+      (WidgetTester tester) async {
+        final Host first = Fixtures.buildHost(
+          displayName: 'Shared Host Name',
+          uri: Uri.parse('ws://127.0.0.1:1/'),
+        );
+        final Host second = Fixtures.buildHost(
+          displayName: 'Shared Host Name',
+          uri: Uri.parse('ws://127.0.0.1:2/'),
+        );
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewData(host: first, title: first.displayName),
+          Fixtures.buildHostCardViewData(
+            host: second,
+            title: second.displayName,
+          ),
+        ]);
+        useWindow(tester, const Size(1280, 900));
+        await tester.pumpWidget(buildWidget());
+
+        await tapHost(tester, 'ws://127.0.0.1:1/');
+
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(selectedHosts, [first]);
+        expect(selectedHosts.single.uri, first.uri);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen closes the pairing dialog with its close button, ending pairing without selecting another Host',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.byType(DovahDialog), findsNothing);
+        expect(pairingCalls, ['start', 'dispose']);
+        expect(selectedHosts, [Fixtures.buildHost()]);
+      },
+    );
+
+    testWidgets('ConnectionsScreen closes the pairing dialog on Escape', (
+      WidgetTester tester,
+    ) async {
+      useWindow(tester, const Size(1280, 720));
+      await tester.pumpWidget(buildWidget());
+      await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 500));
+
+      expect(find.byType(DovahDialog), findsNothing);
+      expect(pairingCalls, ['start', 'dispose']);
+    });
+
+    testWidgets(
+      'ConnectionsScreen keeps the pairing dialog open on Escape while a code is being confirmed',
+      (WidgetTester tester) async {
+        when(() => pairingViewModel.phase).thenReturn(PairingPhase.confirming);
+        when(() => pairingViewModel.canDismiss).thenReturn(false);
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.escape);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(pairingCalls, ['start']);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen closes the pairing dialog when the barrier is tapped',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        await tester.tapAt(const Offset(4, 4));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.byType(DovahDialog), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen reopens pairing for the Host after the dialog was closed',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(selectedHosts, [Fixtures.buildHost(), Fixtures.buildHost()]);
+        expect(pairingCalls, ['start', 'dispose', 'start']);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen does not stack a second pairing dialog while one is open',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        await tester.tap(
+          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          warnIfMissed: false,
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(selectedHosts, [Fixtures.buildHost()]);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen keeps keyboard focus inside the open pairing dialog',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        for (int press = 0; press < 8; press++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+          final FocusNode? focused = FocusManager.instance.primaryFocus;
+          expect(focused, isNotNull);
+          expect(
+            focused!.context?.findAncestorWidgetOfExactType<DovahDialog>(),
+            isNotNull,
+            reason: 'focus escaped the dialog after ${press + 1} Tab presses',
+          );
+        }
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen keeps keyboard focus inside the pairing dialog with Shift+Tab too',
+      (WidgetTester tester) async {
+        useWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+        await tester.sendKeyDownEvent(LogicalKeyboardKey.shiftLeft);
+        for (int press = 0; press < 8; press++) {
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+          expect(
+            FocusManager.instance.primaryFocus?.context
+                ?.findAncestorWidgetOfExactType<DovahDialog>(),
+            isNotNull,
+            reason:
+                'focus escaped the dialog after ${press + 1} Shift+Tab presses',
+          );
+        }
+        await tester.sendKeyUpEvent(LogicalKeyboardKey.shiftLeft);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen lays out the pairing dialog without overflow at supported sizes',
+      (WidgetTester tester) async {
+        for (final DovahThemePreset preset in DovahThemePreset.values) {
+          for (final Size size in const [
+            Size(400, 300),
+            Size(720, 480),
+            Size(900, 560),
+            Size(1280, 720),
+            Size(1600, 900),
+          ]) {
+            useWindow(tester, size);
+            await tester.pumpWidget(buildWidget(preset: preset));
+            await tapHost(tester, 'ws://127.0.0.1:58231/');
+
+            expect(tester.takeException(), isNull, reason: '$preset at $size');
+            expect(find.byType(DovahDialog), findsOneWidget);
+
+            await tester.tap(find.byTooltip('Close'));
+            await tester.pump();
+            await tester.pump(const Duration(milliseconds: 500));
+          }
+        }
       },
     );
   });

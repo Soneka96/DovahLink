@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.reducer.dart';
@@ -24,6 +25,7 @@ void main() {
         phase: PairingPhase.failed,
         hostVersion: null,
         error: 'old error',
+        credentialRejectionReason: PairingCredentialRejectionReason.blocked,
         codeExpiresAt: null,
         renotifyAvailableAt: null,
       );
@@ -34,6 +36,7 @@ void main() {
       );
 
       expect(result.error, isNull);
+      expect(result.credentialRejectionReason, isNull);
     });
   });
 
@@ -42,13 +45,18 @@ void main() {
       'PairingAuthenticatedAction stores the host version and moves to trusted when already trusted',
       () {
         final PairingState result = pairingReducer(
-          PairingState.initial(),
+          PairingState.initial().copyWith(
+            credentialRejectionReason: const Some(
+              PairingCredentialRejectionReason.blocked,
+            ),
+          ),
           const PairingAuthenticatedAction(hostVersion: '1.2.3', trusted: true),
         );
 
         expect(result.phase, PairingPhase.trusted);
         expect(result.hostVersion, '1.2.3');
         expect(result.error, isNull);
+        expect(result.credentialRejectionReason, isNull);
       },
     );
 
@@ -77,11 +85,16 @@ void main() {
           const PairingAuthenticatedAction(
             hostVersion: '1.2.3',
             trusted: false,
+            credentialRejectionReason: PairingCredentialRejectionReason.revoked,
             credentialRejectedMessage: "This device's trust was revoked.",
           ),
         );
 
         expect(result.phase, PairingPhase.unpaired);
+        expect(
+          result.credentialRejectionReason,
+          PairingCredentialRejectionReason.revoked,
+        );
         expect(result.error, "This device's trust was revoked.");
       },
     );
@@ -105,17 +118,45 @@ void main() {
         expect(result.error, isNull);
       },
     );
+
+    test(
+      'PairingAuthenticatedAction clears a stale reason on unpaired authentication without a rejection',
+      () {
+        final PairingState state = PairingState.initial().copyWith(
+          credentialRejectionReason: const Some(
+            PairingCredentialRejectionReason.blocked,
+          ),
+        );
+
+        final PairingState result = pairingReducer(
+          state,
+          const PairingAuthenticatedAction(
+            hostVersion: '1.2.3',
+            trusted: false,
+          ),
+        );
+
+        expect(result.phase, PairingPhase.unpaired);
+        expect(result.credentialRejectionReason, isNull);
+        expect(result.error, isNull);
+      },
+    );
   });
 
   group('Action PairingCodeRequestedAction behaves correctly', () {
     test('PairingCodeRequestedAction changes the phase to requestingCode', () {
       final PairingState result = pairingReducer(
-        PairingState.initial(),
+        PairingState.initial().copyWith(
+          credentialRejectionReason: const Some(
+            PairingCredentialRejectionReason.revoked,
+          ),
+        ),
         const PairingCodeRequestedAction(),
       );
 
       expect(result.phase, PairingPhase.requestingCode);
       expect(result.error, isNull);
+      expect(result.credentialRejectionReason, isNull);
     });
   });
 
@@ -217,12 +258,17 @@ void main() {
   group('Action PairingConfirmedAction behaves correctly', () {
     test('PairingConfirmedAction changes the phase to trusted', () {
       final PairingState result = pairingReducer(
-        PairingState.initial(),
+        PairingState.initial().copyWith(
+          credentialRejectionReason: const Some(
+            PairingCredentialRejectionReason.revoked,
+          ),
+        ),
         const PairingConfirmedAction(),
       );
 
       expect(result.phase, PairingPhase.trusted);
       expect(result.error, isNull);
+      expect(result.credentialRejectionReason, isNull);
     });
   });
 
@@ -286,6 +332,7 @@ void main() {
           phase: PairingPhase.awaitingCode,
           hostVersion: '1.2.3',
           error: null,
+          credentialRejectionReason: PairingCredentialRejectionReason.blocked,
           codeExpiresAt: DateTime.now(),
           renotifyAvailableAt: DateTime.now().add(const Duration(seconds: 5)),
         );
@@ -298,6 +345,7 @@ void main() {
         expect(result.phase, PairingPhase.failed);
         expect(result.codeExpiresAt, isNull);
         expect(result.renotifyAvailableAt, isNull);
+        expect(result.credentialRejectionReason, isNull);
       },
     );
   });
@@ -308,6 +356,7 @@ void main() {
         phase: PairingPhase.awaitingCode,
         hostVersion: '1.2.3',
         error: 'old error',
+        credentialRejectionReason: PairingCredentialRejectionReason.blocked,
         codeExpiresAt: null,
         renotifyAvailableAt: null,
       );
@@ -320,6 +369,7 @@ void main() {
       expect(result.phase, PairingPhase.none);
       expect(result.hostVersion, isNull);
       expect(result.error, isNull);
+      expect(result.credentialRejectionReason, isNull);
     });
 
     test(
@@ -329,6 +379,8 @@ void main() {
           phase: PairingPhase.trusted,
           hostVersion: '1.2.3',
           error: null,
+          credentialRejectionReason:
+              PairingCredentialRejectionReason.unrecognized,
           codeExpiresAt: null,
           renotifyAvailableAt: null,
         );
@@ -341,6 +393,7 @@ void main() {
         expect(result.phase, PairingPhase.none);
         expect(result.hostVersion, isNull);
         expect(result.error, isNull);
+        expect(result.credentialRejectionReason, isNull);
       },
     );
   });

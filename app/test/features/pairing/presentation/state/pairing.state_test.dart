@@ -15,6 +15,7 @@ void main() {
         expect(state.phase, PairingPhase.none);
         expect(state.hostVersion, isNull);
         expect(state.error, isNull);
+        expect(state.credentialRejectionReason, isNull);
         expect(state.codeExpiresAt, isNull);
         expect(state.renotifyAvailableAt, isNull);
       },
@@ -32,6 +33,7 @@ void main() {
         phase: PairingPhase.awaitingCode,
         hostVersion: '1.2.3',
         error: null,
+        credentialRejectionReason: PairingCredentialRejectionReason.blocked,
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: availableAt,
       );
@@ -39,6 +41,10 @@ void main() {
       expect(state.phase, PairingPhase.awaitingCode);
       expect(state.hostVersion, '1.2.3');
       expect(state.error, isNull);
+      expect(
+        state.credentialRejectionReason,
+        PairingCredentialRejectionReason.blocked,
+      );
       expect(state.codeExpiresAt, expiresAt);
       expect(state.renotifyAvailableAt, availableAt);
     });
@@ -55,6 +61,7 @@ void main() {
       expect(result.phase, PairingPhase.connecting);
       expect(result.hostVersion, isNull);
       expect(result.error, isNull);
+      expect(result.credentialRejectionReason, isNull);
     });
 
     test('replaces and clears nullable values explicitly', () {
@@ -204,5 +211,47 @@ void main() {
       expect(result.error, isNull);
       expect(result.codeExpiresAt, expiresAt);
     });
+  });
+
+  group('Property credentialRejectionReason in PairingState behaves correctly', () {
+    test(
+      'Property credentialRejectionReason in PairingState stores and clears a typed reason',
+      () {
+        final PairingState state = PairingState.initial().copyWith(
+          credentialRejectionReason: const Some(
+            PairingCredentialRejectionReason.blocked,
+          ),
+        );
+
+        expect(
+          state.credentialRejectionReason,
+          PairingCredentialRejectionReason.blocked,
+        );
+
+        final PairingState result = state.copyWith(
+          credentialRejectionReason: const None(),
+        );
+
+        expect(result.credentialRejectionReason, isNull);
+      },
+    );
+
+    test(
+      'Property credentialRejectionReason in PairingState distinguishes rejection reasons',
+      () {
+        final PairingState revoked = PairingState.initial().copyWith(
+          credentialRejectionReason: const Some(
+            PairingCredentialRejectionReason.revoked,
+          ),
+        );
+        final PairingState blocked = PairingState.initial().copyWith(
+          credentialRejectionReason: const Some(
+            PairingCredentialRejectionReason.blocked,
+          ),
+        );
+
+        expect(revoked == blocked, isFalse);
+      },
+    );
   });
 }

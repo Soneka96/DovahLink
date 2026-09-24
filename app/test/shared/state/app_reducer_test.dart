@@ -1,10 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_reducer.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Exercises root Redux reducer pass-through and delegation.
 void main() {
@@ -42,6 +44,48 @@ void main() {
 
       expect(identical(result.appearance, state.appearance), isTrue);
     });
+  });
+
+  group('Action ConnectionHostSelectedAction behaves correctly', () {
+    test(
+      'ConnectionHostSelectedAction delegates to the connection reducer',
+      () {
+        final AppState state = AppState.initial();
+
+        final AppState result = appReducer(
+          state,
+          ConnectionHostSelectedAction(Fixtures.buildHost()),
+        );
+
+        expect(result.connection.selectedHost, Fixtures.buildHost());
+        expect(result, isNot(same(state)));
+      },
+    );
+
+    test('ConnectionHostSelectedAction leaves AppState.pairing unchanged', () {
+      final AppState state = AppState.initial();
+
+      final AppState result = appReducer(
+        state,
+        ConnectionHostSelectedAction(Fixtures.buildHost()),
+      );
+
+      expect(identical(result.pairing, state.pairing), isTrue);
+    });
+
+    test(
+      'ConnectionHostSelectedAction leaves AppState.appearance unchanged',
+      () {
+        final AppState state = AppState.initial();
+
+        final AppState result = appReducer(
+          state,
+          ConnectionHostSelectedAction(Fixtures.buildHost()),
+        );
+
+        expect(identical(result.appearance, state.appearance), isTrue);
+      },
+    );
   });
 
   group('Action ThemePresetSelectedAction behaves correctly', () {

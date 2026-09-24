@@ -19,6 +19,7 @@ class MockPairingRemoteDataSource extends Mock
 void main() {
   late MockPairingRemoteDataSource mockDataSource;
   late PairingRepository repository;
+  final Uri hostUri = Uri.parse('ws://192.168.1.20:4000/');
 
   setUp(() {
     mockDataSource = MockPairingRemoteDataSource();
@@ -38,14 +39,14 @@ void main() {
         final PairingHandshakeModel handshake =
             Fixtures.buildPairingHandshakeModel();
         when(
-          () => mockDataSource.authenticate(),
+          () => mockDataSource.authenticate(hostUri: hostUri),
         ).thenAnswer((_) async => Right(handshake));
 
         final Either<Failure, PairingHandshake> result = await repository
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(result, Right<Failure, PairingHandshake>(handshake));
-        verify(() => mockDataSource.authenticate()).called(1);
+        verify(() => mockDataSource.authenticate(hostUri: hostUri)).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
     );
@@ -55,14 +56,14 @@ void main() {
       () async {
         const NetworkFailure failure = NetworkFailure('failed');
         when(
-          () => mockDataSource.authenticate(),
+          () => mockDataSource.authenticate(hostUri: hostUri),
         ).thenAnswer((_) async => const Left(failure));
 
         final Either<Failure, PairingHandshake> result = await repository
-            .authenticate();
+            .authenticate(hostUri: hostUri);
 
         expect(result, const Left<Failure, PairingHandshake>(failure));
-        verify(() => mockDataSource.authenticate()).called(1);
+        verify(() => mockDataSource.authenticate(hostUri: hostUri)).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
     );

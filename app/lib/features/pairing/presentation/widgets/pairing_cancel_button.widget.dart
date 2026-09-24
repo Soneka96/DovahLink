@@ -5,22 +5,16 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// Button to cancel the active pairing challenge, enabled only during code entry.
 class PairingCancelButton extends StatelessWidget {
-  static const ButtonStyle? _defaultButtonStyle = null;
-
   /// Label displayed on the button.
   final String label;
 
-  /// Optional button style override.
-  final ButtonStyle? style;
-  const PairingCancelButton({
-    this.label = 'Cancel',
-    this.style = _defaultButtonStyle,
-    super.key,
-  });
+  const PairingCancelButton({this.label = 'Cancel', super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -29,10 +23,11 @@ class PairingCancelButton extends StatelessWidget {
       converter: (Store<AppState> store) =>
           sl<PairingCancelButtonViewModel>(param1: store),
       builder: (context, viewModel) {
-        return ElevatedButton(
-          style: style,
+        return DovahButton(
+          key: const Key('pairing-cancel-button'),
+          label: label,
+          variant: DovahButtonVariant.secondary,
           onPressed: viewModel.onPressed,
-          child: Text(label),
         );
       },
     );

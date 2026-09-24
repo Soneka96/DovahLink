@@ -4,7 +4,6 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/appearance/domain/usecases/load_theme_preset.usecase.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.middleware.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
@@ -36,11 +35,7 @@ class AppCompositionRoot {
       (DovahThemePreset preset) => preset,
     );
     return const CreateStore()(
-      middleware: [
-        ConnectionMiddleware().call,
-        PairingMiddleware().call,
-        AppearanceMiddleware().call,
-      ],
+      middleware: [PairingMiddleware().call, AppearanceMiddleware().call],
       initialState: AppState.initial(
         appearance: AppearanceState(activePreset: preset),
       ),

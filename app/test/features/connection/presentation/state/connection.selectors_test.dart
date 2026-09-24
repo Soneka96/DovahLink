@@ -11,8 +11,8 @@ import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection selectors over root application state.
 void main() {
-  AppState stateWith(List<Host> hosts) => AppState(
-    connection: ConnectionState(hosts: hosts),
+  AppState stateWith(List<Host> hosts, {Host? selectedHost}) => AppState(
+    connection: ConnectionState(hosts: hosts, selectedHost: selectedHost),
     pairing: PairingState.initial(),
   );
 
@@ -22,6 +22,63 @@ void main() {
 
       expect(ConnectionSelectors.hostsSelector(stateWith([host])), [host]);
     });
+  });
+
+  group('Selector selectedHostSelector behaves correctly', () {
+    test('Selector selectedHostSelector returns null before any selection', () {
+      expect(
+        ConnectionSelectors.selectedHostSelector(
+          stateWith([Fixtures.buildHost()]),
+        ),
+        isNull,
+      );
+    });
+
+    test('Selector selectedHostSelector returns the selected Host', () {
+      final Host first = Fixtures.buildHost(
+        displayName: 'Same Name',
+        uri: Uri.parse('ws://192.168.1.10:1000/'),
+      );
+      final Host second = Fixtures.buildHost(
+        displayName: 'Same Name',
+        uri: Uri.parse('ws://192.168.1.11:2000/'),
+      );
+
+      final Host? selected = ConnectionSelectors.selectedHostSelector(
+        stateWith([first, second], selectedHost: second),
+      );
+
+      expect(selected, second);
+      expect(selected?.uri, second.uri);
+    });
+  });
+
+  group('Selector selectedHostNameSelector behaves correctly', () {
+    test(
+      'Selector selectedHostNameSelector returns null before any selection',
+      () {
+        expect(
+          ConnectionSelectors.selectedHostNameSelector(
+            stateWith([Fixtures.buildHost()]),
+          ),
+          isNull,
+        );
+      },
+    );
+
+    test(
+      'Selector selectedHostNameSelector returns the selected Host name',
+      () {
+        final Host host = Fixtures.buildHost(displayName: 'Bedroom PC');
+
+        final String? name = ConnectionSelectors.selectedHostNameSelector(
+          stateWith([host], selectedHost: host),
+        );
+
+        expect(name, isA<String>());
+        expect(name, 'Bedroom PC');
+      },
+    );
   });
 
   group('Selector hostCardsSelector behaves correctly', () {

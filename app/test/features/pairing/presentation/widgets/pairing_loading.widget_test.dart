@@ -3,6 +3,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// Exercises PairingLoadingIndicator rendering.
 void main() {
@@ -11,7 +13,10 @@ void main() {
       'PairingLoadingIndicator renders a progress indicator keyed pairing-loading',
       (WidgetTester tester) async {
         await tester.pumpWidget(
-          const MaterialApp(home: PairingLoadingIndicator()),
+          MaterialApp(
+            theme: dovahThemeDataFor(DovahThemePreset.dovah),
+            home: const PairingLoadingIndicator(),
+          ),
         );
 
         expect(find.byKey(const Key('pairing-loading')), findsOneWidget);

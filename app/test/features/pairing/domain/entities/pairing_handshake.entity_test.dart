@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
 /// Exercises pairing-handshake entity value preservation.
@@ -55,6 +56,37 @@ void main() {
     });
   });
 
+  group('Property credentialRejectionReason behaves correctly', () {
+    test(
+      'PairingHandshake.credentialRejectionReason stores a supplied typed reason',
+      () {
+        final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.blocked,
+        );
+
+        expect(
+          handshake.credentialRejectionReason,
+          isA<PairingCredentialRejectionReason>(),
+        );
+        expect(
+          handshake.credentialRejectionReason,
+          PairingCredentialRejectionReason.blocked,
+        );
+      },
+    );
+
+    test('PairingHandshake.credentialRejectionReason defaults to null', () {
+      final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+        hostVersion: '1.2.3',
+        trusted: false,
+      );
+
+      expect(handshake.credentialRejectionReason, isNull);
+    });
+  });
+
   group('Behavior equality behaves correctly', () {
     test('PairingHandshake equality changes when host versions differ', () {
       final PairingHandshake first = Fixtures.buildPairingHandshake(
@@ -96,6 +128,24 @@ void main() {
         );
 
         expect(first == second, isFalse);
+      },
+    );
+
+    test(
+      'PairingHandshake equality changes when typed rejection reasons differ',
+      () {
+        final PairingHandshake revoked = Fixtures.buildPairingHandshake(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.revoked,
+        );
+        final PairingHandshake blocked = Fixtures.buildPairingHandshake(
+          hostVersion: '1.2.3',
+          trusted: false,
+          credentialRejectionReason: PairingCredentialRejectionReason.blocked,
+        );
+
+        expect(revoked == blocked, isFalse);
       },
     );
 

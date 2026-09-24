@@ -4,6 +4,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -47,6 +48,12 @@ abstract final class Fixtures {
 
   // ---- Pairing ----
 
+  /// Builds authentication parameters targeting the representative local Host.
+  static AuthenticateParams buildAuthenticateParams({
+    /// The Host endpoint to authenticate with, or the representative local endpoint when omitted.
+    Uri? hostUri,
+  }) => AuthenticateParams(hostUri: hostUri ?? defaultHostUri);
+
   /// Builds a pairing handshake with representative trusted-session defaults.
   static PairingHandshake buildPairingHandshake({
     /// The Host's own release version reported by the handshake.
@@ -55,11 +62,15 @@ abstract final class Fixtures {
     /// Whether the session already holds a trusted credential.
     bool trusted = true,
 
+    /// The Host's typed rejection reason, when it rejected a stored credential.
+    PairingCredentialRejectionReason? credentialRejectionReason,
+
     /// The user-safe explanation for a rejected credential, when applicable.
     String? credentialRejectedMessage,
   }) => PairingHandshake(
     hostVersion: hostVersion,
     trusted: trusted,
+    credentialRejectionReason: credentialRejectionReason,
     credentialRejectedMessage: credentialRejectedMessage,
   );
 
@@ -71,11 +82,15 @@ abstract final class Fixtures {
     /// Whether the session already holds a trusted credential.
     bool trusted = true,
 
+    /// The Host's typed rejection reason, when it rejected a stored credential.
+    PairingCredentialRejectionReason? credentialRejectionReason,
+
     /// The user-safe explanation for a rejected credential, when applicable.
     String? credentialRejectedMessage,
   }) => PairingHandshakeModel(
     hostVersion: hostVersion,
     trusted: trusted,
+    credentialRejectionReason: credentialRejectionReason,
     credentialRejectedMessage: credentialRejectedMessage,
   );
 
