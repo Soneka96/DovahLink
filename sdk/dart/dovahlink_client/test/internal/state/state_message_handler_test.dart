@@ -2,17 +2,18 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/state_event_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/state/character_health_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_level_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_magicka_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_stamina_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
 import 'mock_session_service.dart';
-import 'mock_state_revision_tracker.dart';
+
+/// Mock state-domain definition used to isolate handler routing behavior.
+class MockStateDomainDefinition extends Mock
+    implements IStateDomainDefinition {}
 
 /// Builds a state Snapshot envelope with one registered area.
 /// @param area The canonical state area on the payload.
@@ -67,111 +68,73 @@ Envelope buildEventEnvelope({
   clientId: null,
 );
 
-/// Builds a handler over mock domain revision trackers.
+/// Builds a handler over explicit domain registrations.
 /// @param session The session lifecycle dependency.
-/// @param experience The character experience tracker.
-/// @param health The character health tracker.
-/// @param magicka The character magicka tracker.
-/// @param stamina The character stamina tracker.
-/// @param level The character level tracker.
+/// @param domains The registered state-area definitions.
 /// @return The state-message handler under test.
 IStateMessageHandler buildStateMessageHandler({
   required MockSessionService session,
-  required MockStateRevisionTracker<CharacterXpState> experience,
-  required MockStateRevisionTracker<CharacterHealthState> health,
-  required MockStateRevisionTracker<CharacterMagickaState> magicka,
-  required MockStateRevisionTracker<CharacterStaminaState> stamina,
-  required MockStateRevisionTracker<CharacterLevelState> level,
-}) => StateMessageHandler(
-  sessionService: session,
-  characterXp: experience,
-  characterHealth: health,
-  characterMagicka: magicka,
-  characterStamina: stamina,
-  characterLevel: level,
-);
+  required List<IStateDomainDefinition> domains,
+}) => StateMessageHandler(sessionService: session, domains: domains);
 
 /// Runs state-message-handler behavior tests.
 void main() {
   late MockSessionService session;
-  late MockStateRevisionTracker<CharacterXpState> experience;
-  late MockStateRevisionTracker<CharacterHealthState> health;
-  late MockStateRevisionTracker<CharacterMagickaState> magicka;
-  late MockStateRevisionTracker<CharacterStaminaState> stamina;
-  late MockStateRevisionTracker<CharacterLevelState> level;
+  late MockStateDomainDefinition experience;
+  late MockStateDomainDefinition health;
+  late MockStateDomainDefinition magicka;
+  late MockStateDomainDefinition stamina;
+  late MockStateDomainDefinition level;
   late IStateMessageHandler handler;
 
   setUpAll(() {
+    registerFallbackValue(
+      buildSnapshotEnvelope(
+        area: 'fallback',
+        revision: 1,
+        data: const <String, dynamic>{},
+      ),
+    );
+    registerFallbackValue(
+      buildEventEnvelope(
+        area: 'fallback',
+        baseRevision: 1,
+        revision: 2,
+        data: const <String, dynamic>{},
+      ),
+    );
+    registerFallbackValue(
+      const StateSnapshotPayload(
+        stateArea: 'fallback',
+        revision: 1,
+        occurredAt: '2026-09-23T12:00:00Z',
+        data: <String, dynamic>{},
+      ),
+    );
+    registerFallbackValue(
+      const StateEventPayload(
+        stateArea: 'fallback',
+        baseRevision: 1,
+        revision: 2,
+        occurredAt: '2026-09-23T12:00:00Z',
+        data: <String, dynamic>{},
+      ),
+    );
     registerFallbackValue(Exception('fallback for any()'));
-    registerFallbackValue(const CharacterXpState(value: null));
-    registerFallbackValue(const CharacterHealthState(value: null));
-    registerFallbackValue(const CharacterMagickaState(value: null));
-    registerFallbackValue(const CharacterStaminaState(value: null));
-    registerFallbackValue(const CharacterLevelState(value: null));
   });
 
   setUp(() {
     session = MockSessionService();
-    experience = MockStateRevisionTracker<CharacterXpState>();
-    health = MockStateRevisionTracker<CharacterHealthState>();
-    magicka = MockStateRevisionTracker<CharacterMagickaState>();
-    stamina = MockStateRevisionTracker<CharacterStaminaState>();
-    level = MockStateRevisionTracker<CharacterLevelState>();
-    when(
-      () => experience.applySnapshot(
-        stateAuthorityId: any(named: 'stateAuthorityId'),
-        playContextId: any(named: 'playContextId'),
-        revision: any(named: 'revision'),
-        value: any(named: 'value'),
-        isUnavailable: any(named: 'isUnavailable'),
-      ),
-    ).thenReturn(true);
-    when(
-      () => health.applySnapshot(
-        stateAuthorityId: any(named: 'stateAuthorityId'),
-        playContextId: any(named: 'playContextId'),
-        revision: any(named: 'revision'),
-        value: any(named: 'value'),
-        isUnavailable: any(named: 'isUnavailable'),
-      ),
-    ).thenReturn(true);
-    when(
-      () => magicka.applySnapshot(
-        stateAuthorityId: any(named: 'stateAuthorityId'),
-        playContextId: any(named: 'playContextId'),
-        revision: any(named: 'revision'),
-        value: any(named: 'value'),
-        isUnavailable: any(named: 'isUnavailable'),
-      ),
-    ).thenReturn(true);
-    when(
-      () => stamina.applySnapshot(
-        stateAuthorityId: any(named: 'stateAuthorityId'),
-        playContextId: any(named: 'playContextId'),
-        revision: any(named: 'revision'),
-        value: any(named: 'value'),
-        isUnavailable: any(named: 'isUnavailable'),
-      ),
-    ).thenReturn(true);
-    when(
-      () => level.applySnapshot(
-        stateAuthorityId: any(named: 'stateAuthorityId'),
-        playContextId: any(named: 'playContextId'),
-        revision: any(named: 'revision'),
-        value: any(named: 'value'),
-        isUnavailable: any(named: 'isUnavailable'),
-      ),
-    ).thenReturn(true);
-    when(
-      () => level.applyEvent(
-        stateAuthorityId: any(named: 'stateAuthorityId'),
-        playContextId: any(named: 'playContextId'),
-        baseRevision: any(named: 'baseRevision'),
-        revision: any(named: 'revision'),
-        value: any(named: 'value'),
-        isUnavailable: any(named: 'isUnavailable'),
-      ),
-    ).thenReturn(StateEventApplyResult.applied);
+    experience = MockStateDomainDefinition();
+    health = MockStateDomainDefinition();
+    magicka = MockStateDomainDefinition();
+    stamina = MockStateDomainDefinition();
+    level = MockStateDomainDefinition();
+    when(() => experience.stateArea).thenReturn('character_xp');
+    when(() => health.stateArea).thenReturn('character_health');
+    when(() => magicka.stateArea).thenReturn('character_magicka');
+    when(() => stamina.stateArea).thenReturn('character_stamina');
+    when(() => level.stateArea).thenReturn('character_level');
     when(
       () => session.onProtocolViolation(
         any(),
@@ -180,213 +143,190 @@ void main() {
     ).thenAnswer((_) {});
     handler = buildStateMessageHandler(
       session: session,
-      experience: experience,
-      health: health,
-      magicka: magicka,
-      stamina: stamina,
-      level: level,
+      domains: <IStateDomainDefinition>[
+        experience,
+        health,
+        magicka,
+        stamina,
+        level,
+      ],
     );
   });
 
   group('Method handle behaves correctly', () {
-    test('Method handle decodes each registered Snapshot area', () {
+    test('Method handle routes every registered Snapshot by state area', () {
       handler.handle(
         buildSnapshotEnvelope(
           area: 'character_xp',
           revision: 1,
-          data: <String, dynamic>{'value': 42.5},
+          data: const <String, dynamic>{'value': 42.5},
         ),
       );
       handler.handle(
         buildSnapshotEnvelope(
           area: 'character_health',
           revision: 2,
-          data: <String, dynamic>{'value': 87.5},
+          data: const <String, dynamic>{'value': 87.5},
         ),
       );
       handler.handle(
         buildSnapshotEnvelope(
           area: 'character_magicka',
           revision: 3,
-          data: <String, dynamic>{'value': 31.25},
+          data: const <String, dynamic>{'value': 31.25},
         ),
       );
       handler.handle(
         buildSnapshotEnvelope(
           area: 'character_stamina',
           revision: 4,
-          data: <String, dynamic>{'value': 15},
+          data: const <String, dynamic>{'value': 15},
         ),
       );
       handler.handle(
         buildSnapshotEnvelope(
           area: 'character_level',
           revision: 5,
-          data: <String, dynamic>{'value': 10},
+          data: const <String, dynamic>{'value': 10},
         ),
       );
 
       expect(
         (verify(
                   () => experience.applySnapshot(
-                    stateAuthorityId: 'authority-1',
-                    playContextId: 'context-1',
-                    revision: 1,
-                    value: captureAny(named: 'value'),
-                    isUnavailable: false,
+                    envelope: any(named: 'envelope'),
+                    payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
-                as CharacterXpState)
-            .value,
-        42.5,
+                as StateSnapshotPayload)
+            .stateArea,
+        'character_xp',
       );
       expect(
         (verify(
                   () => health.applySnapshot(
-                    stateAuthorityId: 'authority-1',
-                    playContextId: 'context-1',
-                    revision: 2,
-                    value: captureAny(named: 'value'),
-                    isUnavailable: false,
+                    envelope: any(named: 'envelope'),
+                    payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
-                as CharacterHealthState)
-            .value,
-        87.5,
+                as StateSnapshotPayload)
+            .stateArea,
+        'character_health',
       );
       expect(
         (verify(
                   () => magicka.applySnapshot(
-                    stateAuthorityId: 'authority-1',
-                    playContextId: 'context-1',
-                    revision: 3,
-                    value: captureAny(named: 'value'),
-                    isUnavailable: false,
+                    envelope: any(named: 'envelope'),
+                    payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
-                as CharacterMagickaState)
-            .value,
-        31.25,
+                as StateSnapshotPayload)
+            .stateArea,
+        'character_magicka',
       );
       expect(
         (verify(
                   () => stamina.applySnapshot(
-                    stateAuthorityId: 'authority-1',
-                    playContextId: 'context-1',
-                    revision: 4,
-                    value: captureAny(named: 'value'),
-                    isUnavailable: false,
+                    envelope: any(named: 'envelope'),
+                    payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
-                as CharacterStaminaState)
-            .value,
-        15.0,
+                as StateSnapshotPayload)
+            .stateArea,
+        'character_stamina',
       );
       expect(
         (verify(
                   () => level.applySnapshot(
-                    stateAuthorityId: 'authority-1',
-                    playContextId: 'context-1',
-                    revision: 5,
-                    value: captureAny(named: 'value'),
-                    isUnavailable: false,
+                    envelope: any(named: 'envelope'),
+                    payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
-                as CharacterLevelState)
-            .value,
-        10,
+                as StateSnapshotPayload)
+            .stateArea,
+        'character_level',
       );
-    });
-
-    test('Method handle preserves unavailable state as an explicit null', () {
-      handler.handle(
-        buildSnapshotEnvelope(
-          area: 'character_health',
-          revision: 1,
-          data: <String, dynamic>{'value': null},
+      verifyNever(
+        () => session.onProtocolViolation(
+          any(),
+          orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
         ),
       );
-
-      final CharacterHealthState state =
-          verify(
-                () => health.applySnapshot(
-                  stateAuthorityId: 'authority-1',
-                  playContextId: 'context-1',
-                  revision: 1,
-                  value: captureAny(named: 'value'),
-                  isUnavailable: true,
-                ),
-              ).captured.single
-              as CharacterHealthState;
-      expect(state.value, isNull);
     });
 
     test(
-      'Method handle applies a level Event through the revision tracker',
+      'Method handle routes a newly registered area without area-specific routing',
+      () {
+        final MockStateDomainDefinition customDomain =
+            MockStateDomainDefinition();
+        when(() => customDomain.stateArea).thenReturn('custom_area');
+        final IStateMessageHandler customHandler = StateMessageHandler(
+          sessionService: session,
+          domains: <IStateDomainDefinition>[customDomain],
+        );
+
+        customHandler.handle(
+          buildSnapshotEnvelope(
+            area: 'custom_area',
+            revision: 1,
+            data: const <String, dynamic>{'value': 7},
+          ),
+        );
+
+        final StateSnapshotPayload payload =
+            verify(
+                  () => customDomain.applySnapshot(
+                    envelope: any(named: 'envelope'),
+                    payload: captureAny(named: 'payload'),
+                  ),
+                ).captured.single
+                as StateSnapshotPayload;
+        expect(payload.stateArea, 'custom_area');
+        verifyNever(
+          () => session.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handle routes Event payloads through their registered definition',
       () {
         handler.handle(
           buildEventEnvelope(
             area: 'character_level',
             baseRevision: 1,
             revision: 2,
-            data: <String, dynamic>{'value': 11},
+            data: const <String, dynamic>{'value': 11},
           ),
         );
 
-        final CharacterLevelState state =
+        final StateEventPayload payload =
             verify(
                   () => level.applyEvent(
-                    stateAuthorityId: 'authority-1',
-                    playContextId: 'context-1',
-                    baseRevision: 1,
-                    revision: 2,
-                    value: captureAny(named: 'value'),
-                    isUnavailable: false,
+                    envelope: any(named: 'envelope'),
+                    payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
-                as CharacterLevelState;
-        expect(state.value, 11);
+                as StateEventPayload;
+        expect(payload.stateArea, 'character_level');
+        verifyNever(
+          () => session.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
       },
     );
-
-    test('Method handle rejects an Event for a Snapshot-only state area', () {
-      handler.handle(
-        buildEventEnvelope(
-          area: 'character_xp',
-          baseRevision: 1,
-          revision: 2,
-          data: <String, dynamic>{'value': 11.0},
-        ),
-      );
-
-      final DovahLinkProtocolException error =
-          verify(
-                () => session.onProtocolViolation(
-                  captureAny(),
-                  orphanRetrySafeOperations: false,
-                ),
-              ).captured.single
-              as DovahLinkProtocolException;
-      expect(error.code, ProtocolErrorCode.malformedMessage);
-      expect(error.retryable, isFalse);
-      verifyNever(
-        () => experience.applyEvent(
-          stateAuthorityId: any(named: 'stateAuthorityId'),
-          playContextId: any(named: 'playContextId'),
-          baseRevision: any(named: 'baseRevision'),
-          revision: any(named: 'revision'),
-          value: any(named: 'value'),
-          isUnavailable: any(named: 'isUnavailable'),
-        ),
-      );
-    });
 
     test('Method handle rejects an unregistered state area', () {
       handler.handle(
         buildSnapshotEnvelope(
           area: 'unknown_area',
           revision: 1,
-          data: <String, dynamic>{'value': 10},
+          data: const <String, dynamic>{'value': 10},
         ),
       );
 
@@ -402,12 +342,13 @@ void main() {
       expect(error.retryable, isFalse);
     });
 
-    test('Method handle fails closed on malformed registered state data', () {
+    test('Method handle rejects an unregistered Event area', () {
       handler.handle(
-        buildSnapshotEnvelope(
-          area: 'character_xp',
-          revision: 1,
-          data: <String, dynamic>{'value': 'not a number'},
+        buildEventEnvelope(
+          area: 'unknown_area',
+          baseRevision: 1,
+          revision: 2,
+          data: const <String, dynamic>{'value': 10},
         ),
       );
 
@@ -422,5 +363,122 @@ void main() {
       expect(error.code, ProtocolErrorCode.malformedMessage);
       expect(error.retryable, isFalse);
     });
+
+    test(
+      'Method handle reports malformed Event payloads as protocol violations',
+      () {
+        handler.handle(
+          const Envelope(
+            messageType: ProtocolMessageType.stateEvent,
+            messageId: 'invalid-event',
+            sessionId: 'session-1',
+            correlationId: null,
+            payload: <String, dynamic>{},
+            stateAuthorityId: 'authority-1',
+            playContextId: 'context-1',
+            clientId: null,
+          ),
+        );
+
+        final DovahLinkProtocolException error =
+            verify(
+                  () => session.onProtocolViolation(
+                    captureAny(),
+                    orphanRetrySafeOperations: false,
+                  ),
+                ).captured.single
+                as DovahLinkProtocolException;
+        expect(error.code, ProtocolErrorCode.malformedMessage);
+        expect(error.retryable, isFalse);
+      },
+    );
+
+    test('Method handle reports non-state messages as protocol violations', () {
+      handler.handle(
+        const Envelope(
+          messageType: ProtocolMessageType.pong,
+          messageId: 'pong-1',
+          sessionId: 'session-1',
+          correlationId: null,
+          payload: <String, dynamic>{},
+          stateAuthorityId: null,
+          playContextId: null,
+          clientId: null,
+        ),
+      );
+
+      final DovahLinkProtocolException error =
+          verify(
+                () => session.onProtocolViolation(
+                  captureAny(),
+                  orphanRetrySafeOperations: false,
+                ),
+              ).captured.single
+              as DovahLinkProtocolException;
+      expect(error.code, ProtocolErrorCode.malformedMessage);
+      expect(error.retryable, isFalse);
+    });
+
+    test(
+      'Method handle reports registered-domain Event failures to the session',
+      () {
+        const DovahLinkProtocolException failure = DovahLinkProtocolException(
+          code: ProtocolErrorCode.malformedMessage,
+          message: 'Event rejected by its domain.',
+          retryable: false,
+        );
+        when(
+          () => health.applyEvent(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ).thenThrow(failure);
+
+        handler.handle(
+          buildEventEnvelope(
+            area: 'character_health',
+            baseRevision: 1,
+            revision: 2,
+            data: const <String, dynamic>{'value': 10},
+          ),
+        );
+
+        verify(
+          () => session.onProtocolViolation(
+            failure,
+            orphanRetrySafeOperations: false,
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method handle reports malformed Snapshot payloads as protocol violations',
+      () {
+        handler.handle(
+          const Envelope(
+            messageType: ProtocolMessageType.stateSnapshot,
+            messageId: 'invalid-snapshot',
+            sessionId: 'session-1',
+            correlationId: null,
+            payload: <String, dynamic>{},
+            stateAuthorityId: 'authority-1',
+            playContextId: 'context-1',
+            clientId: null,
+          ),
+        );
+
+        final DovahLinkProtocolException error =
+            verify(
+                  () => session.onProtocolViolation(
+                    captureAny(),
+                    orphanRetrySafeOperations: false,
+                  ),
+                ).captured.single
+                as DovahLinkProtocolException;
+        expect(error.code, ProtocolErrorCode.malformedMessage);
+        expect(error.retryable, isFalse);
+      },
+    );
   });
 }

@@ -22,6 +22,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_admission_serv
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_revision_tracker.dart';
@@ -146,11 +147,39 @@ class DovahLinkClient {
 
     final IStateMessageHandler stateMessageHandler = StateMessageHandler(
       sessionService: _sessionService,
-      characterXp: _characterXpTracker,
-      characterHealth: _characterHealthTracker,
-      characterMagicka: _characterMagickaTracker,
-      characterStamina: _characterStaminaTracker,
-      characterLevel: _characterLevelTracker,
+      domains: <IStateDomainDefinition>[
+        StateDomainDefinition<CharacterXpState>(
+          stateArea: 'character_xp',
+          decode: CharacterXpState.fromJson,
+          tracker: _characterXpTracker,
+          isUnavailable: (CharacterXpState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterHealthState>(
+          stateArea: 'character_health',
+          decode: CharacterHealthState.fromJson,
+          tracker: _characterHealthTracker,
+          isUnavailable: (CharacterHealthState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterMagickaState>(
+          stateArea: 'character_magicka',
+          decode: CharacterMagickaState.fromJson,
+          tracker: _characterMagickaTracker,
+          isUnavailable: (CharacterMagickaState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterStaminaState>(
+          stateArea: 'character_stamina',
+          decode: CharacterStaminaState.fromJson,
+          tracker: _characterStaminaTracker,
+          isUnavailable: (CharacterStaminaState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterLevelState>(
+          stateArea: 'character_level',
+          decode: CharacterLevelState.fromJson,
+          tracker: _characterLevelTracker,
+          isUnavailable: (CharacterLevelState state) => state.value == null,
+          supportsEvents: true,
+        ),
+      ],
     );
     final IUnsolicitedMessageHandler unsolicitedMessageHandler =
         UnsolicitedMessageHandler(
