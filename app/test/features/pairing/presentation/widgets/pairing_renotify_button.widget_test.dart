@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart' hide ConnectionState;
+
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';

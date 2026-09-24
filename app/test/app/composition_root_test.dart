@@ -1,5 +1,5 @@
-import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:flutter/services.dart' show PlatformException;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -7,6 +7,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dovahlink_client/app/composition_root.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 

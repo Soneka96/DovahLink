@@ -5,7 +5,6 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection selectors over root application state.
