@@ -69,6 +69,10 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   /// [AuthenticateUseCase]. With no Host selected there is nothing to connect to, so it
   /// dispatches [PairingFailedAction] rather than falling back to some default Host. The silent
   /// reconnect scheduled by [_scheduleReconnect] re-enters here and so reuses the same selection.
+  /// Selecting a Host already expresses the intent to pair, so an unpaired session with no
+  /// rejected credential goes on to dispatch [PairingCodeRequestedAction] itself, once per
+  /// authentication. A session that recovered from a rejected credential does not: the user
+  /// confirms pairing again first.
   Future<void> _pairingStarted(
     Store<AppState> store,
     PairingStartedAction action,
@@ -99,6 +103,8 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
         );
         if (handshake.trusted) {
           store.dispatch(const PairingSessionTrustedAction());
+        } else if (handshake.credentialRejectedMessage == null) {
+          store.dispatch(const PairingCodeRequestedAction());
         }
       },
     );

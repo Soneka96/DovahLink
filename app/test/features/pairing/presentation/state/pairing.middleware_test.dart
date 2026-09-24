@@ -141,7 +141,7 @@ void main() {
 
   group('PairingMiddleware processes PairingStartedAction correctly', () {
     test(
-      'PairingStartedAction dispatches PairingAuthenticatedAction when authentication succeeds',
+      'PairingStartedAction dispatches PairingAuthenticatedAction then PairingCodeRequestedAction when an unpaired session authenticates',
       () async {
         final PairingHandshake handshake = Fixtures.buildPairingHandshake(
           trusted: false,
@@ -169,9 +169,87 @@ void main() {
           isNull,
         );
         // An untrusted (unpaired) session must not start observing invalidation -- there is no
-        // trusted session yet to invalidate.
-        expect(actionLog, hasLength(2));
+        // trusted session yet to invalidate -- and asks for its code through the dispatched
+        // action rather than calling the use case itself.
+        expect(actionLog, hasLength(3));
+        expect(actionLog[2], const PairingCodeRequestedAction());
         verify(() => mockAuthenticate(any())).called(1);
+        verifyNever(() => mockRequestPairing(any()));
+      },
+    );
+
+    test(
+      'PairingStartedAction dispatches PairingCodeRequestedAction exactly once per unpaired authentication',
+      () async {
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), hasLength(1));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), hasLength(2));
+        expect(actionLog.whereType<PairingAuthenticatedAction>(), hasLength(2));
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch PairingCodeRequestedAction when the session is already trusted',
+      () async {
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: true)),
+        );
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), isEmpty);
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch PairingCodeRequestedAction when a rejected credential needs confirmation',
+      () async {
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(
+            Fixtures.buildPairingHandshake(
+              trusted: false,
+              credentialRejectedMessage: "This device's trust was revoked.",
+            ),
+          ),
+        );
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          isA<PairingStartedAction>(),
+          isA<PairingAuthenticatedAction>(),
+        ]);
+        verifyNever(() => mockRequestPairing(any()));
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch PairingCodeRequestedAction when authentication fails',
+      () async {
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => const Left(PairingFailure('rejected')));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog.whereType<PairingCodeRequestedAction>(), isEmpty);
+        expect(actionLog.whereType<PairingFailedAction>(), hasLength(1));
       },
     );
 

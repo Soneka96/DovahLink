@@ -15,6 +15,13 @@ abstract final class PairingSelectors {
   static bool canDismissSelector(AppState state) =>
       phaseSelector(state) != PairingPhase.confirming;
 
+  /// Returns whether pairing has to be confirmed again because a previously trusted credential
+  /// was rejected: the session authenticated unpaired and carries the reason as its error. A
+  /// first-time unpaired session has no error and requests its code without asking.
+  static bool isRepairSelector(AppState state) =>
+      phaseSelector(state) == PairingPhase.unpaired &&
+      errorSelector(state) != null;
+
   /// Returns the reported host version, or `null` when unknown.
   static String? hostVersionSelector(AppState state) =>
       state.pairing.hostVersion;

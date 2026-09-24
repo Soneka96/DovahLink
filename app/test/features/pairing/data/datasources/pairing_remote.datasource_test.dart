@@ -127,8 +127,7 @@ void main() {
           Right<Failure, PairingHandshakeModel>(
             Fixtures.buildPairingHandshakeModel(
               trusted: false,
-              credentialRejectedMessage:
-                  "This device's trust was revoked. Requesting a new pairing code.",
+              credentialRejectedMessage: "This device's trust was revoked.",
             ),
           ),
         );
@@ -190,7 +189,7 @@ void main() {
             Fixtures.buildPairingHandshakeModel(
               trusted: false,
               credentialRejectedMessage:
-                  "This device isn't recognized by this host. Requesting a new pairing code.",
+                  "This device isn't recognized by this host.",
             ),
           ),
         );

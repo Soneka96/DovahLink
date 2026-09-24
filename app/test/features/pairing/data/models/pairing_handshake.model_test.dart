@@ -27,13 +27,10 @@ void main() {
 
     test('Method fromHelloResult maps each rejected credential reason', () {
       final List<(CredentialRejectionReason, String)> mappings = [
-        (
-          CredentialRejectionReason.revoked,
-          "This device's trust was revoked. Requesting a new pairing code.",
-        ),
+        (CredentialRejectionReason.revoked, "This device's trust was revoked."),
         (
           CredentialRejectionReason.unrecognized,
-          "This device isn't recognized by this host. Requesting a new pairing code.",
+          "This device isn't recognized by this host.",
         ),
         (
           CredentialRejectionReason.blocked,

@@ -171,4 +171,57 @@ void main() {
       }
     });
   });
+
+  group('PairingSelectors.isRepairSelector', () {
+    AppState stateWith(PairingPhase phase, String? error) => AppState(
+      connection: ConnectionState.initial(),
+      pairing: PairingState(
+        phase: phase,
+        hostVersion: null,
+        error: error,
+        codeExpiresAt: null,
+        renotifyAvailableAt: null,
+      ),
+    );
+
+    test(
+      'returns true for an unpaired session carrying a rejection reason',
+      () {
+        expect(
+          PairingSelectors.isRepairSelector(
+            stateWith(
+              PairingPhase.unpaired,
+              "This device's trust was revoked.",
+            ),
+          ),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'returns false for a first-time unpaired session without an error',
+      () {
+        expect(
+          PairingSelectors.isRepairSelector(
+            stateWith(PairingPhase.unpaired, null),
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test('returns false for every other phase even when an error is set', () {
+      for (final PairingPhase phase in PairingPhase.values) {
+        if (phase == PairingPhase.unpaired) {
+          continue;
+        }
+        expect(
+          PairingSelectors.isRepairSelector(stateWith(phase, 'Some error.')),
+          isFalse,
+          reason: '$phase',
+        );
+      }
+    });
+  });
 }

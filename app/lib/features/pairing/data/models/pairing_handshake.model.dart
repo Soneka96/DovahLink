@@ -27,10 +27,9 @@ class PairingHandshakeModel extends PairingHandshake {
     hostVersion: hello.hostVersion,
     trusted: trusted,
     credentialRejectedMessage: switch (hello.recoveredFromRejectedCredential) {
-      CredentialRejectionReason.revoked =>
-        "This device's trust was revoked. Requesting a new pairing code.",
+      CredentialRejectionReason.revoked => "This device's trust was revoked.",
       CredentialRejectionReason.unrecognized =>
-        "This device isn't recognized by this host. Requesting a new pairing code.",
+        "This device isn't recognized by this host.",
       CredentialRejectionReason.blocked =>
         'This device is blocked by the host and cannot be paired again until an '
             'administrator unblocks it.',

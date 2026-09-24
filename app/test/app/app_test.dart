@@ -18,6 +18,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
@@ -39,6 +40,10 @@ class MockAuthenticateUseCase extends Mock implements AuthenticateUseCase {}
 
 /// Mocks the disconnect use case the real pairing middleware resolves on dismissal.
 class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
+
+/// Mocks the code-request use case the real pairing middleware resolves after an unpaired
+/// authentication.
+class MockRequestPairingUseCase extends Mock implements RequestPairingUseCase {}
 
 /// Exercises the root application shell before connection.
 void main() {
@@ -65,6 +70,7 @@ void main() {
   group('DovahLinkApp opens pairing from Connections', () {
     late MockAuthenticateUseCase authenticate;
     late MockDisconnectUseCase disconnect;
+    late MockRequestPairingUseCase requestPairing;
 
     setUpAll(() {
       registerFallbackValue(Fixtures.buildAuthenticateParams());
@@ -76,14 +82,20 @@ void main() {
       await initDependencies();
       authenticate = MockAuthenticateUseCase();
       disconnect = MockDisconnectUseCase();
+      requestPairing = MockRequestPairingUseCase();
       when(() => authenticate(any())).thenAnswer(
         (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
       );
       when(() => disconnect(any())).thenAnswer((_) async => const Right(unit));
+      when(
+        () => requestPairing(any()),
+      ).thenAnswer((_) async => const Right(300));
       sl.unregister<AuthenticateUseCase>();
       sl.registerLazySingleton<AuthenticateUseCase>(() => authenticate);
       sl.unregister<DisconnectUseCase>();
       sl.registerLazySingleton<DisconnectUseCase>(() => disconnect);
+      sl.unregister<RequestPairingUseCase>();
+      sl.registerLazySingleton<RequestPairingUseCase>(() => requestPairing);
     });
 
     tearDown(() async {
@@ -119,6 +131,14 @@ void main() {
           ConnectionSelectors.selectedHostSelector(store.state),
           Fixtures.buildHost(),
         );
+        // Selecting the Host already expresses the intent to pair, so the code is requested
+        // without a further step and the dialog reaches code entry.
+        verify(() => requestPairing(any())).called(1);
+        expect(find.text('Check Skyrim'), findsOneWidget);
+        expect(
+          find.byKey(const Key('pairing-request-code-button')),
+          findsNothing,
+        );
       },
     );
 
@@ -148,7 +168,7 @@ void main() {
           () => authenticate(AuthenticateParams(hostUri: second.uri)),
         ).called(1);
         verifyNever(() => authenticate(AuthenticateParams(hostUri: first.uri)));
-        expect(find.text('Pair this device'), findsOneWidget);
+        expect(find.text('Check Skyrim'), findsOneWidget);
         expect(
           ConnectionSelectors.selectedHostSelector(store.state)?.uri,
           second.uri,
@@ -168,7 +188,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
         expect(
           PairingSelectors.phaseSelector(store.state),
-          PairingPhase.unpaired,
+          PairingPhase.awaitingCode,
         );
 
         await tester.tap(find.byTooltip('Close'));
@@ -220,7 +240,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byType(DovahDialog), findsOneWidget);
-        expect(find.text('Pair this device'), findsOneWidget);
+        expect(find.text('Check Skyrim'), findsOneWidget);
         verify(() => authenticate(any())).called(2);
       },
     );
