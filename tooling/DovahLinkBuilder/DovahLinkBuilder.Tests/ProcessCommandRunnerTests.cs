@@ -180,20 +180,28 @@ public sealed class ProcessCommandRunnerTests
     public async Task CancellationTerminatesTheProcessTreeAndThrowsOperationCanceledException()
     {
         using var temporaryDirectory = new TemporaryDirectory();
-        string pidPath = Path.Combine(temporaryDirectory.Path, "child-pid.txt");
+        string markerDirectory = Path.Combine(temporaryDirectory.Path, "child-markers-λ");
+        Directory.CreateDirectory(markerDirectory);
+        string pidPath = Path.Combine(markerDirectory, "child-pid.txt");
         string startedPath = Path.Combine(temporaryDirectory.Path, "child-started.txt");
-        string sentinelPath = Path.Combine(temporaryDirectory.Path, "child-sentinel.txt");
+        string sentinelPath = Path.Combine(markerDirectory, "child-sentinel.txt");
         string goPath = Path.Combine(temporaryDirectory.Path, "child-go.txt");
         string batchPath = Path.Combine(temporaryDirectory.Path, "child-tree.bat");
+        string childScriptPath = Path.Combine(temporaryDirectory.Path, "child-tree.ps1");
+        string powershellPath = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
+        File.WriteAllText(
+            childScriptPath,
+            $"Set-Content -LiteralPath '{pidPath.Replace("'", "''")}' -Value $PID\n" +
+            "Start-Sleep -Milliseconds 500\n" +
+            $"Set-Content -LiteralPath '{sentinelPath.Replace("'", "''")}' -Value orphan\n",
+            new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         File.WriteAllText(
             batchPath,
             "@echo off\n" +
             $"echo started > \"{startedPath}\"\n" +
             ":wait\n" +
             $"if not exist \"{goPath}\" goto wait\n" +
-            "start \"\" /b powershell.exe -NoProfile -Command \"Set-Content -LiteralPath 'child-pid.txt' -Value $PID; " +
-            "Start-Sleep -Milliseconds 500; " +
-            "Set-Content -LiteralPath 'child-sentinel.txt' -Value orphan\"\n" +
+            $"start \"\" /b \"{powershellPath}\" -NoProfile -ExecutionPolicy Bypass -File \"{childScriptPath}\"\n" +
             "ping -n 30 127.0.0.1 >nul\n");
         var command = new BuildCommand(
             Path.Combine(Environment.SystemDirectory, "cmd.exe"),
@@ -205,7 +213,11 @@ public sealed class ProcessCommandRunnerTests
             process => process.Kill(entireProcessTree: true),
             () => new SignalingProcessTreeJob(new ProcessTreeJob(), jobAssigned));
         using var cancellation = new CancellationTokenSource();
-        Task<int> runTask = runner.RunAsync(command, null, null, cancellation.Token);
+        Task<int> runTask = runner.RunAsync(
+            command,
+            line => output.WriteLine($"stdout: {line}"),
+            line => output.WriteLine($"stderr: {line}"),
+            cancellation.Token);
         Exception? bodyException = null;
         try
         {
@@ -450,14 +462,16 @@ public sealed class ProcessCommandRunnerTests
     /// <returns>The descendant's process id.</returns>
     private static async Task<int> ReadDescendantProcessIdAsync(string pidPath)
     {
-        DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+        DateTime deadline = DateTime.UtcNow + TimeSpan.FromSeconds(15);
+        string lastContents = "<missing>";
         while (DateTime.UtcNow < deadline)
         {
             if (File.Exists(pidPath))
             {
                 try
                 {
-                    if (int.TryParse(File.ReadAllText(pidPath).Trim(), out int processId))
+                    lastContents = File.ReadAllText(pidPath).Trim();
+                    if (int.TryParse(lastContents, out int processId) && processId > 0)
                     {
                         return processId;
                     }
@@ -465,13 +479,15 @@ public sealed class ProcessCommandRunnerTests
                 catch (IOException)
                 {
                     // The descendant may still be writing or closing the file; retry.
+                    lastContents = "<temporarily unavailable>";
                 }
             }
 
             await Task.Delay(TimeSpan.FromMilliseconds(10));
         }
 
-        throw new InvalidOperationException($"The descendant process never published its process id to '{pidPath}'.");
+        throw new InvalidOperationException(
+            $"The descendant process never published a valid process id to '{pidPath}'. Last contents: '{lastContents}'.");
     }
 
     /// <summary>
