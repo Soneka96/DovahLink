@@ -1,5 +1,5 @@
-import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
+import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
