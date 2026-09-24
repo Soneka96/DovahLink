@@ -134,4 +134,28 @@ void main() {
       );
     },
   );
+
+  group('Property values in DovahLinkStateStatus behaves correctly', () {
+    test('Property values in DovahLinkStateStatus includes every standing', () {
+      expect(DovahLinkStateStatus.values, <DovahLinkStateStatus>[
+        DovahLinkStateStatus.notSubscribed,
+        DovahLinkStateStatus.unavailable,
+        DovahLinkStateStatus.synchronized,
+        DovahLinkStateStatus.stale,
+        DovahLinkStateStatus.recovering,
+        DovahLinkStateStatus.failed,
+      ]);
+    });
+  });
+
+  group('Property values in StateEventApplyResult behaves correctly', () {
+    test('Property values in StateEventApplyResult includes every result', () {
+      expect(StateEventApplyResult.values, <StateEventApplyResult>[
+        StateEventApplyResult.applied,
+        StateEventApplyResult.buffered,
+        StateEventApplyResult.ignored,
+        StateEventApplyResult.recoveryRequired,
+      ]);
+    });
+  });
 }

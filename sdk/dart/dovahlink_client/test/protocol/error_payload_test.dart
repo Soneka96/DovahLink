@@ -91,6 +91,8 @@ void main() {
               ProtocolErrorCode.staleSession: 'stale_session',
               ProtocolErrorCode.rateLimited: 'rate_limited',
               ProtocolErrorCode.internalError: 'internal_error',
+              ProtocolErrorCode.temporarilyUnavailable:
+                  'temporarily_unavailable',
             };
 
         expect(wireValues.keys, ProtocolErrorCode.values);
@@ -98,6 +100,9 @@ void main() {
             in wireValues.entries) {
           final JsonMap json = _readPayload('errors/error-rate-limited.json')
             ..['code'] = entry.value;
+          if (entry.key == ProtocolErrorCode.temporarilyUnavailable) {
+            json['retryable'] = true;
+          }
 
           expect(ErrorPayload.fromJson(json).code, entry.key);
         }

@@ -393,6 +393,10 @@ enum ProtocolErrorCode {
   /// The host could not complete an operation safely.
   @JsonValue('internal_error')
   internalError,
+
+  /// A registered state baseline is temporarily unavailable.
+  @JsonValue('temporarily_unavailable')
+  temporarilyUnavailable,
 }
 
 /// The canonical wire value of the `hello.endpoint` field.
@@ -441,4 +445,42 @@ enum HostVersionCompatibilityFailure {
 
   /// The Host is newer than this SDK's supported release range.
   hostTooNew,
+}
+
+// ---- State synchronization ----
+
+/// The synchronization standing of one subscribed state domain.
+enum DovahLinkStateStatus {
+  /// The consumer has not requested this domain.
+  notSubscribed,
+
+  /// A synchronized snapshot established that the current value is unavailable.
+  unavailable,
+
+  /// The current value agrees with the latest accepted Host revision.
+  synchronized,
+
+  /// A revision gap or identity change made the cached value unsafe to present as current.
+  stale,
+
+  /// The SDK is waiting for an authoritative snapshot before applying more events.
+  recovering,
+
+  /// The SDK could not restore a trustworthy baseline for this domain.
+  failed,
+}
+
+/// The result of applying an Event update to one domain's current revision.
+enum StateEventApplyResult {
+  /// The Event extended the current revision and value.
+  applied,
+
+  /// The Event is held until an authoritative recovery Snapshot establishes its baseline.
+  buffered,
+
+  /// The Event was duplicate, stale, or unusable while recovery is already required.
+  ignored,
+
+  /// The Event exposed a missing baseline, identity change, or revision gap requiring a snapshot.
+  recoveryRequired,
 }

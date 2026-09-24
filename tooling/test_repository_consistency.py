@@ -1289,7 +1289,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertNotIn("## 1.25 ", roadmap)
         self.assertNotIn("## 1.5 ", roadmap)
         self.assertEqual(roadmap.count("**Status:** Next"), 0)
-        self.assertEqual(roadmap.count("**Status:** Complete"), 18)
+        self.assertEqual(roadmap.count("**Status:** Complete"), 19)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Planned$", roadmap)), 25)
         self.assertEqual(len(re.findall(r"(?m)^\*\*Status:\*\* Active\.", roadmap)), 1)
         self.assertEqual(
@@ -1300,18 +1300,21 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "## Ordered stages", 1
         )[0]
         self.assertIn(
-            "**Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phase 5.2 is the next planned",
+            "**Current stage:** Stage 5 — Dart Client SDK Foundation is active; "
+            "Phase 5.2 is complete and",
             current_position,
         )
         self.assertIn(
-            "**Current phase:** Phase 5.2 — SDK State Synchronization API (**Planned**). Phase 5.1 completed",
+            "**Current phase:** Phase 5.3 — Subscription, Reconnect, and Session "
+            "Lifecycle (**Planned**). Phase",
             current_position,
         )
         ordered_stages = root_roadmap.split("## Ordered stages", 1)[1].split(
             "## Major dependencies", 1
         )[0]
         self.assertIn(
-            "| 5 | Active. Phase 5.1 is complete; Phase 5.2 is the next planned target.",
+            "| 5 | Active. Phases 5.1 and 5.2 are complete; Phase 5.3 is the next "
+            "planned target.",
             ordered_stages,
         )
         self.assertIn(
@@ -1320,8 +1323,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("recommends `0.4.0`", current_position)
         self.assertNotIn("Stage 4 remains Active", current_position)
-        # Stage 5 is active because Phase 5.1 is complete and Phase 5.2 is next; the status line
-        # also records work pulled forward for Phase 3's pairing needs.
+        # Stage 5 is active because Phases 5.1 and 5.2 are complete and Phase 5.3 is next;
+        # the status line also records work pulled forward for Phase 3's pairing needs.
         phase_5_status = (
             "**Status:** Active. The package scaffold, protocol/transport layer, and "
             "persistence boundary"
@@ -1333,12 +1336,13 @@ class RepositoryConsistencyTests(unittest.TestCase):
             )[0]
         )
         self.assertIn(
-            "Phase 5.1 — SDK Typed Protocol and Host Compatibility Boundary is complete.",
+            "Phases 5.1 and 5.2 — the typed protocol/compatibility boundary and state "
+            "synchronization API — are complete.",
             phase_5_summary,
         )
         self.assertIn(
-            "State revisions, subscriptions, snapshots, recovery, and completing the app's "
-            "SDK integration remain for the rest of Stage 5.",
+            "Phase 5.3's subscription/reconnect/session lifecycle and Phase 5.4's Flutter "
+            "middleware integration remain",
             phase_5_summary,
         )
 
@@ -1379,7 +1383,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
                     "**Status:** Complete",
                 ]
             elif heading.startswith("5. "):
-                expected_statuses = [phase_5_status, "**Status:** Complete"]
+                expected_statuses = [
+                    phase_5_status,
+                    "**Status:** Complete",
+                    "**Status:** Complete",
+                ]
             elif heading.startswith("28. "):
                 expected_statuses = [
                     "**Status:** Planned after read-only product validation"
@@ -1867,8 +1875,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "The official\nFlutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public\nclient for pairing and authentication through `PairingRemoteDataSource`.",
             "The SDK supports Host releases in the `0.4.x` range and rejects older or newer Host "
             "versions during\n`hello`, before admitting a session.",
-            "It still has no public state synchronization API: Stage 5 owns\nthe SDK's typed state models, revisions, subscriptions, snapshot/recovery lifecycle",
-            "The app's `features/connection/` code currently handles Host\nselection and navigation",
+            "Phase 5.2 is complete: the public client exposes replayable typed\n"
+            "state streams for XP, health, magicka, stamina, and level",
+            "The app's `features/connection/` area remains responsible for Host selection "
+            "and navigation",
         ):
             self.assertIn(required_phrase, sdk_readme)
 
