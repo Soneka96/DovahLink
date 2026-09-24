@@ -91,6 +91,7 @@ void main() {
     when(() => pairingViewModel.hostName).thenReturn('Local Host');
     when(() => pairingViewModel.error).thenReturn(null);
     when(() => pairingViewModel.isRepair).thenReturn(false);
+    when(() => pairingViewModel.isBlocked).thenReturn(false);
     when(() => pairingViewModel.canDismiss).thenReturn(true);
     when(
       () => pairingViewModel.onStart,

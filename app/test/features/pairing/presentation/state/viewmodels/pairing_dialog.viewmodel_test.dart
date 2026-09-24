@@ -13,10 +13,11 @@ import '../../../../../fixtures/fixtures.dart';
 /// Mocktail double for the Redux [Store] the ViewModel reads.
 class MockStore extends Mock implements Store<AppState> {}
 
-/// Builds an [AppState] in [phase] with [error] and the selected [host].
+/// Builds an [AppState] in [phase] with [error], rejection reason, and selected [host].
 AppState buildState({
   PairingPhase phase = PairingPhase.none,
   String? error,
+  PairingCredentialRejectionReason? rejectionReason,
   Host? host,
 }) => AppState(
   connection: ConnectionState(selectedHost: host),
@@ -24,6 +25,7 @@ AppState buildState({
     phase: phase,
     hostVersion: null,
     error: error,
+    credentialRejectionReason: rejectionReason,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
   ),
@@ -96,21 +98,57 @@ void main() {
     });
 
     test(
-      'Method fromStore titles the dialog Pairing required for a rejected credential',
+      'Method fromStore titles revoked and unrecognized credentials Pairing required',
       () {
-        expect(
-          titleFor(
-            store,
-            buildState(
-              phase: PairingPhase.unpaired,
-              error: "This device's trust was revoked.",
-              host: host,
+        for (final PairingCredentialRejectionReason reason in [
+          PairingCredentialRejectionReason.revoked,
+          PairingCredentialRejectionReason.unrecognized,
+        ]) {
+          expect(
+            titleFor(
+              store,
+              buildState(
+                phase: PairingPhase.unpaired,
+                error: 'Credential rejected.',
+                rejectionReason: reason,
+                host: host,
+              ),
             ),
-          ),
-          'Pairing required',
-        );
+            'Pairing required',
+            reason: '$reason',
+          );
+        }
       },
     );
+
+    test('Method fromStore titles a blocked credential Device blocked', () {
+      expect(
+        titleFor(
+          store,
+          buildState(
+            phase: PairingPhase.unpaired,
+            error: 'Blocked by Host.',
+            rejectionReason: PairingCredentialRejectionReason.blocked,
+            host: host,
+          ),
+        ),
+        'Device blocked',
+      );
+    });
+
+    test('Method fromStore does not infer repair from the error message', () {
+      expect(
+        titleFor(
+          store,
+          buildState(
+            phase: PairingPhase.unpaired,
+            error: "This device's trust was revoked.",
+            host: host,
+          ),
+        ),
+        'Pair with Gaming PC',
+      );
+    });
 
     test(
       'Method fromStore keeps the Host title when an error accompanies another phase',

@@ -10,6 +10,7 @@ import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_blocked.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_entry.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_failure.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_progress.widget.dart';
@@ -60,6 +61,7 @@ void main() {
     when(() => viewModel.hostName).thenReturn('Bedroom PC');
     when(() => viewModel.error).thenReturn(null);
     when(() => viewModel.isRepair).thenReturn(false);
+    when(() => viewModel.isBlocked).thenReturn(false);
     when(() => viewModel.canDismiss).thenReturn(true);
     when(() => viewModel.onStart).thenReturn(() => calls.add('start'));
     when(
@@ -219,6 +221,37 @@ void main() {
     );
 
     testWidgets(
+      'PairingSection displays a blocked state with only a safe Close action',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => viewModel.isBlocked).thenReturn(true);
+
+        await pumpSection(tester);
+
+        expect(find.byType(PairingBlocked), findsOneWidget);
+        expect(find.byType(PairingRepair), findsNothing);
+        expect(find.byType(PairingProgress), findsNothing);
+        expect(
+          find.text(
+            'This device is blocked by the Host and cannot pair again until an administrator '
+            'unblocks it.',
+            findRichText: true,
+          ),
+          findsOneWidget,
+        );
+        expect(find.byKey(const Key('pairing-close-button')), findsOneWidget);
+        expect(
+          find.byKey(const Key('pairing-request-code-button')),
+          findsNothing,
+        );
+        expect(
+          find.byKey(const Key('pairing-repair-cancel-button')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
       'PairingSection displays progress for a first-time unpaired session',
       (WidgetTester tester) async {
         when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
@@ -293,6 +326,22 @@ void main() {
     });
 
     testWidgets(
+      'PairingSection does not request a code for a blocked credential',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => viewModel.isBlocked).thenReturn(true);
+
+        await pumpSection(tester);
+
+        expect(
+          find.byKey(const Key('pairing-request-code-button')),
+          findsNothing,
+        );
+        expect(calls, ['start']);
+      },
+    );
+
+    testWidgets(
       'PairingSection does not request a code before Pair again is tapped',
       (WidgetTester tester) async {
         when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
@@ -357,6 +406,21 @@ void main() {
         await pumpSection(tester);
 
         await tester.tap(find.byKey(const Key('pairing-repair-cancel-button')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PairingSection), findsNothing);
+        expect(calls, ['start', 'dispose']);
+      },
+    );
+
+    testWidgets(
+      'PairingSection closes a blocked state without requesting a code',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => viewModel.isBlocked).thenReturn(true);
+
+        await pumpSection(tester);
+        await tester.tap(find.byKey(const Key('pairing-close-button')));
         await tester.pumpAndSettle();
 
         expect(find.byType(PairingSection), findsNothing);

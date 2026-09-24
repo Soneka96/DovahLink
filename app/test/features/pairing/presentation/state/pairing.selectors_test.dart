@@ -6,6 +6,23 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.sta
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
+/// Builds pairing state with the supplied phase, copy, and rejection reason.
+AppState buildPairingState({
+  PairingPhase phase = PairingPhase.none,
+  String? error,
+  PairingCredentialRejectionReason? rejectionReason,
+}) => AppState(
+  connection: ConnectionState.initial(),
+  pairing: PairingState(
+    phase: phase,
+    hostVersion: null,
+    error: error,
+    credentialRejectionReason: rejectionReason,
+    codeExpiresAt: null,
+    renotifyAvailableAt: null,
+  ),
+);
+
 /// Exercises pairing selectors over root application state.
 void main() {
   group('PairingSelectors', () {
@@ -172,56 +189,143 @@ void main() {
     });
   });
 
-  group('PairingSelectors.isRepairSelector', () {
-    AppState stateWith(PairingPhase phase, String? error) => AppState(
-      connection: ConnectionState.initial(),
-      pairing: PairingState(
-        phase: phase,
-        hostVersion: null,
-        error: error,
-        codeExpiresAt: null,
-        renotifyAvailableAt: null,
-      ),
-    );
-
+  group('Selector isRepairSelector behaves correctly', () {
     test(
-      'returns true for an unpaired session carrying a rejection reason',
+      'Selector isRepairSelector returns true for revoked and unrecognized credentials',
       () {
-        expect(
-          PairingSelectors.isRepairSelector(
-            stateWith(
-              PairingPhase.unpaired,
-              "This device's trust was revoked.",
+        for (final PairingCredentialRejectionReason reason in [
+          PairingCredentialRejectionReason.revoked,
+          PairingCredentialRejectionReason.unrecognized,
+        ]) {
+          expect(
+            PairingSelectors.isRepairSelector(
+              buildPairingState(
+                phase: PairingPhase.unpaired,
+                rejectionReason: reason,
+              ),
             ),
-          ),
-          isTrue,
-        );
+            isTrue,
+            reason: '$reason',
+          );
+        }
       },
     );
 
     test(
-      'returns false for a first-time unpaired session without an error',
+      'Selector isRepairSelector returns false for blocked credentials and no reason',
       () {
         expect(
           PairingSelectors.isRepairSelector(
-            stateWith(PairingPhase.unpaired, null),
+            buildPairingState(
+              phase: PairingPhase.unpaired,
+              rejectionReason: PairingCredentialRejectionReason.blocked,
+            ),
+          ),
+          isFalse,
+        );
+        expect(
+          PairingSelectors.isRepairSelector(
+            buildPairingState(phase: PairingPhase.unpaired),
           ),
           isFalse,
         );
       },
     );
 
-    test('returns false for every other phase even when an error is set', () {
+    test('Selector isRepairSelector ignores messages and other phases', () {
+      expect(
+        PairingSelectors.isRepairSelector(
+          buildPairingState(
+            phase: PairingPhase.unpaired,
+            error: "This device's trust was revoked.",
+          ),
+        ),
+        isFalse,
+      );
       for (final PairingPhase phase in PairingPhase.values) {
         if (phase == PairingPhase.unpaired) {
           continue;
         }
         expect(
-          PairingSelectors.isRepairSelector(stateWith(phase, 'Some error.')),
+          PairingSelectors.isRepairSelector(
+            buildPairingState(
+              phase: phase,
+              rejectionReason: PairingCredentialRejectionReason.revoked,
+            ),
+          ),
           isFalse,
           reason: '$phase',
         );
       }
     });
+  });
+
+  group('Selector isBlockedSelector behaves correctly', () {
+    test(
+      'Selector isBlockedSelector returns true only for an unpaired blocked credential',
+      () {
+        expect(
+          PairingSelectors.isBlockedSelector(
+            buildPairingState(
+              phase: PairingPhase.unpaired,
+              rejectionReason: PairingCredentialRejectionReason.blocked,
+            ),
+          ),
+          isTrue,
+        );
+        for (final PairingCredentialRejectionReason reason in [
+          PairingCredentialRejectionReason.revoked,
+          PairingCredentialRejectionReason.unrecognized,
+        ]) {
+          expect(
+            PairingSelectors.isBlockedSelector(
+              buildPairingState(
+                phase: PairingPhase.unpaired,
+                rejectionReason: reason,
+              ),
+            ),
+            isFalse,
+            reason: '$reason',
+          );
+        }
+        expect(
+          PairingSelectors.isBlockedSelector(
+            buildPairingState(phase: PairingPhase.unpaired),
+          ),
+          isFalse,
+        );
+        expect(
+          PairingSelectors.isBlockedSelector(
+            buildPairingState(
+              phase: PairingPhase.failed,
+              rejectionReason: PairingCredentialRejectionReason.blocked,
+            ),
+          ),
+          isFalse,
+        );
+      },
+    );
+  });
+
+  group('Selector credentialRejectionReasonSelector behaves correctly', () {
+    test(
+      'Selector credentialRejectionReasonSelector returns the typed reason or null',
+      () {
+        expect(
+          PairingSelectors.credentialRejectionReasonSelector(
+            buildPairingState(
+              rejectionReason: PairingCredentialRejectionReason.blocked,
+            ),
+          ),
+          PairingCredentialRejectionReason.blocked,
+        );
+        expect(
+          PairingSelectors.credentialRejectionReasonSelector(
+            buildPairingState(),
+          ),
+          isNull,
+        );
+      },
+    );
   });
 }

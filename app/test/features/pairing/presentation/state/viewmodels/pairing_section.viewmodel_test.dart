@@ -14,10 +14,11 @@ import '../../../../../fixtures/fixtures.dart';
 /// Mocks the Redux store the ViewModel reads and dispatches through.
 class MockStore extends Mock implements Store<AppState> {}
 
-/// Builds an [AppState] with the given pairing [phase], [error] and selected [host].
+/// Builds an [AppState] with the given phase, error, rejection reason, and Host.
 AppState buildState({
   PairingPhase phase = PairingPhase.none,
   String? error,
+  PairingCredentialRejectionReason? rejectionReason,
   Host? host,
 }) => AppState(
   connection: ConnectionState(selectedHost: host),
@@ -25,6 +26,7 @@ AppState buildState({
     phase: phase,
     hostVersion: null,
     error: error,
+    credentialRejectionReason: rejectionReason,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
   ),
@@ -56,15 +58,44 @@ void main() {
       expect(viewModel.error, 'Code expired.');
     });
 
-    test('Method fromStore projects isRepair for a rejected credential', () {
+    test(
+      'Method fromStore projects isRepair for repairable credential rejections',
+      () {
+        for (final PairingCredentialRejectionReason reason in [
+          PairingCredentialRejectionReason.revoked,
+          PairingCredentialRejectionReason.unrecognized,
+        ]) {
+          when(() => store.state).thenReturn(
+            buildState(
+              phase: PairingPhase.unpaired,
+              error: 'Credential rejected.',
+              rejectionReason: reason,
+            ),
+          );
+
+          final PairingSectionViewModel viewModel =
+              PairingSectionViewModel.fromStore(store);
+
+          expect(viewModel.isRepair, isTrue, reason: '$reason');
+          expect(viewModel.isBlocked, isFalse, reason: '$reason');
+        }
+      },
+    );
+
+    test('Method fromStore projects blocked credentials as non-repairable', () {
       when(() => store.state).thenReturn(
         buildState(
           phase: PairingPhase.unpaired,
-          error: "This device's trust was revoked.",
+          error: 'Blocked by Host.',
+          rejectionReason: PairingCredentialRejectionReason.blocked,
         ),
       );
 
-      expect(PairingSectionViewModel.fromStore(store).isRepair, isTrue);
+      final PairingSectionViewModel viewModel =
+          PairingSectionViewModel.fromStore(store);
+
+      expect(viewModel.isRepair, isFalse);
+      expect(viewModel.isBlocked, isTrue);
     });
 
     test(
@@ -74,7 +105,11 @@ void main() {
           () => store.state,
         ).thenReturn(buildState(phase: PairingPhase.unpaired));
 
-        expect(PairingSectionViewModel.fromStore(store).isRepair, isFalse);
+        final PairingSectionViewModel viewModel =
+            PairingSectionViewModel.fromStore(store);
+
+        expect(viewModel.isRepair, isFalse);
+        expect(viewModel.isBlocked, isFalse);
       },
     );
 
@@ -241,5 +276,25 @@ void main() {
         expect(first.hashCode, second.hashCode);
       },
     );
+
+    test('PairingSectionViewModel includes blocked state in equality', () {
+      when(() => store.state).thenReturn(
+        buildState(
+          phase: PairingPhase.unpaired,
+          error: 'Blocked.',
+          rejectionReason: PairingCredentialRejectionReason.blocked,
+        ),
+      );
+      final PairingSectionViewModel blocked = PairingSectionViewModel.fromStore(
+        store,
+      );
+      when(
+        () => store.state,
+      ).thenReturn(buildState(phase: PairingPhase.unpaired, error: 'Blocked.'));
+      final PairingSectionViewModel unblocked =
+          PairingSectionViewModel.fromStore(store);
+
+      expect(blocked, isNot(unblocked));
+    });
   });
 }

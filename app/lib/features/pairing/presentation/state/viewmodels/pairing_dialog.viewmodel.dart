@@ -17,8 +17,8 @@ class PairingDialogViewModel extends Equatable {
   const PairingDialogViewModel({required this.title});
 
   /// Builds a ViewModel from the Redux [store]. The title follows the pairing state: it names
-  /// the Host while pairing, and announces when the Host is not running, when trust has to be
-  /// confirmed again, and when the device is connected.
+  /// the Host while pairing, and announces when the Host is not running, when trust must be
+  /// repaired or pairing is blocked, and when the device is connected.
   factory PairingDialogViewModel.fromStore(Store<AppState> store) {
     final AppState state = store.state;
     final String hostName =
@@ -28,6 +28,8 @@ class PairingDialogViewModel extends Equatable {
       title: switch (PairingSelectors.phaseSelector(state)) {
         PairingPhase.disconnected => 'Skyrim isn’t running',
         PairingPhase.trusted => 'Connected',
+        PairingPhase.unpaired when PairingSelectors.isBlockedSelector(state) =>
+          'Device blocked',
         PairingPhase.unpaired when PairingSelectors.isRepairSelector(state) =>
           'Pairing required',
         _ => 'Pair with $hostName',
