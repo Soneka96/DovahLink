@@ -13,6 +13,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -110,9 +111,11 @@ void main() {
   group('ConnectionsScreen contains widgets', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final Size size in const [
+        Size(500, 600),
         Size(720, 480),
         Size(900, 560),
         Size(1280, 720),
+        Size(1600, 900),
       ]) {
         testWidgets(
           'ConnectionsScreen contains the prototype hierarchy under $preset at $size without overflow',
@@ -241,6 +244,42 @@ void main() {
         );
       },
     );
+
+    for (final (Size, double, double) layout in const [
+      (
+        Size(500, 600),
+        DovahThemeTokens.rootMinimumWidth -
+            DovahThemeTokens.rootContentSideMargin * 2,
+        DovahThemeTokens.rootMinimumWidth - 500,
+      ),
+      (Size(1600, 900), DovahThemeTokens.rootContentMaxWidth, 0),
+    ]) {
+      testWidgets(
+        'ConnectionsScreen keeps its content width and horizontal scroll correct at ${layout.$1}',
+        (WidgetTester tester) async {
+          await useSurface(tester, layout.$1);
+          await tester.pumpWidget(buildWidget());
+
+          final Finder horizontalViewport = find.byWidgetPredicate(
+            (Widget widget) =>
+                widget is SingleChildScrollView &&
+                widget.scrollDirection == Axis.horizontal,
+          );
+          final ScrollableState horizontalScroll = tester.state(
+            find
+                .descendant(
+                  of: horizontalViewport,
+                  matching: find.byType(Scrollable),
+                )
+                .first,
+          );
+
+          expect(tester.takeException(), isNull);
+          expect(tester.getSize(find.byType(RootHeader)).width, layout.$2);
+          expect(horizontalScroll.position.maxScrollExtent, layout.$3);
+        },
+      );
+    }
   });
 
   group('ConnectionsScreen selects a Host', () {
