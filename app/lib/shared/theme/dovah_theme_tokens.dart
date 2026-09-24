@@ -84,6 +84,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Size of the icon inside a themed icon-only button.
   static const double iconButtonIconSize = 19;
 
+  /// Letter spacing, in ems, of labels a theme renders in uppercase.
+  static const double uppercaseLetterSpacingEm = 0.045;
+
   /// Width of themed focus outlines.
   static const double focusOutlineWidth = 2;
 

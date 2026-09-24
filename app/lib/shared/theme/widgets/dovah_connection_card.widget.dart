@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -39,11 +41,21 @@ class DovahConnectionCard extends StatelessWidget {
     final tokens = context.dovahTokens;
     final Color statusColor = switch (state) {
       DovahConnectionCardState.available => tokens.success,
+      DovahConnectionCardState.unknown => tokens.textMuted,
       DovahConnectionCardState.offline => tokens.textFaint,
       DovahConnectionCardState.repair => tokens.warning,
     };
 
     final bool enabled = onTap != null;
+    final EdgeInsets padding = EdgeInsets.symmetric(
+      vertical: DovahThemeTokens.spacing16 * tokens.densityScale,
+      horizontal: DovahThemeTokens.spacing18 * tokens.densityScale,
+    );
+    final bool uppercase = tokens.uppercaseLabels;
+    final double? uppercaseSpacing = uppercase
+        ? DovahThemeTokens.uppercaseLetterSpacingEm *
+              DovahThemeTokens.compactFontSize
+        : null;
 
     return Semantics(
       excludeSemantics: true,
@@ -80,100 +92,107 @@ class DovahConnectionCard extends StatelessWidget {
                     )
                   : null,
               child: DovahSurface(
-                padding: EdgeInsets.symmetric(
-                  vertical: DovahThemeTokens.spacing16 * tokens.densityScale,
-                  horizontal: DovahThemeTokens.spacing18 * tokens.densityScale,
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width:
-                          DovahThemeTokens.connectionIconTileSize *
-                          tokens.densityScale,
-                      height:
-                          DovahThemeTokens.connectionIconTileSize *
-                          tokens.densityScale,
-                      alignment: Alignment.center,
-                      decoration: BoxDecoration(
-                        color: tokens.surfaceRaised,
-                        border: Border.all(color: tokens.lineStrong),
-                        borderRadius: BorderRadius.circular(
-                          DovahThemeTokens.connectionIconTileRadius *
+                padding: padding,
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(
+                    minHeight: math.max(
+                      0,
+                      tokens.connectionCardMinHeight - padding.vertical,
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width:
+                            DovahThemeTokens.connectionIconTileSize *
+                            tokens.densityScale,
+                        height:
+                            DovahThemeTokens.connectionIconTileSize *
+                            tokens.densityScale,
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: tokens.surfaceRaised,
+                          border: Border.all(color: tokens.lineStrong),
+                          borderRadius: BorderRadius.circular(
+                            DovahThemeTokens.connectionIconTileRadius *
+                                tokens.densityScale,
+                          ),
+                        ),
+                        child: Icon(
+                          Icons.desktop_windows_outlined,
+                          color: tokens.accentPrimary,
+                          size:
+                              DovahThemeTokens.connectionIconSize *
                               tokens.densityScale,
                         ),
                       ),
-                      child: Icon(
-                        Icons.desktop_windows_outlined,
-                        color: tokens.accentPrimary,
-                        size:
-                            DovahThemeTokens.connectionIconSize *
-                            tokens.densityScale,
+                      SizedBox(
+                        width: DovahThemeTokens.spacing16 * tokens.densityScale,
                       ),
-                    ),
-                    SizedBox(
-                      width: DovahThemeTokens.spacing16 * tokens.densityScale,
-                    ),
-                    Expanded(
-                      flex: 3,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                      Expanded(
+                        flex: 3,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              uppercase ? title.toUpperCase() : title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: tokens.textPrimary,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: uppercaseSpacing,
+                              ),
+                            ),
+                            Text(
+                              subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: tokens.textMuted,
+                                fontSize: DovahThemeTokens.compactFontSize,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      Expanded(
+                        flex: 2,
+                        child: Text(
+                          detail,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            color: tokens.textMuted,
+                            fontSize: DovahThemeTokens.compactFontSize,
+                          ),
+                        ),
+                      ),
+                      Row(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: tokens.textPrimary,
-                              fontWeight: FontWeight.w600,
-                            ),
+                          Icon(
+                            Icons.circle,
+                            size: DovahThemeTokens.connectionStateMarkerSize,
+                            color: statusColor,
                           ),
+                          const SizedBox(width: DovahThemeTokens.spacing8),
                           Text(
-                            subtitle,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
+                            uppercase ? state.label.toUpperCase() : state.label,
                             style: TextStyle(
-                              color: tokens.textMuted,
+                              color: statusColor,
+                              fontWeight: FontWeight.w700,
                               fontSize: DovahThemeTokens.compactFontSize,
+                              letterSpacing: uppercaseSpacing,
                             ),
                           ),
                         ],
                       ),
-                    ),
-                    Expanded(
-                      flex: 2,
-                      child: Text(
-                        detail,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: tokens.textMuted,
-                          fontSize: DovahThemeTokens.compactFontSize,
-                        ),
-                      ),
-                    ),
-                    Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(
-                          Icons.circle,
-                          size: DovahThemeTokens.connectionStateMarkerSize,
-                          color: statusColor,
-                        ),
-                        const SizedBox(width: DovahThemeTokens.spacing8),
-                        Text(
-                          state.label,
-                          style: TextStyle(
-                            color: statusColor,
-                            fontWeight: FontWeight.w700,
-                            fontSize: DovahThemeTokens.compactFontSize,
-                          ),
-                        ),
-                      ],
-                    ),
-                    if (state != DovahConnectionCardState.offline)
-                      Icon(Icons.chevron_right, color: tokens.accentPrimary),
-                  ],
+                      if (state != DovahConnectionCardState.offline)
+                        Icon(Icons.chevron_right, color: tokens.accentPrimary),
+                    ],
+                  ),
                 ),
               ),
             );

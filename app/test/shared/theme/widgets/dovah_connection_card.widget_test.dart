@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 
@@ -33,14 +34,138 @@ void main() {
                 size: size,
               );
 
+              final bool uppercase = preset == DovahThemePreset.frostbound;
               expect(tester.takeException(), isNull);
-              expect(find.text('Gaming PC'), findsOneWidget);
-              expect(find.text(state.label), findsOneWidget);
+              expect(
+                find.text(uppercase ? 'GAMING PC' : 'Gaming PC'),
+                findsOneWidget,
+              );
+              expect(
+                find.text(uppercase ? state.label.toUpperCase() : state.label),
+                findsOneWidget,
+              );
             },
           );
         }
       }
     }
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahConnectionCard keeps its minimum height and unabridged label under $preset',
+        (WidgetTester tester) async {
+          final SemanticsHandle semantics = tester.ensureSemantics();
+          try {
+            await pumpDovahThemedWidget(
+              tester,
+              const DovahConnectionCard(
+                title: 'Gaming PC',
+                subtitle: 'Skyrim Special Edition',
+                detail: 'Level 43 · Whiterun',
+                state: DovahConnectionCardState.available,
+              ),
+              preset: preset,
+              size: dovahTestSizes.first,
+            );
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(
+              tester.getSize(find.byType(DovahConnectionCard)).height,
+              greaterThanOrEqualTo(tokens.connectionCardMinHeight),
+            );
+            expect(
+              find.bySemanticsLabel(
+                'Gaming PC, Skyrim Special Edition, Level 43 · Whiterun, '
+                'Connected',
+              ),
+              findsOneWidget,
+            );
+          } finally {
+            semantics.dispose();
+          }
+        },
+      );
+    }
+
+    testWidgets('DovahConnectionCard leaves casing alone outside Frostbound', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahConnectionCard(
+          title: 'Gaming PC',
+          subtitle: 'Skyrim Special Edition',
+          detail: 'Level 43 · Whiterun',
+          state: DovahConnectionCardState.available,
+        ),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+      final Text title = tester.widget(find.text('Gaming PC'));
+      final Text state = tester.widget(find.text('Connected'));
+
+      expect(title.style?.letterSpacing, isNull);
+      expect(state.style?.letterSpacing, isNull);
+    });
+
+    testWidgets(
+      'DovahConnectionCard spaces uppercase labels under Frostbound',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahConnectionCard(
+            title: 'Gaming PC',
+            subtitle: 'Skyrim Special Edition',
+            detail: 'Level 43 · Whiterun',
+            state: DovahConnectionCardState.available,
+          ),
+          preset: DovahThemePreset.frostbound,
+          size: dovahTestSizes.first,
+        );
+        final Text title = tester.widget(find.text('GAMING PC'));
+        final Text state = tester.widget(find.text('CONNECTED'));
+        final Text subtitle = tester.widget(
+          find.text('Skyrim Special Edition'),
+        );
+        const double spacing =
+            DovahThemeTokens.uppercaseLetterSpacingEm *
+            DovahThemeTokens.compactFontSize;
+
+        expect(title.style?.letterSpacing, isA<double>());
+        expect(title.style?.letterSpacing, spacing);
+        expect(state.style?.letterSpacing, isA<double>());
+        expect(state.style?.letterSpacing, spacing);
+        expect(subtitle.style?.letterSpacing, isNull);
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard shows a muted marker and chevron when its state is unknown',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahConnectionCard(
+            title: 'Local Host',
+            subtitle: 'DovahLink Host',
+            detail: '127.0.0.1:47800',
+            state: DovahConnectionCardState.unknown,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final DovahThemeTokens tokens = dovahThemeDataFor(
+          DovahThemePreset.dovah,
+        ).extension<DovahThemeTokens>()!;
+        final Icon marker = tester.widget(find.byIcon(Icons.circle).first);
+        final Text label = tester.widget(find.text('Not connected'));
+
+        expect(marker.color, tokens.textMuted);
+        expect(label.style?.color, tokens.textMuted);
+        expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+      },
+    );
 
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
@@ -58,7 +183,7 @@ void main() {
             size: dovahTestSizes.first,
           );
           final DovahThemeTokens tokens = Theme.of(
-            tester.element(find.text('Gaming PC')),
+            tester.element(find.byType(DovahConnectionCard)),
           ).extension<DovahThemeTokens>()!;
           final Icon icon = tester.widget(
             find.byIcon(Icons.desktop_windows_outlined),

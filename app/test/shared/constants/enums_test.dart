@@ -41,6 +41,8 @@ void main() {
       () {
         expect(DovahConnectionCardState.available.label, isA<String>());
         expect(DovahConnectionCardState.available.label, 'Connected');
+        expect(DovahConnectionCardState.unknown.label, isA<String>());
+        expect(DovahConnectionCardState.unknown.label, 'Not connected');
         expect(DovahConnectionCardState.offline.label, isA<String>());
         expect(DovahConnectionCardState.offline.label, 'Offline');
         expect(DovahConnectionCardState.repair.label, isA<String>());
