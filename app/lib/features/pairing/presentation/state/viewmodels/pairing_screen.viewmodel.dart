@@ -19,6 +19,7 @@ class PairingScreenViewModel extends Equatable {
     required this.onRequestCode,
     required this.onSubmitCode,
     required this.onBack,
+    required this.onDispose,
   });
 
   /// Current pairing lifecycle phase.
@@ -45,6 +46,9 @@ class PairingScreenViewModel extends Equatable {
   /// Dispatches [PairingBackRequestedAction].
   final void Function() onBack;
 
+  /// Dispatches [PairingDisposedAction] with trust captured from the current store state.
+  final void Function() onDispose;
+
   /// Builds a ViewModel from the Redux [store].
   factory PairingScreenViewModel.fromStore(Store<AppState> store) {
     final AppState state = store.state;
@@ -59,6 +63,13 @@ class PairingScreenViewModel extends Equatable {
         PairingCodeSubmittedAction(code: code, displayName: displayName),
       ),
       onBack: () => store.dispatch(const PairingBackRequestedAction()),
+      onDispose: () => store.dispatch(
+        PairingDisposedAction(
+          wasTrusted:
+              PairingSelectors.phaseSelector(store.state) ==
+              PairingPhase.trusted,
+        ),
+      ),
     );
   }
 

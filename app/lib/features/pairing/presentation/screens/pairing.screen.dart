@@ -1,9 +1,8 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
@@ -30,14 +29,9 @@ class PairingScreen extends StatelessWidget {
     return StoreConnector<AppState, PairingScreenViewModel>(
       distinct: true,
       onInit: (Store<AppState> store) =>
-          store.dispatch(const PairingStartedAction()),
-      onDispose: (Store<AppState> store) => store.dispatch(
-        PairingDisposedAction(
-          wasTrusted:
-              PairingSelectors.phaseSelector(store.state) ==
-              PairingPhase.trusted,
-        ),
-      ),
+          sl<PairingScreenViewModel>(param1: store).onStart(),
+      onDispose: (Store<AppState> store) =>
+          sl<PairingScreenViewModel>(param1: store).onDispose(),
       converter: (Store<AppState> store) =>
           sl<PairingScreenViewModel>(param1: store),
       builder: (BuildContext context, PairingScreenViewModel viewModel) {

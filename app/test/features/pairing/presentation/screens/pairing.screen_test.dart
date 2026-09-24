@@ -1,13 +1,14 @@
-import 'package:flutter/material.dart' hide ConnectionState;
+import 'package:flutter/material.dart';
+
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
-import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_back_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_cancel_button.widget.dart';
@@ -28,22 +29,35 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 class MockPairingScreenViewModel extends Mock
     implements PairingScreenViewModel {}
 
-/// Mocktail double for [Store], standing in for the `Store<AppState>` passed
-/// to [StoreProvider]. `onInit`/`onDispose` read and dispatch on it directly
-/// rather than through the ViewModel, so it is mocked too, exactly like this
-/// project's middleware tests: `dispatch` records into an action log,
-/// `state` returns whatever a test needs directly.
+/// Mocks the cancellation button presentation contract nested in the screen.
+class MockPairingCancelButtonViewModel extends Mock
+    implements PairingCancelButtonViewModel {}
+
+/// Mocks the countdown presentation contract nested in the screen.
+class MockPairingCountdownViewModel extends Mock
+    implements PairingCountdownViewModel {}
+
+/// Mocks the redisplay button presentation contract nested in the screen.
+class MockPairingRenotifyButtonViewModel extends Mock
+    implements PairingRenotifyButtonViewModel {}
+
+/// Mocktail double for the `Store<AppState>` passed to [StoreProvider].
 class MockStore extends Mock implements Store<AppState> {}
 
 void main() {
   late MockPairingScreenViewModel mockViewModel;
+  late MockPairingCancelButtonViewModel mockCancelViewModel;
+  late MockPairingCountdownViewModel mockCountdownViewModel;
+  late MockPairingRenotifyButtonViewModel mockRenotifyViewModel;
   late MockStore store;
-  late List<Object?> dispatchedActions;
 
   setUp(() async {
     await sl.reset();
 
     mockViewModel = MockPairingScreenViewModel();
+    mockCancelViewModel = MockPairingCancelButtonViewModel();
+    mockCountdownViewModel = MockPairingCountdownViewModel();
+    mockRenotifyViewModel = MockPairingRenotifyButtonViewModel();
     when(() => mockViewModel.phase).thenReturn(PairingPhase.none);
     when(() => mockViewModel.statusLabel).thenReturn('Unknown');
     when(() => mockViewModel.hostVersion).thenReturn(null);
@@ -52,25 +66,40 @@ void main() {
     when(() => mockViewModel.onRequestCode).thenReturn(() {});
     when(() => mockViewModel.onSubmitCode).thenReturn((String _, String? _) {});
     when(() => mockViewModel.onBack).thenReturn(() {});
+    when(() => mockViewModel.onDispose).thenReturn(() {});
+    when(() => mockCancelViewModel.isEnabled).thenReturn(false);
+    when(() => mockCancelViewModel.onPressed).thenReturn(null);
+    when(() => mockCountdownViewModel.remainingSeconds).thenReturn(null);
+    when(() => mockRenotifyViewModel.isAvailable).thenReturn(false);
+    when(() => mockRenotifyViewModel.cooldownSeconds).thenReturn(3);
+    when(() => mockRenotifyViewModel.onPressed).thenReturn(null);
+    when(
+      () => mockRenotifyViewModel.displayLabel(
+        label: any(named: 'label'),
+        cooldownLabel: any(named: 'cooldownLabel'),
+      ),
+    ).thenReturn('Send Code Again (3s)');
     sl.registerFactoryParam<PairingScreenViewModel, Store<AppState>, void>((
       Store<AppState> store,
       void _,
     ) {
       return mockViewModel;
     });
+    sl.registerFactoryParam<
+      PairingCancelButtonViewModel,
+      Store<AppState>,
+      void
+    >((Store<AppState> _, void _) => mockCancelViewModel);
+    sl.registerFactoryParam<PairingCountdownViewModel, Store<AppState>, void>(
+      (Store<AppState> _, void _) => mockCountdownViewModel,
+    );
+    sl.registerFactoryParam<
+      PairingRenotifyButtonViewModel,
+      Store<AppState>,
+      void
+    >((Store<AppState> _, void _) => mockRenotifyViewModel);
 
-    dispatchedActions = [];
     store = MockStore();
-    when(() => store.dispatch(any())).thenAnswer(
-      (Invocation invocation) =>
-          dispatchedActions.add(invocation.positionalArguments[0]),
-    );
-    when(() => store.state).thenReturn(
-      AppState(
-        connection: ConnectionState.initial(),
-        pairing: PairingState.initial(),
-      ),
-    );
     when(
       () => store.onChange,
     ).thenAnswer((_) => const Stream<AppState>.empty());
@@ -79,6 +108,9 @@ void main() {
   tearDown(() async {
     await sl.reset();
     reset(mockViewModel);
+    reset(mockCancelViewModel);
+    reset(mockCountdownViewModel);
+    reset(mockRenotifyViewModel);
     reset(store);
   });
 
@@ -354,6 +386,7 @@ void main() {
       when(() => mockViewModel.onStart).thenReturn(() => called = true);
 
       await tester.pumpWidget(buildWidget());
+      called = false;
       await tester.tap(find.byKey(const Key('pairing-retry-button')));
       await tester.pump();
 
@@ -362,52 +395,23 @@ void main() {
     });
   });
 
-  group("PairingScreen's StoreConnector dispatches actions on the Store", () {
-    testWidgets('PairingScreen dispatches PairingStartedAction on mount', (
+  group('PairingScreen delegates StoreConnector lifecycle to its ViewModel', () {
+    testWidgets('PairingScreen calls onStart when mounted', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(buildWidget());
 
-      expect(dispatchedActions, contains(const PairingStartedAction()));
+      verify(() => mockViewModel.onStart()).called(1);
     });
 
     testWidgets(
-      'PairingScreen dispatches PairingDisposedAction when the screen unmounts',
+      'PairingScreen calls onDispose when unmounted without reading Store state',
       (WidgetTester tester) async {
         await tester.pumpWidget(buildWidget());
         await tester.pumpWidget(const SizedBox.shrink());
 
-        expect(
-          dispatchedActions,
-          contains(const PairingDisposedAction(wasTrusted: false)),
-        );
-        expect(tester.takeException(), isNull);
-      },
-    );
-
-    testWidgets(
-      'PairingScreen dispatches PairingDisposedAction with wasTrusted when the Store reports trusted',
-      (WidgetTester tester) async {
-        when(() => store.state).thenReturn(
-          AppState(
-            connection: ConnectionState.initial(),
-            pairing: const PairingState(
-              phase: PairingPhase.trusted,
-              hostVersion: '1.2.3',
-              error: null,
-              codeExpiresAt: null,
-              renotifyAvailableAt: null,
-            ),
-          ),
-        );
-
-        await tester.pumpWidget(buildWidget());
-        await tester.pumpWidget(const SizedBox.shrink());
-
-        expect(
-          dispatchedActions,
-          contains(const PairingDisposedAction(wasTrusted: true)),
-        );
+        verify(() => mockViewModel.onDispose()).called(1);
+        verifyNever(() => store.state);
         expect(tester.takeException(), isNull);
       },
     );

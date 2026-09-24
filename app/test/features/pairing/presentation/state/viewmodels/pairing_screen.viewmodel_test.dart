@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
@@ -10,8 +11,15 @@ import 'package:dovahlink_client/shared/state/app_reducer.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 
+/// Mocks the Redux store for lifecycle callback tests.
+class MockStore extends Mock implements Store<AppState> {}
+
 /// Exercises [PairingScreenViewModel.fromStore] projections.
 void main() {
+  setUpAll(() {
+    registerFallbackValue(const PairingDisposedAction(wasTrusted: false));
+  });
+
   group('PairingScreenViewModel fromStore()', () {
     test('fromStore constructs an initial ViewModel correctly', () {
       final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
@@ -141,6 +149,79 @@ void main() {
       viewModel.onBack();
 
       expect(dispatchedActions, contains(const PairingBackRequestedAction()));
+    });
+
+    test('onDispose dispatches a disposal action for an untrusted session', () {
+      final MockStore store = MockStore();
+      when(() => store.state).thenReturn(AppState.initial());
+      when(() => store.dispatch(any())).thenAnswer((_) {});
+
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        store,
+      );
+      verifyNever(() => store.dispatch(any()));
+
+      viewModel.onDispose();
+
+      verify(
+        () => store.dispatch(const PairingDisposedAction(wasTrusted: false)),
+      ).called(1);
+    });
+
+    test('onDispose reads trusted state when the callback runs', () {
+      final MockStore store = MockStore();
+      when(() => store.state).thenReturn(AppState.initial());
+      when(() => store.dispatch(any())).thenAnswer((_) {});
+
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        store,
+      );
+      when(() => store.state).thenReturn(
+        AppState(
+          connection: ConnectionState.initial(),
+          pairing: const PairingState(
+            phase: PairingPhase.trusted,
+            hostVersion: '1.2.3',
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
+          ),
+        ),
+      );
+
+      viewModel.onDispose();
+
+      verify(
+        () => store.dispatch(const PairingDisposedAction(wasTrusted: true)),
+      ).called(1);
+    });
+
+    test('onDispose reads untrusted state when the callback runs', () {
+      final MockStore store = MockStore();
+      when(() => store.state).thenReturn(
+        AppState(
+          connection: ConnectionState.initial(),
+          pairing: const PairingState(
+            phase: PairingPhase.trusted,
+            hostVersion: '1.2.3',
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: null,
+          ),
+        ),
+      );
+      when(() => store.dispatch(any())).thenAnswer((_) {});
+
+      final PairingScreenViewModel viewModel = PairingScreenViewModel.fromStore(
+        store,
+      );
+      when(() => store.state).thenReturn(AppState.initial());
+
+      viewModel.onDispose();
+
+      verify(
+        () => store.dispatch(const PairingDisposedAction(wasTrusted: false)),
+      ).called(1);
     });
   });
 }

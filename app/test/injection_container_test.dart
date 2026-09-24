@@ -49,7 +49,9 @@ void main() {
     registerFallbackValue(
       const ThemePresetSelectedAction(DovahThemePreset.dovah),
     );
+    registerFallbackValue(const PairingStartedAction());
     registerFallbackValue(const PairingCancelRequestedAction());
+    registerFallbackValue(const PairingDisposedAction(wasTrusted: false));
   });
 
   setUp(() async {
@@ -164,6 +166,29 @@ void main() {
 
       expect(sl.isRegistered<PairingScreenViewModel>(), isTrue);
     });
+
+    test(
+      'initDependencies resolves PairingScreenViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(AppState.initial());
+        when(() => store.dispatch(any())).thenAnswer((_) {});
+
+        final PairingScreenViewModel viewModel = sl<PairingScreenViewModel>(
+          param1: store,
+        );
+
+        expect(viewModel.phase, PairingPhase.none);
+        viewModel.onStart();
+        viewModel.onDispose();
+
+        verify(() => store.dispatch(const PairingStartedAction())).called(1);
+        verify(
+          () => store.dispatch(const PairingDisposedAction(wasTrusted: false)),
+        ).called(1);
+      },
+    );
 
     test(
       'initDependencies resolves PairingCancelButtonViewModel from a Store',
