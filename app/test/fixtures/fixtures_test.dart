@@ -135,6 +135,15 @@ void main() {
       expect(tokens.displayFontFamily, isA<String>());
       expect(tokens.displayFontFamily, 'Georgia');
       expect(tokens.environmentAssetPath, isNull);
+      expect(tokens.eyebrow, isA<Color>());
+      expect(tokens.eyebrow, const Color(0xFFE2A55E));
+      expect(tokens.rootHeaderHeight, isA<double>());
+      expect(tokens.rootHeaderHeight, 88);
+      expect(tokens.pageTitleFontSize, isA<double>());
+      expect(tokens.pageTitleFontSize, 34);
+      expect(tokens.connectionCardMinHeight, isA<double>());
+      expect(tokens.connectionCardMinHeight, 78);
+      expect(tokens.uppercaseLabels, isFalse);
     });
 
     test('Method buildDovahThemeTokens preserves named overrides', () {
@@ -146,8 +155,22 @@ void main() {
         cornerRadius: 13,
         densityScale: 1.15,
         environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
+        eyebrow: const Color(0xFF010203),
+        rootHeaderHeight: 70,
+        pageTitleFontSize: 31,
+        connectionCardMinHeight: 61,
+        uppercaseLabels: true,
       );
 
+      expect(tokens.eyebrow, isA<Color>());
+      expect(tokens.eyebrow, const Color(0xFF010203));
+      expect(tokens.rootHeaderHeight, isA<double>());
+      expect(tokens.rootHeaderHeight, 70);
+      expect(tokens.pageTitleFontSize, isA<double>());
+      expect(tokens.pageTitleFontSize, 31);
+      expect(tokens.connectionCardMinHeight, isA<double>());
+      expect(tokens.connectionCardMinHeight, 61);
+      expect(tokens.uppercaseLabels, isTrue);
       expect(tokens.background, isA<Color>());
       expect(tokens.background, const Color(0xFF000000));
       expect(tokens.surface3, isA<Color>());

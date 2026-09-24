@@ -125,6 +125,28 @@ void main() {
       expect(copy.cornerRadius, original.cornerRadius);
     });
 
+    test('Method copyWith replaces the root-screen tokens', () {
+      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
+
+      final DovahThemeTokens copy = original.copyWith(
+        eyebrow: const Color(0xFF123456),
+        rootHeaderHeight: 70,
+        pageTitleFontSize: 31,
+        connectionCardMinHeight: 61,
+        uppercaseLabels: true,
+      );
+
+      expect(copy.eyebrow, const Color(0xFF123456));
+      expect(copy.rootHeaderHeight, isA<double>());
+      expect(copy.rootHeaderHeight, 70);
+      expect(copy.pageTitleFontSize, isA<double>());
+      expect(copy.pageTitleFontSize, 31);
+      expect(copy.connectionCardMinHeight, isA<double>());
+      expect(copy.connectionCardMinHeight, 61);
+      expect(copy.uppercaseLabels, isTrue);
+      expect(original.uppercaseLabels, isFalse);
+    });
+
     test('Method copyWith omits environmentAssetPath when not passed', () {
       final DovahThemeTokens original = Fixtures.buildDovahThemeTokens(
         environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
@@ -221,6 +243,40 @@ void main() {
       expect(result.cornerCutSize, 10);
       expect(result.densityScale, isA<double>());
       expect(result.densityScale, 1);
+    });
+
+    test('Method lerp interpolates the root-screen metrics and colors', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
+        eyebrow: const Color(0xFF000000),
+        rootHeaderHeight: 60,
+        pageTitleFontSize: 30,
+        connectionCardMinHeight: 50,
+      );
+      final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
+        eyebrow: const Color(0xFFFFFFFF),
+        rootHeaderHeight: 80,
+        pageTitleFontSize: 40,
+        connectionCardMinHeight: 90,
+      );
+
+      final DovahThemeTokens result = tokens.lerp(other, 0.5);
+
+      expect(result.eyebrow, Color.lerp(tokens.eyebrow, other.eyebrow, 0.5));
+      expect(result.rootHeaderHeight, isA<double>());
+      expect(result.rootHeaderHeight, 70);
+      expect(result.pageTitleFontSize, isA<double>());
+      expect(result.pageTitleFontSize, 35);
+      expect(result.connectionCardMinHeight, isA<double>());
+      expect(result.connectionCardMinHeight, 70);
+    });
+
+    test('Method lerp switches uppercaseLabels at the midpoint', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens other = tokens.copyWith(uppercaseLabels: true);
+
+      expect(tokens.lerp(other, 0.25).uppercaseLabels, isFalse);
+      expect(tokens.lerp(other, 0.5).uppercaseLabels, isTrue);
+      expect(tokens.lerp(other, 0.75).uppercaseLabels, isTrue);
     });
 
     test('Method lerp blends action foreground and switches its gradient', () {
@@ -416,6 +472,21 @@ void main() {
       );
 
       expect(first, isNot(second));
+    });
+
+    test('Behavior equality fails when a root-screen token differs', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final List<DovahThemeTokens> others = <DovahThemeTokens>[
+        first.copyWith(eyebrow: const Color(0xFF000000)),
+        first.copyWith(rootHeaderHeight: 1),
+        first.copyWith(pageTitleFontSize: 1),
+        first.copyWith(connectionCardMinHeight: 1),
+        first.copyWith(uppercaseLabels: true),
+      ];
+
+      for (final DovahThemeTokens other in others) {
+        expect(first, isNot(other));
+      }
     });
 
     test('Behavior equality fails when primaryActionForeground differs', () {

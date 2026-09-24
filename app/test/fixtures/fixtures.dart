@@ -81,6 +81,11 @@ abstract final class Fixtures {
     double densityScale = 1,
     String displayFontFamily = 'Georgia',
     String? environmentAssetPath,
+    Color eyebrow = const Color(0xFFE2A55E),
+    double rootHeaderHeight = 88,
+    double pageTitleFontSize = 34,
+    double connectionCardMinHeight = 78,
+    bool uppercaseLabels = false,
   }) => DovahThemeTokens(
     background: background,
     surface: surface,
@@ -133,5 +138,10 @@ abstract final class Fixtures {
     densityScale: densityScale,
     displayFontFamily: displayFontFamily,
     environmentAssetPath: environmentAssetPath,
+    eyebrow: eyebrow,
+    rootHeaderHeight: rootHeaderHeight,
+    pageTitleFontSize: pageTitleFontSize,
+    connectionCardMinHeight: connectionCardMinHeight,
+    uppercaseLabels: uppercaseLabels,
   );
 }

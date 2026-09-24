@@ -142,6 +142,11 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.densityScale,
     required this.displayFontFamily,
     required this.environmentAssetPath,
+    required this.eyebrow,
+    required this.rootHeaderHeight,
+    required this.pageTitleFontSize,
+    required this.connectionCardMinHeight,
+    required this.uppercaseLabels,
   });
 
   /// The canvas behind every surface.
@@ -175,7 +180,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// The general interactive/icon accent tone.
   final Color accentPrimary;
 
-  /// The secondary accent tone used for eyebrow and kicker labels.
+  /// The secondary accent tone used for secondary accents; page-title eyebrows use [eyebrow].
   final Color accentSecondary;
 
   /// The brand's cool/icy signal tone: active-state indicators, gradient underlines, focus
@@ -247,6 +252,23 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// uses a pure gradient atmosphere with no image (Dovah).
   final String? environmentAssetPath;
 
+  /// The tone of the eyebrow label above a page title (the prototype's `.eyebrow`), which differs
+  /// per theme rather than following [accentSecondary].
+  final Color eyebrow;
+
+  /// The height of the root screen's header bar before it is placed in the layout.
+  final double rootHeaderHeight;
+
+  /// The font size of a page title such as the root screen's "Connections".
+  final double pageTitleFontSize;
+
+  /// The minimum height of a connection card.
+  final double connectionCardMinHeight;
+
+  /// Whether page titles, connection names, and connection states render in uppercase, as the
+  /// prototype's Frostbound theme does.
+  final bool uppercaseLabels;
+
   /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
   /// threaded through [Option] to keep "omitted", "cleared to null", and "set" distinct.
   @override
@@ -290,6 +312,11 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? densityScale,
     String? displayFontFamily,
     Option<String>? environmentAssetPath,
+    Color? eyebrow,
+    double? rootHeaderHeight,
+    double? pageTitleFontSize,
+    double? connectionCardMinHeight,
+    bool? uppercaseLabels,
   }) => DovahThemeTokens(
     background: background ?? this.background,
     surface: surface ?? this.surface,
@@ -326,10 +353,16 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     environmentAssetPath: environmentAssetPath == null
         ? this.environmentAssetPath
         : environmentAssetPath.toNullable(),
+    eyebrow: eyebrow ?? this.eyebrow,
+    rootHeaderHeight: rootHeaderHeight ?? this.rootHeaderHeight,
+    pageTitleFontSize: pageTitleFontSize ?? this.pageTitleFontSize,
+    connectionCardMinHeight:
+        connectionCardMinHeight ?? this.connectionCardMinHeight,
+    uppercaseLabels: uppercaseLabels ?? this.uppercaseLabels,
   );
 
   /// Interpolates every color and the two continuous geometry values; discrete values (corner
-  /// style, font family, asset path, shadow, gradients) snap to whichever side of [t] is closer,
+  /// style, font family, asset path, shadow, gradients, casing) snap to whichever side of [t] is closer,
   /// since they have no meaningful halfway point.
   @override
   DovahThemeTokens lerp(ThemeExtension<DovahThemeTokens>? other, double t) {
@@ -378,6 +411,23 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       environmentAssetPath: t < 0.5
           ? environmentAssetPath
           : other.environmentAssetPath,
+      eyebrow: Color.lerp(eyebrow, other.eyebrow, t)!,
+      rootHeaderHeight: lerpDouble(
+        rootHeaderHeight,
+        other.rootHeaderHeight,
+        t,
+      )!,
+      pageTitleFontSize: lerpDouble(
+        pageTitleFontSize,
+        other.pageTitleFontSize,
+        t,
+      )!,
+      connectionCardMinHeight: lerpDouble(
+        connectionCardMinHeight,
+        other.connectionCardMinHeight,
+        t,
+      )!,
+      uppercaseLabels: t < 0.5 ? uppercaseLabels : other.uppercaseLabels,
     );
   }
 
@@ -415,5 +465,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     densityScale,
     displayFontFamily,
     environmentAssetPath,
+    eyebrow,
+    rootHeaderHeight,
+    pageTitleFontSize,
+    connectionCardMinHeight,
+    uppercaseLabels,
   ];
 }

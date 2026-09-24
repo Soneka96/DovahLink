@@ -56,6 +56,11 @@ ThemeData buildHearthTheme() {
     densityScale: 1.15,
     displayFontFamily: 'Georgia',
     environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
+    eyebrow: Color(0xFF945720),
+    rootHeaderHeight: 86,
+    pageTitleFontSize: 38,
+    connectionCardMinHeight: 82,
+    uppercaseLabels: false,
   );
 
   return ThemeData(
