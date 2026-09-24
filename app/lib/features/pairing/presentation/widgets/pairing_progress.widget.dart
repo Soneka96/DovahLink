@@ -10,7 +10,8 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// A pairing state where the client is working or waiting and the user has nothing to enter:
-/// connecting, waiting for the Host to come back, requesting a code, and confirming one. Each
+/// connecting, waiting for the Host to come back, requesting a code (including the moment between
+/// authenticating and the request starting), and confirming one. Each
 /// shows its own copy with a spinner; only the waiting state, which retries silently until the
 /// user leaves, offers a close button.
 class PairingProgress extends StatelessWidget {
@@ -43,7 +44,7 @@ class PairingProgress extends StatelessWidget {
         'Start Skyrim and DovahLink will reconnect automatically when the game becomes available.',
         'Waiting for Skyrim…',
       ),
-      PairingPhase.requestingCode => (
+      PairingPhase.requestingCode || PairingPhase.unpaired => (
         'Requesting a code',
         'Asking Skyrim to show a pairing code for this device.',
         'Requesting code…',

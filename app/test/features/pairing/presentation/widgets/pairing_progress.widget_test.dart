@@ -69,6 +69,17 @@ void main() {
       expect(find.text('Requesting code…'), findsOneWidget);
     });
 
+    testWidgets(
+      'PairingProgress displays the requesting-code copy for an unpaired session whose request is starting',
+      (WidgetTester tester) async {
+        await pumpProgress(tester, phase: PairingPhase.unpaired);
+
+        expect(find.text('Requesting a code'), findsOneWidget);
+        expect(find.text('Requesting code…'), findsOneWidget);
+        expect(find.byKey(const Key('pairing-close-button')), findsNothing);
+      },
+    );
+
     testWidgets('PairingProgress displays the confirming copy', (
       WidgetTester tester,
     ) async {

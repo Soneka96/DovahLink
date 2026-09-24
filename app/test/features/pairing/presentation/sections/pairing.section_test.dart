@@ -13,7 +13,7 @@ import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_entry.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_failure.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_progress.widget.dart';
-import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_ready.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_repair.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_success.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -59,6 +59,7 @@ void main() {
     when(() => viewModel.phase).thenReturn(PairingPhase.none);
     when(() => viewModel.hostName).thenReturn('Bedroom PC');
     when(() => viewModel.error).thenReturn(null);
+    when(() => viewModel.isRepair).thenReturn(false);
     when(() => viewModel.canDismiss).thenReturn(true);
     when(() => viewModel.onStart).thenReturn(() => calls.add('start'));
     when(
@@ -140,7 +141,7 @@ void main() {
       PairingPhase.disconnected: PairingProgress,
       PairingPhase.requestingCode: PairingProgress,
       PairingPhase.confirming: PairingProgress,
-      PairingPhase.unpaired: PairingReady,
+      PairingPhase.unpaired: PairingProgress,
       PairingPhase.awaitingCode: PairingCodeEntry,
       PairingPhase.trusted: PairingSuccess,
       PairingPhase.failed: PairingFailure,
@@ -202,16 +203,48 @@ void main() {
     );
 
     testWidgets(
-      'PairingSection shows the rejected-credential reason when unpaired',
+      'PairingSection displays PairingRepair, not progress, for an unpaired repair',
       (WidgetTester tester) async {
         when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => viewModel.isRepair).thenReturn(true);
         when(() => viewModel.error).thenReturn('This device was revoked.');
 
         await pumpSection(tester);
 
+        expect(find.byType(PairingRepair), findsOneWidget);
+        expect(find.byType(PairingProgress), findsNothing);
+        expect(find.text('Pair Bedroom PC again'), findsOneWidget);
         expect(find.text('This device was revoked.'), findsOneWidget);
       },
     );
+
+    testWidgets(
+      'PairingSection displays progress for a first-time unpaired session',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+
+        await pumpSection(tester);
+
+        expect(find.byType(PairingProgress), findsOneWidget);
+        expect(find.byType(PairingRepair), findsNothing);
+        expect(
+          find.byKey(const Key('pairing-request-code-button')),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('PairingSection ignores isRepair outside the unpaired phase', (
+      WidgetTester tester,
+    ) async {
+      when(() => viewModel.phase).thenReturn(PairingPhase.requestingCode);
+      when(() => viewModel.isRepair).thenReturn(true);
+
+      await pumpSection(tester);
+
+      expect(find.byType(PairingRepair), findsNothing);
+      expect(find.byType(PairingProgress), findsOneWidget);
+    });
 
     testWidgets(
       'PairingSection shows the Host rejection while awaiting a code',
@@ -246,10 +279,11 @@ void main() {
       expect(calls, ['start', 'dispose']);
     });
 
-    testWidgets('PairingSection requests a code from the ready state', (
+    testWidgets('PairingSection requests a code when Pair again is tapped', (
       WidgetTester tester,
     ) async {
       when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+      when(() => viewModel.isRepair).thenReturn(true);
       await pumpSection(tester);
 
       await tester.tap(find.byKey(const Key('pairing-request-code-button')));
@@ -257,6 +291,18 @@ void main() {
 
       expect(calls, ['start', 'requestCode']);
     });
+
+    testWidgets(
+      'PairingSection does not request a code before Pair again is tapped',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => viewModel.isRepair).thenReturn(true);
+
+        await pumpSection(tester);
+
+        expect(calls, ['start']);
+      },
+    );
 
     testWidgets('PairingSection submits the entered code from code entry', (
       WidgetTester tester,
@@ -302,6 +348,21 @@ void main() {
       expect(find.byType(PairingSection), findsNothing);
       expect(calls, ['start', 'dispose']);
     });
+
+    testWidgets(
+      'PairingSection closes without a request when Cancel is tapped',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => viewModel.isRepair).thenReturn(true);
+        await pumpSection(tester);
+
+        await tester.tap(find.byKey(const Key('pairing-repair-cancel-button')));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PairingSection), findsNothing);
+        expect(calls, ['start', 'dispose']);
+      },
+    );
 
     testWidgets('PairingSection closes when Close is tapped after a failure', (
       WidgetTester tester,

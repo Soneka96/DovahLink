@@ -22,6 +22,9 @@ class PairingSectionViewModel extends Equatable {
   /// User-safe pairing error, or `null`.
   final String? error;
 
+  /// Whether pairing has to be confirmed again because a trusted credential was rejected.
+  final bool isRepair;
+
   /// Whether the section may be dismissed right now.
   final bool canDismiss;
 
@@ -43,6 +46,7 @@ class PairingSectionViewModel extends Equatable {
     required this.phase,
     required this.hostName,
     required this.error,
+    required this.isRepair,
     required this.canDismiss,
     required this.onStart,
     required this.onRequestCode,
@@ -59,6 +63,7 @@ class PairingSectionViewModel extends Equatable {
           ConnectionSelectors.selectedHostNameSelector(state) ??
           unknownHostName,
       error: PairingSelectors.errorSelector(state),
+      isRepair: PairingSelectors.isRepairSelector(state),
       canDismiss: PairingSelectors.canDismissSelector(state),
       onStart: () => store.dispatch(const PairingStartedAction()),
       onRequestCode: () => store.dispatch(const PairingCodeRequestedAction()),
@@ -76,5 +81,5 @@ class PairingSectionViewModel extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [phase, hostName, error, canDismiss];
+  List<Object?> get props => [phase, hostName, error, isRepair, canDismiss];
 }

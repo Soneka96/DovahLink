@@ -56,6 +56,36 @@ void main() {
       expect(viewModel.error, 'Code expired.');
     });
 
+    test('Method fromStore projects isRepair for a rejected credential', () {
+      when(() => store.state).thenReturn(
+        buildState(
+          phase: PairingPhase.unpaired,
+          error: "This device's trust was revoked.",
+        ),
+      );
+
+      expect(PairingSectionViewModel.fromStore(store).isRepair, isTrue);
+    });
+
+    test(
+      'Method fromStore projects no repair for a first-time unpaired session',
+      () {
+        when(
+          () => store.state,
+        ).thenReturn(buildState(phase: PairingPhase.unpaired));
+
+        expect(PairingSectionViewModel.fromStore(store).isRepair, isFalse);
+      },
+    );
+
+    test('Method fromStore projects no repair for a failure with an error', () {
+      when(() => store.state).thenReturn(
+        buildState(phase: PairingPhase.failed, error: 'Code expired.'),
+      );
+
+      expect(PairingSectionViewModel.fromStore(store).isRepair, isFalse);
+    });
+
     test('Method fromStore projects the selected Host name', () {
       when(() => store.state).thenReturn(
         buildState(host: Fixtures.buildHost(displayName: 'Bedroom PC')),

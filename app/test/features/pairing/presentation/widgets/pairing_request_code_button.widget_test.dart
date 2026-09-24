@@ -21,11 +21,11 @@ Widget buildWidget({VoidCallback? onRequestCode}) => MaterialApp(
 void main() {
   group('PairingRequestCodeButton displays', () {
     testWidgets(
-      'PairingRequestCodeButton displays the Request Pairing Code label keyed pairing-request-code-button',
+      'PairingRequestCodeButton displays the Pair again label keyed pairing-request-code-button',
       (WidgetTester tester) async {
         await tester.pumpWidget(buildWidget());
 
-        expect(find.text('Request Pairing Code'), findsOneWidget);
+        expect(find.text('Pair again'), findsOneWidget);
         expect(
           find.byKey(const Key('pairing-request-code-button')),
           findsOneWidget,

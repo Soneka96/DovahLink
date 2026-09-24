@@ -81,6 +81,7 @@ void main() {
     when(() => pairingViewModel.phase).thenReturn(PairingPhase.unpaired);
     when(() => pairingViewModel.hostName).thenReturn('Local Host');
     when(() => pairingViewModel.error).thenReturn(null);
+    when(() => pairingViewModel.isRepair).thenReturn(false);
     when(() => pairingViewModel.canDismiss).thenReturn(true);
     when(
       () => pairingViewModel.onStart,
