@@ -10,7 +10,7 @@ import 'package:dovahlink_client/features/appearance/domain/repositories/appeara
 import 'package:dovahlink_client/features/appearance/domain/usecases/load_theme_preset.usecase.dart';
 import 'package:dovahlink_client/features/appearance/domain/usecases/set_theme_preset.usecase.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_list_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -100,11 +100,11 @@ void main() {
 
   group('injection_container — connection registrations', () {
     test(
-      'initDependencies registers the Host-list ViewModel factory',
+      'initDependencies registers the connections screen ViewModel factory',
       () async {
         await initDependencies();
 
-        expect(sl.isRegistered<HostListScreenViewModel>(), isTrue);
+        expect(sl.isRegistered<ConnectionsScreenViewModel>(), isTrue);
       },
     );
   });

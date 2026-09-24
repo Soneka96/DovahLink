@@ -30,7 +30,7 @@ void main() {
         await initDependencies();
         await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
-        expect(find.byKey(const Key('host-tile-Local Host')), findsOneWidget);
+        expect(find.byKey(const Key('host-card-Local Host')), findsOneWidget);
         expect(find.text('Local Host'), findsOneWidget);
       },
     );
@@ -52,7 +52,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
+        expect(find.byKey(const Key('host-card-Local Host')), findsNothing);
       },
     );
   });
@@ -71,7 +71,7 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         expect(find.byKey(const Key('pairing-status')), findsOneWidget);
-        expect(find.byKey(const Key('host-tile-Local Host')), findsNothing);
+        expect(find.byKey(const Key('host-card-Local Host')), findsNothing);
       },
     );
   });

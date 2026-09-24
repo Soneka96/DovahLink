@@ -87,6 +87,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Letter spacing, in ems, of labels a theme renders in uppercase.
   static const double uppercaseLetterSpacingEm = 0.045;
 
+  /// Width below which the root screen stops shrinking and scrolls horizontally.
+  static const double rootMinimumWidth = 720;
+
   /// Maximum width of the root screen's content column.
   static const double rootContentMaxWidth = 1180;
 
@@ -168,6 +171,15 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Font size of the root screen's footer note.
   static const double rootFooterFontSize = 12;
 
+  /// Line height, as a multiple of font size, of body and label text.
+  static const double bodyLineHeight = 4 / 3;
+
+  /// Font size of a themed button's label.
+  static const double buttonFontSize = 16;
+
+  /// Font size of a connection card's title.
+  static const double connectionTitleFontSize = 16;
+
   /// Width of themed focus outlines.
   static const double focusOutlineWidth = 2;
 
@@ -246,6 +258,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.rootContentTopPadding,
     required this.rootHeroBottomGap,
     required this.rootHeaderRuleFraction,
+    required this.pageTitleLineHeight,
   });
 
   /// The canvas behind every surface.
@@ -377,6 +390,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Fraction of the root header's width its gradient rule spans.
   final double rootHeaderRuleFraction;
 
+  /// Line height, as a multiple of font size, of a page title.
+  final double pageTitleLineHeight;
+
   /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
   /// threaded through [Option] to keep "omitted", "cleared to null", and "set" distinct.
   @override
@@ -428,6 +444,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? rootContentTopPadding,
     double? rootHeroBottomGap,
     double? rootHeaderRuleFraction,
+    double? pageTitleLineHeight,
   }) => DovahThemeTokens(
     background: background ?? this.background,
     surface: surface ?? this.surface,
@@ -474,6 +491,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     rootHeroBottomGap: rootHeroBottomGap ?? this.rootHeroBottomGap,
     rootHeaderRuleFraction:
         rootHeaderRuleFraction ?? this.rootHeaderRuleFraction,
+    pageTitleLineHeight: pageTitleLineHeight ?? this.pageTitleLineHeight,
   );
 
   /// Interpolates every color and the two continuous geometry values; discrete values (corner
@@ -558,6 +576,11 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         other.rootHeaderRuleFraction,
         t,
       )!,
+      pageTitleLineHeight: lerpDouble(
+        pageTitleLineHeight,
+        other.pageTitleLineHeight,
+        t,
+      )!,
     );
   }
 
@@ -603,5 +626,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     rootContentTopPadding,
     rootHeroBottomGap,
     rootHeaderRuleFraction,
+    pageTitleLineHeight,
   ];
 }

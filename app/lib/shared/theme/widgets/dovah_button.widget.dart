@@ -57,7 +57,9 @@ class _DovahButtonState extends State<DovahButton> {
       widget.label,
       style: TextStyle(
         color: foreground,
+        fontSize: DovahThemeTokens.buttonFontSize,
         fontWeight: primary ? FontWeight.w800 : FontWeight.w700,
+        height: DovahThemeTokens.bodyLineHeight,
       ),
     );
     final Widget surface = DovahSurface(

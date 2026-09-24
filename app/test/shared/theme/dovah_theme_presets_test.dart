@@ -195,7 +195,8 @@ void main() {
       expect(tokens.eyebrow, const Color(0xFFBD5559));
       expect(tokens.rootHeaderHeight, 70);
       expect(tokens.pageTitleFontSize, 31);
-      expect(tokens.connectionCardMinHeight, 61);
+      expect(tokens.connectionCardMinHeight, 68);
+      expect(tokens.pageTitleLineHeight, 1.0);
       expect(tokens.uppercaseLabels, isTrue);
       expect(tokens.rootContentTopPadding, 20);
       expect(tokens.rootHeroBottomGap, 18);
@@ -209,7 +210,8 @@ void main() {
       expect(tokens.eyebrow, const Color(0xFFE2A55E));
       expect(tokens.rootHeaderHeight, 88);
       expect(tokens.pageTitleFontSize, 34);
-      expect(tokens.connectionCardMinHeight, 78);
+      expect(tokens.connectionCardMinHeight, 80);
+      expect(tokens.pageTitleLineHeight, 1.14);
       expect(tokens.uppercaseLabels, isFalse);
       expect(tokens.rootContentTopPadding, 30);
       expect(tokens.rootHeroBottomGap, 28);
@@ -224,6 +226,7 @@ void main() {
       expect(tokens.rootHeaderHeight, 86);
       expect(tokens.pageTitleFontSize, 38);
       expect(tokens.connectionCardMinHeight, 82);
+      expect(tokens.pageTitleLineHeight, 1.14);
       expect(tokens.uppercaseLabels, isFalse);
       expect(tokens.rootContentTopPadding, 30);
       expect(tokens.rootHeroBottomGap, 28);

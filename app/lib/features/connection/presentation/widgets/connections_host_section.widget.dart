@@ -38,6 +38,7 @@ class ConnectionsHostSection extends StatelessWidget {
               style: TextStyle(
                 color: tokens.textMuted,
                 fontSize: DovahThemeTokens.sectionLabelFontSize,
+                height: DovahThemeTokens.bodyLineHeight,
                 fontWeight: FontWeight.w800,
                 letterSpacing:
                     DovahThemeTokens.sectionLabelLetterSpacingEm *

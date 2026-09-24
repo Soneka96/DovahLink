@@ -109,11 +109,12 @@ abstract final class Fixtures {
     Color eyebrow = const Color(0xFFE2A55E),
     double rootHeaderHeight = 88,
     double pageTitleFontSize = 34,
-    double connectionCardMinHeight = 78,
+    double connectionCardMinHeight = 80,
     bool uppercaseLabels = false,
     double rootContentTopPadding = 30,
     double rootHeroBottomGap = 28,
     double rootHeaderRuleFraction = 0.36,
+    double pageTitleLineHeight = 1.14,
   }) => DovahThemeTokens(
     background: background,
     surface: surface,
@@ -174,5 +175,6 @@ abstract final class Fixtures {
     rootContentTopPadding: rootContentTopPadding,
     rootHeroBottomGap: rootHeroBottomGap,
     rootHeaderRuleFraction: rootHeaderRuleFraction,
+    pageTitleLineHeight: pageTitleLineHeight,
   );
 }

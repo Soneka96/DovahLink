@@ -60,9 +60,10 @@ ThemeData buildDovahPresetTheme() {
     eyebrow: Color(0xFFE2A55E),
     rootHeaderHeight: 88,
     pageTitleFontSize: 34,
-    connectionCardMinHeight: 78,
+    connectionCardMinHeight: 80,
     rootContentTopPadding: 30,
     rootHeroBottomGap: 28,
+    pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.36,
     uppercaseLabels: false,
   );

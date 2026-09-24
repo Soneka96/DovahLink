@@ -44,6 +44,29 @@ void main() {
     }
   });
 
+  group('DovahButton renders its label typography', () {
+    for (final DovahButtonVariant variant in DovahButtonVariant.values) {
+      testWidgets(
+        'DovahButton sizes its $variant label with the shared button font size and line height',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(label: 'Confirm', onPressed: () {}, variant: variant),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
+
+          final Text text = tester.widget<Text>(find.text('Confirm'));
+
+          expect(text.style?.fontSize, isA<double>());
+          expect(text.style?.fontSize, DovahThemeTokens.buttonFontSize);
+          expect(text.style?.height, isA<double>());
+          expect(text.style?.height, DovahThemeTokens.bodyLineHeight);
+        },
+      );
+    }
+  });
+
   group('DovahButton renders its icon', () {
     for (final DovahButtonVariant variant in DovahButtonVariant.values) {
       testWidgets(

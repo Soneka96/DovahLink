@@ -89,6 +89,37 @@ void main() {
       );
     }
 
+    testWidgets(
+      'DovahConnectionCard sizes its lines with the shared card typography',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahConnectionCard(
+            title: 'Gaming PC',
+            subtitle: 'Skyrim Special Edition',
+            detail: 'Level 43 · Whiterun',
+            state: DovahConnectionCardState.available,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final Text title = tester.widget(find.text('Gaming PC'));
+        final Text subtitle = tester.widget(
+          find.text('Skyrim Special Edition'),
+        );
+        final Text detail = tester.widget(find.text('Level 43 · Whiterun'));
+        final Text state = tester.widget(find.text('Connected'));
+
+        expect(title.style?.fontSize, isA<double>());
+        expect(title.style?.fontSize, DovahThemeTokens.connectionTitleFontSize);
+        expect(title.style?.fontWeight, FontWeight.w700);
+        for (final Text line in [title, subtitle, detail, state]) {
+          expect(line.style?.height, isA<double>());
+          expect(line.style?.height, DovahThemeTokens.bodyLineHeight);
+        }
+      },
+    );
+
     testWidgets('DovahConnectionCard leaves casing alone outside Frostbound', (
       WidgetTester tester,
     ) async {

@@ -32,6 +32,7 @@ class ConnectionsHero extends StatelessWidget {
                 style: TextStyle(
                   color: tokens.eyebrow,
                   fontSize: DovahThemeTokens.eyebrowFontSize,
+                  height: DovahThemeTokens.bodyLineHeight,
                   fontWeight: FontWeight.w800,
                   letterSpacing:
                       DovahThemeTokens.eyebrowLetterSpacingEm *
@@ -49,6 +50,7 @@ class ConnectionsHero extends StatelessWidget {
                     color: tokens.textPrimary,
                     fontFamily: tokens.displayFontFamily,
                     fontSize: tokens.pageTitleFontSize,
+                    height: tokens.pageTitleLineHeight,
                     fontWeight: uppercase ? FontWeight.w700 : FontWeight.w500,
                     letterSpacing:
                         (uppercase
@@ -64,6 +66,7 @@ class ConnectionsHero extends StatelessWidget {
                 style: TextStyle(
                   color: tokens.textMuted,
                   fontSize: DovahThemeTokens.pageDescriptionFontSize,
+                  height: DovahThemeTokens.bodyLineHeight,
                 ),
               ),
             ],

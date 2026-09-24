@@ -3,13 +3,15 @@ import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
-import 'package:dovahlink_client/features/connection/presentation/screens/host_list.screen.dart';
+import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
 import 'package:dovahlink_client/features/pairing/presentation/screens/pairing.screen.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
 import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// Exercises the real router built by [createRouter] rather than mocking navigation.
 void main() {
@@ -18,17 +20,20 @@ void main() {
   });
 
   group('createRouter', () {
-    testWidgets('createRouter resolves the home route to HostListScreen', (
+    testWidgets('createRouter resolves the home route to ConnectionsScreen', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(
         StoreProvider<AppState>(
           store: const CreateStore()(),
-          child: MaterialApp.router(routerConfig: createRouter()),
+          child: MaterialApp.router(
+            theme: dovahThemeDataFor(defaultThemePreset),
+            routerConfig: createRouter(),
+          ),
         ),
       );
 
-      expect(find.byType(HostListScreen), findsOneWidget);
+      expect(find.byType(ConnectionsScreen), findsOneWidget);
       expect(find.byType(PairingScreen), findsNothing);
     });
 
@@ -39,7 +44,10 @@ void main() {
       await tester.pumpWidget(
         StoreProvider<AppState>(
           store: const CreateStore()(),
-          child: MaterialApp.router(routerConfig: router),
+          child: MaterialApp.router(
+            theme: dovahThemeDataFor(defaultThemePreset),
+            routerConfig: router,
+          ),
         ),
       );
 
@@ -52,7 +60,7 @@ void main() {
       await tester.pump(const Duration(milliseconds: 500));
 
       expect(find.byType(PairingScreen), findsOneWidget);
-      expect(find.byType(HostListScreen), findsNothing);
+      expect(find.byType(ConnectionsScreen), findsNothing);
     });
 
     testWidgets(
@@ -62,14 +70,17 @@ void main() {
         await tester.pumpWidget(
           StoreProvider<AppState>(
             store: const CreateStore()(),
-            child: MaterialApp.router(routerConfig: router),
+            child: MaterialApp.router(
+              theme: dovahThemeDataFor(defaultThemePreset),
+              routerConfig: router,
+            ),
           ),
         );
 
         router.go('/does-not-exist');
         await tester.pumpAndSettle();
 
-        expect(find.byType(HostListScreen), findsNothing);
+        expect(find.byType(ConnectionsScreen), findsNothing);
         expect(find.byType(PairingScreen), findsNothing);
       },
     );

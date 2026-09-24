@@ -20,6 +20,7 @@ class ConnectionsFooter extends StatelessWidget {
           style: TextStyle(
             color: context.dovahTokens.textFaint,
             fontSize: DovahThemeTokens.rootFooterFontSize,
+            height: DovahThemeTokens.bodyLineHeight,
           ),
         ),
       ),

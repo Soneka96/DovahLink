@@ -40,6 +40,10 @@ void main() {
             DovahThemeTokens.iconButtonSize,
             DovahThemeTokens.iconButtonIconSize,
             DovahThemeTokens.uppercaseLetterSpacingEm,
+            DovahThemeTokens.bodyLineHeight,
+            DovahThemeTokens.buttonFontSize,
+            DovahThemeTokens.connectionTitleFontSize,
+            DovahThemeTokens.rootMinimumWidth,
             DovahThemeTokens.rootContentMaxWidth,
             DovahThemeTokens.rootContentSideMargin,
             DovahThemeTokens.rootContentBottomPadding,
@@ -106,6 +110,10 @@ void main() {
             40.0,
             19.0,
             0.045,
+            4 / 3,
+            16.0,
+            16.0,
+            720.0,
             1180.0,
             32.0,
             40.0,
@@ -201,8 +209,11 @@ void main() {
         rootContentTopPadding: 20,
         rootHeroBottomGap: 18,
         rootHeaderRuleFraction: 0.2,
+        pageTitleLineHeight: 1.0,
       );
 
+      expect(copy.pageTitleLineHeight, isA<double>());
+      expect(copy.pageTitleLineHeight, 1.0);
       expect(copy.rootContentTopPadding, isA<double>());
       expect(copy.rootContentTopPadding, 20);
       expect(copy.rootHeroBottomGap, isA<double>());
@@ -327,6 +338,7 @@ void main() {
         rootContentTopPadding: 20,
         rootHeroBottomGap: 10,
         rootHeaderRuleFraction: 0.2,
+        pageTitleLineHeight: 1.0,
       );
       final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
         eyebrow: const Color(0xFFFFFFFF),
@@ -336,6 +348,7 @@ void main() {
         rootContentTopPadding: 30,
         rootHeroBottomGap: 30,
         rootHeaderRuleFraction: 0.6,
+        pageTitleLineHeight: 1.4,
       );
 
       final DovahThemeTokens result = tokens.lerp(other, 0.5);
@@ -353,6 +366,8 @@ void main() {
       expect(result.rootHeroBottomGap, 20);
       expect(result.rootHeaderRuleFraction, isA<double>());
       expect(result.rootHeaderRuleFraction, closeTo(0.4, 0.0001));
+      expect(result.pageTitleLineHeight, isA<double>());
+      expect(result.pageTitleLineHeight, closeTo(1.2, 0.0001));
     });
 
     test('Method lerp switches uppercaseLabels at the midpoint', () {
@@ -570,6 +585,7 @@ void main() {
         first.copyWith(rootContentTopPadding: 1),
         first.copyWith(rootHeroBottomGap: 1),
         first.copyWith(rootHeaderRuleFraction: 0.01),
+        first.copyWith(pageTitleLineHeight: 0.5),
       ];
 
       for (final DovahThemeTokens other in others) {

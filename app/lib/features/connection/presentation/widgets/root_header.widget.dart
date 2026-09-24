@@ -55,6 +55,7 @@ class RootHeader extends StatelessWidget {
                           style: TextStyle(
                             color: tokens.textPrimary,
                             fontSize: DovahThemeTokens.brandNameFontSize,
+                            height: DovahThemeTokens.bodyLineHeight,
                             fontWeight: FontWeight.w800,
                             letterSpacing:
                                 DovahThemeTokens.brandNameLetterSpacingEm *
@@ -71,6 +72,7 @@ class RootHeader extends StatelessWidget {
                           style: TextStyle(
                             color: tokens.textFaint,
                             fontSize: DovahThemeTokens.brandTaglineFontSize,
+                            height: DovahThemeTokens.bodyLineHeight,
                             fontWeight: FontWeight.w700,
                             letterSpacing:
                                 DovahThemeTokens.brandTaglineLetterSpacingEm *
@@ -80,10 +82,20 @@ class RootHeader extends StatelessWidget {
                       ],
                     ),
                   ),
-                  DovahIconButton(
-                    icon: Icons.settings_outlined,
-                    label: 'Appearance settings',
-                    onPressed: onOpenAppearance,
+                  // The button's tap target is wider than its 40px surface; shift it so the
+                  // visible surface, not the invisible margin, meets the content edge.
+                  Transform.translate(
+                    offset: const Offset(
+                      (DovahThemeTokens.minimumTapTargetSize -
+                              DovahThemeTokens.iconButtonSize) /
+                          2,
+                      0,
+                    ),
+                    child: DovahIconButton(
+                      icon: Icons.settings_outlined,
+                      label: 'Appearance settings',
+                      onPressed: onOpenAppearance,
+                    ),
                   ),
                 ],
               ),

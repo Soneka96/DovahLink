@@ -141,10 +141,14 @@ class DovahConnectionCard extends StatelessWidget {
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
                                 color: tokens.textPrimary,
-                                fontWeight: FontWeight.w600,
+                                fontSize:
+                                    DovahThemeTokens.connectionTitleFontSize,
+                                fontWeight: FontWeight.w700,
+                                height: DovahThemeTokens.bodyLineHeight,
                                 letterSpacing: uppercaseSpacing,
                               ),
                             ),
+                            const SizedBox(height: DovahThemeTokens.spacing4),
                             Text(
                               subtitle,
                               maxLines: 1,
@@ -152,6 +156,7 @@ class DovahConnectionCard extends StatelessWidget {
                               style: TextStyle(
                                 color: tokens.textMuted,
                                 fontSize: DovahThemeTokens.compactFontSize,
+                                height: DovahThemeTokens.bodyLineHeight,
                               ),
                             ),
                           ],
@@ -166,6 +171,7 @@ class DovahConnectionCard extends StatelessWidget {
                           style: TextStyle(
                             color: tokens.textMuted,
                             fontSize: DovahThemeTokens.compactFontSize,
+                            height: DovahThemeTokens.bodyLineHeight,
                           ),
                         ),
                       ),
@@ -184,6 +190,7 @@ class DovahConnectionCard extends StatelessWidget {
                               color: statusColor,
                               fontWeight: FontWeight.w700,
                               fontSize: DovahThemeTokens.compactFontSize,
+                              height: DovahThemeTokens.bodyLineHeight,
                               letterSpacing: uppercaseSpacing,
                             ),
                           ),

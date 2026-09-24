@@ -111,6 +111,39 @@ void main() {
       },
     );
 
+    testWidgets(
+      'DovahDialog.show lets ink-based content work without its own Material',
+      (WidgetTester tester) async {
+        int tapCount = 0;
+        await pumpDovahThemedWidget(
+          tester,
+          Builder(
+            builder: (BuildContext context) => ElevatedButton(
+              onPressed: () => DovahDialog.show<void>(
+                context,
+                title: 'Appearance',
+                child: InkWell(
+                  onTap: () => tapCount++,
+                  child: const Text('Pick a theme'),
+                ),
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Pick a theme'));
+        await tester.pump();
+
+        expect(tester.takeException(), isNull);
+        expect(tapCount, 1);
+      },
+    );
+
     testWidgets('DovahDialog.show closes when the close button is tapped', (
       WidgetTester tester,
     ) async {

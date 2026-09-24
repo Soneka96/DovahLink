@@ -1,0 +1,446 @@
+import 'dart:ui' show Tristate;
+
+import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
+import 'package:flutter_redux/flutter_redux.dart';
+import 'package:flutter_test/flutter_test.dart';
+import 'package:mocktail/mocktail.dart';
+import 'package:redux/redux.dart';
+
+import 'package:dovahlink_client/features/appearance/presentation/sections/appearance.section.dart';
+import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
+import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
+
+import '../../../../fixtures/fixtures.dart';
+
+/// Mock ViewModel supplied to [ConnectionsScreen].
+class MockConnectionsScreenViewModel extends Mock
+    implements ConnectionsScreenViewModel {}
+
+/// Mock ViewModel supplied to the [AppearanceSection] the screen's dialog shows.
+class MockAppearanceSectionViewModel extends Mock
+    implements AppearanceSectionViewModel {}
+
+/// Mock Store supplied to the screen's [StoreConnector].
+class MockStore extends Mock implements Store<AppState> {}
+
+/// Exercises [ConnectionsScreen]'s rendering, selection, appearance access, theming, and
+/// accessibility through its ViewModel contract.
+void main() {
+  late MockStore store;
+  late MockConnectionsScreenViewModel viewModel;
+  late MockAppearanceSectionViewModel appearanceViewModel;
+  late List<HostEntity> selectedHosts;
+
+  setUp(() async {
+    await sl.reset();
+    store = MockStore();
+    viewModel = MockConnectionsScreenViewModel();
+    appearanceViewModel = MockAppearanceSectionViewModel();
+    selectedHosts = [];
+
+    when(() => store.state).thenReturn(AppState.initial());
+    when(
+      () => store.onChange,
+    ).thenAnswer((_) => const Stream<AppState>.empty());
+    when(
+      () => viewModel.hostCards,
+    ).thenReturn([Fixtures.buildHostCardViewModel()]);
+    when(() => viewModel.onSelectHost).thenReturn(selectedHosts.add);
+    when(
+      () => appearanceViewModel.activePreset,
+    ).thenReturn(DovahThemePreset.dovah);
+    when(
+      () => appearanceViewModel.onSelectPreset,
+    ).thenReturn((DovahThemePreset preset) {});
+    sl.registerFactoryParam<ConnectionsScreenViewModel, Store<AppState>, void>(
+      (Store<AppState> _, void _) => viewModel,
+    );
+    sl.registerFactoryParam<AppearanceSectionViewModel, Store<AppState>, void>(
+      (Store<AppState> _, void _) => appearanceViewModel,
+    );
+  });
+
+  tearDown(() async {
+    await sl.reset();
+    reset(viewModel);
+    reset(appearanceViewModel);
+    reset(store);
+  });
+
+  /// Builds the screen with the mocked Store and ViewModel under [preset]. The Store provider sits
+  /// above the [MaterialApp], as in the real app, so dialogs opened from the screen can reach it.
+  Widget buildWidget({
+    DovahThemePreset preset = DovahThemePreset.dovah,
+    TextScaler? textScaler,
+  }) => StoreProvider<AppState>(
+    store: store,
+    child: MaterialApp(
+      theme: dovahThemeDataFor(preset),
+      builder: (BuildContext context, Widget? child) {
+        final MediaQueryData mediaQuery = MediaQuery.of(context);
+        return MediaQuery(
+          data: mediaQuery.copyWith(
+            textScaler: textScaler ?? mediaQuery.textScaler,
+          ),
+          child: child!,
+        );
+      },
+      home: const ConnectionsScreen(),
+    ),
+  );
+
+  /// Sizes the test surface to [size] for the current test.
+  Future<void> useSurface(WidgetTester tester, Size size) async {
+    await tester.binding.setSurfaceSize(size);
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+  }
+
+  group('ConnectionsScreen contains widgets', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      for (final Size size in const [
+        Size(720, 480),
+        Size(900, 560),
+        Size(1280, 720),
+      ]) {
+        testWidgets(
+          'ConnectionsScreen contains the prototype hierarchy under $preset at $size without overflow',
+          (WidgetTester tester) async {
+            await useSurface(tester, size);
+            await tester.pumpWidget(buildWidget(preset: preset));
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(tester.takeException(), isNull);
+            expect(find.byType(DovahEnvironmentBackground), findsOneWidget);
+            expect(find.text('DOVAHLINK'), findsOneWidget);
+            expect(find.text('SKYRIM COMPANION'), findsOneWidget);
+            expect(find.text('YOUR SKYRIM'), findsOneWidget);
+            expect(
+              find.text(tokens.uppercaseLabels ? 'CONNECTIONS' : 'Connections'),
+              findsOneWidget,
+            );
+            expect(
+              find.text('Select an available PC to enter its game.'),
+              findsOneWidget,
+            );
+            expect(find.text('Discover Skyrim'), findsOneWidget);
+            expect(find.text('MY SKYRIM PCS'), findsOneWidget);
+            expect(
+              find.text(
+                'Trusted PCs reconnect automatically when Skyrim becomes available.',
+                skipOffstage: false,
+              ),
+              findsOneWidget,
+            );
+          },
+        );
+      }
+    }
+
+    testWidgets(
+      'ConnectionsScreen contains one card per Host from its ViewModel',
+      (WidgetTester tester) async {
+        final HostEntity second = Fixtures.buildHostEntity(
+          displayName: 'Second Host',
+          uri: Uri.parse('ws://192.168.1.11:2000/'),
+        );
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewModel(),
+          Fixtures.buildHostCardViewModel(
+            host: second,
+            title: 'Second Host',
+            detail: '192.168.1.11:2000',
+          ),
+        ]);
+        await useSurface(tester, const Size(1280, 900));
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.byType(DovahConnectionCard), findsNWidgets(2));
+        expect(find.byKey(const Key('host-card-Local Host')), findsOneWidget);
+        expect(find.byKey(const Key('host-card-Second Host')), findsOneWidget);
+        expect(find.text('192.168.1.11:2000'), findsOneWidget);
+      },
+    );
+
+    testWidgets('ConnectionsScreen contains no ListTile', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildWidget());
+
+      expect(find.byType(ListTile), findsNothing);
+    });
+
+    testWidgets(
+      'ConnectionsScreen renders without cards or error when there are no Hosts',
+      (WidgetTester tester) async {
+        when(() => viewModel.hostCards).thenReturn(const <HostCardViewModel>[]);
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(tester.takeException(), isNull);
+        expect(find.text('MY SKYRIM PCS'), findsOneWidget);
+        expect(find.byType(DovahConnectionCard), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen truncates a very long Host name at large text scale without overflow',
+      (WidgetTester tester) async {
+        final String longName = 'A very long Host name ' * 12;
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewModel(
+            host: Fixtures.buildHostEntity(displayName: longName),
+            title: longName,
+          ),
+        ]);
+        await useSurface(tester, const Size(900, 560));
+
+        await tester.pumpWidget(
+          buildWidget(textScaler: const TextScaler.linear(2)),
+        );
+
+        expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen scrolls horizontally instead of overflowing below its minimum width',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(500, 600));
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(tester.takeException(), isNull);
+        expect(
+          find.byWidgetPredicate(
+            (Widget widget) =>
+                widget is SingleChildScrollView &&
+                widget.scrollDirection == Axis.horizontal,
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+  });
+
+  group('ConnectionsScreen selects a Host', () {
+    testWidgets(
+      'ConnectionsScreen calls onSelectHost with the tapped card Host',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.byKey(const Key('host-card-Local Host')));
+        await tester.pump();
+
+        expect(selectedHosts, [Fixtures.buildHostEntity()]);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen passes the second Host, not the first, when the second card is tapped',
+      (WidgetTester tester) async {
+        final HostEntity first = Fixtures.buildHostEntity(
+          displayName: 'First Host',
+          uri: Uri.parse('ws://127.0.0.1:1/'),
+        );
+        final HostEntity second = Fixtures.buildHostEntity(
+          displayName: 'Second Host',
+          uri: Uri.parse('ws://127.0.0.1:2/'),
+        );
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewModel(host: first, title: 'First Host'),
+          Fixtures.buildHostCardViewModel(host: second, title: 'Second Host'),
+        ]);
+        await useSurface(tester, const Size(1280, 900));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.byKey(const Key('host-card-Second Host')));
+        await tester.pump();
+
+        expect(selectedHosts, [second]);
+      },
+    );
+
+    testWidgets('ConnectionsScreen does not select a Host before a tap', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildWidget());
+
+      expect(selectedHosts, isEmpty);
+    });
+
+    testWidgets(
+      'ConnectionsScreen does not select a Host when Discover Skyrim is tapped',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.text('Discover Skyrim'), warnIfMissed: false);
+        await tester.pump();
+
+        expect(selectedHosts, isEmpty);
+      },
+    );
+  });
+
+  group('ConnectionsScreen opens the appearance UI', () {
+    testWidgets(
+      'ConnectionsScreen displays the appearance picker in a dialog when the appearance action is tapped',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.byIcon(Icons.settings_outlined));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(find.text('Appearance'), findsOneWidget);
+        expect(find.byType(AppearanceSection), findsOneWidget);
+        expect(find.text('Choose your Skyrim atmosphere'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen does not display the appearance dialog before the action is tapped',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.byType(DovahDialog), findsNothing);
+        expect(find.byType(AppearanceSection), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen closes the appearance dialog with its close action',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+        await tester.tap(find.byIcon(Icons.settings_outlined));
+        await tester.pumpAndSettle();
+
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+
+        expect(find.byType(DovahDialog), findsNothing);
+      },
+    );
+  });
+
+  group('ConnectionsScreen follows the active theme', () {
+    testWidgets(
+      'ConnectionsScreen keeps rendering its content when the theme changes',
+      (WidgetTester tester) async {
+        await useSurface(tester, const Size(1280, 720));
+
+        for (final DovahThemePreset preset in DovahThemePreset.values) {
+          await tester.pumpWidget(buildWidget(preset: preset));
+          await tester.pumpAndSettle();
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+
+          expect(tester.takeException(), isNull);
+          expect(
+            find.text(tokens.uppercaseLabels ? 'CONNECTIONS' : 'Connections'),
+            findsOneWidget,
+          );
+          expect(find.byType(DovahConnectionCard), findsOneWidget);
+        }
+      },
+    );
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'ConnectionsScreen uses the $preset background token behind its content',
+        (WidgetTester tester) async {
+          await useSurface(tester, const Size(1280, 720));
+          await tester.pumpWidget(buildWidget(preset: preset));
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+
+          final ColoredBox base = tester.widget(
+            find
+                .descendant(
+                  of: find.byType(DovahEnvironmentBackground),
+                  matching: find.byType(ColoredBox),
+                )
+                .first,
+          );
+
+          expect(base.color, tokens.background);
+        },
+      );
+    }
+  });
+
+  group('ConnectionsScreen meets accessibility recommended guidelines', () {
+    testWidgets(
+      'ConnectionsScreen labels its controls and meets tap-target guidelines',
+      (WidgetTester tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        try {
+          await useSurface(tester, const Size(1280, 720));
+          await tester.pumpWidget(buildWidget());
+
+          await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
+          await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
+        } finally {
+          handle.dispose();
+        }
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen exposes the title as a header, the host as a button, and Discover as disabled',
+      (WidgetTester tester) async {
+        final SemanticsHandle handle = tester.ensureSemantics();
+        try {
+          await useSurface(tester, const Size(1280, 720));
+          await tester.pumpWidget(buildWidget());
+
+          final SemanticsData title = tester
+              .getSemantics(find.bySemanticsLabel('Connections'))
+              .getSemanticsData();
+          final SemanticsData host = tester
+              .getSemantics(
+                find.bySemanticsLabel(
+                  'Local Host, DovahLink Host, 127.0.0.1:58231, Not connected',
+                ),
+              )
+              .getSemanticsData();
+          final SemanticsData discover = tester
+              .getSemantics(find.bySemanticsLabel('Discover Skyrim'))
+              .getSemanticsData();
+          final SemanticsData appearance = tester
+              .getSemantics(find.bySemanticsLabel('Appearance settings'))
+              .getSemanticsData();
+
+          expect(title.flagsCollection.isHeader, isTrue);
+          expect(host.flagsCollection.isButton, isTrue);
+          expect(host.flagsCollection.isEnabled, Tristate.isTrue);
+          expect(discover.flagsCollection.isEnabled, Tristate.isFalse);
+          expect(appearance.flagsCollection.isButton, isTrue);
+          expect(appearance.hasAction(SemanticsAction.tap), isTrue);
+        } finally {
+          handle.dispose();
+        }
+      },
+    );
+  });
+}

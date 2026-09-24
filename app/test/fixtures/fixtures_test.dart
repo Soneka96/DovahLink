@@ -187,11 +187,12 @@ void main() {
       expect(tokens.pageTitleFontSize, isA<double>());
       expect(tokens.pageTitleFontSize, 34);
       expect(tokens.connectionCardMinHeight, isA<double>());
-      expect(tokens.connectionCardMinHeight, 78);
+      expect(tokens.connectionCardMinHeight, 80);
       expect(tokens.uppercaseLabels, isFalse);
       expect(tokens.rootContentTopPadding, 30);
       expect(tokens.rootHeroBottomGap, 28);
       expect(tokens.rootHeaderRuleFraction, 0.36);
+      expect(tokens.pageTitleLineHeight, 1.14);
     });
 
     test('Method buildDovahThemeTokens preserves named overrides', () {

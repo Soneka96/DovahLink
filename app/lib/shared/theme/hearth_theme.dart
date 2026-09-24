@@ -62,6 +62,7 @@ ThemeData buildHearthTheme() {
     connectionCardMinHeight: 82,
     rootContentTopPadding: 30,
     rootHeroBottomGap: 28,
+    pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.52,
     uppercaseLabels: false,
   );
