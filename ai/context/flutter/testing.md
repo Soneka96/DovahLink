@@ -102,10 +102,10 @@
 - Per `ai/context/dart/dart-style.md`'s "Test organization", a widget/screen test description
   repeats its subject -- the widget or screen class name a `contains`/`displays`/`calls`/
   `dispatches` group already names -- rather than reading as a bare fragment that only makes sense
-  paired with its group. Wrong: `group('PairingScreen contains widgets', () { testWidgets('contains
-  the request-code button when unpaired', ...) })`. Right: `testWidgets('PairingScreen contains the
+  paired with its group. Wrong: `group('PairingReady contains widgets', () { testWidgets('contains
+  the request-code button when unpaired', ...) })`. Right: `testWidgets('PairingReady contains the
   request-code button when unpaired', ...)` -- identical grouping, but the test description repeats
-  `PairingScreen` as its subject.
+  `PairingReady` as its subject.
 
 ## Widget tests
 
