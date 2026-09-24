@@ -1,10 +1,11 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
-/// A DovahLink content panel: a [DovahSurface] with the theme's standard panel padding, scaled
-/// by the theme's density. The everyday building block for grouped content (hero sections,
+/// A DovahLink content panel: a [DovahSurface] with the prototype's per-theme, per-window panel
+/// padding ([DovahPageMetrics.panelPadding]). The everyday building block for grouped content (hero sections,
 /// side-stack sections, settings groups).
 class DovahPanel extends StatelessWidget {
   /// Creates a themed panel around [child].
@@ -21,8 +22,7 @@ class DovahPanel extends StatelessWidget {
   /// Whether to use the theme's raised material instead of its resting material.
   final bool raised;
 
-  /// Padding inside the panel, or the theme's standard density-scaled panel padding when
-  /// omitted.
+  /// Padding inside the panel, or the theme's standard panel padding when omitted.
   final EdgeInsetsGeometry? padding;
 
   /// See [StatelessWidget.build].
@@ -32,7 +32,7 @@ class DovahPanel extends StatelessWidget {
     return DovahSurface(
       raised: raised,
       cornerRadius: tokens.panelCornerRadius,
-      padding: padding ?? EdgeInsets.all(18 * tokens.densityScale),
+      padding: padding ?? context.dovahPageMetrics.panelPadding,
       child: child,
     );
   }

@@ -221,8 +221,6 @@ void main() {
       expect(tokens.cornerStyle, DovahPanelCornerStyle.doubleBevel);
       expect(tokens.cornerRadius, isA<double>());
       expect(tokens.cornerRadius, 3);
-      expect(tokens.densityScale, isA<double>());
-      expect(tokens.densityScale, 1);
       expect(tokens.displayFontFamily, isA<String>());
       expect(tokens.displayFontFamily, 'Georgia');
       expect(tokens.environmentAssetPath, isNull);
@@ -244,6 +242,10 @@ void main() {
       expect(tokens.brandTagline, const Color(0xFF72899A));
       expect(tokens.brandAccent, const Color(0xFF74BDE8));
       expect(tokens.markIcon, const Color(0xFFE2A55E));
+      expect(tokens.barTrack, const Color(0xFF202B34));
+      expect(tokens.panelNote, const Color(0xFF667C8B));
+      expect((tokens.heroScrim as LinearGradient).stops, const [0, 0.52, 1]);
+      expect((tokens.heroFloorScrim as LinearGradient).stops, const [0, 0.72]);
     });
 
     test('Method buildDovahThemeTokens preserves named overrides', () {
@@ -253,7 +255,6 @@ void main() {
         soft: const Color(0x04050607),
         cornerStyle: DovahPanelCornerStyle.rounded,
         cornerRadius: 13,
-        densityScale: 1.15,
         environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
         eyebrow: const Color(0xFF010203),
         uppercaseLabels: true,
@@ -282,8 +283,6 @@ void main() {
       expect(tokens.cornerStyle, DovahPanelCornerStyle.rounded);
       expect(tokens.cornerRadius, isA<double>());
       expect(tokens.cornerRadius, 13);
-      expect(tokens.densityScale, isA<double>());
-      expect(tokens.densityScale, 1.15);
       expect(tokens.environmentAssetPath, isA<String>());
       expect(
         tokens.environmentAssetPath,

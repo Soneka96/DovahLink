@@ -119,8 +119,26 @@ void main() {
         brandTagline: const Color(0xFF040506),
         brandAccent: const Color(0xFF070809),
         markIcon: const Color(0xFF0A0B0C),
+        barTrack: const Color(0xFF0D0E0F),
+        panelNote: const Color(0xFF101112),
+        heroScrim: const LinearGradient(
+          colors: [Color(0xFF111111), Color(0xFF222222)],
+        ),
+        heroFloorScrim: const LinearGradient(
+          colors: [Color(0xFF333333), Color(0xFF444444)],
+        ),
       );
 
+      expect(copy.barTrack, const Color(0xFF0D0E0F));
+      expect(copy.panelNote, const Color(0xFF101112));
+      expect((copy.heroScrim as LinearGradient).colors, const [
+        Color(0xFF111111),
+        Color(0xFF222222),
+      ]);
+      expect((copy.heroFloorScrim as LinearGradient).colors, const [
+        Color(0xFF333333),
+        Color(0xFF444444),
+      ]);
       expect(copy.statusOffline, const Color(0xFF010203));
       expect(copy.brandTagline, const Color(0xFF040506));
       expect(copy.brandAccent, const Color(0xFF070809));
@@ -180,7 +198,6 @@ void main() {
         soft: const Color(0xFFFFFFFF),
         cornerStyle: DovahPanelCornerStyle.rounded,
         cornerRadius: 13,
-        densityScale: 1.15,
       );
 
       final DovahThemeTokens result = tokens.lerp(other, 0);
@@ -194,7 +211,6 @@ void main() {
         background: const Color(0xFFFFFFFF),
         cornerStyle: DovahPanelCornerStyle.rounded,
         cornerRadius: 13,
-        densityScale: 1.15,
       );
 
       final DovahThemeTokens result = tokens.lerp(other, 1);
@@ -206,12 +222,10 @@ void main() {
       final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
         cornerRadius: 0,
         cornerCutSize: 0,
-        densityScale: 0,
       );
       final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
         cornerRadius: 10,
         cornerCutSize: 20,
-        densityScale: 2,
       );
 
       final DovahThemeTokens result = tokens.lerp(other, 0.5);
@@ -222,8 +236,6 @@ void main() {
       expect(result.soft, Color.lerp(tokens.soft, other.soft, 0.5));
       expect(result.cornerCutSize, isA<double>());
       expect(result.cornerCutSize, 10);
-      expect(result.densityScale, isA<double>());
-      expect(result.densityScale, 1);
     });
 
     test('Method lerp interpolates the root-screen metrics and colors', () {
@@ -281,12 +293,16 @@ void main() {
         brandTagline: const Color(0xFF000000),
         brandAccent: const Color(0xFF000000),
         markIcon: const Color(0xFF000000),
+        barTrack: const Color(0xFF000000),
+        panelNote: const Color(0xFF000000),
       );
       final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
         statusOffline: const Color(0xFFFFFFFF),
         brandTagline: const Color(0xFFFFFFFF),
         brandAccent: const Color(0xFFFFFFFF),
         markIcon: const Color(0xFFFFFFFF),
+        barTrack: const Color(0xFFFFFFFF),
+        panelNote: const Color(0xFFFFFFFF),
       );
 
       final DovahThemeTokens result = tokens.lerp(other, 0.5);
@@ -300,6 +316,8 @@ void main() {
       expect(result.brandTagline, halfway);
       expect(result.brandAccent, halfway);
       expect(result.markIcon, halfway);
+      expect(result.barTrack, halfway);
+      expect(result.panelNote, halfway);
     });
 
     test('Method lerp switches preset at the midpoint', () {
@@ -437,17 +455,6 @@ void main() {
       expect(first, isNot(second));
     });
 
-    test('Behavior equality fails when densityScale differs', () {
-      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens(
-        densityScale: 0.85,
-      );
-      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
-        densityScale: 1.15,
-      );
-
-      expect(first, isNot(second));
-    });
-
     test('Behavior equality fails when displayFontFamily differs', () {
       final DovahThemeTokens first = Fixtures.buildDovahThemeTokens(
         displayFontFamily: 'Georgia',
@@ -544,6 +551,18 @@ void main() {
           first.copyWith(brandTagline: const Color(0xFF000000)),
           first.copyWith(brandAccent: const Color(0xFF000000)),
           first.copyWith(markIcon: const Color(0xFF000000)),
+          first.copyWith(barTrack: const Color(0xFF000000)),
+          first.copyWith(panelNote: const Color(0xFF000000)),
+          first.copyWith(
+            heroScrim: const LinearGradient(
+              colors: [Color(0xFF000000), Color(0xFF111111)],
+            ),
+          ),
+          first.copyWith(
+            heroFloorScrim: const LinearGradient(
+              colors: [Color(0xFF000000), Color(0xFF111111)],
+            ),
+          ),
         ];
 
         for (final DovahThemeTokens other in others) {

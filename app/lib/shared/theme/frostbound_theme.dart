@@ -53,7 +53,6 @@ ThemeData buildFrostboundTheme() {
       end: Alignment.bottomRight,
       colors: [Color(0xFF151E23), Color(0xFF070B0D)],
     ),
-    densityScale: 0.85,
     displayFontFamily: 'Arial Narrow',
     environmentAssetPath: 'assets/themes/frostbound/frostbound-environment.png',
     eyebrow: Color(0xFFBD5559),
@@ -68,7 +67,21 @@ ThemeData buildFrostboundTheme() {
     statusOffline: Color(0xFF7C8993),
     brandTagline: Color(0xFF82919A),
     brandAccent: Color(0xFFA9C7D1),
+    barTrack: Color(0xFF1B2931),
     markIcon: Color(0xFFBD5559),
+    panelNote: Color(0xFF929DA2),
+    heroScrim: LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [Color(0xF0010406), Color(0x8A020609), Color(0x2B020609)],
+      stops: [0, 0.54, 1],
+    ),
+    heroFloorScrim: LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: [Color(0xEB030709), Color(0x00030709)],
+      stops: [0, 0.66],
+    ),
   );
 
   return ThemeData(

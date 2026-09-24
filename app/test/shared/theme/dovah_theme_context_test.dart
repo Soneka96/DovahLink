@@ -5,7 +5,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -189,6 +192,108 @@ void main() {
           expect(
             resolved,
             DovahConnectionCardMetrics.forWindow(preset: preset, window: size),
+          );
+        },
+      );
+    }
+  });
+
+  group('Property dovahPageMetrics behaves correctly', () {
+    for (final (DovahThemePreset preset, Size size) in [
+      (DovahThemePreset.frostbound, const Size(900, 560)),
+      (DovahThemePreset.dovah, const Size(1280, 720)),
+      (DovahThemePreset.hearth, const Size(800, 700)),
+    ]) {
+      testWidgets(
+        'Property dovahPageMetrics resolves the ${preset.name} set at $size',
+        (WidgetTester tester) async {
+          tester.view.physicalSize = size * tester.view.devicePixelRatio;
+          addTearDown(tester.view.reset);
+          late DovahPageMetrics resolved;
+
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: dovahThemeDataFor(preset),
+              home: Builder(
+                builder: (BuildContext context) {
+                  resolved = context.dovahPageMetrics;
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          );
+
+          expect(
+            resolved,
+            DovahPageMetrics.forWindow(preset: preset, window: size),
+          );
+        },
+      );
+    }
+  });
+
+  group('Property dovahSessionMetrics behaves correctly', () {
+    for (final (DovahThemePreset preset, Size size) in [
+      (DovahThemePreset.frostbound, const Size(1280, 720)),
+      (DovahThemePreset.dovah, const Size(900, 560)),
+      (DovahThemePreset.hearth, const Size(800, 700)),
+    ]) {
+      testWidgets(
+        'Property dovahSessionMetrics resolves the ${preset.name} set at $size',
+        (WidgetTester tester) async {
+          tester.view.physicalSize = size * tester.view.devicePixelRatio;
+          addTearDown(tester.view.reset);
+          late DovahSessionMetrics resolved;
+
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: dovahThemeDataFor(preset),
+              home: Builder(
+                builder: (BuildContext context) {
+                  resolved = context.dovahSessionMetrics;
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          );
+
+          expect(
+            resolved,
+            DovahSessionMetrics.forWindow(preset: preset, window: size),
+          );
+        },
+      );
+    }
+  });
+
+  group('Property dovahOverviewMetrics behaves correctly', () {
+    for (final (DovahThemePreset preset, Size size) in [
+      (DovahThemePreset.frostbound, const Size(1000, 560)),
+      (DovahThemePreset.dovah, const Size(1280, 720)),
+      (DovahThemePreset.hearth, const Size(800, 700)),
+    ]) {
+      testWidgets(
+        'Property dovahOverviewMetrics resolves the ${preset.name} set at $size',
+        (WidgetTester tester) async {
+          tester.view.physicalSize = size * tester.view.devicePixelRatio;
+          addTearDown(tester.view.reset);
+          late DovahOverviewMetrics resolved;
+
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: dovahThemeDataFor(preset),
+              home: Builder(
+                builder: (BuildContext context) {
+                  resolved = context.dovahOverviewMetrics;
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          );
+
+          expect(
+            resolved,
+            DovahOverviewMetrics.forWindow(preset: preset, window: size),
           );
         },
       );

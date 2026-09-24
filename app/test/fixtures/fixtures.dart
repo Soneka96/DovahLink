@@ -135,7 +135,6 @@ abstract final class Fixtures {
     List<BoxShadow>? panelShadow,
     Gradient? materialGradient,
     Gradient? materialRaisedGradient,
-    double densityScale = 1,
     String displayFontFamily = 'Georgia',
     String? environmentAssetPath,
     Color eyebrow = const Color(0xFFE2A55E),
@@ -151,6 +150,10 @@ abstract final class Fixtures {
     Color brandTagline = const Color(0xFF72899A),
     Color brandAccent = const Color(0xFF74BDE8),
     Color markIcon = const Color(0xFFE2A55E),
+    Color barTrack = const Color(0xFF202B34),
+    Color panelNote = const Color(0xFF667C8B),
+    Gradient? heroScrim,
+    Gradient? heroFloorScrim,
   }) => DovahThemeTokens(
     background: background,
     surface: surface,
@@ -200,7 +203,6 @@ abstract final class Fixtures {
           end: Alignment.bottomRight,
           colors: [Color(0xFF162A38), Color(0xFF09141D)],
         ),
-    densityScale: densityScale,
     displayFontFamily: displayFontFamily,
     environmentAssetPath: environmentAssetPath,
     eyebrow: eyebrow,
@@ -216,5 +218,23 @@ abstract final class Fixtures {
     brandTagline: brandTagline,
     brandAccent: brandAccent,
     markIcon: markIcon,
+    barTrack: barTrack,
+    panelNote: panelNote,
+    heroScrim:
+        heroScrim ??
+        const LinearGradient(
+          begin: Alignment.centerLeft,
+          end: Alignment.centerRight,
+          colors: [Color(0xE0050A0F), Color(0x5C050A0F), Color(0x0F050A0F)],
+          stops: [0, 0.52, 1],
+        ),
+    heroFloorScrim:
+        heroFloorScrim ??
+        const LinearGradient(
+          begin: Alignment.bottomCenter,
+          end: Alignment.topCenter,
+          colors: [Color(0xE00B141D), Color(0x000B141D)],
+          stops: [0, 0.72],
+        ),
   );
 }

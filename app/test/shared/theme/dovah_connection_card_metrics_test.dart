@@ -152,6 +152,7 @@ void main() {
           expect(metrics.cornerCutSize, testCase.$7);
           expect(metrics.cornerRadius, isA<double>());
           expect(metrics.cornerRadius, testCase.$8);
+          expect(metrics.showDetail, isA<bool>());
           expect(metrics.showDetail, testCase.$9);
         },
       );

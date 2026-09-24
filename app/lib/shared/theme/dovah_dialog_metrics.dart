@@ -128,16 +128,16 @@ class DovahDialogMetrics extends Equatable {
     noteTopGap: 8,
   );
 
-  /// Vertical padding of a dialog's header, before theme density scaling.
+  /// Vertical padding of a dialog's header.
   final double headerVerticalPadding;
 
-  /// Horizontal padding of a dialog's header, before theme density scaling.
+  /// Horizontal padding of a dialog's header.
   final double headerHorizontalPadding;
 
-  /// Vertical padding around a dialog's content, before theme density scaling.
+  /// Vertical padding around a dialog's content.
   final double bodyVerticalPadding;
 
-  /// Horizontal padding around a dialog's content, before theme density scaling.
+  /// Horizontal padding around a dialog's content.
   final double bodyHorizontalPadding;
 
   /// Fraction of the window height a dialog may fill.

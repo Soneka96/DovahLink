@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Reads the active [DovahThemeTokens] from the nearest [Theme]. Every shared DovahLink surface
@@ -28,6 +31,28 @@ extension DovahThemeContext on BuildContext {
   /// is shown in.
   DovahConnectionCardMetrics get dovahConnectionCardMetrics =>
       DovahConnectionCardMetrics.forWindow(
+        preset: dovahTokens.preset,
+        window: MediaQuery.sizeOf(this),
+      );
+
+  /// The [DovahPageMetrics] for the active theme and the size of the window this context is shown
+  /// in.
+  DovahPageMetrics get dovahPageMetrics => DovahPageMetrics.forWindow(
+    preset: dovahTokens.preset,
+    window: MediaQuery.sizeOf(this),
+  );
+
+  /// The [DovahSessionMetrics] for the active theme and the size of the window this context is
+  /// shown in.
+  DovahSessionMetrics get dovahSessionMetrics => DovahSessionMetrics.forWindow(
+    preset: dovahTokens.preset,
+    window: MediaQuery.sizeOf(this),
+  );
+
+  /// The [DovahOverviewMetrics] for the active theme and the size of the window this context is
+  /// shown in.
+  DovahOverviewMetrics get dovahOverviewMetrics =>
+      DovahOverviewMetrics.forWindow(
         preset: dovahTokens.preset,
         window: MediaQuery.sizeOf(this),
       );

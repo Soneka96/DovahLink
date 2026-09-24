@@ -271,6 +271,7 @@ void main() {
             Color tagline,
             Color accent,
             Color mark,
+            Color track,
           )
           in [
             (
@@ -279,6 +280,7 @@ void main() {
               const Color(0xFF82919A),
               const Color(0xFFA9C7D1),
               const Color(0xFFBD5559),
+              const Color(0xFF1B2931),
             ),
             (
               DovahThemePreset.dovah,
@@ -286,6 +288,7 @@ void main() {
               const Color(0xFF72899A),
               const Color(0xFF74BDE8),
               const Color(0xFFE2A55E),
+              const Color(0xFF202B34),
             ),
             (
               DovahThemePreset.hearth,
@@ -293,6 +296,7 @@ void main() {
               const Color(0xFF80674F),
               const Color(0xFFA45F27),
               const Color(0xFF965923),
+              const Color(0xFFB89463),
             ),
           ]) {
         test(
@@ -306,6 +310,69 @@ void main() {
             expect(tokens.brandTagline, tagline);
             expect(tokens.brandAccent, accent);
             expect(tokens.markIcon, mark);
+            expect(tokens.barTrack, track);
+          },
+        );
+      }
+    },
+  );
+
+  group(
+    'Behavior prototype hero scrim and panel note mappings behave correctly',
+    () {
+      for (final (
+            DovahThemePreset preset,
+            Color note,
+            List<Color> scrimColors,
+            List<double> scrimStops,
+            List<Color> floorColors,
+            List<double> floorStops,
+          )
+          in [
+            (
+              DovahThemePreset.frostbound,
+              const Color(0xFF929DA2),
+              const [Color(0xF0010406), Color(0x8A020609), Color(0x2B020609)],
+              const [0.0, 0.54, 1.0],
+              const [Color(0xEB030709), Color(0x00030709)],
+              const [0.0, 0.66],
+            ),
+            (
+              DovahThemePreset.dovah,
+              const Color(0xFF667C8B),
+              const [Color(0xE0050A0F), Color(0x5C050A0F), Color(0x0F050A0F)],
+              const [0.0, 0.52, 1.0],
+              const [Color(0xE00B141D), Color(0x000B141D)],
+              const [0.0, 0.72],
+            ),
+            (
+              DovahThemePreset.hearth,
+              const Color(0xFF765B3E),
+              const [Color(0xE6EFD9B5), Color(0xC2E4C69C), Color(0x2ECD9E62)],
+              const [0.0, 0.34, 0.72],
+              const [Color(0xD1E7CCA3), Color(0x94DAB57E), Color(0x00DAB57E)],
+              const [0.0, 0.31, 0.68],
+            ),
+          ]) {
+        test(
+          'Behavior ${preset.name} tokens match the prototype hero scrims and panel note',
+          () {
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+            final LinearGradient scrim = tokens.heroScrim as LinearGradient;
+            final LinearGradient floor =
+                tokens.heroFloorScrim as LinearGradient;
+
+            expect(tokens.panelNote, note);
+            expect(scrim.colors, scrimColors);
+            expect(scrim.stops, scrimStops);
+            expect(scrim.begin, Alignment.centerLeft);
+            expect(scrim.end, Alignment.centerRight);
+            expect(floor.colors, floorColors);
+            expect(floor.stops, floorStops);
+            expect(floor.begin, Alignment.bottomCenter);
+            expect(floor.end, Alignment.topCenter);
           },
         );
       }
@@ -427,28 +494,6 @@ void main() {
         };
 
         expect(radii, hasLength(3));
-      },
-    );
-
-    test(
-      'Behavior distinct presets use a different density scale per theme',
-      () {
-        final DovahThemeTokens frostbound = buildFrostboundTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens dovah = buildDovahPresetTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens hearth = buildHearthTheme()
-            .extension<DovahThemeTokens>()!;
-
-        final Set<double> densities = {
-          frostbound.densityScale,
-          dovah.densityScale,
-          hearth.densityScale,
-        };
-
-        expect(densities, hasLength(3));
-        expect(frostbound.densityScale, lessThan(dovah.densityScale));
-        expect(dovah.densityScale, lessThan(hearth.densityScale));
       },
     );
 

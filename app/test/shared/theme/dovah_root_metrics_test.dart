@@ -273,6 +273,7 @@ void main() {
           expect(metrics.pageTitleTopGap, testCase.$8);
           expect(metrics.brandTaglineLetterSpacingEm, isA<double>());
           expect(metrics.brandTaglineLetterSpacingEm, testCase.$9);
+          expect(metrics.showFooter, isA<bool>());
           expect(metrics.showFooter, testCase.$10);
         },
       );

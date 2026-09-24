@@ -54,7 +54,6 @@ ThemeData buildDovahPresetTheme() {
       end: Alignment.bottomRight,
       colors: [Color(0xFF162A38), Color(0xFF09141D)],
     ),
-    densityScale: 1,
     displayFontFamily: 'Georgia',
     environmentAssetPath: null,
     eyebrow: Color(0xFFE2A55E),
@@ -69,7 +68,21 @@ ThemeData buildDovahPresetTheme() {
     statusOffline: Color(0xFF7C8993),
     brandTagline: Color(0xFF72899A),
     brandAccent: Color(0xFF74BDE8),
+    barTrack: Color(0xFF202B34),
     markIcon: Color(0xFFE2A55E),
+    panelNote: Color(0xFF667C8B),
+    heroScrim: LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [Color(0xE0050A0F), Color(0x5C050A0F), Color(0x0F050A0F)],
+      stops: [0, 0.52, 1],
+    ),
+    heroFloorScrim: LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: [Color(0xE00B141D), Color(0x000B141D)],
+      stops: [0, 0.72],
+    ),
   );
 
   return ThemeData(

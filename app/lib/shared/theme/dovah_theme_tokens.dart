@@ -122,10 +122,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// The material recipe for a raised/hovered panel or connection card.
   final Gradient materialRaisedGradient;
 
-  /// A multiplier applied to shared base spacing/sizing constants to express this theme's
-  /// overall visual density (frostbound tightest, hearth roomiest).
-  final double densityScale;
-
   /// The display/heading font family for this theme. The body font family does not vary by
   /// theme in the approved prototype, so it is not part of this contract.
   final String displayFontFamily;
@@ -186,6 +182,21 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// per theme rather than following [accentPrimary].
   final Color markIcon;
 
+  /// The empty track of a stat bar (the prototype's `.bar` background), which differs per theme.
+  final Color barTrack;
+
+  /// The tone of a panel title's trailing note (the prototype's `.panel-title span`), which
+  /// differs from [textFaint] in Frostbound.
+  final Color panelNote;
+
+  /// The horizontal scrim over the character image in a hero panel (the prototype's
+  /// `.hero-panel` leading `linear-gradient(90deg, ...)`), which keeps its text legible.
+  final Gradient heroScrim;
+
+  /// The scrim rising from a hero panel's floor (the prototype's `.hero-panel:before`
+  /// `linear-gradient(0deg, ...)`).
+  final Gradient heroFloorScrim;
+
   /// Creates a complete token set. Every field is required so no theme can be assembled with an
   /// accidentally-inherited default.
   const DovahThemeTokens({
@@ -217,7 +228,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.panelShadow,
     required this.materialGradient,
     required this.materialRaisedGradient,
-    required this.densityScale,
     required this.displayFontFamily,
     required this.environmentAssetPath,
     required this.eyebrow,
@@ -233,6 +243,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.brandTagline,
     required this.brandAccent,
     required this.markIcon,
+    required this.barTrack,
+    required this.panelNote,
+    required this.heroScrim,
+    required this.heroFloorScrim,
   });
 
   /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
@@ -275,7 +289,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     List<BoxShadow>? panelShadow,
     Gradient? materialGradient,
     Gradient? materialRaisedGradient,
-    double? densityScale,
     String? displayFontFamily,
     Option<String>? environmentAssetPath,
     Color? eyebrow,
@@ -291,6 +304,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     Color? brandTagline,
     Color? brandAccent,
     Color? markIcon,
+    Color? barTrack,
+    Color? panelNote,
+    Gradient? heroScrim,
+    Gradient? heroFloorScrim,
   }) => DovahThemeTokens(
     background: background ?? this.background,
     surface: surface ?? this.surface,
@@ -322,7 +339,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     materialGradient: materialGradient ?? this.materialGradient,
     materialRaisedGradient:
         materialRaisedGradient ?? this.materialRaisedGradient,
-    densityScale: densityScale ?? this.densityScale,
     displayFontFamily: displayFontFamily ?? this.displayFontFamily,
     environmentAssetPath: environmentAssetPath == null
         ? this.environmentAssetPath
@@ -342,6 +358,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     brandTagline: brandTagline ?? this.brandTagline,
     brandAccent: brandAccent ?? this.brandAccent,
     markIcon: markIcon ?? this.markIcon,
+    barTrack: barTrack ?? this.barTrack,
+    panelNote: panelNote ?? this.panelNote,
+    heroScrim: heroScrim ?? this.heroScrim,
+    heroFloorScrim: heroFloorScrim ?? this.heroFloorScrim,
   );
 
   /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
@@ -389,7 +409,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       materialRaisedGradient: t < 0.5
           ? materialRaisedGradient
           : other.materialRaisedGradient,
-      densityScale: lerpDouble(densityScale, other.densityScale, t)!,
       displayFontFamily: t < 0.5 ? displayFontFamily : other.displayFontFamily,
       environmentAssetPath: t < 0.5
           ? environmentAssetPath
@@ -427,6 +446,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       brandTagline: Color.lerp(brandTagline, other.brandTagline, t)!,
       brandAccent: Color.lerp(brandAccent, other.brandAccent, t)!,
       markIcon: Color.lerp(markIcon, other.markIcon, t)!,
+      barTrack: Color.lerp(barTrack, other.barTrack, t)!,
+      panelNote: Color.lerp(panelNote, other.panelNote, t)!,
+      heroScrim: t < 0.5 ? heroScrim : other.heroScrim,
+      heroFloorScrim: t < 0.5 ? heroFloorScrim : other.heroFloorScrim,
     );
   }
 
@@ -461,7 +484,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     panelShadow,
     materialGradient,
     materialRaisedGradient,
-    densityScale,
     displayFontFamily,
     environmentAssetPath,
     eyebrow,
@@ -477,5 +499,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     brandTagline,
     brandAccent,
     markIcon,
+    barTrack,
+    panelNote,
+    heroScrim,
+    heroFloorScrim,
   ];
 }
