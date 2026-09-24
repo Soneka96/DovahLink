@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import 'package:dovahlink_client/app/app.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/data/datasources/appearance_local.datasource.dart';
 import 'package:dovahlink_client/features/appearance/domain/repositories/appearance_repository.dart';
 import 'package:dovahlink_client/features/appearance/domain/usecases/load_theme_preset.usecase.dart';
@@ -100,6 +101,27 @@ void main() {
 
       expect(sl.isRegistered<NavigatorService>(), isTrue);
     });
+
+    test(
+      'initDependencies resolves DovahLinkAppViewModel from a Store',
+      () async {
+        await initDependencies();
+        final MockStore store = MockStore();
+        when(() => store.state).thenReturn(
+          AppState.initial(
+            appearance: const AppearanceState(
+              activePreset: DovahThemePreset.hearth,
+            ),
+          ),
+        );
+
+        final DovahLinkAppViewModel viewModel = sl<DovahLinkAppViewModel>(
+          param1: store,
+        );
+
+        expect(viewModel.activePreset, DovahThemePreset.hearth);
+      },
+    );
 
     test('the registered GoRouter is a true singleton', () async {
       await initDependencies();

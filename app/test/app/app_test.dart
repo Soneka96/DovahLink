@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
+
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 
 import 'package:dovahlink_client/app/app.dart';
+import 'package:dovahlink_client/app/app.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
@@ -151,14 +153,19 @@ void main() {
         );
         await tester.pumpWidget(DovahLinkApp(store: store));
 
-        final StoreConnector<AppState, DovahThemePreset> connector = tester
-            .widget(find.byType(StoreConnector<AppState, DovahThemePreset>));
+        final StoreConnector<AppState, DovahLinkAppViewModel> connector = tester
+            .widget(
+              find.byType(StoreConnector<AppState, DovahLinkAppViewModel>),
+            );
         final ThemeData initialTheme = tester
             .widget<MaterialApp>(find.byType(MaterialApp))
             .theme!;
 
         expect(connector.distinct, isTrue);
-        expect(connector.converter(store), DovahThemePreset.hearth);
+        expect(
+          connector.converter(store).activePreset,
+          DovahThemePreset.hearth,
+        );
 
         store.dispatch(const PairingStartedAction());
         expect(
