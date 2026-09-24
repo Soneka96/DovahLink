@@ -26,7 +26,10 @@ void main() {
                 cards: [
                   Fixtures.buildHostCardViewModel(),
                   Fixtures.buildHostCardViewModel(
-                    host: Fixtures.buildHostEntity(displayName: 'Second Host'),
+                    host: Fixtures.buildHostEntity(
+                      displayName: 'Second Host',
+                      uri: Uri.parse('ws://192.168.1.11:2000/'),
+                    ),
                     title: 'Second Host',
                     detail: '192.168.1.11:2000',
                   ),
@@ -41,11 +44,11 @@ void main() {
             expect(find.text('MY SKYRIM PCS'), findsOneWidget);
             expect(find.byType(DovahConnectionCard), findsNWidgets(2));
             expect(
-              find.byKey(const Key('host-card-Local Host')),
+              find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
               findsOneWidget,
             );
             expect(
-              find.byKey(const Key('host-card-Second Host')),
+              find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
               findsOneWidget,
             );
             expect(find.text('192.168.1.11:2000'), findsOneWidget);
@@ -160,7 +163,10 @@ void main() {
             cards: [
               Fixtures.buildHostCardViewModel(),
               Fixtures.buildHostCardViewModel(
-                host: Fixtures.buildHostEntity(displayName: 'Second Host'),
+                host: Fixtures.buildHostEntity(
+                  displayName: 'Second Host',
+                  uri: Uri.parse('ws://192.168.1.11:2000/'),
+                ),
                 title: 'Second Host',
               ),
             ],
@@ -172,10 +178,14 @@ void main() {
 
         final double gap =
             tester
-                .getTopLeft(find.byKey(const Key('host-card-Second Host')))
+                .getTopLeft(
+                  find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
+                )
                 .dy -
             tester
-                .getBottomLeft(find.byKey(const Key('host-card-Local Host')))
+                .getBottomLeft(
+                  find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+                )
                 .dy;
 
         expect(gap, isA<double>());
@@ -213,7 +223,52 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        await tester.tap(find.byKey(const Key('host-card-Second Host')));
+        await tester.tap(find.byKey(const Key('host-card-ws://127.0.0.1:2/')));
+        await tester.pump();
+
+        expect(selected, [second]);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsHostSection keeps Host identity when cards are reordered',
+      (WidgetTester tester) async {
+        final HostEntity first = Fixtures.buildHostEntity(
+          displayName: 'Shared Host Name',
+          uri: Uri.parse('ws://127.0.0.1:1/'),
+        );
+        final HostEntity second = Fixtures.buildHostEntity(
+          displayName: 'Shared Host Name',
+          uri: Uri.parse('ws://127.0.0.1:2/'),
+        );
+        final List<HostEntity> selected = [];
+
+        await pumpDovahThemedWidget(
+          tester,
+          ConnectionsHostSection(
+            cards: [
+              Fixtures.buildHostCardViewModel(host: first),
+              Fixtures.buildHostCardViewModel(host: second),
+            ],
+            onSelectHost: selected.add,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        await pumpDovahThemedWidget(
+          tester,
+          ConnectionsHostSection(
+            cards: [
+              Fixtures.buildHostCardViewModel(host: second),
+              Fixtures.buildHostCardViewModel(host: first),
+            ],
+            onSelectHost: selected.add,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        await tester.tap(find.byKey(const Key('host-card-ws://127.0.0.1:2/')));
         await tester.pump();
 
         expect(selected, [second]);

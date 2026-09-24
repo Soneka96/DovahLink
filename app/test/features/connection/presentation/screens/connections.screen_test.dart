@@ -170,8 +170,14 @@ void main() {
         await tester.pumpWidget(buildWidget());
 
         expect(find.byType(DovahConnectionCard), findsNWidgets(2));
-        expect(find.byKey(const Key('host-card-Local Host')), findsOneWidget);
-        expect(find.byKey(const Key('host-card-Second Host')), findsOneWidget);
+        expect(
+          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
+          findsOneWidget,
+        );
         expect(find.text('192.168.1.11:2000'), findsOneWidget);
       },
     );
@@ -244,7 +250,9 @@ void main() {
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
 
-        await tester.tap(find.byKey(const Key('host-card-Local Host')));
+        await tester.tap(
+          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+        );
         await tester.pump();
 
         expect(selectedHosts, [Fixtures.buildHostEntity()]);
@@ -269,7 +277,42 @@ void main() {
         await useSurface(tester, const Size(1280, 900));
         await tester.pumpWidget(buildWidget());
 
-        await tester.tap(find.byKey(const Key('host-card-Second Host')));
+        await tester.tap(find.byKey(const Key('host-card-ws://127.0.0.1:2/')));
+        await tester.pump();
+
+        expect(selectedHosts, [second]);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen distinguishes and selects Hosts with identical display names',
+      (WidgetTester tester) async {
+        final HostEntity first = Fixtures.buildHostEntity(
+          displayName: 'Shared Host Name',
+          uri: Uri.parse('ws://127.0.0.1:1/'),
+        );
+        final HostEntity second = Fixtures.buildHostEntity(
+          displayName: 'Shared Host Name',
+          uri: Uri.parse('ws://127.0.0.1:2/'),
+        );
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewModel(host: first),
+          Fixtures.buildHostCardViewModel(host: second),
+        ]);
+        await useSurface(tester, const Size(1280, 900));
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.text('Shared Host Name'), findsNWidgets(2));
+        expect(
+          find.byKey(const Key('host-card-ws://127.0.0.1:1/')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('host-card-ws://127.0.0.1:2/')),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const Key('host-card-ws://127.0.0.1:2/')));
         await tester.pump();
 
         expect(selectedHosts, [second]);

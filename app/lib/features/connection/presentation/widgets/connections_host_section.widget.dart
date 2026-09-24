@@ -74,7 +74,7 @@ class ConnectionsHostSection extends StatelessWidget {
           itemBuilder: (BuildContext context, int index) {
             final HostCardViewModel card = cards[index];
             return DovahConnectionCard(
-              key: Key('host-card-${card.host.displayName}'),
+              key: Key('host-card-${card.host.uri}'),
               title: card.title,
               subtitle: card.subtitle,
               detail: card.detail,
