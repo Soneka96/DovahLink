@@ -83,7 +83,7 @@ void main() {
   Future<void> pumpEntry(
     WidgetTester tester, {
     String? message,
-    List<(String, String?)>? submissions,
+    List<String>? submissions,
     DovahThemePreset preset = DovahThemePreset.dovah,
     Size size = const Size(900, 560),
   }) async {
@@ -97,8 +97,7 @@ void main() {
             body: PairingCodeEntry(
               hostName: 'Bedroom PC',
               message: message,
-              onSubmit: (String code, String? displayName) =>
-                  submissions?.add((code, displayName)),
+              onSubmit: (String code) => submissions?.add(code),
             ),
           ),
         ),
@@ -122,6 +121,15 @@ void main() {
         );
       },
     );
+
+    testWidgets('PairingCodeEntry displays no device-name field', (
+      WidgetTester tester,
+    ) async {
+      await pumpEntry(tester);
+
+      expect(find.byKey(const Key('pairing-display-name-field')), findsNothing);
+      expect(find.text('Device name (optional)'), findsNothing);
+    });
 
     testWidgets('PairingCodeEntry displays the code countdown', (
       WidgetTester tester,
@@ -174,7 +182,7 @@ void main() {
     testWidgets('PairingCodeEntry calls onSubmit with a complete code', (
       WidgetTester tester,
     ) async {
-      final List<(String, String?)> submissions = [];
+      final List<String> submissions = [];
       await pumpEntry(tester, submissions: submissions);
 
       await tester.enterText(
@@ -185,13 +193,13 @@ void main() {
       await tester.tap(find.byKey(const Key('pairing-confirm-button')));
       await tester.pump();
 
-      expect(submissions, [('123456', null)]);
+      expect(submissions, ['123456']);
     });
 
     testWidgets(
       'PairingCodeEntry does not call onSubmit for an incomplete code',
       (WidgetTester tester) async {
-        final List<(String, String?)> submissions = [];
+        final List<String> submissions = [];
         await pumpEntry(tester, submissions: submissions);
 
         await tester.enterText(

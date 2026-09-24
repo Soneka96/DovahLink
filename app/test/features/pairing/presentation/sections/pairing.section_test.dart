@@ -64,10 +64,7 @@ void main() {
     when(
       () => viewModel.onRequestCode,
     ).thenReturn(() => calls.add('requestCode'));
-    when(() => viewModel.onSubmitCode).thenReturn((
-      String code,
-      String? displayName,
-    ) {
+    when(() => viewModel.onSubmitCode).thenReturn((String code) {
       calls.add('submit:$code');
     });
     when(() => viewModel.onDispose).thenReturn(() => calls.add('dispose'));

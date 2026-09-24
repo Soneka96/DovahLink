@@ -31,8 +31,9 @@ class PairingSectionViewModel extends Equatable {
   /// Dispatches [PairingCodeRequestedAction].
   final void Function() onRequestCode;
 
-  /// Dispatches [PairingCodeSubmittedAction].
-  final void Function(String code, String? displayName) onSubmitCode;
+  /// Dispatches [PairingCodeSubmittedAction] for the entered code, leaving the paired device's
+  /// display name unset.
+  final void Function(String code) onSubmitCode;
 
   /// Dispatches [PairingDisposedAction] with trust captured from the current store state.
   final void Function() onDispose;
@@ -61,9 +62,8 @@ class PairingSectionViewModel extends Equatable {
       canDismiss: PairingSelectors.canDismissSelector(state),
       onStart: () => store.dispatch(const PairingStartedAction()),
       onRequestCode: () => store.dispatch(const PairingCodeRequestedAction()),
-      onSubmitCode: (String code, String? displayName) => store.dispatch(
-        PairingCodeSubmittedAction(code: code, displayName: displayName),
-      ),
+      onSubmitCode: (String code) =>
+          store.dispatch(PairingCodeSubmittedAction(code: code)),
       onDispose: () => store.dispatch(
         PairingDisposedAction(
           wasTrusted:

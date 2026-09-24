@@ -127,20 +127,15 @@ void main() {
 
   group('Property onSubmitCode behaves correctly', () {
     test(
-      'Property onSubmitCode dispatches PairingCodeSubmittedAction with the code and display name',
+      'Property onSubmitCode dispatches PairingCodeSubmittedAction with the code and no display name',
       () {
         when(() => store.state).thenReturn(buildState());
 
-        PairingSectionViewModel.fromStore(
-          store,
-        ).onSubmitCode('123456', 'Desktop');
+        PairingSectionViewModel.fromStore(store).onSubmitCode('123456');
 
         verify(
           () => store.dispatch(
-            const PairingCodeSubmittedAction(
-              code: '123456',
-              displayName: 'Desktop',
-            ),
+            const PairingCodeSubmittedAction(code: '123456', displayName: null),
           ),
         ).called(1);
       },

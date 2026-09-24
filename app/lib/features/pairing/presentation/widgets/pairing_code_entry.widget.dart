@@ -21,8 +21,8 @@ class PairingCodeEntry extends StatelessWidget {
   /// Why the last code was not accepted, or `null` when none was rejected.
   final String? message;
 
-  /// Called with the entered code and optional display name.
-  final void Function(String code, String? displayName) onSubmit;
+  /// Called with the entered code.
+  final void Function(String code) onSubmit;
 
   /// Creates a code-entry state.
   const PairingCodeEntry({

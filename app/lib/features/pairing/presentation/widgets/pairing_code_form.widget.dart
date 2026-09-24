@@ -10,13 +10,12 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
-/// The pairing-code and optional device-name entry form shown while pairing is awaiting the user
-/// to enter a code: [pairingCodeLength] digit boxes over one real text field, the message slot,
-/// the device name, and the action row whose primary button stays disabled until the code is
-/// complete.
+/// The pairing-code entry form shown while pairing is awaiting the user to enter a code:
+/// [pairingCodeLength] digit boxes over one real text field, the message slot, and the action row
+/// whose primary button stays disabled until the code is complete.
 class PairingCodeForm extends StatefulWidget {
-  /// Called with the entered code and optional display name.
-  final void Function(String code, String? displayName) onSubmit;
+  /// Called with the entered code.
+  final void Function(String code) onSubmit;
 
   /// A message from outside the form, such as the Host rejecting the last code, shown in the
   /// message slot until the user edits the code, or `null` for none.
@@ -43,15 +42,8 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
   /// Controls the code field.
   final TextEditingController _codeController = TextEditingController();
 
-  /// Controls the optional display-name field.
-  final TextEditingController _displayNameController = TextEditingController();
-
-  /// Owns focus for the code field, fixing its place first in traversal
-  /// order ahead of the display-name field.
+  /// Owns focus for the code field, so a rejected submit can return focus to it.
   final FocusNode _codeFocusNode = FocusNode();
-
-  /// Owns focus for the display-name field.
-  final FocusNode _displayNameFocusNode = FocusNode();
 
   /// The message from a submit attempt with an incomplete code, cleared on the next edit, or
   /// `null`. Takes the message slot ahead of [PairingCodeForm.errorMessage].
@@ -76,14 +68,11 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
   @override
   void dispose() {
     _codeController.dispose();
-    _displayNameController.dispose();
     _codeFocusNode.dispose();
-    _displayNameFocusNode.dispose();
     super.dispose();
   }
 
-  /// Submits the code and device name, or, when the code is incomplete, shows why and returns
-  /// focus to the code field.
+  /// Submits the code, or, when it is incomplete, shows why and returns focus to the code field.
   void _submit() {
     if (!_isComplete) {
       setState(() {
@@ -93,17 +82,12 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
       _codeFocusNode.requestFocus();
       return;
     }
-    final String displayName = _displayNameController.text.trim();
-    widget.onSubmit(
-      _codeController.text,
-      displayName.isEmpty ? null : displayName,
-    );
+    widget.onSubmit(_codeController.text);
   }
 
   /// See [State.build].
   @override
   Widget build(BuildContext context) {
-    final DovahThemeTokens tokens = context.dovahTokens;
     final DovahDialogMetrics metrics = context.dovahDialogMetrics;
     final String? message = _incompleteCodeMessage ?? widget.errorMessage;
 
@@ -157,33 +141,6 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
         PairingMessage(
           key: const Key('pairing-code-message'),
           message: message,
-        ),
-        const SizedBox(height: DovahThemeTokens.spacing8),
-        SizedBox(
-          width: metrics.codeRowWidth,
-          child: TextField(
-            key: const Key('pairing-display-name-field'),
-            controller: _displayNameController,
-            focusNode: _displayNameFocusNode,
-            style: TextStyle(color: tokens.textPrimary),
-            cursorColor: tokens.accentPrimary,
-            decoration: InputDecoration(
-              labelText: 'Device name (optional)',
-              labelStyle: TextStyle(color: tokens.textMuted),
-              isDense: true,
-              filled: true,
-              fillColor: tokens.background,
-              enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(tokens.cornerRadius),
-                borderSide: BorderSide(color: tokens.lineStrong),
-              ),
-              focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(tokens.cornerRadius),
-                borderSide: BorderSide(color: tokens.accentPrimary),
-              ),
-            ),
-            onSubmitted: (_) => _submit(),
-          ),
         ),
         SizedBox(height: metrics.actionsTopGap),
         Wrap(

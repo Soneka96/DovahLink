@@ -86,9 +86,7 @@ void main() {
       () => pairingViewModel.onStart,
     ).thenReturn(() => pairingCalls.add('start'));
     when(() => pairingViewModel.onRequestCode).thenReturn(() {});
-    when(
-      () => pairingViewModel.onSubmitCode,
-    ).thenReturn((String _, String? _) {});
+    when(() => pairingViewModel.onSubmitCode).thenReturn((String _) {});
     when(
       () => pairingViewModel.onDispose,
     ).thenReturn(() => pairingCalls.add('dispose'));
