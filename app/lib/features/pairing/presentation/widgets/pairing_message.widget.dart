@@ -19,8 +19,8 @@ class PairingMessage extends StatelessWidget {
     final DovahThemeTokens tokens = context.dovahTokens;
 
     return ConstrainedBox(
-      constraints: const BoxConstraints(
-        minHeight: DovahThemeTokens.formErrorMinHeight,
+      constraints: BoxConstraints(
+        minHeight: context.dovahDialogMetrics.messageMinHeight,
       ),
       child: Semantics(
         liveRegion: true,

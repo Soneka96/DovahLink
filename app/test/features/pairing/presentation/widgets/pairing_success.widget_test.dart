@@ -103,7 +103,7 @@ void main() {
 
   group('PairingSuccess lays out at supported sizes', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in const [Size(720, 480), ...dovahTestSizes]) {
+      for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'PairingSuccess renders under $preset at $size without overflow',
           (WidgetTester tester) async {
@@ -113,6 +113,27 @@ void main() {
           },
         );
       }
+    }
+  });
+
+  group('PairingSuccess keeps its mark the same at every window height', () {
+    for (final Size size in dovahResponsiveTestSizes) {
+      testWidgets(
+        'PairingSuccess draws its 62 mark 17 above the heading at $size',
+        (WidgetTester tester) async {
+          await pumpSuccess(tester, size: size);
+
+          final Rect mark = tester.getRect(
+            find.byKey(const Key('pairing-success-mark')),
+          );
+          expect(mark.size, const Size.square(62));
+          expect(
+            tester.getTopLeft(find.byKey(const Key('pairing-heading'))).dy -
+                mark.bottom,
+            17,
+          );
+        },
+      );
     }
   });
 }

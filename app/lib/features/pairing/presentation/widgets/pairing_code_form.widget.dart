@@ -5,6 +5,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_c
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_message.widget.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
@@ -103,14 +104,15 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final DovahDialogMetrics metrics = context.dovahDialogMetrics;
     final String? message = _incompleteCodeMessage ?? widget.errorMessage;
 
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
         SizedBox(
-          width: PairingCodeBoxes.width,
-          height: DovahThemeTokens.pairingCodeBoxHeight,
+          width: metrics.codeRowWidth,
+          height: metrics.codeBoxHeight,
           child: Stack(
             children: [
               PairingCodeBoxes(
@@ -151,14 +153,14 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
             ],
           ),
         ),
-        const SizedBox(height: DovahThemeTokens.spacing8),
+        SizedBox(height: metrics.codeRowBottomGap),
         PairingMessage(
           key: const Key('pairing-code-message'),
           message: message,
         ),
         const SizedBox(height: DovahThemeTokens.spacing8),
         SizedBox(
-          width: PairingCodeBoxes.width,
+          width: metrics.codeRowWidth,
           child: TextField(
             key: const Key('pairing-display-name-field'),
             controller: _displayNameController,
@@ -183,7 +185,7 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
             onSubmitted: (_) => _submit(),
           ),
         ),
-        const SizedBox(height: DovahThemeTokens.spacing12),
+        SizedBox(height: metrics.actionsTopGap),
         Wrap(
           alignment: WrapAlignment.center,
           runAlignment: WrapAlignment.center,

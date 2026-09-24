@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_loading.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_mark.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_progress.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
@@ -26,8 +27,7 @@ Future<void> pumpProgress(
   DovahThemePreset preset = DovahThemePreset.dovah,
   Size size = const Size(900, 560),
 }) async {
-  await tester.binding.setSurfaceSize(size);
-  addTearDown(() => tester.binding.setSurfaceSize(null));
+  setDovahTestWindow(tester, size);
   await tester.pumpWidget(
     MaterialApp(
       theme: dovahThemeDataFor(preset),
@@ -153,7 +153,7 @@ void main() {
 
   group('PairingProgress lays out at supported sizes', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in const [Size(720, 480), ...dovahTestSizes]) {
+      for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'PairingProgress renders every phase under $preset at $size without overflow',
           (WidgetTester tester) async {
@@ -170,6 +170,36 @@ void main() {
           },
         );
       }
+    }
+  });
+
+  group('PairingProgress sizes its parts for the window height', () {
+    for (final Size size in dovahResponsiveTestSizes) {
+      final bool isCompact = size.height <= 620;
+      testWidgets(
+        'PairingProgress draws a ${isCompact ? 42 : 54} mark and spaces Close ${isCompact ? 7 : 18} below the status at $size',
+        (WidgetTester tester) async {
+          await pumpProgress(
+            tester,
+            phase: PairingPhase.disconnected,
+            size: size,
+          );
+
+          expect(
+            tester.getSize(find.byType(PairingMark)),
+            Size.square(isCompact ? 42 : 54),
+          );
+          expect(
+            tester
+                    .getTopLeft(find.byKey(const Key('pairing-close-button')))
+                    .dy -
+                tester
+                    .getBottomLeft(find.byKey(const Key('pairing-status')))
+                    .dy,
+            isCompact ? 7 : 18,
+          );
+        },
+      );
     }
   });
 }

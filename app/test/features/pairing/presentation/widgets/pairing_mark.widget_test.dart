@@ -4,29 +4,51 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_mark.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Exercises [PairingMark] rendering and accessibility.
 void main() {
   group('PairingMark contains widgets', () {
-    testWidgets(
-      'PairingMark contains the given icon at the prototype tile size',
-      (WidgetTester tester) async {
-        await pumpDovahThemedWidget(
-          tester,
-          const Center(child: PairingMark(icon: Icons.refresh)),
-          preset: DovahThemePreset.dovah,
-          size: const Size(900, 560),
-        );
+    testWidgets('PairingMark contains the given icon', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const Center(child: PairingMark(icon: Icons.refresh)),
+        preset: DovahThemePreset.dovah,
+        size: const Size(900, 560),
+      );
 
-        expect(find.byIcon(Icons.refresh), findsOneWidget);
-        expect(
-          tester.getSize(find.byType(PairingMark)),
-          const Size.square(DovahThemeTokens.pairingMarkSize),
-        );
-      },
-    );
+      expect(find.byIcon(Icons.refresh), findsOneWidget);
+    });
+
+    for (final Size size in dovahResponsiveTestSizes) {
+      final bool isCompact = size.height <= 620;
+      testWidgets(
+        'PairingMark draws a ${isCompact ? 42 : 54} tile with a ${isCompact ? 20 : 24} icon at $size',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const Center(child: PairingMark(icon: Icons.refresh)),
+            preset: DovahThemePreset.dovah,
+            size: size,
+          );
+
+          expect(
+            tester.getSize(find.byType(PairingMark)),
+            Size.square(isCompact ? 42 : 54),
+          );
+          expect(
+            tester.widget<Icon>(find.byIcon(Icons.refresh)).size,
+            isA<double>(),
+          );
+          expect(
+            tester.widget<Icon>(find.byIcon(Icons.refresh)).size,
+            isCompact ? 20 : 24,
+          );
+        },
+      );
+    }
   });
 
   group('PairingMark meets accessibility recommended guidelines', () {
@@ -52,7 +74,7 @@ void main() {
 
   group('PairingMark lays out at supported sizes', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in const [Size(720, 480), ...dovahTestSizes]) {
+      for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'PairingMark renders under $preset at $size without overflow',
           (WidgetTester tester) async {

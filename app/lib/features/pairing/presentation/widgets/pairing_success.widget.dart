@@ -50,6 +50,7 @@ class PairingSuccess extends StatelessWidget {
           ),
         ),
       ),
+      markBottomGap: DovahThemeTokens.pairingSuccessMarkBottomGap,
       heading: 'You’re connected',
       body: '',
       highlight: hostName,

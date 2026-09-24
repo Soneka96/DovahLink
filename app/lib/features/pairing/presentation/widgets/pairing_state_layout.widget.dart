@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -24,6 +25,9 @@ class PairingStateLayout extends StatelessWidget {
   /// The state's own content, below the body copy.
   final List<Widget> children;
 
+  /// The gap below [mark], or `null` for the window's regular gap under a mark.
+  final double? markBottomGap;
+
   /// Creates a pairing state layout.
   const PairingStateLayout({
     required this.mark,
@@ -32,6 +36,7 @@ class PairingStateLayout extends StatelessWidget {
     this.highlight,
     this.bodyEnd = '',
     this.children = const <Widget>[],
+    this.markBottomGap,
     super.key,
   });
 
@@ -39,6 +44,7 @@ class PairingStateLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final DovahDialogMetrics metrics = context.dovahDialogMetrics;
 
     return Center(
       child: ConstrainedBox(
@@ -49,7 +55,7 @@ class PairingStateLayout extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             mark,
-            const SizedBox(height: DovahThemeTokens.pairingMarkBottomGap),
+            SizedBox(height: markBottomGap ?? metrics.markBottomGap),
             Semantics(
               header: true,
               liveRegion: true,
@@ -59,13 +65,13 @@ class PairingStateLayout extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: tokens.displayFontFamily,
-                  fontSize: DovahThemeTokens.pairingHeadingFontSize,
+                  fontSize: metrics.headingFontSize,
                   fontWeight: FontWeight.w500,
                   color: tokens.textPrimary,
                 ),
               ),
             ),
-            const SizedBox(height: DovahThemeTokens.pairingHeadingBottomGap),
+            SizedBox(height: metrics.headingBottomGap),
             ConstrainedBox(
               constraints: const BoxConstraints(
                 maxWidth: DovahThemeTokens.pairingBodyMaxWidth,
@@ -90,11 +96,11 @@ class PairingStateLayout extends StatelessWidget {
                 style: TextStyle(
                   color: tokens.textMuted,
                   fontSize: DovahThemeTokens.pairingBodyFontSize,
-                  height: DovahThemeTokens.pairingBodyLineHeight,
+                  height: metrics.bodyLineHeight,
                 ),
               ),
             ),
-            const SizedBox(height: DovahThemeTokens.pairingBodyBottomGap),
+            SizedBox(height: metrics.bodyBottomGap),
             ...children,
           ],
         ),

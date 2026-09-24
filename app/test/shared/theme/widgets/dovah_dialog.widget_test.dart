@@ -8,20 +8,11 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'dovah_widget_test_helpers.dart';
 
-/// The landscape window sizes the dialog is proven at: two below and two above the compact
-/// breakpoint.
-const List<Size> dialogWindowSizes = [
-  Size(720, 480),
-  Size(900, 560),
-  Size(1280, 720),
-  Size(1600, 900),
-];
-
 /// Exercises [DovahDialog] across every DovahLink theme and its show/close behavior.
 void main() {
   group('DovahDialog renders correctly', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in dialogWindowSizes) {
+      for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'DovahDialog renders its title and content under $preset at $size without overflow',
           (WidgetTester tester) async {
@@ -334,7 +325,7 @@ void main() {
             ),
           ),
           preset: DovahThemePreset.dovah,
-          size: dialogWindowSizes.first,
+          size: dovahResponsiveTestSizes.first,
         );
 
         await tester.tap(find.text('Open'));

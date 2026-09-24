@@ -187,12 +187,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Disabled-control opacity.
   static const double disabledControlOpacity = 0.46;
 
-  /// Width of one pairing-code digit box.
-  static const double pairingCodeBoxWidth = 45;
-
-  /// Height of one pairing-code digit box.
-  static const double pairingCodeBoxHeight = 48;
-
   /// Gap between pairing-code digit boxes.
   static const double pairingCodeBoxGap = 8;
 
@@ -205,9 +199,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Font size of an inline form error message.
   static const double formErrorFontSize = 12;
 
-  /// Height reserved for an inline form error message, so showing one does not shift the layout.
-  static const double formErrorMinHeight = 14;
-
   /// Gap between adjacent action buttons in a dialog.
   static const double dialogActionGap = 10;
 
@@ -217,38 +208,17 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Maximum width of a pairing state's body copy.
   static const double pairingBodyMaxWidth = 430;
 
-  /// Width and height of a pairing state's icon tile.
-  static const double pairingMarkSize = 42;
-
-  /// Size of the icon inside a pairing state's icon tile.
-  static const double pairingMarkIconSize = 20;
-
-  /// Gap below a pairing state's icon tile.
-  static const double pairingMarkBottomGap = 8;
-
-  /// Font size of a pairing state's heading.
-  static const double pairingHeadingFontSize = 22;
-
-  /// Gap below a pairing state's heading.
-  static const double pairingHeadingBottomGap = 5;
-
   /// Font size of a pairing state's body copy.
   static const double pairingBodyFontSize = 14;
-
-  /// Line height, as a multiple of font size, of a pairing state's body copy.
-  static const double pairingBodyLineHeight = 1.35;
-
-  /// Gap below a pairing state's body copy.
-  static const double pairingBodyBottomGap = 10;
 
   /// Font size of a pairing state's footnote.
   static const double pairingNoteFontSize = 12;
 
-  /// Gap above a pairing state's footnote.
-  static const double pairingNoteTopGap = 8;
-
   /// Width and height of a pairing success mark.
   static const double pairingSuccessMarkSize = 62;
+
+  /// Gap below a pairing success mark.
+  static const double pairingSuccessMarkBottomGap = 17;
 
   /// Size of the check glyph inside a pairing success mark.
   static const double pairingSuccessGlyphSize = 29;

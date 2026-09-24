@@ -4,7 +4,6 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_message.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Pumps a [PairingMessage] showing [message] under the Dovah preset.
@@ -46,13 +45,35 @@ void main() {
             .getSize(find.byType(PairingMessage))
             .height;
 
-        expect(
-          empty,
-          greaterThanOrEqualTo(DovahThemeTokens.formErrorMinHeight),
-        );
+        expect(empty, greaterThanOrEqualTo(14));
         expect(filled, empty);
       },
     );
+
+    for (final Size size in dovahResponsiveTestSizes) {
+      final bool isCompact = size.height <= 620;
+      testWidgets(
+        'PairingMessage reserves at least ${isCompact ? 14 : 18} of height when empty at $size',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const Center(child: PairingMessage()),
+            preset: DovahThemePreset.dovah,
+            size: size,
+          );
+
+          final double height = tester
+              .getSize(find.byType(PairingMessage))
+              .height;
+          // A 12-point line is taller than the compact reserve, so only the regular reserve is
+          // visible as extra height.
+          expect(height, greaterThanOrEqualTo(isCompact ? 14 : 18));
+          if (!isCompact) {
+            expect(height, 18);
+          }
+        },
+      );
+    }
   });
 
   group('PairingMessage meets accessibility recommended guidelines', () {

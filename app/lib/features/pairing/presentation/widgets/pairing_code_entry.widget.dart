@@ -7,6 +7,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_m
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -35,6 +36,7 @@ class PairingCodeEntry extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final DovahDialogMetrics metrics = context.dovahDialogMetrics;
 
     return PairingStateLayout(
       mark: const PairingMark(icon: Icons.desktop_windows_outlined),
@@ -51,7 +53,7 @@ class PairingCodeEntry extends StatelessWidget {
             fontSize: DovahThemeTokens.compactFontSize,
           ),
         ),
-        const SizedBox(height: DovahThemeTokens.spacing8),
+        SizedBox(height: metrics.codeRowTopGap),
         PairingCodeForm(
           onSubmit: onSubmit,
           errorMessage: message,
@@ -60,7 +62,7 @@ class PairingCodeEntry extends StatelessWidget {
             PairingRenotifyButton(),
           ],
         ),
-        const SizedBox(height: DovahThemeTokens.pairingNoteTopGap),
+        SizedBox(height: metrics.noteTopGap),
         Text(
           'You’ll only need to do this once.',
           style: TextStyle(

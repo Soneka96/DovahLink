@@ -601,7 +601,7 @@ void main() {
 
   group('PairingCodeForm lays out at supported sizes', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in const [Size(720, 480), ...dovahTestSizes]) {
+      for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'PairingCodeForm renders under $preset at $size without overflow',
           (WidgetTester tester) async {
@@ -625,6 +625,36 @@ void main() {
           },
         );
       }
+    }
+  });
+
+  group('PairingCodeForm sizes its parts for the window height', () {
+    for (final Size size in dovahResponsiveTestSizes) {
+      final bool isCompact = size.height <= 620;
+      testWidgets(
+        'PairingCodeForm draws ${isCompact ? "45x48" : "49x56"} boxes and spaces the message ${isCompact ? 6 : 12} below them at $size',
+        (WidgetTester tester) async {
+          setDovahTestWindow(tester, size);
+          await tester.pumpWidget(buildForm());
+
+          final Rect box = tester.getRect(
+            find.byKey(const Key('pairing-code-box-0')),
+          );
+          final Rect lastBox = tester.getRect(
+            find.byKey(const Key('pairing-code-box-${pairingCodeLength - 1}')),
+          );
+          final Rect message = tester.getRect(
+            find.byKey(const Key('pairing-code-message')),
+          );
+          expect(box.size, Size(isCompact ? 45 : 49, isCompact ? 48 : 56));
+          expect(
+            lastBox.right - box.left,
+            pairingCodeLength * (isCompact ? 45 : 49) +
+                (pairingCodeLength - 1) * 8,
+          );
+          expect(message.top - box.bottom, isCompact ? 6 : 12);
+        },
+      );
     }
   });
 }

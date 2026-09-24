@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -16,11 +17,12 @@ class PairingMark extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final DovahDialogMetrics metrics = context.dovahDialogMetrics;
 
     return ExcludeSemantics(
       child: Container(
-        width: DovahThemeTokens.pairingMarkSize,
-        height: DovahThemeTokens.pairingMarkSize,
+        width: metrics.markSize,
+        height: metrics.markSize,
         decoration: BoxDecoration(
           color: tokens.surfaceRaised,
           borderRadius: BorderRadius.circular(tokens.cornerRadius),
@@ -28,7 +30,7 @@ class PairingMark extends StatelessWidget {
         ),
         child: Icon(
           icon,
-          size: DovahThemeTokens.pairingMarkIconSize,
+          size: metrics.markIconSize,
           color: tokens.accentPrimary,
         ),
       ),

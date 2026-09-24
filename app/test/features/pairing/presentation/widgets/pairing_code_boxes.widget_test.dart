@@ -73,20 +73,33 @@ void main() {
       },
     );
 
-    testWidgets('PairingCodeBoxes is as wide as its static width', (
-      WidgetTester tester,
-    ) async {
-      await pumpBoxes(tester, code: '', isFocused: false);
+    for (final Size size in dovahResponsiveTestSizes) {
+      final bool isCompact = size.height <= 620;
+      final double boxWidth = isCompact ? 45 : 49;
+      final double boxHeight = isCompact ? 48 : 56;
+      testWidgets(
+        'PairingCodeBoxes draws ${boxWidth}x$boxHeight boxes 8 apart at $size',
+        (WidgetTester tester) async {
+          await pumpBoxes(tester, code: '', isFocused: false, size: size);
 
-      expect(
-        tester.getSize(find.byType(PairingCodeBoxes)).width,
-        isA<double>(),
+          expect(
+            tester.getSize(find.byKey(const Key('pairing-code-box-0'))),
+            Size(boxWidth, boxHeight),
+          );
+          expect(
+            tester.getSize(find.byType(PairingCodeBoxes)).width,
+            pairingCodeLength * boxWidth + (pairingCodeLength - 1) * 8,
+          );
+          expect(
+            tester.getTopLeft(find.byKey(const Key('pairing-code-box-1'))).dx -
+                tester
+                    .getTopRight(find.byKey(const Key('pairing-code-box-0')))
+                    .dx,
+            8,
+          );
+        },
       );
-      expect(
-        tester.getSize(find.byType(PairingCodeBoxes)).width,
-        PairingCodeBoxes.width,
-      );
-    });
+    }
   });
 
   group('PairingCodeBoxes shows focus', () {
@@ -158,7 +171,7 @@ void main() {
 
   group('PairingCodeBoxes lays out at supported sizes', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in const [Size(720, 480), ...dovahTestSizes]) {
+      for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'PairingCodeBoxes renders under $preset at $size without overflow',
           (WidgetTester tester) async {

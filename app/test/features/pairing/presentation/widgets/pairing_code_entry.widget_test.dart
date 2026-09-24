@@ -9,6 +9,8 @@ import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_entry.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_form.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_countdown.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -85,8 +87,7 @@ void main() {
     DovahThemePreset preset = DovahThemePreset.dovah,
     Size size = const Size(900, 560),
   }) async {
-    await tester.binding.setSurfaceSize(size);
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    setDovahTestWindow(tester, size);
     await tester.pumpWidget(
       StoreProvider<AppState>(
         store: store,
@@ -211,7 +212,7 @@ void main() {
 
   group('PairingCodeEntry lays out at supported sizes', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in const [Size(720, 480), ...dovahTestSizes]) {
+      for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'PairingCodeEntry renders under $preset at $size without overflow',
           (WidgetTester tester) async {
@@ -226,6 +227,26 @@ void main() {
           },
         );
       }
+    }
+  });
+
+  group('PairingCodeEntry sizes its parts for the window height', () {
+    for (final Size size in dovahResponsiveTestSizes) {
+      final bool isCompact = size.height <= 620;
+      testWidgets(
+        'PairingCodeEntry spaces the code row ${isCompact ? 3 : 6} below the countdown and the note ${isCompact ? 8 : 17} below the form at $size',
+        (WidgetTester tester) async {
+          await pumpEntry(tester, size: size);
+
+          final Rect countdown = tester.getRect(find.byType(PairingCountdown));
+          final Rect form = tester.getRect(find.byType(PairingCodeForm));
+          final Rect note = tester.getRect(
+            find.text('You’ll only need to do this once.'),
+          );
+          expect(form.top - countdown.bottom, isCompact ? 3 : 6);
+          expect(note.top - form.bottom, isCompact ? 8 : 17);
+        },
+      );
     }
   });
 }

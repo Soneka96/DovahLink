@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -8,11 +9,6 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 /// the entered [code] is owned and edited by the text field a caller lays over it, and this row
 /// is hidden from semantics because that field is the accessible control.
 class PairingCodeBoxes extends StatelessWidget {
-  /// The total width of a row of [pairingCodeLength] boxes.
-  static const double width =
-      pairingCodeLength * DovahThemeTokens.pairingCodeBoxWidth +
-      (pairingCodeLength - 1) * DovahThemeTokens.pairingCodeBoxGap;
-
   /// The digits entered so far, at most [pairingCodeLength] of them.
   final String code;
 
@@ -30,6 +26,7 @@ class PairingCodeBoxes extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final DovahDialogMetrics metrics = context.dovahDialogMetrics;
     final int activeIndex = code.length < pairingCodeLength
         ? code.length
         : pairingCodeLength - 1;
@@ -43,8 +40,8 @@ class PairingCodeBoxes extends StatelessWidget {
               const SizedBox(width: DovahThemeTokens.pairingCodeBoxGap),
             Container(
               key: Key('pairing-code-box-$index'),
-              width: DovahThemeTokens.pairingCodeBoxWidth,
-              height: DovahThemeTokens.pairingCodeBoxHeight,
+              width: metrics.codeBoxWidth,
+              height: metrics.codeBoxHeight,
               alignment: Alignment.center,
               decoration: BoxDecoration(
                 color: tokens.background,

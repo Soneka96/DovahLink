@@ -4,6 +4,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_l
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_mark.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
@@ -34,6 +35,7 @@ class PairingProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final DovahDialogMetrics metrics = context.dovahDialogMetrics;
     final bool isWaiting = phase == PairingPhase.disconnected;
     final (String heading, String body, String status) = switch (phase) {
       PairingPhase.disconnected => (
@@ -87,7 +89,7 @@ class PairingProgress extends StatelessWidget {
           ),
         ),
         if (isWaiting) ...[
-          const SizedBox(height: DovahThemeTokens.spacing12),
+          SizedBox(height: metrics.actionsTopGap),
           DovahButton(
             key: const Key('pairing-close-button'),
             label: 'Close',

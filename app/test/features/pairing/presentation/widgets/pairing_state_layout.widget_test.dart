@@ -14,6 +14,7 @@ Future<void> pumpLayout(
   String? highlight,
   String bodyEnd = '',
   List<Widget> children = const <Widget>[],
+  double? markBottomGap,
   DovahThemePreset preset = DovahThemePreset.dovah,
   Size size = const Size(900, 560),
 }) => pumpDovahThemedWidget(
@@ -24,6 +25,7 @@ Future<void> pumpLayout(
     body: body,
     highlight: highlight,
     bodyEnd: bodyEnd,
+    markBottomGap: markBottomGap,
     children: children,
   ),
   preset: preset,
@@ -102,6 +104,61 @@ void main() {
     );
   });
 
+  group('PairingStateLayout spaces its parts for the window height', () {
+    for (final Size size in dovahResponsiveTestSizes) {
+      final bool isCompact = size.height <= 620;
+      testWidgets(
+        'PairingStateLayout sizes the heading and spaces its parts for a ${isCompact ? "compact" : "regular"} window at $size',
+        (WidgetTester tester) async {
+          await pumpLayout(
+            tester,
+            children: const [SizedBox(key: Key('test-child'), height: 10)],
+            size: size,
+          );
+
+          final Rect mark = tester.getRect(find.byKey(const Key('test-mark')));
+          final Rect heading = tester.getRect(
+            find.byKey(const Key('pairing-heading')),
+          );
+          final Rect body = tester.getRect(
+            find.byKey(const Key('pairing-body')),
+          );
+          final Rect child = tester.getRect(
+            find.byKey(const Key('test-child')),
+          );
+          final Text headingText = tester.widget<Text>(
+            find.byKey(const Key('pairing-heading')),
+          );
+          final Text bodyText = tester.widget<Text>(
+            find.byKey(const Key('pairing-body')),
+          );
+          expect(headingText.style?.fontSize, isA<double>());
+          expect(headingText.style?.fontSize, isCompact ? 22 : 24);
+          expect(bodyText.style?.height, isA<double>());
+          expect(bodyText.style?.height, isCompact ? 1.35 : 1.5);
+          expect(heading.top - mark.bottom, isCompact ? 8 : 16);
+          expect(body.top - heading.bottom, isCompact ? 5 : 8);
+          expect(child.top - body.bottom, isCompact ? 10 : 20);
+        },
+      );
+    }
+
+    for (final Size size in const [Size(900, 560), Size(1280, 720)]) {
+      testWidgets(
+        'PairingStateLayout uses a supplied mark gap instead of the window gap at $size',
+        (WidgetTester tester) async {
+          await pumpLayout(tester, markBottomGap: 17, size: size);
+
+          expect(
+            tester.getTopLeft(find.byKey(const Key('pairing-heading'))).dy -
+                tester.getBottomLeft(find.byKey(const Key('test-mark'))).dy,
+            17,
+          );
+        },
+      );
+    }
+  });
+
   group('PairingStateLayout meets accessibility recommended guidelines', () {
     testWidgets(
       'PairingStateLayout exposes the heading as a live-region header',
@@ -123,7 +180,7 @@ void main() {
 
   group('PairingStateLayout lays out at supported sizes', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in const [Size(720, 480), ...dovahTestSizes]) {
+      for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'PairingStateLayout renders under $preset at $size without overflow',
           (WidgetTester tester) async {
