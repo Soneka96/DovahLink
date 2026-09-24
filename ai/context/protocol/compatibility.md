@@ -14,11 +14,10 @@ The canonical schema is `protocol/schema/README.md`. This file defines how that 
 - Skyrim runtime, SKSE, and CommonLib compatibility belong to the Adapter alone (`ai/context/adapter/architecture.md`'s "Ownership"), not to the Host's public compatibility boundary. A Skyrim/SKSE update that leaves the Host/client wire contract unchanged requires no client compatibility change.
 - SDK version, official app version, Host version, and roadmap phase are independent numbers. None is derived from another.
 - Once the Dart SDK exists, every SDK release declares an explicit supported Host-version range (for example a minimum and a maximum). Until then, the app-side Dart client documented in `ai/context/flutter/` follows this same policy.
-- The Dart SDK declares Host `0.5.x` as its supported range. Released Host `0.4.0` used additive
-  `subscribe.stateAreas` updates, while the Phase 5.3 contract replaces the complete active set; the
-  public SDK subscription API therefore does not support released Host `0.4.0`. The next compatible
-  Host minor line is `0.5.x`. The repository `VERSION` remains unchanged on this feature branch;
-  its `0.5.0` synchronization belongs to a later dedicated release branch. Before `1.0.0`, the
+- The repository release is `0.5.0`, and the Dart SDK declares Host `0.5.x` as its supported range.
+  Released Host `0.4.0` used additive `subscribe.stateAreas` updates, while the Phase 5.3 contract
+  replaces the complete active set; the public SDK subscription API therefore does not support
+  released Host `0.4.0`. Before `1.0.0`, the
   major and minor must match and the patch is ignored; after `1.0.0`, the major must match, a Host
   minor above the SDK's accepted minor is rejected, and the patch is ignored. The SDK checks
   `hello_ack.hostVersion` before session admission and closes on an incompatible Host.

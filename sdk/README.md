@@ -52,8 +52,7 @@ client for pairing and authentication through `PairingRemoteDataSource`.
 
 The SDK supports Host releases in the `0.5.x` range and rejects older or newer Host versions during
 `hello`, before admitting a session. Released Host `0.4.0` used additive subscription updates and is
-incompatible with the Phase 5.3 complete-set subscription API. The feature branch leaves root
-`VERSION` unchanged; the `0.5.0` version synchronization belongs to a later dedicated release branch.
+incompatible with the Phase 5.3 complete-set subscription API. The repository release is `0.5.0`.
 Subscribe and unsubscribe calls update local desired intent before Host synchronization, so a failed
 request does not necessarily roll back the change; retained intent may be synchronized on a later
 trusted session, while intentional disconnect clears it.
