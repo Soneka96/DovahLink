@@ -188,6 +188,30 @@ void main() {
     );
 
     test(
+      'Method unsubscribe retains the removal after request failure',
+      () async {
+        final Future<Set<DovahLinkStateArea>> first = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(accepted: <String>['character_xp']),
+        );
+        await first;
+
+        final Future<Set<DovahLinkStateArea>> failedUpdate = service
+            .unsubscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.last.reply.completeError(
+          const DovahLinkConnectionException('Connection lost.'),
+        );
+
+        await expectLater(
+          failedUpdate,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        expect(service.desiredStateAreas, isEmpty);
+      },
+    );
+
+    test(
       'Methods subscribe and unsubscribe remain idempotent when repeated',
       () async {
         final Future<Set<DovahLinkStateArea>> first = service
@@ -414,12 +438,44 @@ void main() {
           throwsA(isA<DovahLinkProtocolException>()),
         );
 
+        final Future<Set<DovahLinkStateArea>> malformedTypes = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.last.reply.complete(
+          Fixtures.buildEnvelope(
+            messageType: ProtocolMessageType.subscriptionAck,
+            payload: const <String, dynamic>{
+              'acceptedStateAreas': 'character_xp',
+              'rejectedStateAreas': <String>[],
+            },
+          ),
+        );
+        await expectLater(
+          malformedTypes,
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+
+        final Future<Set<DovahLinkStateArea>> malformedRejectedTypes = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.last.reply.complete(
+          Fixtures.buildEnvelope(
+            messageType: ProtocolMessageType.subscriptionAck,
+            payload: const <String, dynamic>{
+              'acceptedStateAreas': <String>[],
+              'rejectedStateAreas': null,
+            },
+          ),
+        );
+        await expectLater(
+          malformedRejectedTypes,
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+
         verify(
           () => sessionService.onProtocolViolation(
             any(that: isA<DovahLinkProtocolException>()),
             orphanRetrySafeOperations: false,
           ),
-        ).called(malformed.length + 1);
+        ).called(malformed.length + 3);
         expect(stateMessageHandler.subscribedStateAreas, isEmpty);
       },
     );

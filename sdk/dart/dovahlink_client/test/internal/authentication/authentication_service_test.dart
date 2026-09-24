@@ -41,7 +41,7 @@ class MockClientIdCache extends Mock implements ClientIdCache {}
 /// Builds a decoded `hello_ack` reply [Envelope] from the shared envelope fixture.
 Envelope buildHelloAckEnvelope({
   String? sessionId = 'session-1',
-  String hostVersion = '0.4.0',
+  String hostVersion = '0.5.0',
   ClientIdentityKind kind = ClientIdentityKind.unpaired,
   String? clientId = 'client-1',
 }) => Fixtures.buildEnvelope(
@@ -138,7 +138,7 @@ void main() {
         requestService,
         buildHelloAckEnvelope(
           sessionId: 'session-1',
-          hostVersion: '0.4.0',
+          hostVersion: '0.5.0',
           kind: ClientIdentityKind.paired,
         ),
       );
@@ -162,17 +162,17 @@ void main() {
           orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
         ),
       );
-      expect(result.hostVersion, '0.4.0');
+      expect(result.hostVersion, '0.5.0');
       expect(result.trustState, DovahLinkTrustState.trusted);
     });
 
     test(
-      'Method hello closes and rejects an incompatible Host before session admission',
+      'Method hello closes and rejects a newer Host before session admission',
       () async {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -201,12 +201,12 @@ void main() {
     );
 
     test(
-      'Method hello closes and rejects an older Host before session admission',
+      'Method hello rejects released Host 0.4.0 before session admission',
       () async {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.3.9',
+            hostVersion: '0.4.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -218,13 +218,13 @@ void main() {
                 .having(
                   (DovahLinkCompatibilityException error) => error.hostVersion,
                   'hostVersion',
-                  '0.3.9',
+                  '0.4.0',
                 )
                 .having(
                   (DovahLinkCompatibilityException error) =>
                       error.supportedHostVersionRange,
                   'supportedHostVersionRange',
-                  '0.4.x',
+                  '0.5.x',
                 )
                 .having(
                   (DovahLinkCompatibilityException error) => error.failure,
@@ -253,7 +253,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -288,7 +288,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -313,7 +313,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -352,7 +352,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -394,7 +394,7 @@ void main() {
             messageType: ProtocolMessageType.helloAck,
             sessionId: null,
             payload: <String, dynamic>{
-              'hostVersion': '0.4.0',
+              'hostVersion': '0.5.0',
               'clientIdentityKind': 'unpaired',
             },
             clientId: 'client-1',
@@ -500,7 +500,7 @@ void main() {
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
-              'hostVersion': '0.4.0',
+              'hostVersion': '0.5.0',
               'clientIdentityKind': 'not-a-real-kind',
             },
           ),
@@ -565,7 +565,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -582,7 +582,7 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        expect(result.hostVersion, '0.4.0');
+        expect(result.hostVersion, '0.5.0');
         expect(result.trustState, DovahLinkTrustState.trusted);
         verifyNever(() => sessionService.connect(any()));
         verify(
@@ -608,7 +608,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -629,7 +629,7 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(1);
-        expect(result.hostVersion, '0.4.0');
+        expect(result.hostVersion, '0.5.0');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
@@ -646,7 +646,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -667,7 +667,7 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(1);
-        expect(result.hostVersion, '0.4.0');
+        expect(result.hostVersion, '0.5.0');
         expect(result.trustState, DovahLinkTrustState.trusted);
       },
     );
@@ -679,7 +679,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -694,7 +694,7 @@ void main() {
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
-        expect(result.hostVersion, '0.4.0');
+        expect(result.hostVersion, '0.5.0');
       },
     );
 
@@ -905,7 +905,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.unpaired,
           );
         });
@@ -968,7 +968,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.unpaired,
           );
         });
@@ -1019,7 +1019,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.4.0',
+            hostVersion: '0.5.0',
             kind: ClientIdentityKind.unpaired,
           );
         });

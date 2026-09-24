@@ -16,7 +16,7 @@ class DovahLinkCompatibilityException implements Exception {
   /// The Host release version that could not be used.
   final String hostVersion;
 
-  /// The SDK-declared Host release range, such as `0.4.x`.
+  /// The SDK-declared Host release range, such as `0.5.x`.
   final String supportedHostVersionRange;
 
   /// Whether the Host is older or newer than the supported range.

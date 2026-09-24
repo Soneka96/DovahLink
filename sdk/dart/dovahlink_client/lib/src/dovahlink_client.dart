@@ -379,7 +379,9 @@ class DovahLinkClient {
   Stream<StateSynchronization<CharacterLevelState>> get characterLevelChanges =>
       _characterLevelTracker.changes;
 
-  /// Requests [area] as part of this client's complete desired state-area set.
+  /// Adds [area] to this client's local desired state-area set before synchronizing it with the
+  /// current Host session. A synchronization failure does not necessarily roll back that intent;
+  /// it may be synchronized on a later trusted session. [DovahLinkClient.disconnect] clears it.
   /// @param area The state domain to request.
   /// @return The areas the Host rejected from the resulting desired set.
   /// @throws [DovahLinkConnectionException] if no trusted session is active.
@@ -387,7 +389,9 @@ class DovahLinkClient {
   Future<Set<DovahLinkStateArea>> subscribeStateArea(DovahLinkStateArea area) =>
       _subscriptionService.subscribeStateArea(area);
 
-  /// Removes [area] from this client's complete desired state-area set.
+  /// Removes [area] from this client's local desired state-area set before synchronizing that
+  /// change with the current Host session. A synchronization failure does not necessarily roll
+  /// back the removal; later trusted sessions will not restore [area].
   /// @param area The state domain to remove.
   /// @return The areas the Host rejected from the resulting desired set.
   /// @throws [DovahLinkConnectionException] if no trusted session is active.
@@ -497,9 +501,9 @@ class DovahLinkClient {
   /// cleanly -- a broken close must not leave [DovahLinkClient.connectionState],
   /// [DovahLinkClient.trustState], or [DovahLinkClient.sessionId] lying
   /// about a session that no longer exists. Persisted identity, credential, and recovery state are
-  /// untouched -- trust survives a disconnect. Clears desired state subscriptions, then fails any
-  /// operation still awaiting a reply, and any operation an earlier transport loss orphaned for
-  /// retry, instead of leaving it to hang
+  /// untouched -- trust survives a disconnect. Clears local desired subscription intent, then
+  /// fails any operation still awaiting a reply and any operation an earlier transport loss
+  /// orphaned for retry, instead of leaving it to hang
   /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. Also
   /// cancels bounded automatic recovery already in progress from an earlier transport loss --
   /// [DovahLinkClient.connectionState] moves directly to

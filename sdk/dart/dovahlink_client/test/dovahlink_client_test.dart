@@ -222,6 +222,14 @@ class TrackingClientStorage implements IClientStorage {
 String _rawFixture(String relativePath) =>
     File('../../../protocol/fixtures/$relativePath').readAsStringSync();
 
+/// Reads a canonical hello acknowledgement fixture as the next compatible Host release.
+String _compatibleHelloAckFixture(String relativePath) {
+  final JsonMap envelope = jsonDecode(_rawFixture(relativePath)) as JsonMap;
+  final JsonMap payload = envelope['payload'] as JsonMap;
+  payload['hostVersion'] = '0.5.0';
+  return jsonEncode(envelope);
+}
+
 /// Builds an unsolicited `session_invalidated` envelope for [reason] (a raw wire value, e.g.
 /// `'revoked'`).
 String _rawSessionInvalidated(
@@ -337,7 +345,9 @@ Future<void> _connectAndHello(
   DovahLinkClient client,
 ) async {
   await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-  transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+  transport.queueResponse(
+    _compatibleHelloAckFixture('connection/hello-ack.json'),
+  );
   transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
   await client.hello();
 }
@@ -350,7 +360,9 @@ Future<void> _connectAndTrustedHello(
   DovahLinkClient client,
 ) async {
   await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-  transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+  transport.queueResponse(
+    _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
+  );
   transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
   await client.hello();
 }
@@ -590,7 +602,6 @@ void main() {
             value: 14,
           ),
         );
-
         await recoveredLevelReceived;
 
         final JsonMap snapshotRequest =
@@ -716,6 +727,10 @@ void main() {
             (jsonDecode(transport.sent.last) as JsonMap)['payload'],
             (jsonDecode(_rawFixture('subscriptions/subscribe.json'))
                 as JsonMap)['payload'],
+          );
+          expect(
+            (await client.characterXpChanges.first).status,
+            DovahLinkStateStatus.recovering,
           );
 
           transport.queueResponse(
@@ -907,7 +922,7 @@ void main() {
         );
 
         reconnectTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         reconnectTransport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -935,6 +950,10 @@ void main() {
         });
         expect(
           (await reconnectClient.characterHealthChanges.first).status,
+          DovahLinkStateStatus.recovering,
+        );
+        expect(
+          (await reconnectClient.characterXpChanges.first).status,
           DovahLinkStateStatus.notSubscribed,
         );
 
@@ -1008,7 +1027,9 @@ void main() {
           DovahLinkStateStatus.notSubscribed,
         );
 
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1110,10 +1131,14 @@ void main() {
           reconnectClient.connectionState,
           DovahLinkConnectionState.disconnected,
         );
+        expect(
+          (await reconnectClient.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
         reconnectTransport.failConnectWith = null;
         await reconnectClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
         reconnectTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         reconnectTransport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -1159,7 +1184,8 @@ void main() {
         final JsonMap request =
             jsonDecode(await requestFrame.future.timeout(timeout)) as JsonMap;
         final JsonMap helloAck =
-            jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+            jsonDecode(_compatibleHelloAckFixture('connection/hello-ack.json'))
+                as JsonMap;
         helloAck['correlationId'] = request['messageId'];
         socket.add(jsonEncode(helloAck));
         socket.add(_rawFixture('capabilities/capabilities-host.json'));
@@ -1170,7 +1196,7 @@ void main() {
           defaultClient.connectionState,
           DovahLinkConnectionState.connected,
         );
-        expect(result.hostVersion, '0.4.0');
+        expect(result.hostVersion, '0.5.0');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
@@ -1309,7 +1335,9 @@ void main() {
       'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        final String helloAckFixture = _rawFixture('connection/hello-ack.json');
+        final String helloAckFixture = _compatibleHelloAckFixture(
+          'connection/hello-ack.json',
+        );
         final JsonMap helloAckPayload =
             (jsonDecode(helloAckFixture) as JsonMap)['payload'] as JsonMap;
         transport.queueResponse(helloAckFixture);
@@ -1383,7 +1411,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.4.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1398,7 +1426,7 @@ void main() {
             isA<DovahLinkCompatibilityException>().having(
               (DovahLinkCompatibilityException error) => error.failure,
               'failure',
-              HostVersionCompatibilityFailure.hostTooNew,
+              HostVersionCompatibilityFailure.hostTooOld,
             ),
           ),
         );
@@ -1450,7 +1478,9 @@ void main() {
       // capabilities. Queuing a malformed protocol message in its place proves the persistent receiver's own
       // cleanup covers state set moments earlier in this same call, not just the "never got
       // that far" case above -- even though it now runs after hello() has already returned.
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse('not valid json');
       transport.failCloseWith = const SocketException('socket already gone');
 
@@ -1507,7 +1537,9 @@ void main() {
     test(
       'Method authenticate delegates to connect and hello when nothing is rejected',
       () async {
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1532,7 +1564,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.4.0',
+              'hostVersion': '0.5.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1554,7 +1586,7 @@ void main() {
             'sessionId': 'session-2',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.4.0',
+              'hostVersion': '0.5.0',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1812,7 +1844,9 @@ void main() {
       'Method disconnect closes the transport and resets session state',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1839,7 +1873,9 @@ void main() {
         addTearDown(subscription.cancel);
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1865,7 +1901,9 @@ void main() {
         ),
       );
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -1891,7 +1929,9 @@ void main() {
         );
         await client.forgetCredential();
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1911,7 +1951,9 @@ void main() {
       'Behavior inbound message routing gives sequential requests their own correlated replies',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -1936,7 +1978,9 @@ void main() {
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
 
       final HelloResult result = await client.hello();
 
@@ -1989,7 +2033,9 @@ void main() {
 
         runZonedGuarded(() async {
           await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-          transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+          transport.queueResponse(
+            _compatibleHelloAckFixture('connection/hello-ack.json'),
+          );
           await client.hello();
 
           transport.queueRawResponse('not valid json');
@@ -2011,7 +2057,9 @@ void main() {
       'Behavior session_invalidated handling exposes the typed invalidationReason',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2041,7 +2089,9 @@ void main() {
       addTearDown(subscription.cancel);
 
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2071,7 +2121,7 @@ void main() {
           );
           await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
           transport.queueResponse(
-            _rawFixture('connection/hello-ack-paired.json'),
+            _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
           );
           transport.queueResponse(
             _rawFixture('capabilities/capabilities-host.json'),
@@ -2101,7 +2151,7 @@ void main() {
         );
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -2137,7 +2187,7 @@ void main() {
 
         await trackingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
         trackingTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         trackingTransport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -2174,7 +2224,7 @@ void main() {
 
         await failingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
         failingTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         failingTransport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -2201,7 +2251,9 @@ void main() {
       'while it awaits a reply',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2243,7 +2295,9 @@ void main() {
     test('Behavior session_invalidated handling preserves its typed reason during a transport '
         'failure race', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2306,7 +2360,9 @@ void main() {
       );
 
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2343,7 +2399,9 @@ void main() {
     test('Behavior retry-safe reconnect retransmits an orphaned operation and resolves its caller, '
         'via automatic reconnect', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2353,7 +2411,9 @@ void main() {
       await pumpEventQueue();
       // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
       // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2373,7 +2433,9 @@ void main() {
     test('Behavior retry-safe reconnect fails without retransmission when trust state changes, via '
         'automatic reconnect', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2392,7 +2454,7 @@ void main() {
           'sessionId': 'session-2',
           'correlationId': 'irrelevant',
           'payload': <String, dynamic>{
-            'hostVersion': '0.4.0',
+            'hostVersion': '0.5.0',
             'clientIdentityKind': 'paired',
           },
           'stateAuthorityId': 'state-authority-1',
@@ -2416,7 +2478,9 @@ void main() {
       'Behavior retry-safe reconnect does not orphan a retried operation a second time',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2434,7 +2498,9 @@ void main() {
         // Queued ahead of the drop so automatic reconnect's own connect()+hello() finds them
         // ready, retransmitting the orphaned request as its one retry once the fresh session is
         // admitted.
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2450,7 +2516,9 @@ void main() {
         // The retry itself now also drops, with no reply ever queued for it, so the next
         // automatic reconnect's own hello() succeeds but never resurrects the already-retried
         // operation.
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2473,7 +2541,9 @@ void main() {
         // A third connect/hello round must not resurrect it for a second retry.
         await client.disconnect();
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2489,7 +2559,9 @@ void main() {
       'Behavior retry-safe reconnect fails a non-retry-safe operation immediately',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2531,7 +2603,7 @@ void main() {
 
       await reconnectClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
       reconnectTransport.queueResponse(
-        _rawFixture('connection/hello-ack.json'),
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
@@ -2542,7 +2614,7 @@ void main() {
       // them ready the moment its first (zero-delay) attempt runs -- nothing in this test drives
       // reconnect by hand.
       reconnectTransport.queueResponse(
-        _rawFixture('connection/hello-ack.json'),
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
@@ -2605,7 +2677,7 @@ void main() {
       );
       // Answers the second automatic attempt with success.
       reconnectTransport.queueResponse(
-        _rawFixture('connection/hello-ack.json'),
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
       );
       reconnectTransport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
@@ -2651,7 +2723,7 @@ void main() {
         );
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+          _compatibleHelloAckFixture('connection/hello-ack-paired.json'),
         );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
@@ -2705,7 +2777,9 @@ void main() {
       'Behavior stale receiver isolation does not consume a late reply for a new operation',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2735,7 +2809,9 @@ void main() {
         await client.disconnect();
 
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2822,7 +2898,9 @@ void main() {
         ),
       );
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2835,7 +2913,9 @@ void main() {
       await pumpEventQueue();
       // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
       // finds them ready the moment it retries -- nothing in this test drives reconnect by hand.
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );
@@ -2854,7 +2934,9 @@ void main() {
       'protocol violation',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2886,7 +2968,9 @@ void main() {
 
         // Confirmed not orphaned: a fresh connect/hello does not retransmit it.
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2899,7 +2983,9 @@ void main() {
       'disconnect() also fails an already-orphaned operation, not just a currently pending one',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _compatibleHelloAckFixture('connection/hello-ack.json'),
+        );
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
@@ -2939,7 +3025,9 @@ void main() {
       // dead connection and close its transport once. Service tests isolate their collaborators;
       // this test covers the composed teardown path.
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+      transport.queueResponse(
+        _compatibleHelloAckFixture('connection/hello-ack.json'),
+      );
       transport.queueResponse(
         _rawFixture('capabilities/capabilities-host.json'),
       );

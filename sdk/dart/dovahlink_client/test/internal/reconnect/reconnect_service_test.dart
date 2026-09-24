@@ -164,8 +164,8 @@ void main() {
       () async {
         when(() => authenticationService.hello()).thenThrow(
           const DovahLinkCompatibilityException(
-            hostVersion: '0.5.0',
-            supportedHostVersionRange: '0.4.x',
+            hostVersion: '0.6.0',
+            supportedHostVersionRange: '0.5.x',
             failure: HostVersionCompatibilityFailure.hostTooNew,
           ),
         );
@@ -194,7 +194,7 @@ void main() {
         when(() => authenticationService.hello()).thenThrow(
           const DovahLinkCompatibilityException(
             hostVersion: '0.3.9',
-            supportedHostVersionRange: '0.4.x',
+            supportedHostVersionRange: '0.5.x',
             failure: HostVersionCompatibilityFailure.hostTooOld,
           ),
         );

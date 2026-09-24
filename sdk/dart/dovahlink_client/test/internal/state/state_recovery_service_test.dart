@@ -216,6 +216,41 @@ void main() {
   }
 
   group('Method start behaves correctly', () {
+    test(
+      'Method start waits for the Host baseline for a newly accepted subscription',
+      () async {
+        currentState = Fixtures.buildStateSynchronization<int?>(
+          status: DovahLinkStateStatus.recovering,
+        );
+        stateChanges.add(currentState);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(requests.requests, isEmpty);
+      },
+    );
+
+    test(
+      'Method start requests recovery for an identified recovering domain',
+      () async {
+        currentState = Fixtures.buildStateSynchronization<int?>(
+          status: DovahLinkStateStatus.recovering,
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+        );
+        stateChanges.add(currentState);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(requests.requests, hasLength(1));
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(revision: 5, value: 50),
+        );
+        await service.recover();
+
+        expect(currentState.status, DovahLinkStateStatus.synchronized);
+        expect(currentState.revision, 5);
+      },
+    );
+
     test('Method start requests a Snapshot after a stale transition', () async {
       emitStaleState();
       await Future<void>.delayed(Duration.zero);

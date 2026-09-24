@@ -485,9 +485,12 @@ enum DovahLinkStateArea {
   }
 }
 
-/// The synchronization standing of one subscribed state domain.
+/// The synchronization standing of one state domain relative to the active Host session.
 enum DovahLinkStateStatus {
-  /// The consumer has not requested this domain.
+  /// The Host has not accepted this domain for the current session.
+  ///
+  /// This describes active Host subscription state, not local desired intent; intent may be
+  /// retained while a session is absent or awaiting recovery.
   notSubscribed,
 
   /// A synchronized snapshot established that the current value is unavailable.

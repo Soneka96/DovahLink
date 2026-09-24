@@ -50,8 +50,14 @@ DPAPI-backed implementation ships today) -- see `ai/context/sdk/persistence.md`.
 Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
 client for pairing and authentication through `PairingRemoteDataSource`.
 
-The SDK supports Host releases in the `0.4.x` range and rejects older or newer Host versions during
-`hello`, before admitting a session. Phase 5.2 is complete: the public client exposes replayable typed
+The SDK supports Host releases in the `0.5.x` range and rejects older or newer Host versions during
+`hello`, before admitting a session. Released Host `0.4.0` used additive subscription updates and is
+incompatible with the Phase 5.3 complete-set subscription API. The feature branch leaves root
+`VERSION` unchanged; the `0.5.0` version synchronization belongs to a later dedicated release branch.
+Subscribe and unsubscribe calls update local desired intent before Host synchronization, so a failed
+request does not necessarily roll back the change; retained intent may be synchronized on a later
+trusted session, while intentional disconnect clears it.
+Phase 5.2 is complete: the public client exposes replayable typed
 state streams for XP, health, magicka, stamina, and level, backed by the SDK's state models,
 revision tracking, Snapshot handling, and level Event handling. Phase 5.3 is complete: callers have
 typed per-domain subscription intent, and the SDK restores the desired set after trusted recovery

@@ -14,6 +14,9 @@ Phases 5.1–5.3 — the typed protocol/compatibility boundary, state synchroniz
 subscription/reconnect/session lifecycle — are complete. Phase 5.3 adds canonical complete-set
 subscription updates with Host reconciliation, SDK per-domain intent, ordinary reconnect
 restoration, administrative dormancy until explicit recovery, and intentional-disconnect cleanup.
+Its complete-set subscription meaning is incompatible with released Host `0.4.0`'s additive behavior;
+the SDK's supported Host line is `0.5.x`, with the release version bump deferred to a dedicated
+release branch.
 Phase 5.4's Flutter middleware integration remains, followed by Phase 5.5's version-impact audit
 and Stage 5 closure.
 The app's current `features/connection/` area owns Host selection and navigation rather than a
@@ -63,8 +66,9 @@ prevent raw JSON, transport types, and internal codecs from crossing the public 
 
 The SDK reads `hello_ack.hostVersion`, applies the repository's pre-1.0 same-major/same-minor and
 post-1.0 accepted-minor rules, and closes before capabilities or state traffic when the Host is
-incompatible. The SDK owns the explanation; the Host only advertises its version and does not
-reject SDK versions.
+incompatible. Phase 5.3's complete-set subscription semantics make released Host `0.4.0`
+incompatible with the public subscription API; the next supported Host line is `0.5.x`. The SDK owns
+the explanation; the Host only advertises its version and does not reject SDK versions.
 
 #### 5.2 SDK State Synchronization API
 

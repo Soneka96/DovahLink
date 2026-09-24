@@ -169,6 +169,7 @@ void main() {
           staminaTracker,
           levelTracker,
         ]) {
+      when(() => tracker.beginRecovery()).thenAnswer((_) {});
       when(() => tracker.resetToNotSubscribed()).thenAnswer((_) {});
     }
     when(
@@ -295,7 +296,11 @@ void main() {
       () {
         final MockStateDomainDefinition customDomain =
             MockStateDomainDefinition();
+        final MockStateRevisionTracker<Object?> customTracker =
+            MockStateRevisionTracker<Object?>();
         when(() => customDomain.stateArea).thenReturn('custom_area');
+        when(() => customDomain.tracker).thenReturn(customTracker);
+        when(() => customTracker.beginRecovery()).thenAnswer((_) {});
         final IStateMessageHandler customHandler = StateMessageHandler(
           sessionService: session,
           domains: <IStateDomainDefinition<Object?>>[customDomain],
@@ -590,6 +595,22 @@ void main() {
                 as DovahLinkProtocolException;
         expect(error.code, ProtocolErrorCode.malformedMessage);
         expect(error.retryable, isFalse);
+      },
+    );
+  });
+
+  group('Method setSubscribedStateAreas behaves correctly', () {
+    test(
+      'Method setSubscribedStateAreas marks newly accepted areas as recovering',
+      () {
+        clearInteractions(healthTracker);
+        clearInteractions(experienceTracker);
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{'character_health'});
+        handler.setSubscribedStateAreas(<String>{'character_health'});
+
+        verify(() => healthTracker.beginRecovery()).called(1);
+        verifyNever(() => experienceTracker.beginRecovery());
       },
     );
   });

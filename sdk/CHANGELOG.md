@@ -19,8 +19,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
   disconnect.
 - The Dart SDK exposes replayable typed synchronization streams for character XP, health, magicka,
   stamina, and level.
-- The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before
-  admitting a session.
+- The Dart SDK requires Host `0.5.x` for its complete-set subscription API and rejects released
+  Host `0.4.0` before admitting a session.
 
 ### Fixed
 

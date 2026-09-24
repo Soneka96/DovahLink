@@ -9,7 +9,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Decodes and routes one state envelope to its typed domain revision tracker.
 abstract interface class IStateMessageHandler {
-  /// Replaces the state areas whose incoming Snapshots and Events this client may apply.
+  /// Replaces the areas whose state messages this client may apply, marking new areas as recovering.
   /// @param stateAreas The complete accepted set for the current Host session.
   void setSubscribedStateAreas(Set<String> stateAreas);
 
@@ -44,6 +44,10 @@ class StateMessageHandler implements IStateMessageHandler {
   /// Implements [IStateMessageHandler.setSubscribedStateAreas].
   @override
   void setSubscribedStateAreas(Set<String> stateAreas) {
+    final Set<String> addedAreas = stateAreas.difference(_subscribedStateAreas);
+    for (final String area in addedAreas) {
+      _domains[area]?.tracker.beginRecovery();
+    }
     final Set<String> removedAreas = _subscribedStateAreas.difference(
       stateAreas,
     );

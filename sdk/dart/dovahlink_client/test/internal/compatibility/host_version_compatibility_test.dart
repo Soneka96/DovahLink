@@ -12,11 +12,11 @@ void main() {
       'Method validateHostVersionCompatibility accepts the declared minor and ignores patch versions',
       () {
         expect(
-          () => validateHostVersionCompatibility('0.4.0'),
+          () => validateHostVersionCompatibility('0.5.0'),
           returnsNormally,
         );
         expect(
-          () => validateHostVersionCompatibility('0.4.999'),
+          () => validateHostVersionCompatibility('0.5.999'),
           returnsNormally,
         );
       },
@@ -26,13 +26,13 @@ void main() {
       'Method validateHostVersionCompatibility classifies an older Host version',
       () {
         expect(
-          () => validateHostVersionCompatibility('0.3.9'),
+          () => validateHostVersionCompatibility('0.4.0'),
           throwsA(
             isA<DovahLinkCompatibilityException>()
                 .having(
                   (DovahLinkCompatibilityException error) => error.hostVersion,
                   'hostVersion',
-                  '0.3.9',
+                  '0.4.0',
                 )
                 .having(
                   (DovahLinkCompatibilityException error) => error.failure,
@@ -43,7 +43,7 @@ void main() {
                   (DovahLinkCompatibilityException error) =>
                       error.supportedHostVersionRange,
                   'supportedHostVersionRange',
-                  '0.4.x',
+                  '0.5.x',
                 ),
           ),
         );
@@ -54,7 +54,7 @@ void main() {
       'Method validateHostVersionCompatibility classifies a newer Host version',
       () {
         expect(
-          () => validateHostVersionCompatibility('0.5.0'),
+          () => validateHostVersionCompatibility('0.6.0'),
           throwsA(
             isA<DovahLinkCompatibilityException>().having(
               (DovahLinkCompatibilityException error) => error.failure,
@@ -71,9 +71,9 @@ void main() {
       () {
         for (final String hostVersion in <String>[
           '',
-          '0.4',
-          '00.4.0',
-          '0.4.0-beta',
+          '0.5',
+          '00.5.0',
+          '0.5.0-beta',
         ]) {
           expect(
             () => validateHostVersionCompatibility(hostVersion),

@@ -70,22 +70,24 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
       return;
     }
     _stateChanges = _domain.tracker.changes.listen((StateSynchronization<T> _) {
-      final DovahLinkStateStatus status = _domain.tracker.current.status;
+      final StateSynchronization<T> current = _domain.tracker.current;
       if (_recoveryTask != null) {
-        if (status == DovahLinkStateStatus.stale &&
+        if (current.status == DovahLinkStateStatus.stale &&
             _domain.tracker.recoveryBufferOverflowed) {
           _restartAfterSnapshot = true;
         }
         return;
       }
-      if (status == DovahLinkStateStatus.stale ||
-          status == DovahLinkStateStatus.recovering) {
+      if (current.status == DovahLinkStateStatus.stale ||
+          (current.status == DovahLinkStateStatus.recovering &&
+              current.stateAuthorityId != null)) {
         unawaited(recover());
       }
     });
-    final DovahLinkStateStatus currentStatus = _domain.tracker.current.status;
-    if (currentStatus == DovahLinkStateStatus.stale ||
-        currentStatus == DovahLinkStateStatus.recovering) {
+    final StateSynchronization<T> current = _domain.tracker.current;
+    if (current.status == DovahLinkStateStatus.stale ||
+        (current.status == DovahLinkStateStatus.recovering &&
+            current.stateAuthorityId != null)) {
       unawaited(recover());
     }
   }

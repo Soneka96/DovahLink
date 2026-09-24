@@ -288,6 +288,8 @@ always answers a validated `hello` with `hello_ack`; it does not
 receive or evaluate a client-declared compatibility range itself. Checking `hostVersion` against
 its own declared supported range, and failing explicitly on a mismatch, is the client/SDK's
 responsibility — see `ai/context/protocol/compatibility.md`'s compatibility bootstrap.
+The `0.4.0` value in the example identifies the released Host line and is rejected by the Phase 5.3
+SDK because its subscription API requires the next compatible `0.5.x` Host line.
 
 `clientIdentityKind` is `"unpaired"` for a session admitted via `auth.method: one_time_local_token`
 or `unpaired` (trust-restricted until pairing succeeds), or `"paired"` for a session admitted via
@@ -541,7 +543,10 @@ send an empty list, and any non-empty list is rejected as `unsupported_capabilit
 Replaces the client's complete desired set of public state-area subscriptions after capabilities
 are negotiated. Every request is authoritative for that connection: accepted areas omitted from a
 later request stop receiving new Snapshots and Events. `stateAreas: []` removes every active
-subscription for the connection. Repeating the same set is idempotent.
+subscription for the connection. Repeating the same set is idempotent. This complete-set meaning is
+incompatible with released Host `0.4.0`'s additive behavior; the Phase 5.3 contract requires the
+next compatible Host minor line, `0.5.x`, as specified in
+`ai/context/protocol/compatibility.md`.
 
 ```json
 {

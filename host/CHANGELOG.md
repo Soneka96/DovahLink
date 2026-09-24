@@ -16,7 +16,9 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Changed
 
-- Host subscription updates now replace the active state-area set and stop publishing removed areas.
+- Host subscription updates now replace the active state-area set and stop publishing removed
+  areas; this contract requires Host `0.5.x` because released Host `0.4.0` applied updates
+  additively.
 
 ## [0.4.0] - 2026-09-23
 

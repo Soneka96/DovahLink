@@ -69,8 +69,10 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   trusted-session restoration, including ordinary reconnect, administrative dormancy, explicit
   pairing recovery, and intentional-disconnect cleanup. Phase 5.2 completed the SDK State
   Synchronization API. Phase 5.1 completed the typed protocol boundary
-  and Host-version compatibility checks, accepting `0.4.x` and rejecting incompatible or malformed
-  Host versions before session admission. Stage 4 delivered the typed
+  and Host-version compatibility checks. The Phase 5.3 complete-set subscription contract is
+  incompatible with released Host `0.4.0`'s additive behavior, so the SDK now accepts `0.5.x` and
+  rejects incompatible or malformed Host versions before session admission. The `0.5.0` release
+  version bump remains a later dedicated release-branch task. Stage 4 delivered the typed
   Host/client contract, Host-owned bounded live-state publication, and real Skyrim capture for
   health, magicka, stamina, XP, and level. The maintainer recorded live runtime validation on
   2026-09-23, and a deterministic process-level test proves the Host/Adapter/public-client path using
