@@ -7,9 +7,11 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
 
 /// Exercises [DovahConnectionCard] across every theme, supplied visual state, and interaction.
@@ -67,13 +69,14 @@ void main() {
               preset: preset,
               size: dovahTestSizes.first,
             );
-            final DovahThemeTokens tokens = dovahThemeDataFor(
-              preset,
-            ).extension<DovahThemeTokens>()!;
-
             expect(
               tester.getSize(find.byType(DovahConnectionCard)).height,
-              greaterThanOrEqualTo(tokens.connectionCardMinHeight),
+              greaterThanOrEqualTo(
+                DovahConnectionCardMetrics.forWindow(
+                  preset: preset,
+                  window: dovahTestSizes.first,
+                ).minHeight,
+              ),
             );
             expect(
               find.bySemanticsLabel(
@@ -101,7 +104,7 @@ void main() {
             state: DovahConnectionCardState.available,
           ),
           preset: DovahThemePreset.dovah,
-          size: dovahTestSizes.first,
+          size: dovahTestSizes.last,
         );
         final Text title = tester.widget(find.text('Gaming PC'));
         final Text subtitle = tester.widget(
@@ -111,7 +114,7 @@ void main() {
         final Text state = tester.widget(find.text('Connected'));
 
         expect(title.style?.fontSize, isA<double>());
-        expect(title.style?.fontSize, DovahThemeTokens.connectionTitleFontSize);
+        expect(title.style?.fontSize, DovahConnectionCardMetrics.titleFontSize);
         expect(title.style?.fontWeight, FontWeight.w700);
         for (final Text line in [title, subtitle, detail, state]) {
           expect(line.style?.height, isA<double>());
@@ -213,7 +216,7 @@ void main() {
       final Map<DovahConnectionCardState, Color> colors = {
         DovahConnectionCardState.available: tokens.success,
         DovahConnectionCardState.unknown: tokens.textMuted,
-        DovahConnectionCardState.offline: tokens.textFaint,
+        DovahConnectionCardState.offline: tokens.statusOffline,
         DovahConnectionCardState.repair: tokens.warning,
       };
 
@@ -254,9 +257,6 @@ void main() {
             preset: preset,
             size: dovahTestSizes.first,
           );
-          final DovahThemeTokens tokens = Theme.of(
-            tester.element(find.byType(DovahConnectionCard)),
-          ).extension<DovahThemeTokens>()!;
           final Icon icon = tester.widget(
             find.byIcon(Icons.desktop_windows_outlined),
           );
@@ -265,12 +265,9 @@ void main() {
           );
           final Icon marker = tester.widget(find.byIcon(Icons.circle).first);
 
-          expect(
-            icon.size,
-            DovahThemeTokens.connectionIconSize * tokens.densityScale,
-          );
+          expect(icon.size, DovahConnectionCardMetrics.iconSize);
           expect(subtitle.style?.fontSize, DovahThemeTokens.compactFontSize);
-          expect(marker.size, DovahThemeTokens.connectionStateMarkerSize);
+          expect(marker.size, DovahConnectionCardMetrics.stateMarkerSize);
         },
       );
     }
@@ -524,5 +521,132 @@ void main() {
         semantics.dispose();
       }
     });
+  });
+
+  group('DovahConnectionCard follows the prototype responsive geometry', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      for (final Size size in dovahResponsiveTestSizes) {
+        testWidgets(
+          'DovahConnectionCard resolves its padding, bevel, and icon tile for $preset at $size',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              const DovahConnectionCard(
+                title: 'Gaming PC',
+                subtitle: 'Skyrim Special Edition',
+                detail: 'Level 43 · Whiterun',
+                state: DovahConnectionCardState.available,
+              ),
+              preset: preset,
+              size: size,
+            );
+            final DovahConnectionCardMetrics metrics =
+                DovahConnectionCardMetrics.forWindow(
+                  preset: preset,
+                  window: size,
+                );
+            final DovahSurface surface = tester.widget(
+              find.byType(DovahSurface),
+            );
+            final Container tile = tester.widget<Container>(
+              find.byWidgetPredicate(
+                (Widget widget) =>
+                    widget is Container &&
+                    widget.constraints?.maxWidth == metrics.iconTileSize &&
+                    widget.decoration is BoxDecoration,
+              ),
+            );
+            final BoxDecoration tileDecoration =
+                tile.decoration! as BoxDecoration;
+
+            expect(tester.takeException(), isNull);
+            expect(surface.padding, metrics.padding);
+            expect(surface.cornerCutSize, metrics.cornerCutSize);
+            expect(surface.cornerRadius, metrics.cornerRadius);
+            expect(
+              tileDecoration.borderRadius,
+              BorderRadius.circular(metrics.iconTileRadius),
+            );
+            expect(
+              tester.getSize(find.byType(DovahConnectionCard)).height,
+              greaterThanOrEqualTo(metrics.minHeight),
+            );
+          },
+        );
+      }
+    }
+
+    for (final (Size size, bool shown) in [
+      (const Size(720, 480), false),
+      (const Size(900, 560), false),
+      (const Size(1280, 720), true),
+      (const Size(1600, 900), true),
+    ]) {
+      testWidgets(
+        'DovahConnectionCard ${shown ? 'shows' : 'hides'} its detail column at $size',
+        (WidgetTester tester) async {
+          final SemanticsHandle semantics = tester.ensureSemantics();
+          try {
+            await pumpDovahThemedWidget(
+              tester,
+              const DovahConnectionCard(
+                title: 'Gaming PC',
+                subtitle: 'Skyrim Special Edition',
+                detail: 'Level 43 · Whiterun',
+                state: DovahConnectionCardState.available,
+              ),
+              preset: DovahThemePreset.dovah,
+              size: size,
+            );
+
+            expect(
+              find.text('Level 43 · Whiterun'),
+              shown ? findsOneWidget : findsNothing,
+            );
+            expect(
+              find.bySemanticsLabel(
+                'Gaming PC, Skyrim Special Edition, Level 43 · Whiterun, '
+                'Connected',
+              ),
+              findsOneWidget,
+            );
+          } finally {
+            semantics.dispose();
+          }
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahConnectionCard gives the status label its 112 minimum width and no arrow when offline',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahConnectionCard(
+            title: 'Living Room PC',
+            subtitle: 'Skyrim Anniversary Edition',
+            detail: 'Last connected yesterday',
+            state: DovahConnectionCardState.offline,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(1280, 720),
+        );
+
+        expect(find.byIcon(Icons.chevron_right), findsNothing);
+        expect(
+          tester
+              .getSize(
+                find
+                    .ancestor(
+                      of: find.text('Offline'),
+                      matching: find.byType(ConstrainedBox),
+                    )
+                    .first,
+              )
+              .width,
+          greaterThanOrEqualTo(DovahConnectionCardMetrics.statusMinWidth),
+        );
+      },
+    );
   });
 }

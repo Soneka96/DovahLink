@@ -58,11 +58,6 @@ ThemeData buildDovahPresetTheme() {
     displayFontFamily: 'Georgia',
     environmentAssetPath: null,
     eyebrow: Color(0xFFE2A55E),
-    rootHeaderHeight: 88,
-    pageTitleFontSize: 34,
-    connectionCardMinHeight: 80,
-    rootContentTopPadding: 30,
-    rootHeroBottomGap: 28,
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.36,
     uppercaseLabels: false,
@@ -71,6 +66,10 @@ ThemeData buildDovahPresetTheme() {
     backdropBlurSigma: 8,
     panelCornerRadius: 0,
     primaryActionCornerRadius: 0,
+    statusOffline: Color(0xFF7C8993),
+    brandTagline: Color(0xFF72899A),
+    brandAccent: Color(0xFF74BDE8),
+    markIcon: Color(0xFFE2A55E),
   );
 
   return ThemeData(

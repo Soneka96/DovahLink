@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_footer.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
@@ -12,7 +13,7 @@ import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 void main() {
   group('ConnectionsFooter renders correctly', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
-      for (final Size size in dovahTestSizes) {
+      for (final Size size in const [Size(1280, 720), Size(1600, 900)]) {
         testWidgets(
           'ConnectionsFooter displays the reconnection note under $preset at $size',
           (WidgetTester tester) async {
@@ -34,7 +35,31 @@ void main() {
             expect(tester.takeException(), isNull);
             expect(note.style?.color, tokens.textFaint);
             expect(note.style?.fontSize, isA<double>());
-            expect(note.style?.fontSize, DovahThemeTokens.rootFooterFontSize);
+            expect(note.style?.fontSize, DovahRootMetrics.footerFontSize);
+          },
+        );
+      }
+    }
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      for (final Size size in const [Size(720, 480), Size(900, 560)]) {
+        testWidgets(
+          'ConnectionsFooter is hidden under $preset at the compact height $size',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              const ConnectionsFooter(),
+              preset: preset,
+              size: size,
+            );
+
+            expect(tester.takeException(), isNull);
+            expect(
+              find.text(
+                'Trusted PCs reconnect automatically when Skyrim becomes available.',
+              ),
+              findsNothing,
+            );
           },
         );
       }

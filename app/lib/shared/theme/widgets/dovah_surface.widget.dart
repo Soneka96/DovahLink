@@ -16,6 +16,7 @@ class DovahSurface extends StatelessWidget {
     this.padding,
     this.gradient,
     this.cornerRadius,
+    this.cornerCutSize,
     super.key,
   });
 
@@ -39,6 +40,11 @@ class DovahSurface extends StatelessWidget {
   /// Only used when the theme's corner style is [DovahPanelCornerStyle.rounded].
   final double? cornerRadius;
 
+  /// Overrides the theme's [DovahThemeTokens.cornerCutSize] for this surface, for a component whose
+  /// approved bevel differs from the theme's general one (for example a connection card). Only
+  /// used when the theme's corner style is a bevel.
+  final double? cornerCutSize;
+
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
@@ -48,6 +54,7 @@ class DovahSurface extends StatelessWidget {
         (raised ? tokens.materialRaisedGradient : tokens.materialGradient);
 
     final double radius = cornerRadius ?? tokens.cornerRadius;
+    final double cut = cornerCutSize ?? tokens.cornerCutSize;
 
     if (tokens.cornerStyle == DovahPanelCornerStyle.rounded) {
       return Container(
@@ -66,7 +73,7 @@ class DovahSurface extends StatelessWidget {
       painter: DovahMaterialPainter(
         cornerStyle: tokens.cornerStyle,
         cornerRadius: radius,
-        cutSize: tokens.cornerCutSize,
+        cutSize: cut,
         gradient: fill,
         borderColor: tokens.lineStrong,
         shadow: tokens.panelShadow,
@@ -75,7 +82,7 @@ class DovahSurface extends StatelessWidget {
         clipper: DovahPanelClipper(
           cornerStyle: tokens.cornerStyle,
           cornerRadius: radius,
-          cutSize: tokens.cornerCutSize,
+          cutSize: cut,
         ),
         child: Padding(padding: padding ?? EdgeInsets.zero, child: child),
       ),

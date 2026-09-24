@@ -51,8 +51,7 @@ void main() {
             tokens.cornerStyle == DovahPanelCornerStyle.rounded
             ? DovahThemeTokens.surfaceBorderWidth
             : 0;
-        final double expectedInset =
-            DovahThemeTokens.spacing18 * tokens.densityScale + borderInset;
+        final double expectedInset = 18 * tokens.densityScale + borderInset;
 
         expect(
           contentRect.left - panelRect.left,

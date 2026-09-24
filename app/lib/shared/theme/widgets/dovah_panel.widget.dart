@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 /// A DovahLink content panel: a [DovahSurface] with the theme's standard panel padding, scaled
@@ -33,9 +32,7 @@ class DovahPanel extends StatelessWidget {
     return DovahSurface(
       raised: raised,
       cornerRadius: tokens.panelCornerRadius,
-      padding:
-          padding ??
-          EdgeInsets.all(DovahThemeTokens.spacing18 * tokens.densityScale),
+      padding: padding ?? EdgeInsets.all(18 * tokens.densityScale),
       child: child,
     );
   }

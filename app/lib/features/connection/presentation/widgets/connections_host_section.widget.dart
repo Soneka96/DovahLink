@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
@@ -37,15 +38,15 @@ class ConnectionsHostSection extends StatelessWidget {
               'MY SKYRIM PCS',
               style: TextStyle(
                 color: tokens.textMuted,
-                fontSize: DovahThemeTokens.sectionLabelFontSize,
+                fontSize: DovahRootMetrics.sectionLabelFontSize,
                 height: DovahThemeTokens.bodyLineHeight,
                 fontWeight: FontWeight.w800,
                 letterSpacing:
-                    DovahThemeTokens.sectionLabelLetterSpacingEm *
-                    DovahThemeTokens.sectionLabelFontSize,
+                    DovahRootMetrics.sectionLabelLetterSpacingEm *
+                    DovahRootMetrics.sectionLabelFontSize,
               ),
             ),
-            const SizedBox(width: DovahThemeTokens.sectionLabelGap),
+            const SizedBox(width: DovahRootMetrics.sectionLabelGap),
             Expanded(
               child: DecoratedBox(
                 decoration: BoxDecoration(
@@ -64,13 +65,13 @@ class ConnectionsHostSection extends StatelessWidget {
             ),
           ],
         ),
-        const SizedBox(height: DovahThemeTokens.sectionLabelBottomGap),
+        const SizedBox(height: DovahRootMetrics.sectionLabelBottomGap),
         ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
           itemCount: cards.length,
           separatorBuilder: (BuildContext context, int index) =>
-              const SizedBox(height: DovahThemeTokens.rootListGap),
+              const SizedBox(height: DovahRootMetrics.listGap),
           itemBuilder: (BuildContext context, int index) {
             final HostCardViewData card = cards[index];
             return DovahConnectionCard(

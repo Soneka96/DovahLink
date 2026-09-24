@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -43,20 +44,27 @@ class DovahConnectionCard extends StatelessWidget {
     final Color statusColor = switch (state) {
       DovahConnectionCardState.available => tokens.success,
       DovahConnectionCardState.unknown => tokens.textMuted,
-      DovahConnectionCardState.offline => tokens.textFaint,
+      DovahConnectionCardState.offline => tokens.statusOffline,
       DovahConnectionCardState.repair => tokens.warning,
     };
 
     final bool enabled = onTap != null;
-    final EdgeInsets padding = EdgeInsets.symmetric(
-      vertical: DovahThemeTokens.spacing16 * tokens.densityScale,
-      horizontal: DovahThemeTokens.spacing18 * tokens.densityScale,
-    );
+    final DovahConnectionCardMetrics metrics =
+        context.dovahConnectionCardMetrics;
+    final double focusRadius =
+        tokens.cornerStyle == DovahPanelCornerStyle.rounded
+        ? metrics.cornerRadius
+        : tokens.cornerRadius;
     final bool uppercase = tokens.uppercaseLabels;
     final double? uppercaseSpacing = uppercase
         ? DovahThemeTokens.uppercaseLetterSpacingEm *
               DovahThemeTokens.compactFontSize
         : null;
+    final TextStyle detailStyle = TextStyle(
+      color: tokens.textMuted,
+      fontSize: DovahThemeTokens.compactFontSize,
+      height: DovahThemeTokens.bodyLineHeight,
+    );
 
     return Semantics(
       excludeSemantics: true,
@@ -83,7 +91,7 @@ class DovahConnectionCard extends StatelessWidget {
                         color: tokens.signal,
                         width: DovahControlMetrics.focusOutlineWidth,
                       ),
-                      borderRadius: BorderRadius.circular(tokens.cornerRadius),
+                      borderRadius: BorderRadius.circular(focusRadius),
                       boxShadow: <BoxShadow>[
                         BoxShadow(
                           color: tokens.soft,
@@ -93,45 +101,40 @@ class DovahConnectionCard extends StatelessWidget {
                     )
                   : null,
               child: DovahSurface(
-                padding: padding,
+                padding: metrics.padding,
+                cornerRadius: metrics.cornerRadius,
+                cornerCutSize: metrics.cornerCutSize,
                 child: ConstrainedBox(
                   constraints: BoxConstraints(
                     minHeight: math.max(
                       0,
-                      tokens.connectionCardMinHeight - padding.vertical,
+                      metrics.minHeight - metrics.padding.vertical,
                     ),
                   ),
                   child: Row(
                     children: [
                       Container(
-                        width:
-                            DovahThemeTokens.connectionIconTileSize *
-                            tokens.densityScale,
-                        height:
-                            DovahThemeTokens.connectionIconTileSize *
-                            tokens.densityScale,
+                        width: metrics.iconTileSize,
+                        height: metrics.iconTileSize,
                         alignment: Alignment.center,
                         decoration: BoxDecoration(
                           color: tokens.surfaceRaised,
                           border: Border.all(color: tokens.lineStrong),
                           borderRadius: BorderRadius.circular(
-                            DovahThemeTokens.connectionIconTileRadius *
-                                tokens.densityScale,
+                            metrics.iconTileRadius,
                           ),
                         ),
                         child: Icon(
                           Icons.desktop_windows_outlined,
                           color: tokens.accentPrimary,
-                          size:
-                              DovahThemeTokens.connectionIconSize *
-                              tokens.densityScale,
+                          size: DovahConnectionCardMetrics.iconSize,
                         ),
                       ),
-                      SizedBox(
-                        width: DovahThemeTokens.spacing16 * tokens.densityScale,
+                      const SizedBox(
+                        width: DovahConnectionCardMetrics.columnGap,
                       ),
                       Expanded(
-                        flex: 3,
+                        flex: DovahConnectionCardMetrics.mainColumnFlex,
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           mainAxisSize: MainAxisSize.min,
@@ -143,62 +146,82 @@ class DovahConnectionCard extends StatelessWidget {
                               style: TextStyle(
                                 color: tokens.textPrimary,
                                 fontSize:
-                                    DovahThemeTokens.connectionTitleFontSize,
+                                    DovahConnectionCardMetrics.titleFontSize,
                                 fontWeight: FontWeight.w700,
                                 height: DovahThemeTokens.bodyLineHeight,
                                 letterSpacing: uppercaseSpacing,
                               ),
                             ),
-                            const SizedBox(height: DovahThemeTokens.spacing4),
+                            const SizedBox(
+                              height: DovahConnectionCardMetrics.titleBottomGap,
+                            ),
                             Text(
                               subtitle,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
+                              style: detailStyle,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(
+                        width: DovahConnectionCardMetrics.columnGap,
+                      ),
+                      if (metrics.showDetail) ...[
+                        Expanded(
+                          flex: DovahConnectionCardMetrics.detailColumnFlex,
+                          child: Text(
+                            detail,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: detailStyle,
+                          ),
+                        ),
+                        const SizedBox(
+                          width: DovahConnectionCardMetrics.columnGap,
+                        ),
+                      ],
+                      ConstrainedBox(
+                        constraints: const BoxConstraints(
+                          minWidth: DovahConnectionCardMetrics.statusMinWidth,
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            Icon(
+                              Icons.circle,
+                              size: DovahConnectionCardMetrics.stateMarkerSize,
+                              color: statusColor,
+                            ),
+                            const SizedBox(
+                              width: DovahConnectionCardMetrics.stateMarkerGap,
+                            ),
+                            Text(
+                              uppercase
+                                  ? state.label.toUpperCase()
+                                  : state.label,
                               style: TextStyle(
-                                color: tokens.textMuted,
+                                color: statusColor,
+                                fontWeight: FontWeight.w700,
                                 fontSize: DovahThemeTokens.compactFontSize,
                                 height: DovahThemeTokens.bodyLineHeight,
+                                letterSpacing: uppercaseSpacing,
                               ),
                             ),
                           ],
                         ),
                       ),
-                      Expanded(
-                        flex: 2,
-                        child: Text(
-                          detail,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            color: tokens.textMuted,
-                            fontSize: DovahThemeTokens.compactFontSize,
-                            height: DovahThemeTokens.bodyLineHeight,
-                          ),
+                      if (state != DovahConnectionCardState.offline) ...[
+                        const SizedBox(
+                          width: DovahConnectionCardMetrics.statusArrowGap,
                         ),
-                      ),
-                      Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            Icons.circle,
-                            size: DovahThemeTokens.connectionStateMarkerSize,
-                            color: statusColor,
-                          ),
-                          const SizedBox(width: DovahThemeTokens.spacing8),
-                          Text(
-                            uppercase ? state.label.toUpperCase() : state.label,
-                            style: TextStyle(
-                              color: statusColor,
-                              fontWeight: FontWeight.w700,
-                              fontSize: DovahThemeTokens.compactFontSize,
-                              height: DovahThemeTokens.bodyLineHeight,
-                              letterSpacing: uppercaseSpacing,
-                            ),
-                          ),
-                        ],
-                      ),
-                      if (state != DovahConnectionCardState.offline)
-                        Icon(Icons.chevron_right, color: tokens.accentPrimary),
+                        Icon(
+                          Icons.chevron_right,
+                          size: DovahConnectionCardMetrics.arrowSize,
+                          color: tokens.accentPrimary,
+                        ),
+                      ],
                     ],
                   ),
                 ),

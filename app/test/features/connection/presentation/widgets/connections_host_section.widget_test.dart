@@ -5,8 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
@@ -51,7 +51,12 @@ void main() {
               find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
               findsOneWidget,
             );
-            expect(find.text('192.168.1.11:2000'), findsOneWidget);
+            expect(
+              find.text('192.168.1.11:2000'),
+              size.width > DovahRootMetrics.narrowMaxWindowWidth
+                  ? findsOneWidget
+                  : findsNothing,
+            );
           },
         );
       }
@@ -137,13 +142,15 @@ void main() {
             preset: preset,
             size: dovahTestSizes.first,
           );
-          final DovahThemeTokens tokens = dovahThemeDataFor(
-            preset,
-          ).extension<DovahThemeTokens>()!;
+          final DovahConnectionCardMetrics metrics =
+              DovahConnectionCardMetrics.forWindow(
+                preset: preset,
+                window: dovahTestSizes.first,
+              );
 
           expect(
             tester.getSize(find.byType(DovahConnectionCard)).height,
-            greaterThanOrEqualTo(tokens.connectionCardMinHeight),
+            greaterThanOrEqualTo(metrics.minHeight),
           );
         },
       );
@@ -186,7 +193,7 @@ void main() {
                 .dy;
 
         expect(gap, isA<double>());
-        expect(gap, DovahThemeTokens.rootListGap);
+        expect(gap, DovahRootMetrics.listGap);
       },
     );
   });

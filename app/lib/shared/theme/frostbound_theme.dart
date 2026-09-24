@@ -57,11 +57,6 @@ ThemeData buildFrostboundTheme() {
     displayFontFamily: 'Arial Narrow',
     environmentAssetPath: 'assets/themes/frostbound/frostbound-environment.png',
     eyebrow: Color(0xFFBD5559),
-    rootHeaderHeight: 70,
-    pageTitleFontSize: 31,
-    connectionCardMinHeight: 68,
-    rootContentTopPadding: 20,
-    rootHeroBottomGap: 18,
     pageTitleLineHeight: 1.0,
     rootHeaderRuleFraction: 0.2,
     uppercaseLabels: true,
@@ -70,6 +65,10 @@ ThemeData buildFrostboundTheme() {
     backdropBlurSigma: 7,
     panelCornerRadius: 0,
     primaryActionCornerRadius: 0,
+    statusOffline: Color(0xFF7C8993),
+    brandTagline: Color(0xFF82919A),
+    brandAccent: Color(0xFFA9C7D1),
+    markIcon: Color(0xFFBD5559),
   );
 
   return ThemeData(

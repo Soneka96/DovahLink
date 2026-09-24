@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_mark.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Exercises [PairingMark] rendering and accessibility.
@@ -45,6 +47,30 @@ void main() {
           expect(
             tester.widget<Icon>(find.byIcon(Icons.refresh)).size,
             isCompact ? 20 : 24,
+          );
+        },
+      );
+    }
+  });
+
+  group('PairingMark colors its icon with the theme mark tone', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'PairingMark colors its icon with the ${preset.name} mark tone',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const Center(child: PairingMark(icon: Icons.refresh)),
+            preset: preset,
+            size: const Size(900, 560),
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+
+          expect(
+            tester.widget<Icon>(find.byIcon(Icons.refresh)).color,
+            tokens.markIcon,
           );
         },
       );

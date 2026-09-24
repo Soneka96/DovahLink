@@ -194,13 +194,8 @@ void main() {
           .extension<DovahThemeTokens>()!;
 
       expect(tokens.eyebrow, const Color(0xFFBD5559));
-      expect(tokens.rootHeaderHeight, 70);
-      expect(tokens.pageTitleFontSize, 31);
-      expect(tokens.connectionCardMinHeight, 68);
       expect(tokens.pageTitleLineHeight, 1.0);
       expect(tokens.uppercaseLabels, isTrue);
-      expect(tokens.rootContentTopPadding, 20);
-      expect(tokens.rootHeroBottomGap, 18);
       expect(tokens.rootHeaderRuleFraction, 0.2);
     });
 
@@ -209,13 +204,8 @@ void main() {
           .extension<DovahThemeTokens>()!;
 
       expect(tokens.eyebrow, const Color(0xFFE2A55E));
-      expect(tokens.rootHeaderHeight, 88);
-      expect(tokens.pageTitleFontSize, 34);
-      expect(tokens.connectionCardMinHeight, 80);
       expect(tokens.pageTitleLineHeight, 1.14);
       expect(tokens.uppercaseLabels, isFalse);
-      expect(tokens.rootContentTopPadding, 30);
-      expect(tokens.rootHeroBottomGap, 28);
       expect(tokens.rootHeaderRuleFraction, 0.36);
     });
 
@@ -224,13 +214,8 @@ void main() {
           .extension<DovahThemeTokens>()!;
 
       expect(tokens.eyebrow, const Color(0xFF945720));
-      expect(tokens.rootHeaderHeight, 86);
-      expect(tokens.pageTitleFontSize, 38);
-      expect(tokens.connectionCardMinHeight, 82);
       expect(tokens.pageTitleLineHeight, 1.14);
       expect(tokens.uppercaseLabels, isFalse);
-      expect(tokens.rootContentTopPadding, 30);
-      expect(tokens.rootHeroBottomGap, 28);
       expect(tokens.rootHeaderRuleFraction, 0.52);
     });
   });
@@ -271,6 +256,56 @@ void main() {
             expect(tokens.panelCornerRadius, panelRadius);
             expect(tokens.primaryActionCornerRadius, isA<double>());
             expect(tokens.primaryActionCornerRadius, primaryRadius);
+          },
+        );
+      }
+    },
+  );
+
+  group(
+    'Behavior prototype brand and status color mappings behave correctly',
+    () {
+      for (final (
+            DovahThemePreset preset,
+            Color offline,
+            Color tagline,
+            Color accent,
+            Color mark,
+          )
+          in [
+            (
+              DovahThemePreset.frostbound,
+              const Color(0xFF7C8993),
+              const Color(0xFF82919A),
+              const Color(0xFFA9C7D1),
+              const Color(0xFFBD5559),
+            ),
+            (
+              DovahThemePreset.dovah,
+              const Color(0xFF7C8993),
+              const Color(0xFF72899A),
+              const Color(0xFF74BDE8),
+              const Color(0xFFE2A55E),
+            ),
+            (
+              DovahThemePreset.hearth,
+              const Color(0xFF7F725F),
+              const Color(0xFF80674F),
+              const Color(0xFFA45F27),
+              const Color(0xFF965923),
+            ),
+          ]) {
+        test(
+          'Behavior ${preset.name} tokens match the prototype brand and status colors',
+          () {
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(tokens.statusOffline, offline);
+            expect(tokens.brandTagline, tagline);
+            expect(tokens.brandAccent, accent);
+            expect(tokens.markIcon, mark);
           },
         );
       }

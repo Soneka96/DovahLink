@@ -3,6 +3,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
@@ -22,18 +23,19 @@ class RootHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final DovahRootMetrics metrics = context.dovahRootMetrics;
 
     return ClipRect(
       child: BackdropFilter(
         filter: ImageFilter.blur(
-          sigmaX: DovahThemeTokens.rootHeaderBlurSigma,
-          sigmaY: DovahThemeTokens.rootHeaderBlurSigma,
+          sigmaX: DovahRootMetrics.headerBlurSigma,
+          sigmaY: DovahRootMetrics.headerBlurSigma,
         ),
         child: Container(
-          constraints: BoxConstraints(minHeight: tokens.rootHeaderHeight),
+          constraints: BoxConstraints(minHeight: metrics.headerHeight),
           decoration: BoxDecoration(
             color: tokens.surface.withValues(
-              alpha: DovahThemeTokens.rootHeaderBackgroundOpacity,
+              alpha: DovahRootMetrics.headerBackgroundOpacity,
             ),
             border: Border(bottom: BorderSide(color: tokens.lineSubtle)),
           ),
@@ -42,42 +44,50 @@ class RootHeader extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const DovahSigil(size: DovahThemeTokens.rootBrandMarkSize),
-                  const SizedBox(width: DovahThemeTokens.rootBrandGap),
+                  const DovahSigil(size: DovahRootMetrics.brandMarkSize),
+                  const SizedBox(width: DovahRootMetrics.brandGap),
                   Expanded(
                     child: Column(
                       mainAxisSize: MainAxisSize.min,
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          'DOVAHLINK',
+                        Text.rich(
+                          TextSpan(
+                            text: 'DOVAH',
+                            children: [
+                              TextSpan(
+                                text: 'LINK',
+                                style: TextStyle(color: tokens.brandAccent),
+                              ),
+                            ],
+                          ),
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: tokens.textPrimary,
-                            fontSize: DovahThemeTokens.brandNameFontSize,
+                            fontSize: DovahRootMetrics.brandNameFontSize,
                             height: DovahThemeTokens.bodyLineHeight,
                             fontWeight: FontWeight.w800,
                             letterSpacing:
-                                DovahThemeTokens.brandNameLetterSpacingEm *
-                                DovahThemeTokens.brandNameFontSize,
+                                DovahRootMetrics.brandNameLetterSpacingEm *
+                                DovahRootMetrics.brandNameFontSize,
                           ),
                         ),
                         const SizedBox(
-                          height: DovahThemeTokens.brandTaglineTopGap,
+                          height: DovahRootMetrics.brandTaglineTopGap,
                         ),
                         Text(
                           'SKYRIM COMPANION',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            color: tokens.textFaint,
-                            fontSize: DovahThemeTokens.brandTaglineFontSize,
+                            color: tokens.brandTagline,
+                            fontSize: DovahRootMetrics.brandTaglineFontSize,
                             height: DovahThemeTokens.bodyLineHeight,
                             fontWeight: FontWeight.w700,
                             letterSpacing:
-                                DovahThemeTokens.brandTaglineLetterSpacingEm *
-                                DovahThemeTokens.brandTaglineFontSize,
+                                metrics.brandTaglineLetterSpacingEm *
+                                DovahRootMetrics.brandTaglineFontSize,
                           ),
                         ),
                       ],
@@ -117,7 +127,7 @@ class RootHeader extends StatelessWidget {
                         ),
                       ),
                       child: const SizedBox(
-                        height: DovahThemeTokens.rootHeaderRuleHeight,
+                        height: DovahRootMetrics.headerRuleHeight,
                       ),
                     ),
                   ),

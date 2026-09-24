@@ -57,11 +57,6 @@ ThemeData buildHearthTheme() {
     displayFontFamily: 'Georgia',
     environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
     eyebrow: Color(0xFF945720),
-    rootHeaderHeight: 86,
-    pageTitleFontSize: 38,
-    connectionCardMinHeight: 82,
-    rootContentTopPadding: 30,
-    rootHeroBottomGap: 28,
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.52,
     uppercaseLabels: false,
@@ -70,6 +65,10 @@ ThemeData buildHearthTheme() {
     backdropBlurSigma: 9,
     panelCornerRadius: 14,
     primaryActionCornerRadius: 9,
+    statusOffline: Color(0xFF7F725F),
+    brandTagline: Color(0xFF80674F),
+    brandAccent: Color(0xFFA45F27),
+    markIcon: Color(0xFF965923),
   );
 
   return ThemeData(

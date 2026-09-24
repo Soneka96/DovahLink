@@ -13,125 +13,14 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 /// concrete preset is active.
 @immutable
 class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
-  /// Smallest shared spacing unit.
-  static const double spacing4 = 4;
-
-  /// Shared spacing for small layout gaps.
-  static const double spacing8 = 8;
-
-  /// Shared spacing for section and connection-card gaps.
-  static const double spacing16 = 16;
-
-  /// Shared panel and connection-card padding.
-  static const double spacing18 = 18;
-
   /// Font size for supporting text and compact labels.
   static const double compactFontSize = 13;
-
-  /// Diameter of the connection-state marker.
-  static const double connectionStateMarkerSize = 8;
-
-  /// Size of the connection-card icon tile before density scaling.
-  static const double connectionIconTileSize = 43;
-
-  /// Corner radius of the connection-card icon tile before density scaling.
-  static const double connectionIconTileRadius = 9;
-
-  /// Size of the icon inside a connection-card icon tile before density scaling.
-  static const double connectionIconSize = 21;
 
   /// Letter spacing, in ems, of labels a theme renders in uppercase.
   static const double uppercaseLetterSpacingEm = 0.045;
 
-  /// Width below which the root screen stops shrinking and scrolls horizontally.
-  static const double rootMinimumWidth = 720;
-
-  /// Maximum width of the root screen's content column.
-  static const double rootContentMaxWidth = 1180;
-
-  /// Margin on each side of the root screen's content column.
-  static const double rootContentSideMargin = 32;
-
-  /// Padding below the root screen's content.
-  static const double rootContentBottomPadding = 40;
-
-  /// Height of the gradient rule under the root header.
-  static const double rootHeaderRuleHeight = 2;
-
-  /// Opacity of the root header's surface fill.
-  static const double rootHeaderBackgroundOpacity = 0.88;
-
-  /// Blur strength behind the root header.
-  static const double rootHeaderBlurSigma = 11;
-
-  /// Width and height of the root header's brand mark.
-  static const double rootBrandMarkSize = 44;
-
-  /// Gap between the brand mark and the wordmark.
-  static const double rootBrandGap = 13;
-
-  /// Font size of the DovahLink wordmark.
-  static const double brandNameFontSize = 18;
-
-  /// Letter spacing, in ems, of the DovahLink wordmark.
-  static const double brandNameLetterSpacingEm = 0.15;
-
-  /// Font size of the wordmark's tagline.
-  static const double brandTaglineFontSize = 9;
-
-  /// Letter spacing, in ems, of the wordmark's tagline.
-  static const double brandTaglineLetterSpacingEm = 0.2;
-
-  /// Gap between the wordmark and its tagline.
-  static const double brandTaglineTopGap = 3;
-
-  /// Gap between the page title block and its action.
-  static const double rootHeroGap = 20;
-
-  /// Font size of a page-title eyebrow.
-  static const double eyebrowFontSize = 10;
-
-  /// Letter spacing, in ems, of a page-title eyebrow.
-  static const double eyebrowLetterSpacingEm = 0.2;
-
-  /// Letter spacing, in ems, of a page title.
-  static const double pageTitleLetterSpacingEm = 0.02;
-
-  /// Letter spacing, in ems, of a page title a theme renders in uppercase.
-  static const double pageTitleUppercaseLetterSpacingEm = 0.06;
-
-  /// Gap between an eyebrow and its page title.
-  static const double pageTitleTopGap = 7;
-
-  /// Gap between a page title and its description.
-  static const double pageTitleBottomGap = 5;
-
-  /// Font size of a page description.
-  static const double pageDescriptionFontSize = 14;
-
-  /// Font size of a section label.
-  static const double sectionLabelFontSize = 11;
-
-  /// Letter spacing, in ems, of a section label.
-  static const double sectionLabelLetterSpacingEm = 0.15;
-
-  /// Gap between a section label and its rule.
-  static const double sectionLabelGap = 10;
-
-  /// Gap between a section label and its content.
-  static const double sectionLabelBottomGap = 11;
-
-  /// Gap between connection cards.
-  static const double rootListGap = 10;
-
-  /// Font size of the root screen's footer note.
-  static const double rootFooterFontSize = 12;
-
   /// Line height, as a multiple of font size, of body and label text.
   static const double bodyLineHeight = 4 / 3;
-
-  /// Font size of a connection card's title.
-  static const double connectionTitleFontSize = 16;
 
   /// Border width shared by themed surfaces.
   static const double surfaceBorderWidth = 1;
@@ -249,24 +138,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// per theme rather than following [accentSecondary].
   final Color eyebrow;
 
-  /// The height of the root screen's header bar before it is placed in the layout.
-  final double rootHeaderHeight;
-
-  /// The font size of a page title such as the root screen's "Connections".
-  final double pageTitleFontSize;
-
-  /// The minimum height of a connection card.
-  final double connectionCardMinHeight;
-
   /// Whether page titles, connection names, and connection states render in uppercase, as the
   /// prototype's Frostbound theme does.
   final bool uppercaseLabels;
-
-  /// Padding above the root screen's title row.
-  final double rootContentTopPadding;
-
-  /// Gap between the root screen's title row and its first section.
-  final double rootHeroBottomGap;
 
   /// Fraction of the root header's width its gradient rule spans.
   final double rootHeaderRuleFraction;
@@ -296,6 +170,21 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// [DovahPanelCornerStyle.rounded] (the prototype's `.primary` `border-radius`), which differs
   /// from [cornerRadius] in Hearth.
   final double primaryActionCornerRadius;
+
+  /// The status tone for an offline connection (the prototype's `.status.offline`), which is
+  /// neither a healthy nor an attention state and so has its own tone rather than [textFaint].
+  final Color statusOffline;
+
+  /// The tone of the wordmark's tagline (the prototype's `.brand-sub`), which differs per theme
+  /// rather than following [textFaint].
+  final Color brandTagline;
+
+  /// The tone of the wordmark's "LINK" half (the prototype's `.brand-name span`).
+  final Color brandAccent;
+
+  /// The tone of the icon inside a large icon tile (the prototype's `.large-mark`), which differs
+  /// per theme rather than following [accentPrimary].
+  final Color markIcon;
 
   /// Creates a complete token set. Every field is required so no theme can be assembled with an
   /// accidentally-inherited default.
@@ -332,12 +221,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.displayFontFamily,
     required this.environmentAssetPath,
     required this.eyebrow,
-    required this.rootHeaderHeight,
-    required this.pageTitleFontSize,
-    required this.connectionCardMinHeight,
     required this.uppercaseLabels,
-    required this.rootContentTopPadding,
-    required this.rootHeroBottomGap,
     required this.rootHeaderRuleFraction,
     required this.pageTitleLineHeight,
     required this.preset,
@@ -345,6 +229,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.backdropBlurSigma,
     required this.panelCornerRadius,
     required this.primaryActionCornerRadius,
+    required this.statusOffline,
+    required this.brandTagline,
+    required this.brandAccent,
+    required this.markIcon,
   });
 
   /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
@@ -391,12 +279,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     String? displayFontFamily,
     Option<String>? environmentAssetPath,
     Color? eyebrow,
-    double? rootHeaderHeight,
-    double? pageTitleFontSize,
-    double? connectionCardMinHeight,
     bool? uppercaseLabels,
-    double? rootContentTopPadding,
-    double? rootHeroBottomGap,
     double? rootHeaderRuleFraction,
     double? pageTitleLineHeight,
     DovahThemePreset? preset,
@@ -404,6 +287,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? backdropBlurSigma,
     double? panelCornerRadius,
     double? primaryActionCornerRadius,
+    Color? statusOffline,
+    Color? brandTagline,
+    Color? brandAccent,
+    Color? markIcon,
   }) => DovahThemeTokens(
     background: background ?? this.background,
     surface: surface ?? this.surface,
@@ -441,13 +328,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         ? this.environmentAssetPath
         : environmentAssetPath.toNullable(),
     eyebrow: eyebrow ?? this.eyebrow,
-    rootHeaderHeight: rootHeaderHeight ?? this.rootHeaderHeight,
-    pageTitleFontSize: pageTitleFontSize ?? this.pageTitleFontSize,
-    connectionCardMinHeight:
-        connectionCardMinHeight ?? this.connectionCardMinHeight,
     uppercaseLabels: uppercaseLabels ?? this.uppercaseLabels,
-    rootContentTopPadding: rootContentTopPadding ?? this.rootContentTopPadding,
-    rootHeroBottomGap: rootHeroBottomGap ?? this.rootHeroBottomGap,
     rootHeaderRuleFraction:
         rootHeaderRuleFraction ?? this.rootHeaderRuleFraction,
     pageTitleLineHeight: pageTitleLineHeight ?? this.pageTitleLineHeight,
@@ -457,6 +338,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     panelCornerRadius: panelCornerRadius ?? this.panelCornerRadius,
     primaryActionCornerRadius:
         primaryActionCornerRadius ?? this.primaryActionCornerRadius,
+    statusOffline: statusOffline ?? this.statusOffline,
+    brandTagline: brandTagline ?? this.brandTagline,
+    brandAccent: brandAccent ?? this.brandAccent,
+    markIcon: markIcon ?? this.markIcon,
   );
 
   /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
@@ -510,32 +395,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
           ? environmentAssetPath
           : other.environmentAssetPath,
       eyebrow: Color.lerp(eyebrow, other.eyebrow, t)!,
-      rootHeaderHeight: lerpDouble(
-        rootHeaderHeight,
-        other.rootHeaderHeight,
-        t,
-      )!,
-      pageTitleFontSize: lerpDouble(
-        pageTitleFontSize,
-        other.pageTitleFontSize,
-        t,
-      )!,
-      connectionCardMinHeight: lerpDouble(
-        connectionCardMinHeight,
-        other.connectionCardMinHeight,
-        t,
-      )!,
       uppercaseLabels: t < 0.5 ? uppercaseLabels : other.uppercaseLabels,
-      rootContentTopPadding: lerpDouble(
-        rootContentTopPadding,
-        other.rootContentTopPadding,
-        t,
-      )!,
-      rootHeroBottomGap: lerpDouble(
-        rootHeroBottomGap,
-        other.rootHeroBottomGap,
-        t,
-      )!,
       rootHeaderRuleFraction: lerpDouble(
         rootHeaderRuleFraction,
         other.rootHeaderRuleFraction,
@@ -563,6 +423,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         other.primaryActionCornerRadius,
         t,
       )!,
+      statusOffline: Color.lerp(statusOffline, other.statusOffline, t)!,
+      brandTagline: Color.lerp(brandTagline, other.brandTagline, t)!,
+      brandAccent: Color.lerp(brandAccent, other.brandAccent, t)!,
+      markIcon: Color.lerp(markIcon, other.markIcon, t)!,
     );
   }
 
@@ -601,12 +465,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     displayFontFamily,
     environmentAssetPath,
     eyebrow,
-    rootHeaderHeight,
-    pageTitleFontSize,
-    connectionCardMinHeight,
     uppercaseLabels,
-    rootContentTopPadding,
-    rootHeroBottomGap,
     rootHeaderRuleFraction,
     pageTitleLineHeight,
     preset,
@@ -614,5 +473,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     backdropBlurSigma,
     panelCornerRadius,
     primaryActionCornerRadius,
+    statusOffline,
+    brandTagline,
+    brandAccent,
+    markIcon,
   ];
 }

@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
@@ -23,10 +24,6 @@ void main() {
               preset: preset,
               size: size,
             );
-            final DovahThemeTokens tokens = dovahThemeDataFor(
-              preset,
-            ).extension<DovahThemeTokens>()!;
-
             expect(tester.takeException(), isNull);
             expect(
               tester.getSize(find.byType(RootHeader)).height,
@@ -34,7 +31,10 @@ void main() {
             );
             expect(
               tester.getSize(find.byType(RootHeader)).height,
-              tokens.rootHeaderHeight,
+              DovahRootMetrics.forWindow(
+                preset: preset,
+                window: size,
+              ).headerHeight,
             );
             expect(find.text('DOVAHLINK'), findsOneWidget);
             expect(find.text('SKYRIM COMPANION'), findsOneWidget);
@@ -68,7 +68,7 @@ void main() {
             rule.width,
             closeTo(headerWidth * tokens.rootHeaderRuleFraction, 0.01),
           );
-          expect(rule.height, DovahThemeTokens.rootHeaderRuleHeight);
+          expect(rule.height, DovahRootMetrics.headerRuleHeight);
         },
       );
     }
@@ -150,5 +150,68 @@ void main() {
         }
       },
     );
+  });
+
+  group('RootHeader follows the prototype breakpoints and brand colors', () {
+    for (final (DovahThemePreset preset, Size size, double height) in [
+      (DovahThemePreset.frostbound, const Size(1280, 720), 70),
+      (DovahThemePreset.dovah, const Size(1280, 720), 88),
+      (DovahThemePreset.hearth, const Size(1600, 900), 86),
+      (DovahThemePreset.dovah, const Size(800, 700), 88),
+      (DovahThemePreset.frostbound, const Size(720, 480), 56),
+      (DovahThemePreset.dovah, const Size(900, 560), 62),
+      (DovahThemePreset.hearth, const Size(720, 480), 62),
+    ]) {
+      testWidgets('RootHeader is $height tall under ${preset.name} at $size', (
+        WidgetTester tester,
+      ) async {
+        await pumpDovahThemedWidget(
+          tester,
+          SingleChildScrollView(child: RootHeader(onOpenAppearance: () {})),
+          preset: preset,
+          size: size,
+        );
+
+        expect(tester.takeException(), isNull);
+        expect(tester.getSize(find.byType(RootHeader)).height, height);
+      });
+    }
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'RootHeader colors its LINK half and tagline with the ${preset.name} brand tones',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            SingleChildScrollView(child: RootHeader(onOpenAppearance: () {})),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final Text wordmark = tester.widget(find.text('DOVAHLINK'));
+          final TextSpan span = wordmark.textSpan! as TextSpan;
+          final Text tagline = tester.widget(find.text('SKYRIM COMPANION'));
+
+          expect(span.text, 'DOVAH');
+          expect((span.children!.single as TextSpan).text, 'LINK');
+          expect(
+            (span.children!.single as TextSpan).style?.color,
+            tokens.brandAccent,
+          );
+          expect(wordmark.style?.color, tokens.textPrimary);
+          expect(tagline.style?.color, tokens.brandTagline);
+          expect(
+            tagline.style?.letterSpacing,
+            DovahRootMetrics.forWindow(
+                  preset: preset,
+                  window: const Size(1280, 720),
+                ).brandTaglineLetterSpacingEm *
+                DovahRootMetrics.brandTaglineFontSize,
+          );
+        },
+      );
+    }
   });
 }
