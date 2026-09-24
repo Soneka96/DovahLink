@@ -14,6 +14,10 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ## [Unreleased]
 
+### Changed
+
+- Host subscription updates now replace the active state-area set and stop publishing removed areas.
+
 ## [0.4.0] - 2026-09-23
 
 ### Added

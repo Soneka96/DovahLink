@@ -38,8 +38,10 @@ public interface IPublicStateSubscription
     void Bind(IPublicConnectionContext connectionContext, SessionId sessionId);
 
     /// <summary>
-    /// Answers a <c>subscribe</c> request's accept/reject decision only -- it sends nothing. Accepts
-    /// each requested area that is both registered and, when it does not already have a live
+    /// Reconciles this connection's active set to a <c>subscribe</c> request's complete desired set,
+    /// then answers the accept/reject decision only -- it sends nothing. Areas omitted from the
+    /// request, or rejected by it, stop receiving new state publications. Accepts each requested
+    /// area that is both registered and, when it does not already have a live
     /// baseline, fits within the reserved Control/Recovery lane's remaining capacity once
     /// <paramref name="reservedControlCapacity"/> is set aside for the caller's own upcoming send;
     /// rejects every other requested area, including one that would have been registered but did not
@@ -49,7 +51,7 @@ public interface IPublicStateSubscription
     /// purposes. Call <see cref="EstablishAcceptedBaselines"/> with the accepted areas to actually send
     /// their baselines, after the caller has sent whatever it reserved capacity for.
     /// </summary>
-    /// <param name="requestedStateAreas">The state areas the client requested.</param>
+    /// <param name="requestedStateAreas">The complete desired set of state areas for this connection.</param>
     /// <param name="reservedControlCapacity">
     /// The number of Control/Recovery lane slots the caller itself is about to use for something else
     /// (typically one, for its own <c>subscription_ack</c>) once this call returns -- excluded from
@@ -217,6 +219,8 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     {
         List<string> accepted = [];
         List<string> rejected = [];
+        HashSet<StateAreaId> acceptedAreasForUpdate = [];
+        HashSet<StateAreaId> requestedAreas = [];
 
         lock (gate)
         {
@@ -226,6 +230,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             foreach (string requested in requestedStateAreas)
             {
                 var areaId = new StateAreaId(requested);
+                if (!requestedAreas.Add(areaId))
+                {
+                    continue;
+                }
+
                 if (!registeredStateAreaPolicy.IsRegistered(areaId))
                 {
                     rejected.Add(requested);
@@ -245,6 +254,30 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 }
 
                 accepted.Add(requested);
+                acceptedAreasForUpdate.Add(areaId);
+            }
+
+            foreach (StateAreaId previouslyAccepted in acceptedAreas.ToArray())
+            {
+                if (acceptedAreasForUpdate.Contains(previouslyAccepted))
+                {
+                    continue;
+                }
+
+                acceptedAreas.Remove(previouslyAccepted);
+                if (areaStates.Remove(previouslyAccepted, out AreaState? state))
+                {
+                    CancelPendingBaselineDeadlineLocked(state);
+                    state.RecoveryEpoch++;
+                    state.RecoveryCorrelationMessageId = null;
+                    state.SnapshotRequestPending = false;
+                    state.HeldEvents.Clear();
+                    state.PendingSnapshot = null;
+                }
+            }
+
+            foreach (StateAreaId areaId in acceptedAreasForUpdate)
+            {
                 acceptedAreas.Add(areaId);
             }
         }

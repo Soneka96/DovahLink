@@ -538,7 +538,10 @@ send an empty list, and any non-empty list is rejected as `unsupported_capabilit
 
 ### `subscribe`
 
-Requests state areas after capabilities are negotiated.
+Replaces the client's complete desired set of public state-area subscriptions after capabilities
+are negotiated. Every request is authoritative for that connection: accepted areas omitted from a
+later request stop receiving new Snapshots and Events. `stateAreas: []` removes every active
+subscription for the connection. Repeating the same set is idempotent.
 
 ```json
 {
@@ -553,9 +556,11 @@ available yet is never a dead end: its baseline is delivered automatically, stil
 `subscribe` message, as soon as one becomes available, or answered with a `temporarily_unavailable`
 `error` if none does before a bounded deadline elapses.
 
-Required payload field: `stateAreas`. The host responds with `subscription_ack`. A requested area
+Required payload field: `stateAreas`. The Host responds with `subscription_ack`. A requested area
 that is one of the five registered state areas above is accepted; any other requested area is
-rejected into `subscription_ack.rejectedStateAreas`.
+rejected into `subscription_ack.rejectedStateAreas`. The resulting active set is exactly the
+accepted areas from this request, so omitted previously accepted areas and areas rejected in this
+request are removed from the active set. Duplicate entries are treated as one requested area.
 
 ### `subscription_ack`
 
