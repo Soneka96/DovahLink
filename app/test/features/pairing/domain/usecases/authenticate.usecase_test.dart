@@ -7,7 +7,6 @@ import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_re
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Mocks the pairing repository for [AuthenticateUseCase] tests.

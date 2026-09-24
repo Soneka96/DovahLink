@@ -10,7 +10,6 @@ import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handsh
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Mocks the wrapped SDK client for [PairingRemoteDataSource] tests.

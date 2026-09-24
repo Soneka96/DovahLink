@@ -8,7 +8,6 @@ import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handsh
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Mocks the remote data source for [PairingRepository] tests.

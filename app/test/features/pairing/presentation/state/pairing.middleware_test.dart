@@ -26,7 +26,6 @@ import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
-
 import '../../../../fixtures/fixtures.dart';
 
 /// Mocks for the use cases [PairingMiddleware] resolves through [sl].
