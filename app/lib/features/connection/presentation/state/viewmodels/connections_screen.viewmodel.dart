@@ -5,7 +5,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// ViewModel representing the data required by [ConnectionsScreen].
@@ -27,7 +27,7 @@ class ConnectionsScreenViewModel extends Equatable {
   }
 
   /// The display data for each Host available to select.
-  final List<HostCardViewModel> hostCards;
+  final List<HostCardModel> hostCards;
 
   /// Called when the user selects [host] to pair or connect with.
   final void Function(HostEntity host) onSelectHost;

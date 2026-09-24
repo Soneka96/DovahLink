@@ -3,12 +3,10 @@ import 'package:equatable/equatable.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
-/// The display data one Host card shows, derived from a [HostEntity] by
-/// `ConnectionSelectors.hostCardsSelector`. It carries the [host] a tap selects, so presentation
-/// wording and status never enter the domain entity.
-class HostCardViewModel extends Equatable {
-  /// Creates a Host card's display data.
-  const HostCardViewModel({
+/// Immutable presentation data for one Host card, including the [HostEntity] it selects.
+class HostCardModel extends Equatable {
+  /// Creates a Host card model.
+  const HostCardModel({
     required this.host,
     required this.title,
     required this.subtitle,

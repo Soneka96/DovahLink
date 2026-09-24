@@ -1,5 +1,5 @@
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
@@ -15,9 +15,9 @@ abstract final class ConnectionSelectors {
   /// Returns one card's display data per Host, in Host order. Reachability is not known on the
   /// connections screen, so every card is [DovahConnectionCardState.unknown]; its detail is the
   /// Host endpoint's authority (host and port), or the whole endpoint when it has none.
-  static List<HostCardViewModel> hostCardsSelector(AppState state) => [
+  static List<HostCardModel> hostCardsSelector(AppState state) => [
     for (final HostEntity host in hostsSelector(state))
-      HostCardViewModel(
+      HostCardModel(
         host: host,
         title: host.displayName,
         subtitle: hostCardSubtitle,

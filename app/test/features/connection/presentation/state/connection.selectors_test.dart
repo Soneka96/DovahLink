@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -30,7 +30,7 @@ void main() {
       final HostEntity host = Fixtures.buildHostEntity();
 
       expect(ConnectionSelectors.hostCardsSelector(stateWith([host])), [
-        Fixtures.buildHostCardViewModel(host: host),
+        Fixtures.buildHostCardModel(host: host),
       ]);
     });
 
@@ -45,7 +45,7 @@ void main() {
         final List<DovahConnectionCardState> states =
             ConnectionSelectors.hostCardsSelector(
               state,
-            ).map((HostCardViewModel card) => card.state).toList();
+            ).map((HostCardModel card) => card.state).toList();
 
         expect(states, [
           DovahConnectionCardState.unknown,
@@ -64,18 +64,19 @@ void main() {
         uri: Uri.parse('ws://192.168.1.11:2000/'),
       );
 
-      final List<HostCardViewModel> cards =
-          ConnectionSelectors.hostCardsSelector(stateWith([first, second]));
+      final List<HostCardModel> cards = ConnectionSelectors.hostCardsSelector(
+        stateWith([first, second]),
+      );
 
-      expect(cards.map((HostCardViewModel card) => card.host).toList(), [
+      expect(cards.map((HostCardModel card) => card.host).toList(), [
         first,
         second,
       ]);
-      expect(cards.map((HostCardViewModel card) => card.title).toList(), [
+      expect(cards.map((HostCardModel card) => card.title).toList(), [
         'First Host',
         'Second Host',
       ]);
-      expect(cards.map((HostCardViewModel card) => card.detail).toList(), [
+      expect(cards.map((HostCardModel card) => card.detail).toList(), [
         '192.168.1.10:1000',
         '192.168.1.11:2000',
       ]);
@@ -95,7 +96,7 @@ void main() {
           uri: Uri.parse('local-host'),
         );
 
-        final HostCardViewModel card = ConnectionSelectors.hostCardsSelector(
+        final HostCardModel card = ConnectionSelectors.hostCardsSelector(
           stateWith([host]),
         ).single;
 
@@ -108,7 +109,7 @@ void main() {
       final String longName = 'A very long Host name ' * 12;
       final HostEntity host = Fixtures.buildHostEntity(displayName: longName);
 
-      final HostCardViewModel card = ConnectionSelectors.hostCardsSelector(
+      final HostCardModel card = ConnectionSelectors.hostCardsSelector(
         stateWith([host]),
       ).single;
 

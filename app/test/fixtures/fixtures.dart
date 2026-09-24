@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -21,7 +21,7 @@ abstract final class Fixtures {
   }) => HostEntity(displayName: displayName, uri: uri ?? defaultHostUri);
 
   /// Builds a Host card's display data for the representative local Host.
-  static HostCardViewModel buildHostCardViewModel({
+  static HostCardModel buildHostCardModel({
     /// The Host the card selects, or the representative Host when omitted.
     HostEntity? host,
 
@@ -36,7 +36,7 @@ abstract final class Fixtures {
 
     /// The card's visual state.
     DovahConnectionCardState state = DovahConnectionCardState.unknown,
-  }) => HostCardViewModel(
+  }) => HostCardModel(
     host: host ?? buildHostEntity(),
     title: title,
     subtitle: subtitle,

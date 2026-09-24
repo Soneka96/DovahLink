@@ -13,7 +13,7 @@ import 'package:dovahlink_client/features/appearance/presentation/state/viewmode
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -58,9 +58,7 @@ void main() {
     when(
       () => store.onChange,
     ).thenAnswer((_) => const Stream<AppState>.empty());
-    when(
-      () => viewModel.hostCards,
-    ).thenReturn([Fixtures.buildHostCardViewModel()]);
+    when(() => viewModel.hostCards).thenReturn([Fixtures.buildHostCardModel()]);
     when(() => viewModel.onSelectHost).thenReturn(selectedHosts.add);
     when(
       () => appearanceViewModel.activePreset,
@@ -164,8 +162,8 @@ void main() {
           uri: Uri.parse('ws://192.168.1.11:2000/'),
         );
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewModel(),
-          Fixtures.buildHostCardViewModel(
+          Fixtures.buildHostCardModel(),
+          Fixtures.buildHostCardModel(
             host: second,
             title: 'Second Host',
             detail: '192.168.1.11:2000',
@@ -199,7 +197,7 @@ void main() {
     testWidgets(
       'ConnectionsScreen renders without cards or error when there are no Hosts',
       (WidgetTester tester) async {
-        when(() => viewModel.hostCards).thenReturn(const <HostCardViewModel>[]);
+        when(() => viewModel.hostCards).thenReturn(const <HostCardModel>[]);
 
         await tester.pumpWidget(buildWidget());
 
@@ -214,7 +212,7 @@ void main() {
       (WidgetTester tester) async {
         final String longName = 'A very long Host name ' * 12;
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewModel(
+          Fixtures.buildHostCardModel(
             host: Fixtures.buildHostEntity(displayName: longName),
             title: longName,
           ),
@@ -313,8 +311,8 @@ void main() {
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewModel(host: first, title: 'First Host'),
-          Fixtures.buildHostCardViewModel(host: second, title: 'Second Host'),
+          Fixtures.buildHostCardModel(host: first, title: 'First Host'),
+          Fixtures.buildHostCardModel(host: second, title: 'Second Host'),
         ]);
         await useSurface(tester, const Size(1280, 900));
         await tester.pumpWidget(buildWidget());
@@ -338,8 +336,8 @@ void main() {
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewModel(host: first),
-          Fixtures.buildHostCardViewModel(host: second),
+          Fixtures.buildHostCardModel(host: first),
+          Fixtures.buildHostCardModel(host: second),
         ]);
         await useSurface(tester, const Size(1280, 900));
         await tester.pumpWidget(buildWidget());

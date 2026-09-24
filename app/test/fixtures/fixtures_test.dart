@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/host_card.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/models/host_card.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -43,9 +43,9 @@ void main() {
     });
   });
 
-  group('Method buildHostCardViewModel behaves correctly', () {
-    test('Method buildHostCardViewModel builds representative defaults', () {
-      final HostCardViewModel card = Fixtures.buildHostCardViewModel();
+  group('Method buildHostCardModel behaves correctly', () {
+    test('Method buildHostCardModel builds representative defaults', () {
+      final HostCardModel card = Fixtures.buildHostCardModel();
 
       expect(card.host, Fixtures.buildHostEntity());
       expect(card.title, isA<String>());
@@ -57,9 +57,9 @@ void main() {
       expect(card.state, DovahConnectionCardState.unknown);
     });
 
-    test('Method buildHostCardViewModel preserves named overrides', () {
+    test('Method buildHostCardModel preserves named overrides', () {
       final HostEntity host = Fixtures.buildHostEntity(displayName: 'Other');
-      final HostCardViewModel card = Fixtures.buildHostCardViewModel(
+      final HostCardModel card = Fixtures.buildHostCardModel(
         host: host,
         title: 'Other',
         subtitle: 'Sub',
@@ -77,9 +77,9 @@ void main() {
       expect(card.state, DovahConnectionCardState.repair);
     });
 
-    test('Method buildHostCardViewModel returns a fresh value per call', () {
-      final HostCardViewModel first = Fixtures.buildHostCardViewModel();
-      final HostCardViewModel second = Fixtures.buildHostCardViewModel();
+    test('Method buildHostCardModel returns a fresh value per call', () {
+      final HostCardModel first = Fixtures.buildHostCardModel();
+      final HostCardModel second = Fixtures.buildHostCardModel();
 
       expect(first, second);
       expect(first.hashCode, second.hashCode);

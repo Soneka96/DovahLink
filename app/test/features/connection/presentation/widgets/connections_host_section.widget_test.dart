@@ -24,8 +24,8 @@ void main() {
               tester,
               ConnectionsHostSection(
                 cards: [
-                  Fixtures.buildHostCardViewModel(),
-                  Fixtures.buildHostCardViewModel(
+                  Fixtures.buildHostCardModel(),
+                  Fixtures.buildHostCardModel(
                     host: Fixtures.buildHostEntity(
                       displayName: 'Second Host',
                       uri: Uri.parse('ws://192.168.1.11:2000/'),
@@ -63,7 +63,7 @@ void main() {
         await pumpDovahThemedWidget(
           tester,
           ConnectionsHostSection(
-            cards: [Fixtures.buildHostCardViewModel()],
+            cards: [Fixtures.buildHostCardModel()],
             onSelectHost: (HostEntity host) {},
           ),
           preset: DovahThemePreset.dovah,
@@ -108,7 +108,7 @@ void main() {
                 ).copyWith(textScaler: const TextScaler.linear(2)),
                 child: ConnectionsHostSection(
                   cards: [
-                    Fixtures.buildHostCardViewModel(
+                    Fixtures.buildHostCardModel(
                       host: Fixtures.buildHostEntity(displayName: longName),
                       title: longName,
                       detail: 'a-very-long-host-name.local:58231' * 3,
@@ -134,7 +134,7 @@ void main() {
           await pumpDovahThemedWidget(
             tester,
             ConnectionsHostSection(
-              cards: [Fixtures.buildHostCardViewModel()],
+              cards: [Fixtures.buildHostCardModel()],
               onSelectHost: (HostEntity host) {},
             ),
             preset: preset,
@@ -161,8 +161,8 @@ void main() {
           tester,
           ConnectionsHostSection(
             cards: [
-              Fixtures.buildHostCardViewModel(),
-              Fixtures.buildHostCardViewModel(
+              Fixtures.buildHostCardModel(),
+              Fixtures.buildHostCardModel(
                 host: Fixtures.buildHostEntity(
                   displayName: 'Second Host',
                   uri: Uri.parse('ws://192.168.1.11:2000/'),
@@ -211,11 +211,8 @@ void main() {
           tester,
           ConnectionsHostSection(
             cards: [
-              Fixtures.buildHostCardViewModel(host: first, title: 'First Host'),
-              Fixtures.buildHostCardViewModel(
-                host: second,
-                title: 'Second Host',
-              ),
+              Fixtures.buildHostCardModel(host: first, title: 'First Host'),
+              Fixtures.buildHostCardModel(host: second, title: 'Second Host'),
             ],
             onSelectHost: selected.add,
           ),
@@ -247,8 +244,8 @@ void main() {
           tester,
           ConnectionsHostSection(
             cards: [
-              Fixtures.buildHostCardViewModel(host: first),
-              Fixtures.buildHostCardViewModel(host: second),
+              Fixtures.buildHostCardModel(host: first),
+              Fixtures.buildHostCardModel(host: second),
             ],
             onSelectHost: selected.add,
           ),
@@ -259,8 +256,8 @@ void main() {
           tester,
           ConnectionsHostSection(
             cards: [
-              Fixtures.buildHostCardViewModel(host: second),
-              Fixtures.buildHostCardViewModel(host: first),
+              Fixtures.buildHostCardModel(host: second),
+              Fixtures.buildHostCardModel(host: first),
             ],
             onSelectHost: selected.add,
           ),
@@ -282,7 +279,7 @@ void main() {
         await pumpDovahThemedWidget(
           tester,
           ConnectionsHostSection(
-            cards: [Fixtures.buildHostCardViewModel()],
+            cards: [Fixtures.buildHostCardModel()],
             onSelectHost: selected.add,
           ),
           preset: DovahThemePreset.dovah,
@@ -303,7 +300,7 @@ void main() {
           await pumpDovahThemedWidget(
             tester,
             ConnectionsHostSection(
-              cards: [Fixtures.buildHostCardViewModel()],
+              cards: [Fixtures.buildHostCardModel()],
               onSelectHost: (HostEntity host) {},
             ),
             preset: DovahThemePreset.dovah,
