@@ -53,7 +53,7 @@ class RequestService implements IRequestService {
   final PendingOperationTransmitter _transmitter;
 
   /// Owns envelope decoding, correlation, and unsolicited routing.
-  final MessageRouter _messageRouter;
+  final IMessageRouter _messageRouter;
 
   /// Creates a request service over already-constructed [sessionService], [bookkeeping],
   /// [transmitter], and [messageRouter].
@@ -61,7 +61,7 @@ class RequestService implements IRequestService {
     required ISessionService sessionService,
     required PendingOperationBookkeeping bookkeeping,
     required PendingOperationTransmitter transmitter,
-    required MessageRouter messageRouter,
+    required IMessageRouter messageRouter,
   }) : _sessionService = sessionService,
        _bookkeeping = bookkeeping,
        _transmitter = transmitter,

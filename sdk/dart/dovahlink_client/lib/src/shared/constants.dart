@@ -40,3 +40,9 @@ const Duration kReconnectDeadline = Duration(seconds: 10);
 /// value for this local, same-machine/LAN connection, not yet tuned against real-world latency
 /// data.
 const Duration kConnectTimeout = Duration(seconds: 5);
+
+// ---- State synchronization ----
+
+/// Bounds buffered Events for one in-flight state recovery; overflow restarts from a fresh
+/// Snapshot.
+const int kStateRecoveryEventBufferLimit = 128;

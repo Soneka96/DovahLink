@@ -5,9 +5,11 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/unsolicited_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
+import '../state/mock_state_message_handler.dart';
 
 /// Mock session service used to capture unsolicited-message decisions.
 class MockSessionService extends Mock implements ISessionService {}
@@ -15,11 +17,13 @@ class MockSessionService extends Mock implements ISessionService {}
 /// Runs unsolicited-message handler behavior tests.
 void main() {
   late MockSessionService sessionService;
+  late MockStateMessageHandler stateMessageHandler;
   late UnsolicitedMessageHandler handler;
 
   setUpAll(() {
     registerFallbackValue(Exception('fallback for any()'));
     registerFallbackValue(AdministrativeInvalidationReason.revoked);
+    registerFallbackValue(Fixtures.buildEnvelope());
     registerFallbackValue(
       const ErrorPayload(
         code: ProtocolErrorCode.malformedMessage,
@@ -31,7 +35,12 @@ void main() {
 
   setUp(() {
     sessionService = MockSessionService();
-    handler = UnsolicitedMessageHandler(sessionService: sessionService);
+    stateMessageHandler = MockStateMessageHandler();
+    when(() => stateMessageHandler.handle(any())).thenAnswer((_) {});
+    handler = UnsolicitedMessageHandler(
+      sessionService: sessionService,
+      stateMessageHandler: stateMessageHandler,
+    );
   });
 
   group('Method handle behaves correctly', () {
@@ -109,7 +118,52 @@ void main() {
           orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
         ),
       );
+      verifyNever(() => stateMessageHandler.handle(any()));
     });
+
+    test(
+      'Method handle routes state Snapshots and Events to the state handler',
+      () {
+        handler.handle(
+          Fixtures.buildEnvelope(
+            messageType: ProtocolMessageType.stateSnapshot,
+            correlationId: null,
+            stateAuthorityId: 'authority-1',
+            payload: <String, dynamic>{
+              'stateArea': 'character_xp',
+              'revision': 1,
+              'occurredAt': '2026-09-23T12:00:00Z',
+              'data': <String, dynamic>{'value': 42.5},
+            },
+          ),
+        );
+        handler.handle(
+          Fixtures.buildEnvelope(
+            messageType: ProtocolMessageType.stateEvent,
+            correlationId: null,
+            stateAuthorityId: 'authority-1',
+            payload: <String, dynamic>{
+              'stateArea': 'character_level',
+              'baseRevision': 1,
+              'revision': 2,
+              'occurredAt': '2026-09-23T12:00:00Z',
+              'data': <String, dynamic>{'value': 2},
+            },
+          ),
+        );
+
+        final List<Envelope> routed = verify(
+          () => stateMessageHandler.handle(captureAny()),
+        ).captured.cast<Envelope>();
+        expect(
+          routed.map((Envelope envelope) => envelope.messageType),
+          <ProtocolMessageType>[
+            ProtocolMessageType.stateSnapshot,
+            ProtocolMessageType.stateEvent,
+          ],
+        );
+      },
+    );
 
     test('Method handle reports a valid unsolicited error payload', () {
       handler.handle(

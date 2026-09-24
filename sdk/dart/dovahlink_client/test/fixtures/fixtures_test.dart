@@ -6,6 +6,7 @@ import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import 'fixtures.dart';
 
 /// Runs SDK fixture-catalog behavior tests.
@@ -182,6 +183,36 @@ void main() {
 
       expect(first, second);
       expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildStateSynchronization behaves correctly', () {
+    test('Method buildStateSynchronization builds an unsubscribed default', () {
+      final StateSynchronization<int> state =
+          Fixtures.buildStateSynchronization<int>();
+
+      expect(state.status, DovahLinkStateStatus.notSubscribed);
+      expect(state.value, isNull);
+      expect(state.stateAuthorityId, isNull);
+      expect(state.playContextId, isNull);
+      expect(state.revision, isNull);
+    });
+
+    test('Method buildStateSynchronization preserves supplied values', () {
+      final StateSynchronization<int> state =
+          Fixtures.buildStateSynchronization<int>(
+            status: DovahLinkStateStatus.synchronized,
+            value: 10,
+            stateAuthorityId: 'authority-1',
+            playContextId: 'context-1',
+            revision: 7,
+          );
+
+      expect(state.status, DovahLinkStateStatus.synchronized);
+      expect(state.value, 10);
+      expect(state.stateAuthorityId, 'authority-1');
+      expect(state.playContextId, 'context-1');
+      expect(state.revision, 7);
     });
   });
 }

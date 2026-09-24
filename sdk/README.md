@@ -51,11 +51,11 @@ Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and alr
 client for pairing and authentication through `PairingRemoteDataSource`.
 
 The SDK supports Host releases in the `0.4.x` range and rejects older or newer Host versions during
-`hello`, before admitting a session. It still has no public state synchronization API: Stage 5 owns
-the SDK's typed state models, revisions, subscriptions, snapshot/recovery lifecycle, and restoring
-desired subscriptions after reconnect. The app's `features/connection/` code currently handles Host
-selection and navigation; Stage 5 wires live state through the SDK and Flutter middleware. This
-work does not close Stage 5.
+`hello`, before admitting a session. Phase 5.2 is complete: the public client exposes replayable typed
+state streams for XP, health, magicka, stamina, and level, backed by the SDK's state models,
+revision tracking, Snapshot handling, and level Event handling. Phase 5.3 still owns explicit
+subscription intent and restoring subscriptions after reconnect; Phase 5.4 wires SDK streams
+through Flutter middleware. These remaining phases keep Stage 5 open.
 
 The app's `features/connection/` area remains responsible for Host selection and navigation. It is
 not a parallel protocol implementation. See [`app/README.md`](../app/README.md) for the current

@@ -135,6 +135,22 @@ void main() {
     );
 
     test(
+      'Method validate accepts correlated and unsolicited state Snapshots',
+      () {
+        for (final String? correlationId in <String?>['request-1', null]) {
+          expectValidEnvelope(
+            messageType: ProtocolMessageType.stateSnapshot,
+            sessionId: 'session-1',
+            correlationId: correlationId,
+            stateAuthorityId: 'authority-1',
+            playContextId: 'context-1',
+            clientId: null,
+          );
+        }
+      },
+    );
+
+    test(
       'Method validate rejects empty message and correlation identifiers',
       () {
         expectInvalidEnvelope(messageId: '');
