@@ -13,8 +13,16 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Added
 
+- The Dart SDK exposes replayable typed synchronization streams for character XP, health, magicka,
+  stamina, and level.
 - The Dart SDK rejects Host versions outside its declared `0.4.x` compatibility range before
   admitting a session.
+
+### Fixed
+
+- The Dart SDK retries temporarily unavailable state Snapshots without interrupting the session.
+- The Dart SDK routes later baseline snapshots even when they reuse a completed request's
+  correlation ID.
 
 ## [0.4.0] - 2026-09-23
 

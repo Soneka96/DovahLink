@@ -15,19 +15,31 @@ import 'package:dovahlink_client_sdk/src/internal/requests/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/requests/unsolicited_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_revision_tracker.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
+import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/state/character_health_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_level_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_magicka_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_stamina_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
+import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
@@ -91,6 +103,91 @@ class DovahLinkClient {
       teardownCoordinator: teardownCoordinator,
     );
 
+    final CurrentValueStream<StateSynchronization<CharacterXpState>>
+    characterXpStream =
+        CurrentValueStream<StateSynchronization<CharacterXpState>>(
+          const StateSynchronization<CharacterXpState>.notSubscribed(),
+        );
+    _characterXpTracker = StateRevisionTracker<CharacterXpState>(
+      state: characterXpStream,
+    );
+    final CurrentValueStream<StateSynchronization<CharacterHealthState>>
+    characterHealthStream =
+        CurrentValueStream<StateSynchronization<CharacterHealthState>>(
+          const StateSynchronization<CharacterHealthState>.notSubscribed(),
+        );
+    _characterHealthTracker = StateRevisionTracker<CharacterHealthState>(
+      state: characterHealthStream,
+    );
+    final CurrentValueStream<StateSynchronization<CharacterMagickaState>>
+    characterMagickaStream =
+        CurrentValueStream<StateSynchronization<CharacterMagickaState>>(
+          const StateSynchronization<CharacterMagickaState>.notSubscribed(),
+        );
+    _characterMagickaTracker = StateRevisionTracker<CharacterMagickaState>(
+      state: characterMagickaStream,
+    );
+    final CurrentValueStream<StateSynchronization<CharacterStaminaState>>
+    characterStaminaStream =
+        CurrentValueStream<StateSynchronization<CharacterStaminaState>>(
+          const StateSynchronization<CharacterStaminaState>.notSubscribed(),
+        );
+    _characterStaminaTracker = StateRevisionTracker<CharacterStaminaState>(
+      state: characterStaminaStream,
+    );
+    final CurrentValueStream<StateSynchronization<CharacterLevelState>>
+    characterLevelStream =
+        CurrentValueStream<StateSynchronization<CharacterLevelState>>(
+          const StateSynchronization<CharacterLevelState>.notSubscribed(),
+        );
+    _characterLevelTracker = StateRevisionTracker<CharacterLevelState>(
+      state: characterLevelStream,
+    );
+
+    final StateDomainDefinition<CharacterLevelState> characterLevelDomain =
+        StateDomainDefinition<CharacterLevelState>(
+          stateArea: 'character_level',
+          decode: CharacterLevelState.fromJson,
+          tracker: _characterLevelTracker,
+          isUnavailable: (CharacterLevelState state) => state.value == null,
+          supportsEvents: true,
+        );
+    final IStateMessageHandler stateMessageHandler = StateMessageHandler(
+      sessionService: _sessionService,
+      domains: <IStateDomainDefinition<Object?>>[
+        StateDomainDefinition<CharacterXpState>(
+          stateArea: 'character_xp',
+          decode: CharacterXpState.fromJson,
+          tracker: _characterXpTracker,
+          isUnavailable: (CharacterXpState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterHealthState>(
+          stateArea: 'character_health',
+          decode: CharacterHealthState.fromJson,
+          tracker: _characterHealthTracker,
+          isUnavailable: (CharacterHealthState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterMagickaState>(
+          stateArea: 'character_magicka',
+          decode: CharacterMagickaState.fromJson,
+          tracker: _characterMagickaTracker,
+          isUnavailable: (CharacterMagickaState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterStaminaState>(
+          stateArea: 'character_stamina',
+          decode: CharacterStaminaState.fromJson,
+          tracker: _characterStaminaTracker,
+          isUnavailable: (CharacterStaminaState state) => state.value == null,
+        ),
+        characterLevelDomain,
+      ],
+    );
+    final IUnsolicitedMessageHandler unsolicitedMessageHandler =
+        UnsolicitedMessageHandler(
+          sessionService: _sessionService,
+          stateMessageHandler: stateMessageHandler,
+        );
+
     final PendingOperationBookkeeping bookkeeping =
         PendingOperationBookkeeping();
     // Build this shared cache before authentication: both authentication and the request
@@ -107,6 +204,7 @@ class DovahLinkClient {
     final MessageRouter messageRouter = MessageRouter(
       bookkeeping: bookkeeping,
       sessionService: _sessionService,
+      unsolicitedMessageHandler: unsolicitedMessageHandler,
     );
     _requestService = RequestService(
       sessionService: _sessionService,
@@ -115,6 +213,14 @@ class DovahLinkClient {
       messageRouter: messageRouter,
     );
     _sessionService.onIncomingMessage = _requestService.handleIncoming;
+
+    final StateRecoveryService<CharacterLevelState> levelRecoveryService =
+        StateRecoveryService<CharacterLevelState>(
+          domain: characterLevelDomain,
+          requestService: _requestService,
+          sessionService: _sessionService,
+        );
+    levelRecoveryService.start();
 
     final SessionAdmissionService sessionAdmissionService =
         SessionAdmissionService(state: state, requestService: _requestService);
@@ -184,6 +290,24 @@ class DovahLinkClient {
   /// Owns bounded automatic recovery from ordinary transport loss.
   late final IReconnectService _reconnectService;
 
+  /// Owns the current character experience value and revisions.
+  late final IStateRevisionTracker<CharacterXpState> _characterXpTracker;
+
+  /// Owns the current character health value and revisions.
+  late final IStateRevisionTracker<CharacterHealthState>
+  _characterHealthTracker;
+
+  /// Owns the current character magicka value and revisions.
+  late final IStateRevisionTracker<CharacterMagickaState>
+  _characterMagickaTracker;
+
+  /// Owns the current character stamina value and revisions.
+  late final IStateRevisionTracker<CharacterStaminaState>
+  _characterStaminaTracker;
+
+  /// Owns the current character level value and revisions.
+  late final IStateRevisionTracker<CharacterLevelState> _characterLevelTracker;
+
   /// The current connection lifecycle phase. Reaches
   /// [DovahLinkConnectionState.reconnecting] only after ordinary, unexpected transport loss (never
   /// after [DovahLinkClient.disconnect] or an administrative invalidation), moving to
@@ -215,6 +339,31 @@ class DovahLinkClient {
   /// `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason =>
       _sessionService.invalidationReason;
+
+  /// Emits typed character experience values with their independent synchronization status.
+  /// @return The current experience view immediately on listen and after each accepted update.
+  Stream<StateSynchronization<CharacterXpState>> get characterXpChanges =>
+      _characterXpTracker.changes;
+
+  /// Emits typed character health values with their independent synchronization status.
+  /// @return The current health view immediately on listen and after each accepted update.
+  Stream<StateSynchronization<CharacterHealthState>>
+  get characterHealthChanges => _characterHealthTracker.changes;
+
+  /// Emits typed character magicka values with their independent synchronization status.
+  /// @return The current magicka view immediately on listen and after each accepted update.
+  Stream<StateSynchronization<CharacterMagickaState>>
+  get characterMagickaChanges => _characterMagickaTracker.changes;
+
+  /// Emits typed character stamina values with their independent synchronization status.
+  /// @return The current stamina view immediately on listen and after each accepted update.
+  Stream<StateSynchronization<CharacterStaminaState>>
+  get characterStaminaChanges => _characterStaminaTracker.changes;
+
+  /// Emits typed character level values with their independent synchronization status.
+  /// @return The current level view immediately on listen and after each accepted update.
+  Stream<StateSynchronization<CharacterLevelState>> get characterLevelChanges =>
+      _characterLevelTracker.changes;
 
   /// Establishes the transport connection to [uri]. Must be called before [DovahLinkClient.hello].
   /// @throws [DovahLinkConnectionException] if the socket cannot be established.

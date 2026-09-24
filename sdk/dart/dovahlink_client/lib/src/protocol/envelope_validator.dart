@@ -28,7 +28,6 @@ class EnvelopeValidator {
       ProtocolMessageType.pairingOutcome ||
       ProtocolMessageType.renameOutcome ||
       ProtocolMessageType.subscriptionAck ||
-      ProtocolMessageType.stateSnapshot ||
       ProtocolMessageType.pong => true,
       _ => false,
     };

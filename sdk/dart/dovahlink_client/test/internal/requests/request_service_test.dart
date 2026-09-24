@@ -35,7 +35,7 @@ class MockPendingOperationTransmitter extends Mock
 /// Mock message router -- its own decoding/correlation/routing logic is
 /// `message_router_test.dart`'s responsibility; this file only proves [RequestService] forwards
 /// to it.
-class MockMessageRouter extends Mock implements MessageRouter {}
+class MockMessageRouter extends Mock implements IMessageRouter {}
 
 /// Retry-safe policy for operations that require an admitted unpaired session.
 final RequestPolicy _retrySafeUnpairedPolicy = Fixtures.buildRequestPolicy();
