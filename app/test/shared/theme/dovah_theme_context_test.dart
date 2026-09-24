@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
@@ -197,7 +198,12 @@ void main() {
 
           expect(
             resolved,
-            DovahConnectionCardMetrics.forWindow(preset: preset, window: size),
+            DovahConnectionCardMetrics.forWindow(
+              themeMetrics: dovahThemeDataFor(
+                preset,
+              ).extension<DovahConnectionCardThemeMetrics>()!,
+              window: size,
+            ),
           );
         },
       );

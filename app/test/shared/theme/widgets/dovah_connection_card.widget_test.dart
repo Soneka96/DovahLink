@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
@@ -73,7 +74,9 @@ void main() {
               tester.getSize(find.byType(DovahConnectionCard)).height,
               greaterThanOrEqualTo(
                 DovahConnectionCardMetrics.forWindow(
-                  preset: preset,
+                  themeMetrics: dovahThemeDataFor(
+                    preset,
+                  ).extension<DovahConnectionCardThemeMetrics>()!,
                   window: dovahTestSizes.first,
                 ).minHeight,
               ),
@@ -542,7 +545,9 @@ void main() {
             );
             final DovahConnectionCardMetrics metrics =
                 DovahConnectionCardMetrics.forWindow(
-                  preset: preset,
+                  themeMetrics: dovahThemeDataFor(
+                    preset,
+                  ).extension<DovahConnectionCardThemeMetrics>()!,
                   window: size,
                 );
             final DovahSurface surface = tester.widget(

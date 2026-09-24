@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_preset_theme.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
@@ -36,6 +37,16 @@ void main() {
         DovahRootThemeMetrics.frostbound,
       );
     });
+
+    test(
+      'Method buildFrostboundTheme attaches its DovahConnectionCardThemeMetrics',
+      () {
+        expect(
+          buildFrostboundTheme().extension<DovahConnectionCardThemeMetrics>(),
+          DovahConnectionCardThemeMetrics.frostbound,
+        );
+      },
+    );
   });
 
   group('Behavior prototype color token mappings behave correctly', () {
@@ -412,6 +423,16 @@ void main() {
         DovahRootThemeMetrics.dovah,
       );
     });
+
+    test(
+      'Method buildDovahPresetTheme attaches its DovahConnectionCardThemeMetrics',
+      () {
+        expect(
+          buildDovahPresetTheme().extension<DovahConnectionCardThemeMetrics>(),
+          DovahConnectionCardThemeMetrics.dovah,
+        );
+      },
+    );
   });
 
   group('Method buildHearthTheme behaves correctly', () {
@@ -438,6 +459,16 @@ void main() {
         DovahRootThemeMetrics.hearth,
       );
     });
+
+    test(
+      'Method buildHearthTheme attaches its DovahConnectionCardThemeMetrics',
+      () {
+        expect(
+          buildHearthTheme().extension<DovahConnectionCardThemeMetrics>(),
+          DovahConnectionCardThemeMetrics.hearth,
+        );
+      },
+    );
   });
 
   group('Method dovahThemeDataFor behaves correctly', () {

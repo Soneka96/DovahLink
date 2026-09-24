@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -95,6 +96,10 @@ ThemeData buildFrostboundTheme() {
       error: tokens.danger,
       onSurface: tokens.textPrimary,
     ),
-    extensions: const [tokens, DovahRootThemeMetrics.frostbound],
+    extensions: const [
+      tokens,
+      DovahRootThemeMetrics.frostbound,
+      DovahConnectionCardThemeMetrics.frostbound,
+    ],
   );
 }

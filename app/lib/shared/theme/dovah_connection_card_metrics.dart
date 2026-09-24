@@ -3,14 +3,15 @@ import 'package:flutter/painting.dart';
 
 import 'package:equatable/equatable.dart';
 
-import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 
 /// The measurements of a connection card (the approved prototype's `.connection`). Its padding,
 /// height, and icon tile are pinned differently by each theme and shrink at the compact window
-/// height, and its detail column disappears at the narrow window width, so they are resolved by
-/// [forWindow] from prototype-exact tables; the card never branches on the window size or the
-/// preset itself. The breakpoints are [DovahRootMetrics]'s.
+/// height, and its detail column disappears at the narrow window width. The theme-varying values
+/// live in [DovahConnectionCardThemeMetrics], a theme extension that Flutter interpolates during a
+/// theme change, and [forWindow] resolves them for the window; the card never branches on the
+/// window size or the preset itself. The breakpoints are [DovahRootMetrics]'s.
 ///
 /// [minHeight] is the height the prototype's card actually renders at (measured in the
 /// prototype), not its `min-height` declaration: with the prototype's fonts the card's content is
@@ -88,43 +89,32 @@ class DovahConnectionCardMetrics extends Equatable {
     required this.showDetail,
   });
 
-  /// Resolves the measurements for [preset] in a window of size [window]. Each table row lists
-  /// the regular and compact values (the card has no narrow-only geometry), taken from the
-  /// prototype's `index.html` media queries and `themes.css` per-theme overrides.
+  /// Resolves the measurements for a window of size [window] from [themeMetrics], the active
+  /// theme's (possibly mid-transition) values for each window mode. The card has no narrow-only
+  /// geometry, so only the compact height selects other values, taken from the prototype's
+  /// `index.html` media queries.
   factory DovahConnectionCardMetrics.forWindow({
-    required DovahThemePreset preset,
+    required DovahConnectionCardThemeMetrics themeMetrics,
     required Size window,
   }) {
     final bool compact =
         window.height <= DovahRootMetrics.compactMaxWindowHeight;
 
-    double level((double, double) row) => compact ? row.$2 : row.$1;
-    final double tileSize = level(switch (preset) {
-      DovahThemePreset.frostbound => (37, 37),
-      DovahThemePreset.dovah => (43, 37),
-      DovahThemePreset.hearth => (43, 37),
-    });
-    final (double vertical, double horizontal) = switch (preset) {
-      DovahThemePreset.frostbound => compact ? (7, 12) : (10, 14),
-      DovahThemePreset.dovah => compact ? (10, 14) : (16, 18),
-      DovahThemePreset.hearth => compact ? (10, 14) : (16, 18),
-    };
-
     return DovahConnectionCardMetrics(
-      padding: EdgeInsets.symmetric(vertical: vertical, horizontal: horizontal),
-      minHeight: level(switch (preset) {
-        DovahThemePreset.frostbound => (68, 62),
-        DovahThemePreset.dovah => (80, 68),
-        DovahThemePreset.hearth => (82, 68),
-      }),
-      iconTileSize: tileSize,
-      iconTileRadius: preset == DovahThemePreset.hearth ? tileSize / 2 : 0,
-      cornerCutSize: switch (preset) {
-        DovahThemePreset.frostbound => 11,
-        DovahThemePreset.dovah => 16,
-        DovahThemePreset.hearth => 0,
-      },
-      cornerRadius: preset == DovahThemePreset.hearth ? 12 : 0,
+      padding: compact
+          ? themeMetrics.compactPadding
+          : themeMetrics.regularPadding,
+      minHeight: compact
+          ? themeMetrics.compactMinHeight
+          : themeMetrics.regularMinHeight,
+      iconTileSize: compact
+          ? themeMetrics.compactIconTileSize
+          : themeMetrics.regularIconTileSize,
+      iconTileRadius: compact
+          ? themeMetrics.compactIconTileRadius
+          : themeMetrics.regularIconTileRadius,
+      cornerCutSize: themeMetrics.cornerCutSize,
+      cornerRadius: themeMetrics.cornerRadius,
       showDetail: window.width > DovahRootMetrics.narrowMaxWindowWidth,
     );
   }

@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// One expected resolution: the preset and window it is resolved for, then the padding, rendered
 /// height, icon tile size and radius, bevel cut, corner radius, and whether the detail is shown.
@@ -19,8 +21,8 @@ typedef _CardCase = (
   bool,
 );
 
-/// Exercises [DovahConnectionCardMetrics]'s prototype constants, per-theme tables, breakpoints,
-/// and equality.
+/// Exercises [DovahConnectionCardMetrics]'s prototype constants, window resolution of each
+/// preset's theme metrics, breakpoints, and equality.
 void main() {
   group('Property shared constants behave correctly', () {
     test('Property shared constants keep the prototype .connection values', () {
@@ -137,7 +139,9 @@ void main() {
         () {
           final DovahConnectionCardMetrics metrics =
               DovahConnectionCardMetrics.forWindow(
-                preset: testCase.$1,
+                themeMetrics: dovahThemeDataFor(
+                  testCase.$1,
+                ).extension<DovahConnectionCardThemeMetrics>()!,
                 window: testCase.$2,
               );
 
@@ -161,31 +165,91 @@ void main() {
     test('Method forWindow shows the detail column just above 900 wide', () {
       expect(
         DovahConnectionCardMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahConnectionCardThemeMetrics.dovah,
           window: const Size(901, 720),
         ).showDetail,
         isTrue,
       );
       expect(
         DovahConnectionCardMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahConnectionCardThemeMetrics.dovah,
           window: const Size(900, 720),
         ).showDetail,
         isFalse,
       );
     });
 
+    test('Method forWindow applies both breakpoints at exactly 900 by 620', () {
+      final DovahConnectionCardMetrics metrics =
+          DovahConnectionCardMetrics.forWindow(
+            themeMetrics: DovahConnectionCardThemeMetrics.dovah,
+            window: const Size(900, 620),
+          );
+
+      expect(metrics.showDetail, isFalse);
+      expect(metrics.minHeight, 68);
+      expect(metrics.iconTileSize, 37);
+    });
+
+    test(
+      'Method forWindow leaves the bevel and radius unchanged by window',
+      () {
+        for (final DovahThemePreset preset in DovahThemePreset.values) {
+          final DovahConnectionCardThemeMetrics themeMetrics =
+              dovahThemeDataFor(
+                preset,
+              ).extension<DovahConnectionCardThemeMetrics>()!;
+          final DovahConnectionCardMetrics regular =
+              DovahConnectionCardMetrics.forWindow(
+                themeMetrics: themeMetrics,
+                window: const Size(1280, 720),
+              );
+          final DovahConnectionCardMetrics compact =
+              DovahConnectionCardMetrics.forWindow(
+                themeMetrics: themeMetrics,
+                window: const Size(720, 480),
+              );
+
+          expect(compact.cornerCutSize, regular.cornerCutSize);
+          expect(compact.cornerRadius, regular.cornerRadius);
+        }
+      },
+    );
+
+    test('Method forWindow shows the detail column for every preset alike', () {
+      for (final DovahThemePreset preset in DovahThemePreset.values) {
+        final DovahConnectionCardThemeMetrics themeMetrics = dovahThemeDataFor(
+          preset,
+        ).extension<DovahConnectionCardThemeMetrics>()!;
+
+        expect(
+          DovahConnectionCardMetrics.forWindow(
+            themeMetrics: themeMetrics,
+            window: const Size(901, 720),
+          ).showDetail,
+          isTrue,
+        );
+        expect(
+          DovahConnectionCardMetrics.forWindow(
+            themeMetrics: themeMetrics,
+            window: const Size(900, 720),
+          ).showDetail,
+          isFalse,
+        );
+      }
+    });
+
     test('Method forWindow switches to compact geometry at 620 tall', () {
       expect(
         DovahConnectionCardMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahConnectionCardThemeMetrics.dovah,
           window: const Size(1280, 620),
         ).iconTileSize,
         37,
       );
       expect(
         DovahConnectionCardMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahConnectionCardThemeMetrics.dovah,
           window: const Size(1280, 621),
         ).iconTileSize,
         43,
@@ -197,12 +261,12 @@ void main() {
     test('Behavior equality holds for the same resolved measurements', () {
       final DovahConnectionCardMetrics first =
           DovahConnectionCardMetrics.forWindow(
-            preset: DovahThemePreset.dovah,
+            themeMetrics: DovahConnectionCardThemeMetrics.dovah,
             window: const Size(1280, 720),
           );
       final DovahConnectionCardMetrics second =
           DovahConnectionCardMetrics.forWindow(
-            preset: DovahThemePreset.dovah,
+            themeMetrics: DovahConnectionCardThemeMetrics.dovah,
             window: const Size(1600, 900),
           );
 
@@ -213,12 +277,12 @@ void main() {
     test('Behavior equality fails between regular and compact', () {
       final DovahConnectionCardMetrics regular =
           DovahConnectionCardMetrics.forWindow(
-            preset: DovahThemePreset.dovah,
+            themeMetrics: DovahConnectionCardThemeMetrics.dovah,
             window: const Size(1280, 720),
           );
       final DovahConnectionCardMetrics compact =
           DovahConnectionCardMetrics.forWindow(
-            preset: DovahThemePreset.dovah,
+            themeMetrics: DovahConnectionCardThemeMetrics.dovah,
             window: const Size(1280, 500),
           );
 

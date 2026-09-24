@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
@@ -32,7 +33,9 @@ extension DovahThemeContext on BuildContext {
   /// is shown in.
   DovahConnectionCardMetrics get dovahConnectionCardMetrics =>
       DovahConnectionCardMetrics.forWindow(
-        preset: dovahTokens.preset,
+        themeMetrics: Theme.of(
+          this,
+        ).extension<DovahConnectionCardThemeMetrics>()!,
         window: MediaQuery.sizeOf(this),
       );
 

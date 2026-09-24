@@ -6,7 +6,9 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
@@ -144,7 +146,9 @@ void main() {
           );
           final DovahConnectionCardMetrics metrics =
               DovahConnectionCardMetrics.forWindow(
-                preset: preset,
+                themeMetrics: dovahThemeDataFor(
+                  preset,
+                ).extension<DovahConnectionCardThemeMetrics>()!,
                 window: dovahTestSizes.first,
               );
 
