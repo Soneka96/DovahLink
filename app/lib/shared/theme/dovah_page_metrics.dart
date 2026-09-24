@@ -3,14 +3,16 @@ import 'package:flutter/painting.dart';
 
 import 'package:equatable/equatable.dart';
 
-import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 
 /// The measurements of a game page's content area inside the session shell (the approved
 /// prototype's `.session-content`, `.game-page`, `.page-intro`, `.panel`, and `.placeholder-grid`),
 /// shared by every game page. Like [DovahRootMetrics] they change at the narrow and compact window
-/// breakpoints, several are pinned differently by each theme, and all are resolved by [forWindow]
-/// from prototype-exact tables; a page never branches on the window size or the preset itself.
+/// breakpoints and several are pinned differently by each theme. The theme-varying values live in
+/// [DovahPageThemeMetrics], a theme extension that Flutter interpolates during a theme change, and
+/// [forWindow] resolves them for the window; a page never branches on the window size or the
+/// preset itself.
 @immutable
 class DovahPageMetrics extends Equatable {
   /// Maximum width of a page's content column (the prototype's `.game-page` `min(1180px,...)`).
@@ -78,42 +80,32 @@ class DovahPageMetrics extends Equatable {
     required this.placeholderColumns,
   });
 
-  /// Resolves the measurements for [preset] in a window of size [window]. Each table row lists the
-  /// regular and compact values; the narrow width only changes the margin and column count. Taken
-  /// from the prototype's `index.html` media queries and `themes.css` per-theme overrides.
+  /// Resolves the measurements for a window of size [window] from [themeMetrics], the active
+  /// theme's (possibly mid-transition) values for each window mode. The compact height selects
+  /// the other theme values; the narrow width only changes the margin and column count, and the
+  /// title size follows the compact height alone. Taken from the prototype's `index.html` media
+  /// queries.
   factory DovahPageMetrics.forWindow({
-    required DovahThemePreset preset,
+    required DovahPageThemeMetrics themeMetrics,
     required Size window,
   }) {
     final bool narrow = window.width <= DovahRootMetrics.narrowMaxWindowWidth;
     final bool compact =
         window.height <= DovahRootMetrics.compactMaxWindowHeight;
 
-    double level((double, double) row) => compact ? row.$2 : row.$1;
-
     return DovahPageMetrics(
       sideMargin: narrow ? 18 : 32,
-      contentTopPadding: level(switch (preset) {
-        DovahThemePreset.frostbound => (22, 22),
-        DovahThemePreset.dovah => (28, 18),
-        DovahThemePreset.hearth => (28, 18),
-      }),
-      introBottomGap: level(switch (preset) {
-        DovahThemePreset.frostbound => (14, 14),
-        DovahThemePreset.dovah => (20, 14),
-        DovahThemePreset.hearth => (20, 14),
-      }),
+      contentTopPadding: compact
+          ? themeMetrics.compactContentTopPadding
+          : themeMetrics.regularContentTopPadding,
+      introBottomGap: compact
+          ? themeMetrics.compactIntroBottomGap
+          : themeMetrics.regularIntroBottomGap,
       introTitleFontSize: compact ? 26 : 31,
-      introPadding: preset == DovahThemePreset.hearth
-          ? const EdgeInsets.symmetric(vertical: 10, horizontal: 13)
-          : EdgeInsets.zero,
-      panelPadding: EdgeInsets.all(
-        level(switch (preset) {
-          DovahThemePreset.frostbound => (14, 14),
-          DovahThemePreset.dovah => (18, 15),
-          DovahThemePreset.hearth => (18, 15),
-        }),
-      ),
+      introPadding: themeMetrics.introPadding,
+      panelPadding: compact
+          ? themeMetrics.compactPanelPadding
+          : themeMetrics.regularPanelPadding,
       placeholderColumns: narrow ? 2 : 3,
     );
   }

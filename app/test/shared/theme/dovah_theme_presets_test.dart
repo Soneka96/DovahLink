@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_preset_theme.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
@@ -47,6 +48,13 @@ void main() {
         );
       },
     );
+
+    test('Method buildFrostboundTheme attaches its DovahPageThemeMetrics', () {
+      expect(
+        buildFrostboundTheme().extension<DovahPageThemeMetrics>(),
+        DovahPageThemeMetrics.frostbound,
+      );
+    });
   });
 
   group('Behavior prototype color token mappings behave correctly', () {
@@ -433,6 +441,13 @@ void main() {
         );
       },
     );
+
+    test('Method buildDovahPresetTheme attaches its DovahPageThemeMetrics', () {
+      expect(
+        buildDovahPresetTheme().extension<DovahPageThemeMetrics>(),
+        DovahPageThemeMetrics.dovah,
+      );
+    });
   });
 
   group('Method buildHearthTheme behaves correctly', () {
@@ -469,6 +484,13 @@ void main() {
         );
       },
     );
+
+    test('Method buildHearthTheme attaches its DovahPageThemeMetrics', () {
+      expect(
+        buildHearthTheme().extension<DovahPageThemeMetrics>(),
+        DovahPageThemeMetrics.hearth,
+      );
+    });
   });
 
   group('Method dovahThemeDataFor behaves correctly', () {

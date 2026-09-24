@@ -5,6 +5,7 @@ import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metric
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
@@ -42,7 +43,7 @@ extension DovahThemeContext on BuildContext {
   /// The [DovahPageMetrics] for the active theme and the size of the window this context is shown
   /// in.
   DovahPageMetrics get dovahPageMetrics => DovahPageMetrics.forWindow(
-    preset: dovahTokens.preset,
+    themeMetrics: Theme.of(this).extension<DovahPageThemeMetrics>()!,
     window: MediaQuery.sizeOf(this),
   );
 

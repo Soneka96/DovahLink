@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -101,6 +102,7 @@ ThemeData buildDovahPresetTheme() {
       tokens,
       DovahRootThemeMetrics.dovah,
       DovahConnectionCardThemeMetrics.dovah,
+      DovahPageThemeMetrics.dovah,
     ],
   );
 }

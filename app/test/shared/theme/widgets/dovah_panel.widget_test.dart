@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -49,7 +51,9 @@ void main() {
               tester.element(find.text('Panel content')),
             ).extension<DovahThemeTokens>()!;
             final DovahPageMetrics metrics = DovahPageMetrics.forWindow(
-              preset: preset,
+              themeMetrics: dovahThemeDataFor(
+                preset,
+              ).extension<DovahPageThemeMetrics>()!,
               window: size,
             );
             final Rect panelRect = tester.getRect(find.byKey(panelKey));

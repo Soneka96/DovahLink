@@ -8,6 +8,7 @@ import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metric
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
@@ -237,7 +238,12 @@ void main() {
 
           expect(
             resolved,
-            DovahPageMetrics.forWindow(preset: preset, window: size),
+            DovahPageMetrics.forWindow(
+              themeMetrics: dovahThemeDataFor(
+                preset,
+              ).extension<DovahPageThemeMetrics>()!,
+              window: size,
+            ),
           );
         },
       );

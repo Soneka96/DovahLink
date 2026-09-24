@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// One expected resolution: the preset and window it is resolved for, then the side margin,
 /// content top padding, intro bottom gap, intro title size, intro padding, panel padding, and
@@ -20,8 +22,8 @@ typedef _PageCase = (
   int,
 );
 
-/// Exercises [DovahPageMetrics]'s prototype constants, per-theme tables, breakpoints, and
-/// equality.
+/// Exercises [DovahPageMetrics]'s prototype constants, window resolution of each preset's theme
+/// metrics, breakpoints, and equality.
 void main() {
   group('Property shared constants behave correctly', () {
     test('Property shared constants keep the prototype game-page values', () {
@@ -161,7 +163,9 @@ void main() {
         'Method forWindow resolves the prototype page measurements for ${testCase.$1.name} at ${testCase.$2}',
         () {
           final DovahPageMetrics metrics = DovahPageMetrics.forWindow(
-            preset: testCase.$1,
+            themeMetrics: dovahThemeDataFor(
+              testCase.$1,
+            ).extension<DovahPageThemeMetrics>()!,
             window: testCase.$2,
           );
 
@@ -182,14 +186,46 @@ void main() {
     }
 
     test(
+      'Method forWindow keeps window-only values identical across themes',
+      () {
+        final DovahPageThemeMetrics mid = DovahPageThemeMetrics.dovah.lerp(
+          DovahPageThemeMetrics.hearth,
+          0.5,
+        );
+
+        for (final (Size window, double margin, double title, int columns) in [
+          (const Size(1280, 720), 32.0, 31.0, 3),
+          (const Size(800, 700), 18.0, 31.0, 2),
+          (const Size(1280, 560), 32.0, 26.0, 3),
+        ]) {
+          for (final DovahPageThemeMetrics themeMetrics in [
+            DovahPageThemeMetrics.frostbound,
+            DovahPageThemeMetrics.dovah,
+            DovahPageThemeMetrics.hearth,
+            mid,
+          ]) {
+            final DovahPageMetrics metrics = DovahPageMetrics.forWindow(
+              themeMetrics: themeMetrics,
+              window: window,
+            );
+
+            expect(metrics.sideMargin, margin);
+            expect(metrics.introTitleFontSize, title);
+            expect(metrics.placeholderColumns, columns);
+          }
+        }
+      },
+    );
+
+    test(
       'Method forWindow treats 900 wide and 620 tall as the last narrow and compact',
       () {
         final DovahPageMetrics edge = DovahPageMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahPageThemeMetrics.dovah,
           window: const Size(900, 620),
         );
         final DovahPageMetrics past = DovahPageMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahPageThemeMetrics.dovah,
           window: const Size(901, 621),
         );
 
@@ -204,11 +240,11 @@ void main() {
   group('Behavior equality behaves correctly', () {
     test('Behavior equality holds for the same resolved measurements', () {
       final DovahPageMetrics first = DovahPageMetrics.forWindow(
-        preset: DovahThemePreset.dovah,
+        themeMetrics: DovahPageThemeMetrics.dovah,
         window: const Size(1280, 720),
       );
       final DovahPageMetrics second = DovahPageMetrics.forWindow(
-        preset: DovahThemePreset.hearth,
+        themeMetrics: DovahPageThemeMetrics.hearth,
         window: const Size(1600, 900),
       );
 
@@ -216,7 +252,7 @@ void main() {
       expect(
         first,
         DovahPageMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahPageThemeMetrics.dovah,
           window: const Size(1600, 900),
         ),
       );
