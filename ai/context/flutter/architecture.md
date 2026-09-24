@@ -296,6 +296,18 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Corner radii come from button themes or the shared shape theme extension.
 - Widgets receive data and callbacks through props; visual styling comes from the theme, not from
   constructor parameters or hidden DI lookups.
+- Visual values have one owner, chosen by what the value describes:
+  - `DovahThemeTokens` owns theme identity, material, and typography: colors, gradients, shadows,
+    corner style, radius and bevel, backdrop, font family, and casing.
+  - `Dovah*Metrics` classes own structural and component geometry and responsive layout. A metrics
+    class is named for one screen family or component family, never a single catch-all. Widgets
+    consume resolved metrics; they never branch on the window size or the active preset themselves.
+  - A local literal owns a genuinely one-off layout detail with no semantic reuse; do not promote
+    it to a constant.
+- A prototype value that differs by theme or by breakpoint belongs in a metrics table resolved from
+  the preset and window size, never a new theme token or a scale multiplier applied to a base
+  value. Copy each value exactly from the approved prototype and cite its selector in the doc
+  comment; do not merge nearby values into one shared constant.
 
 ## JSON data Models and generated code
 
