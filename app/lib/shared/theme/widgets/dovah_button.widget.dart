@@ -44,10 +44,9 @@ class _DovahButtonState extends State<DovahButton> {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
-    final EdgeInsets padding = EdgeInsets.symmetric(
-      vertical: DovahControlMetrics.buttonVerticalPadding * tokens.densityScale,
-      horizontal:
-          DovahControlMetrics.buttonHorizontalPadding * tokens.densityScale,
+    const EdgeInsets padding = EdgeInsets.symmetric(
+      vertical: DovahControlMetrics.buttonVerticalPadding,
+      horizontal: DovahControlMetrics.buttonHorizontalPadding,
     );
     final bool enabled = widget.onPressed != null;
 
@@ -67,6 +66,7 @@ class _DovahButtonState extends State<DovahButton> {
     final Widget surface = DovahSurface(
       gradient: primary ? tokens.primaryActionGradient : null,
       raised: !primary,
+      cornerRadius: primary ? tokens.primaryActionCornerRadius : null,
       padding: padding,
       child: Center(
         widthFactor: 1,
@@ -174,7 +174,9 @@ class _DovahButtonState extends State<DovahButton> {
                               width: DovahControlMetrics.focusOutlineWidth,
                             ),
                             borderRadius: BorderRadius.circular(
-                              tokens.cornerRadius,
+                              primary
+                                  ? tokens.primaryActionCornerRadius
+                                  : tokens.cornerRadius,
                             ),
                             boxShadow: <BoxShadow>[
                               BoxShadow(

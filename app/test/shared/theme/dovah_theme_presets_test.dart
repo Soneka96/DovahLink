@@ -235,6 +235,48 @@ void main() {
     });
   });
 
+  group(
+    'Behavior prototype identity and backdrop token mappings behave correctly',
+    () {
+      for (final (
+            DovahThemePreset preset,
+            Color backdrop,
+            double blur,
+            double panelRadius,
+            double primaryRadius,
+          )
+          in [
+            (
+              DovahThemePreset.frostbound,
+              const Color(0xC7000204),
+              7.0,
+              0.0,
+              0.0,
+            ),
+            (DovahThemePreset.dovah, const Color(0xC2020407), 8.0, 0.0, 0.0),
+            (DovahThemePreset.hearth, const Color(0x8A2F1F12), 9.0, 14.0, 9.0),
+          ]) {
+        test(
+          'Behavior ${preset.name} tokens match the prototype backdrop and radii',
+          () {
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(tokens.preset, preset);
+            expect(tokens.backdropColor, backdrop);
+            expect(tokens.backdropBlurSigma, isA<double>());
+            expect(tokens.backdropBlurSigma, blur);
+            expect(tokens.panelCornerRadius, isA<double>());
+            expect(tokens.panelCornerRadius, panelRadius);
+            expect(tokens.primaryActionCornerRadius, isA<double>());
+            expect(tokens.primaryActionCornerRadius, primaryRadius);
+          },
+        );
+      }
+    },
+  );
+
   group('Method buildDovahPresetTheme behaves correctly', () {
     test(
       'Method buildDovahPresetTheme attaches DovahThemeTokens with doubleBevel geometry',

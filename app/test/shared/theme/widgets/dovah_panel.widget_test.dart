@@ -99,4 +99,28 @@ void main() {
       expect(panelRect.bottom - contentRect.bottom, closeTo(4, 0.001));
     });
   });
+
+  group('DovahPanel uses the prototype panel corner radius', () {
+    testWidgets('DovahPanel rounds Hearth panels by 14 rather than 13', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahPanel(child: Text('Hearth panel')),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      final Container container = tester.widget<Container>(
+        find
+            .descendant(
+              of: find.byType(DovahPanel),
+              matching: find.byType(Container),
+            )
+            .first,
+      );
+      final BoxDecoration decoration = container.decoration! as BoxDecoration;
+      expect(decoration.borderRadius, BorderRadius.circular(14));
+    });
+  });
 }

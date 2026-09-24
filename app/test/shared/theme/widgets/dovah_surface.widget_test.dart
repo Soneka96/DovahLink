@@ -64,4 +64,52 @@ void main() {
       },
     );
   });
+
+  group('DovahSurface honors a corner radius override', () {
+    testWidgets(
+      'DovahSurface uses the override radius instead of the theme radius under Hearth',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(cornerRadius: 20, child: Text('Override')),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        final Container container = tester.widget<Container>(
+          find
+              .descendant(
+                of: find.byType(DovahSurface),
+                matching: find.byType(Container),
+              )
+              .first,
+        );
+        final BoxDecoration decoration = container.decoration! as BoxDecoration;
+        expect(decoration.borderRadius, BorderRadius.circular(20));
+      },
+    );
+
+    testWidgets(
+      'DovahSurface uses the theme radius under Hearth when no override is given',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(child: Text('Default')),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        final Container container = tester.widget<Container>(
+          find
+              .descendant(
+                of: find.byType(DovahSurface),
+                matching: find.byType(Container),
+              )
+              .first,
+        );
+        final BoxDecoration decoration = container.decoration! as BoxDecoration;
+        expect(decoration.borderRadius, BorderRadius.circular(13));
+      },
+    );
+  });
 }

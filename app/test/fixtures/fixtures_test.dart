@@ -239,6 +239,15 @@ void main() {
       expect(tokens.rootHeroBottomGap, 28);
       expect(tokens.rootHeaderRuleFraction, 0.36);
       expect(tokens.pageTitleLineHeight, 1.14);
+      expect(tokens.preset, DovahThemePreset.dovah);
+      expect(tokens.backdropColor, isA<Color>());
+      expect(tokens.backdropColor, const Color(0xC2020407));
+      expect(tokens.backdropBlurSigma, isA<double>());
+      expect(tokens.backdropBlurSigma, 8);
+      expect(tokens.panelCornerRadius, isA<double>());
+      expect(tokens.panelCornerRadius, 0);
+      expect(tokens.primaryActionCornerRadius, isA<double>());
+      expect(tokens.primaryActionCornerRadius, 0);
     });
 
     test('Method buildDovahThemeTokens preserves named overrides', () {
@@ -255,8 +264,18 @@ void main() {
         pageTitleFontSize: 31,
         connectionCardMinHeight: 61,
         uppercaseLabels: true,
+        preset: DovahThemePreset.hearth,
+        backdropColor: const Color(0x8A2F1F12),
+        backdropBlurSigma: 9,
+        panelCornerRadius: 14,
+        primaryActionCornerRadius: 9,
       );
 
+      expect(tokens.preset, DovahThemePreset.hearth);
+      expect(tokens.backdropColor, const Color(0x8A2F1F12));
+      expect(tokens.backdropBlurSigma, 9);
+      expect(tokens.panelCornerRadius, 14);
+      expect(tokens.primaryActionCornerRadius, 9);
       expect(tokens.eyebrow, isA<Color>());
       expect(tokens.eyebrow, const Color(0xFF010203));
       expect(tokens.rootHeaderHeight, isA<double>());

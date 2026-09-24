@@ -136,15 +136,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Border width shared by themed surfaces.
   static const double surfaceBorderWidth = 1;
 
-  /// Blur strength applied behind themed dialogs.
-  static const double dialogBackdropBlurSigma = 8;
-
-  /// Opacity of the themed-dialog backdrop scrim.
-  static const double dialogBackdropOpacity = 0.76;
-
-  /// Color of the themed-dialog backdrop scrim.
-  static const Color dialogBackdropColor = Color(0xFF020407);
-
   /// Opacity of the environment-background scrim at the top edge.
   static const double environmentTopScrimOpacity = 0.82;
 
@@ -283,6 +274,29 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Line height, as a multiple of font size, of a page title.
   final double pageTitleLineHeight;
 
+  /// Which preset these tokens belong to. Metrics classes key their prototype-exact per-theme
+  /// tables on it; widgets never branch on it.
+  final DovahThemePreset preset;
+
+  /// The scrim color, alpha included, drawn behind a dialog (the prototype's per-theme
+  /// `.modal-backdrop` background). The prototype's `saturate`/`sepia` backdrop filters have no
+  /// direct Flutter equivalent and are not reproduced.
+  final Color backdropColor;
+
+  /// The blur strength behind a dialog (the prototype's per-theme `.modal-backdrop`
+  /// `backdrop-filter: blur`).
+  final double backdropBlurSigma;
+
+  /// The corner radius of a panel, card group, or dialog when [cornerStyle] is
+  /// [DovahPanelCornerStyle.rounded] (the prototype's `.panel`/`.modal` `border-radius`), which
+  /// differs from [cornerRadius] in Hearth.
+  final double panelCornerRadius;
+
+  /// The corner radius of a primary button when [cornerStyle] is
+  /// [DovahPanelCornerStyle.rounded] (the prototype's `.primary` `border-radius`), which differs
+  /// from [cornerRadius] in Hearth.
+  final double primaryActionCornerRadius;
+
   /// Creates a complete token set. Every field is required so no theme can be assembled with an
   /// accidentally-inherited default.
   const DovahThemeTokens({
@@ -326,6 +340,11 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.rootHeroBottomGap,
     required this.rootHeaderRuleFraction,
     required this.pageTitleLineHeight,
+    required this.preset,
+    required this.backdropColor,
+    required this.backdropBlurSigma,
+    required this.panelCornerRadius,
+    required this.primaryActionCornerRadius,
   });
 
   /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
@@ -380,6 +399,11 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? rootHeroBottomGap,
     double? rootHeaderRuleFraction,
     double? pageTitleLineHeight,
+    DovahThemePreset? preset,
+    Color? backdropColor,
+    double? backdropBlurSigma,
+    double? panelCornerRadius,
+    double? primaryActionCornerRadius,
   }) => DovahThemeTokens(
     background: background ?? this.background,
     surface: surface ?? this.surface,
@@ -427,6 +451,12 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     rootHeaderRuleFraction:
         rootHeaderRuleFraction ?? this.rootHeaderRuleFraction,
     pageTitleLineHeight: pageTitleLineHeight ?? this.pageTitleLineHeight,
+    preset: preset ?? this.preset,
+    backdropColor: backdropColor ?? this.backdropColor,
+    backdropBlurSigma: backdropBlurSigma ?? this.backdropBlurSigma,
+    panelCornerRadius: panelCornerRadius ?? this.panelCornerRadius,
+    primaryActionCornerRadius:
+        primaryActionCornerRadius ?? this.primaryActionCornerRadius,
   );
 
   /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
@@ -516,6 +546,23 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         other.pageTitleLineHeight,
         t,
       )!,
+      preset: t < 0.5 ? preset : other.preset,
+      backdropColor: Color.lerp(backdropColor, other.backdropColor, t)!,
+      backdropBlurSigma: lerpDouble(
+        backdropBlurSigma,
+        other.backdropBlurSigma,
+        t,
+      )!,
+      panelCornerRadius: lerpDouble(
+        panelCornerRadius,
+        other.panelCornerRadius,
+        t,
+      )!,
+      primaryActionCornerRadius: lerpDouble(
+        primaryActionCornerRadius,
+        other.primaryActionCornerRadius,
+        t,
+      )!,
     );
   }
 
@@ -562,5 +609,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     rootHeroBottomGap,
     rootHeaderRuleFraction,
     pageTitleLineHeight,
+    preset,
+    backdropColor,
+    backdropBlurSigma,
+    panelCornerRadius,
+    primaryActionCornerRadius,
   ];
 }

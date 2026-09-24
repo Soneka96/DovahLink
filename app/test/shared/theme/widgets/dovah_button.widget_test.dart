@@ -733,4 +733,80 @@ void main() {
       await pointer.removePointer();
     });
   });
+
+  group('DovahButton uses the prototype corner radii and padding', () {
+    for (final (DovahButtonVariant variant, double radius) in [
+      (DovahButtonVariant.primary, 9.0),
+      (DovahButtonVariant.secondary, 13.0),
+    ]) {
+      testWidgets(
+        'DovahButton outlines a focused Hearth $variant button with radius $radius',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(label: 'Confirm', onPressed: () {}, variant: variant),
+            preset: DovahThemePreset.hearth,
+            size: dovahTestSizes.first,
+          );
+
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+
+          final Container outline = tester.widget<Container>(
+            find.byKey(const Key('dovah-button-focus-outline')),
+          );
+          final BoxDecoration decoration =
+              outline.foregroundDecoration! as BoxDecoration;
+          expect(decoration.borderRadius, BorderRadius.circular(radius));
+        },
+      );
+    }
+
+    for (final (DovahButtonVariant variant, double radius) in [
+      (DovahButtonVariant.primary, 9.0),
+      (DovahButtonVariant.secondary, 13.0),
+    ]) {
+      testWidgets('DovahButton rounds a Hearth $variant button by $radius', (
+        WidgetTester tester,
+      ) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(label: 'Confirm', onPressed: () {}, variant: variant),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        final Container container = tester.widget<Container>(
+          find
+              .descendant(
+                of: find.byType(DovahSurface),
+                matching: find.byType(Container),
+              )
+              .first,
+        );
+        final BoxDecoration decoration = container.decoration! as BoxDecoration;
+        expect(decoration.borderRadius, BorderRadius.circular(radius));
+      });
+    }
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahButton pads its label 12 by 17 under ${preset.name} without density scaling',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(label: 'Confirm', onPressed: () {}),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+
+          final Size surface = tester.getSize(find.byType(DovahSurface));
+          final Size label = tester.getSize(find.text('Confirm'));
+          const double border = 2;
+          expect(surface.width - label.width, anyOf(34.0, 34.0 + border));
+          expect(surface.height - label.height, anyOf(24.0, 24.0 + border));
+        },
+      );
+    }
+  });
 }

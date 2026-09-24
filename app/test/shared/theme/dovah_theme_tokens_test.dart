@@ -56,9 +56,6 @@ void main() {
             DovahThemeTokens.rootListGap,
             DovahThemeTokens.rootFooterFontSize,
             DovahThemeTokens.surfaceBorderWidth,
-            DovahThemeTokens.dialogBackdropBlurSigma,
-            DovahThemeTokens.dialogBackdropOpacity,
-            DovahThemeTokens.dialogBackdropColor,
             DovahThemeTokens.environmentTopScrimOpacity,
             DovahThemeTokens.environmentBottomScrimOpacity,
           ],
@@ -104,9 +101,6 @@ void main() {
             10.0,
             12.0,
             1.0,
-            8.0,
-            0.76,
-            const Color(0xFF020407),
             0.82,
             0.55,
           ],
@@ -185,6 +179,28 @@ void main() {
       expect(copy.connectionCardMinHeight, 61);
       expect(copy.uppercaseLabels, isTrue);
       expect(original.uppercaseLabels, isFalse);
+    });
+
+    test('Method copyWith replaces the identity and backdrop tokens', () {
+      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
+
+      final DovahThemeTokens copy = original.copyWith(
+        preset: DovahThemePreset.hearth,
+        backdropColor: const Color(0x8A2F1F12),
+        backdropBlurSigma: 9,
+        panelCornerRadius: 14,
+        primaryActionCornerRadius: 9,
+      );
+
+      expect(copy.preset, DovahThemePreset.hearth);
+      expect(original.preset, DovahThemePreset.dovah);
+      expect(copy.backdropColor, const Color(0x8A2F1F12));
+      expect(copy.backdropBlurSigma, isA<double>());
+      expect(copy.backdropBlurSigma, 9);
+      expect(copy.panelCornerRadius, isA<double>());
+      expect(copy.panelCornerRadius, 14);
+      expect(copy.primaryActionCornerRadius, isA<double>());
+      expect(copy.primaryActionCornerRadius, 9);
     });
 
     test('Method copyWith omits environmentAssetPath when not passed', () {
@@ -324,6 +340,44 @@ void main() {
       expect(result.rootHeaderRuleFraction, closeTo(0.4, 0.0001));
       expect(result.pageTitleLineHeight, isA<double>());
       expect(result.pageTitleLineHeight, closeTo(1.2, 0.0001));
+    });
+
+    test('Method lerp interpolates backdrop and radius tokens', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
+        backdropColor: const Color(0x00000000),
+        backdropBlurSigma: 6,
+        panelCornerRadius: 0,
+        primaryActionCornerRadius: 0,
+      );
+      final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
+        backdropColor: const Color(0xFFFFFFFF),
+        backdropBlurSigma: 10,
+        panelCornerRadius: 14,
+        primaryActionCornerRadius: 10,
+      );
+
+      final DovahThemeTokens result = tokens.lerp(other, 0.5);
+
+      expect(
+        result.backdropColor,
+        Color.lerp(tokens.backdropColor, other.backdropColor, 0.5),
+      );
+      expect(result.backdropBlurSigma, isA<double>());
+      expect(result.backdropBlurSigma, 8);
+      expect(result.panelCornerRadius, isA<double>());
+      expect(result.panelCornerRadius, 7);
+      expect(result.primaryActionCornerRadius, isA<double>());
+      expect(result.primaryActionCornerRadius, 5);
+    });
+
+    test('Method lerp switches preset at the midpoint', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens other = tokens.copyWith(
+        preset: DovahThemePreset.hearth,
+      );
+
+      expect(tokens.lerp(other, 0.25).preset, DovahThemePreset.dovah);
+      expect(tokens.lerp(other, 0.5).preset, DovahThemePreset.hearth);
     });
 
     test('Method lerp switches uppercaseLabels at the midpoint', () {
@@ -548,6 +602,24 @@ void main() {
         expect(first, isNot(other));
       }
     });
+
+    test(
+      'Behavior equality fails when an identity or backdrop token differs',
+      () {
+        final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+        final List<DovahThemeTokens> others = <DovahThemeTokens>[
+          first.copyWith(preset: DovahThemePreset.hearth),
+          first.copyWith(backdropColor: const Color(0xFF000000)),
+          first.copyWith(backdropBlurSigma: 1),
+          first.copyWith(panelCornerRadius: 1),
+          first.copyWith(primaryActionCornerRadius: 1),
+        ];
+
+        for (final DovahThemeTokens other in others) {
+          expect(first, isNot(other));
+        }
+      },
+    );
 
     test('Behavior equality fails when primaryActionForeground differs', () {
       final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();

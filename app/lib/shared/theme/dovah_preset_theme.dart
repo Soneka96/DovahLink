@@ -66,6 +66,11 @@ ThemeData buildDovahPresetTheme() {
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.36,
     uppercaseLabels: false,
+    preset: DovahThemePreset.dovah,
+    backdropColor: Color(0xC2020407),
+    backdropBlurSigma: 8,
+    panelCornerRadius: 0,
+    primaryActionCornerRadius: 0,
   );
 
   return ThemeData(

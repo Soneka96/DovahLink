@@ -15,6 +15,7 @@ class DovahSurface extends StatelessWidget {
     this.raised = false,
     this.padding,
     this.gradient,
+    this.cornerRadius,
     super.key,
   });
 
@@ -33,6 +34,11 @@ class DovahSurface extends StatelessWidget {
   /// shadow.
   final Gradient? gradient;
 
+  /// Overrides the theme's [DovahThemeTokens.cornerRadius] for this surface, for a component whose
+  /// approved radius differs from the theme's general one (for example a panel or primary button).
+  /// Only used when the theme's corner style is [DovahPanelCornerStyle.rounded].
+  final double? cornerRadius;
+
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
@@ -41,12 +47,14 @@ class DovahSurface extends StatelessWidget {
         gradient ??
         (raised ? tokens.materialRaisedGradient : tokens.materialGradient);
 
+    final double radius = cornerRadius ?? tokens.cornerRadius;
+
     if (tokens.cornerStyle == DovahPanelCornerStyle.rounded) {
       return Container(
         padding: padding,
         decoration: BoxDecoration(
           gradient: fill,
-          borderRadius: BorderRadius.circular(tokens.cornerRadius),
+          borderRadius: BorderRadius.circular(radius),
           border: Border.all(color: tokens.lineStrong),
           boxShadow: tokens.panelShadow,
         ),
@@ -57,7 +65,7 @@ class DovahSurface extends StatelessWidget {
     return CustomPaint(
       painter: DovahMaterialPainter(
         cornerStyle: tokens.cornerStyle,
-        cornerRadius: tokens.cornerRadius,
+        cornerRadius: radius,
         cutSize: tokens.cornerCutSize,
         gradient: fill,
         borderColor: tokens.lineStrong,
@@ -66,7 +74,7 @@ class DovahSurface extends StatelessWidget {
       child: ClipPath(
         clipper: DovahPanelClipper(
           cornerStyle: tokens.cornerStyle,
-          cornerRadius: tokens.cornerRadius,
+          cornerRadius: radius,
           cutSize: tokens.cornerCutSize,
         ),
         child: Padding(padding: padding ?? EdgeInsets.zero, child: child),

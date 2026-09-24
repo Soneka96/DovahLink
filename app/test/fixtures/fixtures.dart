@@ -147,6 +147,11 @@ abstract final class Fixtures {
     double rootHeroBottomGap = 28,
     double rootHeaderRuleFraction = 0.36,
     double pageTitleLineHeight = 1.14,
+    DovahThemePreset preset = DovahThemePreset.dovah,
+    Color backdropColor = const Color(0xC2020407),
+    double backdropBlurSigma = 8,
+    double panelCornerRadius = 0,
+    double primaryActionCornerRadius = 0,
   }) => DovahThemeTokens(
     background: background,
     surface: surface,
@@ -208,5 +213,10 @@ abstract final class Fixtures {
     rootHeroBottomGap: rootHeroBottomGap,
     rootHeaderRuleFraction: rootHeaderRuleFraction,
     pageTitleLineHeight: pageTitleLineHeight,
+    preset: preset,
+    backdropColor: backdropColor,
+    backdropBlurSigma: backdropBlurSigma,
+    panelCornerRadius: panelCornerRadius,
+    primaryActionCornerRadius: primaryActionCornerRadius,
   );
 }

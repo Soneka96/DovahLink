@@ -32,6 +32,7 @@ class DovahPanel extends StatelessWidget {
     final tokens = context.dovahTokens;
     return DovahSurface(
       raised: raised,
+      cornerRadius: tokens.panelCornerRadius,
       padding:
           padding ??
           EdgeInsets.all(DovahThemeTokens.spacing18 * tokens.densityScale),

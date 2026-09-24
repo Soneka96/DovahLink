@@ -65,6 +65,11 @@ ThemeData buildHearthTheme() {
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.52,
     uppercaseLabels: false,
+    preset: DovahThemePreset.hearth,
+    backdropColor: Color(0x8A2F1F12),
+    backdropBlurSigma: 9,
+    panelCornerRadius: 14,
+    primaryActionCornerRadius: 9,
   );
 
   return ThemeData(

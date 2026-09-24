@@ -50,22 +50,24 @@ class DovahDialog extends StatelessWidget {
   static Future<T?> showBuilder<T>(
     BuildContext context, {
     required WidgetBuilder builder,
-  }) => showDialog<T>(
-    context: context,
-    barrierColor: DovahThemeTokens.dialogBackdropColor.withValues(
-      alpha: DovahThemeTokens.dialogBackdropOpacity,
-    ),
-    builder: (BuildContext dialogContext) => BackdropFilter(
-      filter: ImageFilter.blur(
-        sigmaX: DovahThemeTokens.dialogBackdropBlurSigma,
-        sigmaY: DovahThemeTokens.dialogBackdropBlurSigma,
+  }) {
+    final DovahThemeTokens tokens = context.dovahTokens;
+
+    return showDialog<T>(
+      context: context,
+      barrierColor: tokens.backdropColor,
+      builder: (BuildContext dialogContext) => BackdropFilter(
+        filter: ImageFilter.blur(
+          sigmaX: tokens.backdropBlurSigma,
+          sigmaY: tokens.backdropBlurSigma,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(DovahDialogMetrics.backdropPadding),
+          child: Center(child: builder(dialogContext)),
+        ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(DovahDialogMetrics.backdropPadding),
-        child: Center(child: builder(dialogContext)),
-      ),
-    ),
-  );
+    );
+  }
 
   /// See [StatelessWidget.build].
   @override
@@ -91,9 +93,8 @@ class DovahDialog extends StatelessWidget {
               Container(
                 key: const Key('dovah-dialog-header'),
                 padding: EdgeInsets.symmetric(
-                  horizontal:
-                      metrics.headerHorizontalPadding * tokens.densityScale,
-                  vertical: metrics.headerVerticalPadding * tokens.densityScale,
+                  horizontal: metrics.headerHorizontalPadding,
+                  vertical: metrics.headerVerticalPadding,
                 ),
                 decoration: BoxDecoration(
                   border: Border(bottom: BorderSide(color: tokens.lineSubtle)),
@@ -127,9 +128,8 @@ class DovahDialog extends StatelessWidget {
               Flexible(
                 child: Padding(
                   padding: EdgeInsets.symmetric(
-                    horizontal:
-                        metrics.bodyHorizontalPadding * tokens.densityScale,
-                    vertical: metrics.bodyVerticalPadding * tokens.densityScale,
+                    horizontal: metrics.bodyHorizontalPadding,
+                    vertical: metrics.bodyVerticalPadding,
                   ),
                   child: SingleChildScrollView(child: child),
                 ),
