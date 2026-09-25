@@ -497,7 +497,11 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                     FireAndForget(() => adapterNotifier.NotifyCodeIncorrectAsync(autoRenotifyCode, cancellationToken));
                 }
 
-                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.Invalid });
+                SendPairingOutcome(connection, sessionId, envelope.MessageId, new PairingOutcomePayload
+                {
+                    Outcome = PairingOutcomeWireValue.Invalid,
+                    AttemptsRemaining = confirm.AttemptsRemaining,
+                });
                 return Task.FromResult(new ClientDispatchResult());
 
             case PairingConfirmOutcome.Expired:
@@ -728,7 +732,11 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <summary>Maps a <see cref="PairingRenotifyResult"/> -- from either a peek or a commit -- to its wire outcome.</summary>
     private PairingOutcomePayload MapRenotifyOutcome(PairingRenotifyResult result) => result.Outcome switch
     {
-        PairingRenotifyOutcome.Renotified => new PairingOutcomePayload { Outcome = PairingOutcomeWireValue.Renotified },
+        PairingRenotifyOutcome.Renotified => new PairingOutcomePayload
+        {
+            Outcome = PairingOutcomeWireValue.Renotified,
+            RetryAfterSeconds = RoundUpSeconds(result.RetryAfter!.Value),
+        },
         PairingRenotifyOutcome.Cooldown => new PairingOutcomePayload
         {
             Outcome = PairingOutcomeWireValue.RenotifyCooldown,

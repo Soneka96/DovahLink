@@ -32,11 +32,13 @@ class MockClientStorage extends Mock implements IClientStorage {}
 
 /// Builds a decoded `pairing_outcome` reply envelope carrying [outcome], with every other field
 /// present-but-empty per that message's wire contract.
+/// [attemptsRemaining] and [retryAfterSeconds] provide Host-reported runtime metadata.
 Envelope buildPairingOutcomeEnvelope({
   PairingOutcome outcome = PairingOutcome.alreadyIdle,
   String? credential,
   String? shortId,
   String? displayName,
+  int? attemptsRemaining,
   int? retryAfterSeconds,
 }) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.pairingOutcome,
@@ -45,6 +47,7 @@ Envelope buildPairingOutcomeEnvelope({
     'credential': credential,
     'shortId': shortId,
     'displayName': displayName,
+    'attemptsRemaining': attemptsRemaining,
     'retryAfterSeconds': retryAfterSeconds,
   },
 );
@@ -343,7 +346,10 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildPairingOutcomeEnvelope(outcome: PairingOutcome.renotified),
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.renotified,
+            retryAfterSeconds: 5,
+          ),
         );
 
         final PairingRenotifyResult result = await service
@@ -358,7 +364,7 @@ void main() {
           ),
         ).called(1);
         expect(result.status, PairingRenotifyStatus.renotified);
-        expect(result.retryAfterSeconds, isNull);
+        expect(result.retryAfterSeconds, 5);
       },
     );
 
@@ -526,7 +532,10 @@ void main() {
       () async {
         stubSendAndAwait(
           requestService,
-          buildPairingOutcomeEnvelope(outcome: PairingOutcome.renotified),
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.renotified,
+            retryAfterSeconds: 5,
+          ),
         );
 
         await expectLater(
@@ -726,6 +735,7 @@ void main() {
             requestService,
             buildPairingOutcomeEnvelope(
               outcome: entry.key,
+              attemptsRemaining: entry.key == PairingOutcome.invalid ? 4 : null,
               retryAfterSeconds: entry.value,
             ),
           );
@@ -744,6 +754,12 @@ void main() {
                         error.retryAfterSeconds,
                     'retryAfterSeconds',
                     entry.value,
+                  )
+                  .having(
+                    (DovahLinkPairingException error) =>
+                        error.attemptsRemaining,
+                    'attemptsRemaining',
+                    entry.key == PairingOutcome.invalid ? 4 : null,
                   ),
             ),
           );

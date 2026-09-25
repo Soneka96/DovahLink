@@ -16,6 +16,15 @@ void main() {
       expect(exception.retryAfterSeconds, 2);
     });
 
+    test('Method constructor preserves attemptsRemaining for invalid', () {
+      const DovahLinkPairingException exception = DovahLinkPairingException(
+        PairingOutcome.invalid,
+        attemptsRemaining: 4,
+      );
+
+      expect(exception.attemptsRemaining, 4);
+    });
+
     test('Method constructor creates a throwable pairing exception', () {
       expect(
         () => throw const DovahLinkPairingException(PairingOutcome.expired),

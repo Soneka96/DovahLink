@@ -4,7 +4,10 @@ namespace DovahLink.Host.Pairing;
 
 /// <summary>The result of requesting a pairing-code redisplay.</summary>
 /// <param name="Outcome">Whether the code may be displayed.</param>
-/// <param name="RetryAfter">The remaining manual redisplay cooldown, when applicable.</param>
+/// <param name="RetryAfter">
+/// The newly committed manual redisplay cooldown after success, or the remaining cooldown when
+/// one is active.
+/// </param>
 /// <param name="ChallengeId">
 /// The exact challenge this outcome was evaluated against, populated only when
 /// <see cref="PairingCoordinator.TryRenotify"/> reports <see cref="PairingRenotifyOutcome.Renotified"/>.

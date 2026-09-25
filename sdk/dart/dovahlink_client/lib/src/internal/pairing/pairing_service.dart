@@ -224,6 +224,7 @@ class PairingService implements IPairingService {
       throw DovahLinkPairingException(
         outcome.outcome,
         retryAfterSeconds: outcome.retryAfterSeconds,
+        attemptsRemaining: outcome.attemptsRemaining,
       );
     }
     final String? credential = outcome.credential;
