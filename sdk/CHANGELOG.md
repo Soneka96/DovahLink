@@ -16,6 +16,10 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
 - Windows DPAPI storage is available through a Windows-specific entry point, while the shared SDK entry point stays platform-neutral.
 
+### Fixed
+
+- Explicit disconnect cancels pending automatic reconnect retries and ignores recovery outcomes that arrive afterward.
+
 ## [0.5.0] - 2026-09-24
 
 ### Added

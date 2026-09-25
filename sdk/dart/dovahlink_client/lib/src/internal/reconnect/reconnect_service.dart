@@ -14,6 +14,9 @@ abstract interface class IReconnectService {
   /// Reports that ordinary transport loss finished tearing down the connection previously
   /// established at [uri], starting bounded automatic recovery.
   void onOrdinaryTransportLoss(Uri uri);
+
+  /// Stops the active recovery cycle without preventing a later cycle from starting.
+  void stopRecovery();
 }
 
 /// Reconnects to the endpoint the session last connected to and re-authenticates, up to a bounded
@@ -43,6 +46,15 @@ class ReconnectService implements IReconnectService {
   /// heavily loaded test run could otherwise make flaky.
   final DateTime Function() _now;
 
+  /// Generation identifying the current recovery cycle.
+  int _recoveryGeneration = 0;
+
+  /// Timer waiting for the next recovery attempt, when one is pending.
+  Timer? _retryTimer;
+
+  /// Completer released when the pending retry delay ends or is cancelled.
+  Completer<void>? _retryDelayCompleter;
+
   /// Creates a reconnect service recovering through [sessionService], re-authenticating through
   /// [authenticationService].
   ReconnectService({
@@ -60,7 +72,16 @@ class ReconnectService implements IReconnectService {
   /// Implements [IReconnectService.onOrdinaryTransportLoss].
   @override
   void onOrdinaryTransportLoss(Uri uri) {
-    unawaited(_recover(uri));
+    _cancelRetryDelay();
+    final int recoveryGeneration = ++_recoveryGeneration;
+    unawaited(_recover(uri, recoveryGeneration));
+  }
+
+  /// Implements [IReconnectService.stopRecovery].
+  @override
+  void stopRecovery() {
+    _recoveryGeneration++;
+    _cancelRetryDelay();
   }
 
   /// Attempts one recovery for each [ReconnectService._attemptDelays] entry, stopping at
@@ -71,7 +92,10 @@ class ReconnectService implements IReconnectService {
   /// invalidation already moved the session out of [DovahLinkConnectionState.reconnecting], leaves
   /// that teardown alone. On exhaustion or terminal failure, disconnects so orphaned operations
   /// preserved during recovery are failed.
-  Future<void> _recover(Uri uri) async {
+  /// Runs the bounded recovery cycle while [recoveryGeneration] is still current.
+  /// @param uri The last endpoint used by the interrupted session.
+  /// @param recoveryGeneration The generation that invalidates this cycle when recovery is stopped.
+  Future<void> _recover(Uri uri, int recoveryGeneration) async {
     final DateTime deadline = _now().add(_deadline);
     Exception? terminalFailure;
     for (int attempt = 0; attempt < _attemptDelays.length; attempt++) {
@@ -83,7 +107,10 @@ class ReconnectService implements IReconnectService {
         final Duration delay = _attemptDelays[attempt] < untilDeadline
             ? _attemptDelays[attempt]
             : untilDeadline;
-        await Future<void>.delayed(delay);
+        await _waitForRetry(delay);
+        if (recoveryGeneration != _recoveryGeneration) {
+          return;
+        }
       }
       if (_sessionService.connectionState !=
           DovahLinkConnectionState.reconnecting) {
@@ -94,9 +121,15 @@ class ReconnectService implements IReconnectService {
       }
       try {
         await _sessionService.connect(uri);
+        if (recoveryGeneration != _recoveryGeneration) {
+          return;
+        }
         await _authenticationService.hello();
         return;
       } on DovahLinkProtocolException catch (error) {
+        if (recoveryGeneration != _recoveryGeneration) {
+          return;
+        }
         if (ReconnectRejectionClassifier.isTerminal(error)) {
           if (CredentialRejectionReason.fromProtocolErrorCode(error.code) !=
               null) {
@@ -111,11 +144,20 @@ class ReconnectService implements IReconnectService {
         }
         continue;
       } on DovahLinkCompatibilityException catch (error) {
+        if (recoveryGeneration != _recoveryGeneration) {
+          return;
+        }
         terminalFailure = error;
         break;
       } on Object {
+        if (recoveryGeneration != _recoveryGeneration) {
+          return;
+        }
         continue;
       }
+    }
+    if (recoveryGeneration != _recoveryGeneration) {
+      return;
     }
     await _sessionService.disconnect(
       reason:
@@ -124,5 +166,31 @@ class ReconnectService implements IReconnectService {
             'Reconnect could not restore the connection.',
           ),
     );
+  }
+
+  /// Waits for [delay], allowing [stopRecovery] to release the pending wait immediately.
+  /// @param delay The bounded wait before the next connection attempt.
+  Future<void> _waitForRetry(Duration delay) {
+    final Completer<void> completer = Completer<void>();
+    _retryDelayCompleter = completer;
+    _retryTimer = Timer(delay, () {
+      if (identical(_retryDelayCompleter, completer)) {
+        _retryDelayCompleter = null;
+        _retryTimer = null;
+      }
+      completer.complete();
+    });
+    return completer.future;
+  }
+
+  /// Cancels a pending retry timer and releases its waiting recovery cycle.
+  void _cancelRetryDelay() {
+    _retryTimer?.cancel();
+    _retryTimer = null;
+    final Completer<void>? completer = _retryDelayCompleter;
+    _retryDelayCompleter = null;
+    if (completer != null && !completer.isCompleted) {
+      completer.complete();
+    }
   }
 }

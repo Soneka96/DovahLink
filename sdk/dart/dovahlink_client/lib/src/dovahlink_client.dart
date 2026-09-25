@@ -506,6 +506,7 @@ class DovahLinkClient {
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
   /// preserved, not reset to generic disconnect.
   Future<void> disconnect() {
+    _reconnectService.stopRecovery();
     _subscriptionService.clearDesiredStateAreas();
     return _sessionService.disconnect();
   }
