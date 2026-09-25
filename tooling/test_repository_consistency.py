@@ -757,6 +757,55 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 "reintroduced",
             )
 
+    def test_adapter_vcpkg_cache_key_tracks_abi_tool_inputs(self) -> None:
+        """Keep the Actions cache key aligned with vcpkg's ABI-affecting tool inputs."""
+        workflow = self._read(".github/workflows/adapter-ci.yml")
+        cmake_step = self._yaml_block(workflow, "      - name: Install pinned CMake")
+        self.assertIn("        id: cmake-tool", cmake_step)
+        self.assertIn("$actualCmakeVersion -ne $cmakeVersion", cmake_step)
+        self.assertIn(
+            'throw "Expected CMake $cmakeVersion, but found',
+            cmake_step,
+        )
+        self.assertIn('"version=$actualCmakeVersion" >> $env:GITHUB_OUTPUT', cmake_step)
+
+        msvc_step = self._yaml_block(
+            workflow,
+            "      - name: Record MSVC toolset version",
+        )
+        self.assertIn(
+            '"powershell_version=$($PSVersionTable.PSVersion.ToString())" >> $env:GITHUB_OUTPUT',
+            msvc_step,
+        )
+        self.assertIn(
+            "(Get-Command cl.exe -ErrorAction Stop).Source",
+            msvc_step,
+        )
+        self.assertIn(
+            "$compilerHash = (Get-FileHash -LiteralPath $compilerPath -Algorithm SHA256).Hash.ToLowerInvariant()",
+            msvc_step,
+        )
+        self.assertIn(
+            '"compiler_sha256=$compilerHash" >> $env:GITHUB_OUTPUT', msvc_step
+        )
+
+        cache_step = self._yaml_block(
+            workflow,
+            "      - name: Restore vcpkg binary cache",
+        )
+        primary_key = next(
+            line.strip()
+            for line in cache_step.splitlines()
+            if line.strip().startswith("key:")
+        )
+        for output in (
+            "steps.cmake-tool.outputs.version",
+            "steps.msvc-toolset.outputs.powershell_version",
+            "steps.msvc-toolset.outputs.version",
+            "steps.msvc-toolset.outputs.compiler_sha256",
+        ):
+            self.assertIn(f"${{{{ {output} }}}}", primary_key)
+
     def test_workflows_use_supported_pinned_action_refs(self) -> None:
         """Require every workflow action reference to be SHA-pinned with its version documented.
 
