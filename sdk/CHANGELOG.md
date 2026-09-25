@@ -22,6 +22,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
   that arrive afterward.
 - Explicit disconnect invalidates an ordinary-loss recovery handoff while teardown is still in
   progress.
+- Explicit disconnect cancels authentication recovery before a rejected credential can trigger a
+  second connection attempt.
 
 ## [0.5.0] - 2026-09-24
 
