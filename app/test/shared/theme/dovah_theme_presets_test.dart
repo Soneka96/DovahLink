@@ -577,6 +577,33 @@ void main() {
 
       expect(actual, expected);
     });
+
+    test(
+      'Method dovahThemeDataFor reuses a distinct ThemeData for every preset',
+      () {
+        final ThemeData frostbound = dovahThemeDataFor(
+          DovahThemePreset.frostbound,
+        );
+        final ThemeData dovah = dovahThemeDataFor(DovahThemePreset.dovah);
+        final ThemeData hearth = dovahThemeDataFor(DovahThemePreset.hearth);
+
+        expect(identical(frostbound, dovah), isFalse);
+        expect(identical(frostbound, hearth), isFalse);
+        expect(identical(dovah, hearth), isFalse);
+        expect(
+          identical(frostbound, dovahThemeDataFor(DovahThemePreset.frostbound)),
+          isTrue,
+        );
+        expect(
+          identical(dovah, dovahThemeDataFor(DovahThemePreset.dovah)),
+          isTrue,
+        );
+        expect(
+          identical(hearth, dovahThemeDataFor(DovahThemePreset.hearth)),
+          isTrue,
+        );
+      },
+    );
   });
 
   group('Behavior distinct presets behaves correctly', () {
