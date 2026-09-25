@@ -35,8 +35,10 @@ edited by hand.
 
 ## Windows shutdown check
 
-Start DovahLink, connect to a Host, and close the window with X or Alt+F4. The client process should
-exit after its retry work and SDK connection close; no reconnect attempts or shutdown errors should
-follow, no WebSocket/use-after-close errors should appear, and no DovahLink-owned Dart process
-should remain. The DovahLink Host may remain running while Skyrim is open because the Host belongs
-to the Skyrim/adapter lifecycle.
+Start DovahLink, connect to a Host, and close the window with X or Alt+F4. The client stops pairing
+retry work and immediately starts disconnecting an SDK client that was already created. The app
+waits up to three seconds for cleanup; if that budget expires, the Windows runner closes the window
+after its five-second native timeout. No reconnect attempts or shutdown errors should follow, no
+WebSocket/use-after-close errors should appear, and no DovahLink-owned Dart process should remain.
+The DovahLink Host may remain running while Skyrim is open because the Host belongs to the
+Skyrim/adapter lifecycle.

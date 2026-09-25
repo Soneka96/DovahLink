@@ -13,8 +13,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
-- Normal Windows close waits for shared Dart cleanup and continues after a five-second native
-  timeout; committed system shutdown requests best-effort cleanup once without delaying Windows.
+- Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its
+  three-second cleanup budget; the native runner closes after five seconds if cleanup stalls.
 - Mobile startup selects an explicit unsupported-storage boundary instead of constructing Windows
   DPAPI storage; pairing persistence remains unavailable until secure mobile storage is implemented.
 - Shared shutdown no longer constructs an unused SDK client, and only Windows registers the native

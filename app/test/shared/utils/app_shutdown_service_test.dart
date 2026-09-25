@@ -113,28 +113,43 @@ void main() {
 
           expect(shutdownCompleted, isTrue);
           disconnectCompleter.complete();
+          async.flushMicrotasks();
+          verify(() => pairingMiddleware.shutdown()).called(1);
+          verify(() => existingClient.disconnectIfCreated()).called(1);
         });
       },
     );
 
-    test('Method shutdown completes when pairing cleanup stalls', () {
-      fakeAsync((FakeAsync async) {
-        final Completer<void> pairingCompleter = Completer<void>();
-        when(
-          () => pairingMiddleware.shutdown(),
-        ).thenAnswer((_) => pairingCompleter.future);
-        bool shutdownCompleted = false;
-        service.shutdown().then((_) => shutdownCompleted = true);
-        async.flushMicrotasks();
+    test(
+      'Method shutdown starts client disconnect before stalled pairing cleanup uses its budget',
+      () {
+        fakeAsync((FakeAsync async) {
+          final Completer<void> pairingCompleter = Completer<void>();
+          final Completer<void> disconnectCompleter = Completer<void>();
+          when(
+            () => pairingMiddleware.shutdown(),
+          ).thenAnswer((_) => pairingCompleter.future);
+          bool shutdownCompleted = false;
+          bool disconnectStarted = false;
+          when(() => existingClient.disconnectIfCreated()).thenAnswer((_) {
+            disconnectStarted = true;
+            return disconnectCompleter.future;
+          });
+          service.shutdown().then((_) => shutdownCompleted = true);
+          async.flushMicrotasks();
 
-        expect(shutdownCompleted, isFalse);
-        verify(() => existingClient.disconnectIfCreated()).called(1);
-        async.elapse(const Duration(seconds: 3));
-        async.flushMicrotasks();
+          expect(shutdownCompleted, isFalse);
+          expect(disconnectStarted, isTrue);
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
 
-        expect(shutdownCompleted, isTrue);
-        pairingCompleter.complete();
-      });
-    });
+          expect(shutdownCompleted, isTrue);
+          pairingCompleter.complete();
+          disconnectCompleter.complete();
+          async.flushMicrotasks();
+          verify(() => existingClient.disconnectIfCreated()).called(1);
+        });
+      },
+    );
   });
 }

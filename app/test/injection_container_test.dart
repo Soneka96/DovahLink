@@ -69,6 +69,7 @@ void main() {
   });
 
   tearDown(() async {
+    debugDefaultTargetPlatformOverride = null;
     const MethodChannel(
       'dovahlink/window_lifecycle',
     ).setMethodCallHandler(null);

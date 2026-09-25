@@ -290,17 +290,23 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 
 ## Application shutdown
 
-`AppShutdownService` is platform-neutral and owns one idempotent, bounded cleanup path: stop
-`PairingMiddleware`, then disconnect the SDK client only if pairing has already created it. The
-pairing client registration records its instance in the app lifecycle holder; shutdown must not
-resolve the lazy client registration just to disconnect an unused client. Windows registers
-`WindowsLifecycleBridge`, which forwards native close and session-ending requests to the shared
-service. Android and iOS do not register that bridge, and ordinary background/pause lifecycle events
-do not invoke application shutdown.
+`AppShutdownService` is platform-neutral and owns one idempotent, three-second cleanup budget. It
+starts `PairingMiddleware.shutdown()` first and then starts SDK disconnect before awaiting either
+operation. Pairing shutdown immediately blocks new pairing work; SDK disconnect immediately
+invalidates pending authentication and reconnect work. The pairing client registration records its
+instance in the app lifecycle holder; shutdown must not resolve the lazy client registration just to
+disconnect an unused client. Late authentication, code-request, or confirmation results cannot
+dispatch follow-up pairing work after shutdown begins. The SDK disconnect is the final cleanup step,
+so late completions start no further application work. Windows registers `WindowsLifecycleBridge`,
+which forwards native close and session-ending requests to the shared service. Android and iOS do not
+register that bridge, and
+ordinary background/pause lifecycle events do not invoke application shutdown.
 
 For a normal Windows close, the runner holds `WM_CLOSE` until Dart replies or a five-second native
 timer expires; repeated close requests share that pending attempt, and only its current generation
-can continue closing the window. `WM_QUERYENDSESSION` returns success immediately without cleanup,
+can continue closing the window. Dart returns when cleanup finishes or its three-second budget
+expires, leaving the native timeout margin to close a stalled app. `WM_QUERYENDSESSION` returns
+success immediately without cleanup,
 since another application may cancel the system request. When `WM_ENDSESSION` reports a committed
 session ending, the runner requests best-effort Dart cleanup once and returns immediately; Windows
 may terminate the process before that cleanup finishes. Neither path shuts down the separate Host.

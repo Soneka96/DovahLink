@@ -122,9 +122,13 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       store.dispatch(const PairingFailedAction('Select a Host to pair with.'));
       return;
     }
-    (await sl<AuthenticateUseCase>()(
+    final result = await sl<AuthenticateUseCase>()(
       AuthenticateParams(hostUri: host.uri),
-    )).fold(
+    );
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         if (failure is NetworkFailure) {
           store.dispatch(const PairingDisconnectedAction());
@@ -158,7 +162,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingRenotifyRequestedAction action,
   ) async {
-    (await sl<RequestPairingRenotifyUseCase>()(NoParams())).fold(
+    final result = await sl<RequestPairingRenotifyUseCase>()(NoParams());
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         store.dispatch(PairingFailedAction(failure.message));
       },
@@ -180,7 +188,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCancelRequestedAction action,
   ) async {
-    (await sl<CancelPairingUseCase>()(NoParams())).fold(
+    final result = await sl<CancelPairingUseCase>()(NoParams());
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         store.dispatch(PairingFailedAction(failure.message));
       },
@@ -219,7 +231,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCodeRequestedAction action,
   ) async {
-    (await sl<RequestPairingUseCase>()(NoParams())).fold(
+    final result = await sl<RequestPairingUseCase>()(NoParams());
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         store.dispatch(PairingFailedAction(failure.message));
       },
@@ -237,12 +253,16 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCodeSubmittedAction action,
   ) async {
-    (await sl<ConfirmPairingCodeUseCase>()(
+    final result = await sl<ConfirmPairingCodeUseCase>()(
       ConfirmPairingCodeParams(
         code: action.code,
         displayName: action.displayName,
       ),
-    )).fold(
+    );
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         // A wrong code or a too-soon retry stays on the same still-active challenge with an
         // inline mistake message; everything else (expired, hard_limit_reached, other transport

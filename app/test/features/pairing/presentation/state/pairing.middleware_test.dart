@@ -96,6 +96,7 @@ void main() {
   setUpAll(() {
     registerFallbackValue(NoParams());
     registerFallbackValue(Fixtures.buildAuthenticateParams());
+    registerFallbackValue(const ConfirmPairingCodeParams(code: '000000'));
   });
 
   setUp(() async {
@@ -642,6 +643,66 @@ void main() {
   });
 
   group('PairingMiddleware shutdown behaves correctly', () {
+    test(
+      'shutdown suppresses follow-up pairing work when authentication completes late',
+      () async {
+        final Completer<Either<Failure, PairingHandshake>> authentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) => authentication.future);
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await middleware.shutdown();
+        authentication.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [const PairingStartedAction()]);
+        verifyNever(() => mockRequestPairing(any()));
+      },
+    );
+
+    test(
+      'shutdown suppresses code availability when a code request completes late',
+      () async {
+        final Completer<Either<Failure, int?>> request =
+            Completer<Either<Failure, int?>>();
+        when(() => mockRequestPairing(any())).thenAnswer((_) => request.future);
+
+        middleware.call(store, const PairingCodeRequestedAction(), next);
+        await middleware.shutdown();
+        request.complete(const Right(60));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [const PairingCodeRequestedAction()]);
+      },
+    );
+
+    test(
+      'shutdown suppresses trust actions when code confirmation completes late',
+      () async {
+        final Completer<Either<Failure, Unit>> confirmation =
+            Completer<Either<Failure, Unit>>();
+        when(
+          () => mockConfirmPairingCode(any()),
+        ).thenAnswer((_) => confirmation.future);
+
+        middleware.call(
+          store,
+          const PairingCodeSubmittedAction(code: '123456'),
+          next,
+        );
+        await middleware.shutdown();
+        confirmation.complete(const Right(unit));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [const PairingCodeSubmittedAction(code: '123456')]);
+        verifyNever(() => mockObserveConnectionStatus(any()));
+      },
+    );
+
     test(
       'shutdown prevents later actions from starting pairing work',
       () async {

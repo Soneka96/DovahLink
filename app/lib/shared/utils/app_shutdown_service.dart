@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
 
@@ -35,20 +37,26 @@ class AppShutdownService implements IAppShutdownService {
 
   /// Implements [IAppShutdownService.shutdown].
   @override
-  Future<void> shutdown() => _shutdownFuture ??= _performShutdown().timeout(
-    _shutdownTimeout,
-    onTimeout: () {},
-  );
+  Future<void> shutdown() => _shutdownFuture ??= _performShutdown();
 
-  /// Stops pairing work, attempts client disconnect, and contains both cleanup failures.
+  /// Stops pairing work before starting the existing-client disconnect. Both operations begin
+  /// before the deadline wait, so disconnect invalidates authentication and reconnect work
+  /// immediately. Their late completions perform no follow-up application work.
   Future<void> _performShutdown() async {
-    final Future<void> pairingCleanup = _stopPairing();
+    final Completer<void> deadline = Completer<void>();
+    final Timer timer = Timer(_shutdownTimeout, deadline.complete);
     try {
-      await _existingClient.disconnectIfCreated();
+      final Future<void> pairingCleanup = _stopPairing();
+      final Future<void> clientDisconnect = _disconnectExistingClient();
+      await Future.any<void>([
+        Future.wait<void>([pairingCleanup, clientDisconnect]),
+        deadline.future,
+      ]);
     } on Object {
-      // A failed transport must not keep application close pending.
+      // Cleanup failures must not keep the native window open.
+    } finally {
+      timer.cancel();
     }
-    await pairingCleanup;
   }
 
   /// Stops pairing middleware and contains synchronous or asynchronous cancellation failures.
@@ -56,7 +64,16 @@ class AppShutdownService implements IAppShutdownService {
     try {
       await _pairingMiddleware.shutdown();
     } on Object {
-      // Client disconnect must still run when app-owned cleanup cannot complete.
+      // Continue to client disconnect if the deadline still permits another cleanup step.
+    }
+  }
+
+  /// Disconnects the already-created SDK client as the final bounded cleanup step.
+  Future<void> _disconnectExistingClient() async {
+    try {
+      await _existingClient.disconnectIfCreated();
+    } on Object {
+      // A failed transport must not keep the native window open.
     }
   }
 }
