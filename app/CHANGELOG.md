@@ -11,6 +11,10 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ## [Unreleased]
 
+### Added
+
+- Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
+
 ## [0.5.0] - 2026-09-24
 
 ### Added

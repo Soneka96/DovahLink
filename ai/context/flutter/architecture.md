@@ -297,8 +297,13 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Widgets receive data and callbacks through props; visual styling comes from the theme, not from
   constructor parameters or hidden DI lookups.
 - Visual values have one owner, chosen by what the value describes:
-  - `DovahThemeTokens` owns theme identity, material, and typography: colors, gradients, shadows,
-    corner style, radius and bevel, backdrop, font family, and casing.
+  - `DovahThemeTokens` owns theme identity and typography: semantic colors, status tones, corner
+    style, radius and bevel, font family, and casing.
+  - `DovahThemeMaterials` owns each theme's layered material per component role and its canvas
+    atmosphere. Widgets ask `DovahSurface` for a role and never inspect a material recipe.
+  - Canvas atmosphere, component material texture, and feature-specific artwork are separate. The
+    atmosphere fills the world behind every component; a material textures a component and never
+    paints an environment image; feature artwork stays with its feature screen.
   - `Dovah*Metrics` classes own structural and component geometry and responsive layout. A metrics
     class is named for one screen family or component family, never a single catch-all. Widgets
     consume resolved metrics; they never branch on the window size or the active preset themselves.
@@ -308,6 +313,9 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
   theme token or a scale multiplier applied to a base value. Copy each value exactly from the
   approved prototype and cite its selector in the doc comment; do not merge nearby values into one
   shared constant.
+- Reproduce a prototype visual recipe with the closest Flutter primitive before accepting a
+  difference. Where Flutter has no equivalent, document at the implementation what the prototype
+  does, what Flutter does instead, and why the difference is acceptable.
 - A metrics value that differs by theme lives in that family's `Dovah<Family>ThemeMetrics`
   `ThemeExtension`, holding the theme's exact value for every window mode and installed by each
   preset's theme builder, so Flutter's `ThemeData` transition interpolates it with `lerpDouble`,
