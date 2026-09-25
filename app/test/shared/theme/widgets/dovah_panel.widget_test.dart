@@ -6,7 +6,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
@@ -47,9 +47,6 @@ void main() {
               preset: preset,
               size: size,
             );
-            final DovahThemeTokens tokens = Theme.of(
-              tester.element(find.text('Panel content')),
-            ).extension<DovahThemeTokens>()!;
             final DovahPageMetrics metrics = DovahPageMetrics.forWindow(
               themeMetrics: dovahThemeDataFor(
                 preset,
@@ -58,12 +55,7 @@ void main() {
             );
             final Rect panelRect = tester.getRect(find.byKey(panelKey));
             final Rect contentRect = tester.getRect(find.text('Panel content'));
-            final double borderInset =
-                tokens.cornerStyle == DovahPanelCornerStyle.rounded
-                ? DovahThemeTokens.surfaceBorderWidth
-                : 0;
-            final double expectedInset =
-                metrics.panelPadding.left + borderInset;
+            final double expectedInset = metrics.panelPadding.left;
 
             expect(
               contentRect.left - panelRect.left,
@@ -153,16 +145,45 @@ void main() {
         size: dovahTestSizes.first,
       );
 
-      final Container container = tester.widget<Container>(
+      final CustomPaint paint = tester.widget<CustomPaint>(
         find
             .descendant(
               of: find.byType(DovahPanel),
-              matching: find.byType(Container),
+              matching: find.byType(CustomPaint),
             )
             .first,
       );
-      final BoxDecoration decoration = container.decoration! as BoxDecoration;
-      expect(decoration.borderRadius, BorderRadius.circular(14));
+      expect((paint.painter! as DovahMaterialPainter).cornerRadius, 14);
     });
+  });
+
+  group('DovahPanel selects its material role', () {
+    for (final (bool raised, DovahMaterialRole role) in [
+      (false, DovahMaterialRole.surface),
+      (true, DovahMaterialRole.raised),
+    ]) {
+      testWidgets('DovahPanel uses the $role role when raised is $raised', (
+        WidgetTester tester,
+      ) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahPanel(raised: raised, child: const Text('Role panel')),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          tester
+              .widget<DovahSurface>(
+                find.descendant(
+                  of: find.byType(DovahPanel),
+                  matching: find.byType(DovahSurface),
+                ),
+              )
+              .role,
+          role,
+        );
+      });
+    }
   });
 }

@@ -49,9 +49,6 @@ void main() {
         surface3: const Color(0xFFFFFFFF),
         soft: const Color(0xFF123456),
         cornerStyle: DovahPanelCornerStyle.rounded,
-        primaryActionGradient: const LinearGradient(
-          colors: [Color(0xFF123456), Color(0xFF654321)],
-        ),
         primaryActionForeground: const Color(0xFFFFFFFF),
       );
 
@@ -59,10 +56,6 @@ void main() {
       expect(copy.surface3, const Color(0xFFFFFFFF));
       expect(copy.soft, const Color(0xFF123456));
       expect(copy.cornerStyle, DovahPanelCornerStyle.rounded);
-      expect((copy.primaryActionGradient as LinearGradient).colors, const [
-        Color(0xFF123456),
-        Color(0xFF654321),
-      ]);
       expect(copy.primaryActionForeground, const Color(0xFFFFFFFF));
       expect(copy.surface, original.surface);
       expect(copy.surfaceRaised, original.surfaceRaised);
@@ -339,18 +332,14 @@ void main() {
       expect(tokens.lerp(other, 0.75).uppercaseLabels, isTrue);
     });
 
-    test('Method lerp blends action foreground and switches its gradient', () {
+    test('Method lerp blends the action foreground', () {
       final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
       final DovahThemeTokens other = tokens.copyWith(
-        primaryActionGradient: const LinearGradient(
-          colors: [Color(0xFF123456), Color(0xFF654321)],
-        ),
         primaryActionForeground: const Color(0xFFFFFFFF),
       );
 
       final DovahThemeTokens beforeMidpoint = tokens.lerp(other, 0.25);
       final DovahThemeTokens atMidpoint = tokens.lerp(other, 0.5);
-      final DovahThemeTokens afterMidpoint = tokens.lerp(other, 0.75);
 
       expect(
         beforeMidpoint.primaryActionForeground,
@@ -361,24 +350,12 @@ void main() {
         ),
       );
       expect(
-        (beforeMidpoint.primaryActionGradient as LinearGradient).colors,
-        (tokens.primaryActionGradient as LinearGradient).colors,
-      );
-      expect(
         atMidpoint.primaryActionForeground,
         Color.lerp(
           tokens.primaryActionForeground,
           other.primaryActionForeground,
           0.5,
         ),
-      );
-      expect(
-        (atMidpoint.primaryActionGradient as LinearGradient).colors,
-        (other.primaryActionGradient as LinearGradient).colors,
-      );
-      expect(
-        (afterMidpoint.primaryActionGradient as LinearGradient).colors,
-        (other.primaryActionGradient as LinearGradient).colors,
       );
     });
 
@@ -470,54 +447,6 @@ void main() {
       final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
       final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
         environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
-      );
-
-      expect(first, isNot(second));
-    });
-
-    test('Behavior equality fails when panelShadow differs', () {
-      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
-      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
-        panelShadow: const [
-          BoxShadow(
-            color: Color(0x11111111),
-            blurRadius: 1,
-            offset: Offset.zero,
-          ),
-        ],
-      );
-
-      expect(first, isNot(second));
-    });
-
-    test('Behavior equality fails when materialGradient differs', () {
-      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
-      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
-        materialGradient: const LinearGradient(
-          colors: [Color(0xFF000000), Color(0xFFFFFFFF)],
-        ),
-      );
-
-      expect(first, isNot(second));
-    });
-
-    test('Behavior equality fails when materialRaisedGradient differs', () {
-      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
-      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
-        materialRaisedGradient: const LinearGradient(
-          colors: [Color(0xFF000000), Color(0xFFFFFFFF)],
-        ),
-      );
-
-      expect(first, isNot(second));
-    });
-
-    test('Behavior equality fails when primaryActionGradient differs', () {
-      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
-      final DovahThemeTokens second = first.copyWith(
-        primaryActionGradient: const LinearGradient(
-          colors: [Color(0xFF000000), Color(0xFFFFFFFF)],
-        ),
       );
 
       expect(first, isNot(second));

@@ -117,11 +117,6 @@ abstract final class Fixtures {
     Color success = const Color(0xFF8ED6FF),
     Color warning = const Color(0xFFE2A55E),
     Color danger = const Color(0xFFE18080),
-    Gradient primaryActionGradient = const LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFF0BD73), Color(0xFFC77D38)],
-    ),
     Color primaryActionForeground = const Color(0xFF1A0E04),
 
     /// The low-opacity focus halo color.
@@ -132,9 +127,6 @@ abstract final class Fixtures {
     DovahPanelCornerStyle cornerStyle = DovahPanelCornerStyle.doubleBevel,
     double cornerRadius = 3,
     double cornerCutSize = 12,
-    List<BoxShadow>? panelShadow,
-    Gradient? materialGradient,
-    Gradient? materialRaisedGradient,
     String displayFontFamily = 'Georgia',
     String? environmentAssetPath,
     Color eyebrow = const Color(0xFFE2A55E),
@@ -171,7 +163,6 @@ abstract final class Fixtures {
     success: success,
     warning: warning,
     danger: danger,
-    primaryActionGradient: primaryActionGradient,
     primaryActionForeground: primaryActionForeground,
     soft: soft,
     health: health,
@@ -180,29 +171,6 @@ abstract final class Fixtures {
     cornerStyle: cornerStyle,
     cornerRadius: cornerRadius,
     cornerCutSize: cornerCutSize,
-    panelShadow:
-        panelShadow ??
-        const [
-          BoxShadow(
-            color: Color(0x4A000000),
-            blurRadius: 38,
-            offset: Offset(0, 17),
-          ),
-        ],
-    materialGradient:
-        materialGradient ??
-        const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF11212D), Color(0xFF071018)],
-        ),
-    materialRaisedGradient:
-        materialRaisedGradient ??
-        const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [Color(0xFF162A38), Color(0xFF09141D)],
-        ),
     displayFontFamily: displayFontFamily,
     environmentAssetPath: environmentAssetPath,
     eyebrow: eyebrow,

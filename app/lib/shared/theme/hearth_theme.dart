@@ -29,11 +29,6 @@ ThemeData buildHearthTheme() {
     success: Color(0xFF35684C),
     warning: Color(0xFF99541F),
     danger: Color(0xFF913B34),
-    primaryActionGradient: LinearGradient(
-      begin: Alignment.topCenter,
-      end: Alignment.bottomCenter,
-      colors: [Color(0xFFA96932), Color(0xFF82491E)],
-    ),
     primaryActionForeground: Color(0xFFFFF9EE),
     soft: Color(0x24965923),
     health: Color(0xFFA74F3E),
@@ -42,23 +37,6 @@ ThemeData buildHearthTheme() {
     cornerStyle: DovahPanelCornerStyle.rounded,
     cornerRadius: 13,
     cornerCutSize: 0,
-    panelShadow: [
-      BoxShadow(
-        color: Color(0x3B452C15),
-        blurRadius: 26,
-        offset: Offset(0, 12),
-      ),
-    ],
-    materialGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFF7E6C9), Color(0xFFD9B681)],
-    ),
-    materialRaisedGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFFAE9CD), Color(0xFFDDB985)],
-    ),
     displayFontFamily: 'Georgia',
     environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
     eyebrow: Color(0xFF945720),

@@ -74,7 +74,9 @@ class AppearancePresetCard extends StatelessWidget {
                     : null,
                 child: DovahSurface(
                   key: const Key('appearance-preset-card-surface'),
-                  raised: selected,
+                  role: selected
+                      ? DovahMaterialRole.raised
+                      : DovahMaterialRole.surface,
                   padding: const EdgeInsets.all(12),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
@@ -84,7 +86,7 @@ class AppearancePresetCard extends StatelessWidget {
                         key: const Key('appearance-preset-card-preview'),
                         height: appearancePreviewHeight,
                         decoration: BoxDecoration(
-                          gradient: previewTokens.materialGradient,
+                          color: previewTokens.surface,
                           image: preset == DovahThemePreset.dovah
                               ? const DecorationImage(
                                   image: AssetImage(

@@ -81,9 +81,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// The status tone for an error or failed state.
   final Color danger;
 
-  /// The approved primary-button fill for this theme.
-  final Gradient primaryActionGradient;
-
   /// The approved primary-button label color for this theme.
   final Color primaryActionForeground;
 
@@ -110,17 +107,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// component in the theme; the approved prototype varies this slightly per component, which
   /// this token intentionally simplifies to one value per theme.
   final double cornerCutSize;
-
-  /// The outer drop shadow a raised panel casts. The approved prototype also layers inset
-  /// highlight/shadow via CSS `box-shadow: inset`, which Flutter's [BoxShadow] cannot express;
-  /// that polish is reproduced by [materialGradient]'s own highlight stops instead.
-  final List<BoxShadow> panelShadow;
-
-  /// The base material recipe for a resting panel, connection card, or dialog.
-  final Gradient materialGradient;
-
-  /// The material recipe for a raised/hovered panel or connection card.
-  final Gradient materialRaisedGradient;
 
   /// The display/heading font family for this theme. The body font family does not vary by
   /// theme in the approved prototype, so it is not part of this contract.
@@ -217,7 +203,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.success,
     required this.warning,
     required this.danger,
-    required this.primaryActionGradient,
     required this.primaryActionForeground,
     required this.soft,
     required this.health,
@@ -226,9 +211,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.cornerStyle,
     required this.cornerRadius,
     required this.cornerCutSize,
-    required this.panelShadow,
-    required this.materialGradient,
-    required this.materialRaisedGradient,
     required this.displayFontFamily,
     required this.environmentAssetPath,
     required this.eyebrow,
@@ -273,9 +255,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     Color? warning,
     Color? danger,
 
-    /// Replacement primary-button fill.
-    Gradient? primaryActionGradient,
-
     /// Replacement primary-button label color.
     Color? primaryActionForeground,
 
@@ -287,9 +266,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     DovahPanelCornerStyle? cornerStyle,
     double? cornerRadius,
     double? cornerCutSize,
-    List<BoxShadow>? panelShadow,
-    Gradient? materialGradient,
-    Gradient? materialRaisedGradient,
     String? displayFontFamily,
     Option<String>? environmentAssetPath,
     Color? eyebrow,
@@ -326,7 +302,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     success: success ?? this.success,
     warning: warning ?? this.warning,
     danger: danger ?? this.danger,
-    primaryActionGradient: primaryActionGradient ?? this.primaryActionGradient,
     primaryActionForeground:
         primaryActionForeground ?? this.primaryActionForeground,
     soft: soft ?? this.soft,
@@ -336,10 +311,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     cornerStyle: cornerStyle ?? this.cornerStyle,
     cornerRadius: cornerRadius ?? this.cornerRadius,
     cornerCutSize: cornerCutSize ?? this.cornerCutSize,
-    panelShadow: panelShadow ?? this.panelShadow,
-    materialGradient: materialGradient ?? this.materialGradient,
-    materialRaisedGradient:
-        materialRaisedGradient ?? this.materialRaisedGradient,
     displayFontFamily: displayFontFamily ?? this.displayFontFamily,
     environmentAssetPath: environmentAssetPath == null
         ? this.environmentAssetPath
@@ -366,7 +337,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   );
 
   /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
-  /// family, asset path, shadow, gradients, and casing) snap to whichever side of [t] is closer
+  /// family, asset path, gradients, and casing) snap to whichever side of [t] is closer
   /// because they have no meaningful halfway point.
   @override
   DovahThemeTokens lerp(ThemeExtension<DovahThemeTokens>? other, double t) {
@@ -390,9 +361,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       success: Color.lerp(success, other.success, t)!,
       warning: Color.lerp(warning, other.warning, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
-      primaryActionGradient: t < 0.5
-          ? primaryActionGradient
-          : other.primaryActionGradient,
       primaryActionForeground: Color.lerp(
         primaryActionForeground,
         other.primaryActionForeground,
@@ -405,11 +373,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       cornerStyle: t < 0.5 ? cornerStyle : other.cornerStyle,
       cornerRadius: lerpDouble(cornerRadius, other.cornerRadius, t)!,
       cornerCutSize: lerpDouble(cornerCutSize, other.cornerCutSize, t)!,
-      panelShadow: t < 0.5 ? panelShadow : other.panelShadow,
-      materialGradient: t < 0.5 ? materialGradient : other.materialGradient,
-      materialRaisedGradient: t < 0.5
-          ? materialRaisedGradient
-          : other.materialRaisedGradient,
       displayFontFamily: t < 0.5 ? displayFontFamily : other.displayFontFamily,
       environmentAssetPath: t < 0.5
           ? environmentAssetPath
@@ -473,7 +436,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     success,
     warning,
     danger,
-    primaryActionGradient,
     primaryActionForeground,
     soft,
     health,
@@ -482,9 +444,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     cornerStyle,
     cornerRadius,
     cornerCutSize,
-    panelShadow,
-    materialGradient,
-    materialRaisedGradient,
     displayFontFamily,
     environmentAssetPath,
     eyebrow,

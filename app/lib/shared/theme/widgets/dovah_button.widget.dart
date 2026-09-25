@@ -6,8 +6,8 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
-/// A DovahLink themed button. Primary buttons use each preset's approved action fill and label
-/// color; secondary buttons use the theme's raised material and primary text tone.
+/// A DovahLink themed button. Primary buttons use each preset's approved primary-action material
+/// and label color; secondary buttons use the theme's control material and primary text tone.
 class DovahButton extends StatefulWidget {
   /// The button's visible text.
   final String label;
@@ -64,8 +64,9 @@ class _DovahButtonState extends State<DovahButton> {
       ),
     );
     final Widget surface = DovahSurface(
-      gradient: primary ? tokens.primaryActionGradient : null,
-      raised: !primary,
+      role: primary
+          ? DovahMaterialRole.primaryAction
+          : DovahMaterialRole.control,
       cornerRadius: primary ? tokens.primaryActionCornerRadius : null,
       padding: padding,
       child: Center(

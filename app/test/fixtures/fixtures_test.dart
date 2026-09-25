@@ -213,10 +213,6 @@ void main() {
       expect(tokens.signal, const Color(0xFF74BDE8));
       expect(tokens.primaryActionForeground, isA<Color>());
       expect(tokens.primaryActionForeground, const Color(0xFF1A0E04));
-      expect((tokens.primaryActionGradient as LinearGradient).colors, const [
-        Color(0xFFF0BD73),
-        Color(0xFFC77D38),
-      ]);
       expect(tokens.cornerStyle, isA<DovahPanelCornerStyle>());
       expect(tokens.cornerStyle, DovahPanelCornerStyle.doubleBevel);
       expect(tokens.cornerRadius, isA<double>());

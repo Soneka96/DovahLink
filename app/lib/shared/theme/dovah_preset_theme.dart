@@ -30,11 +30,6 @@ ThemeData buildDovahPresetTheme() {
     success: Color(0xFF8ED6FF),
     warning: Color(0xFFE2A55E),
     danger: Color(0xFFE18080),
-    primaryActionGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFFF0BD73), Color(0xFFC77D38)],
-    ),
     primaryActionForeground: Color(0xFF1A0E04),
     soft: Color(0x2174BDE8),
     health: Color(0xFFD16F62),
@@ -43,23 +38,6 @@ ThemeData buildDovahPresetTheme() {
     cornerStyle: DovahPanelCornerStyle.doubleBevel,
     cornerRadius: 3,
     cornerCutSize: 12,
-    panelShadow: [
-      BoxShadow(
-        color: Color(0x4A000000),
-        blurRadius: 38,
-        offset: Offset(0, 17),
-      ),
-    ],
-    materialGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF11212D), Color(0xFF071018)],
-    ),
-    materialRaisedGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF162A38), Color(0xFF09141D)],
-    ),
     displayFontFamily: 'Georgia',
     environmentAssetPath: null,
     eyebrow: Color(0xFFE2A55E),

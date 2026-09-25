@@ -11,6 +11,8 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
@@ -131,83 +133,53 @@ void main() {
           final DovahThemeTokens expectedTokens = dovahThemeDataFor(
             previewedPreset,
           ).extension<DovahThemeTokens>()!;
+          final DovahThemeMaterials expectedMaterials = dovahThemeDataFor(
+            previewedPreset,
+          ).extension<DovahThemeMaterials>()!;
           final Finder surfaceFinder = find.byKey(
             const Key('appearance-preset-card-surface'),
           );
-          final Gradient expectedSurfaceGradient =
+          final DovahMaterial expectedSurfaceMaterial =
               previewedPreset == activeTheme
-              ? expectedTokens.materialRaisedGradient
-              : expectedTokens.materialGradient;
+              ? expectedMaterials.raised
+              : expectedMaterials.surface;
 
           expect(actualTokens.cornerStyle, expectedTokens.cornerStyle);
           expect(actualTokens.cornerRadius, expectedTokens.cornerRadius);
           expect(actualTokens.cornerCutSize, expectedTokens.cornerCutSize);
 
-          if (expectedTokens.cornerStyle == DovahPanelCornerStyle.rounded) {
-            final Container paintedSurface = tester.widget(
-              find
-                  .descendant(
-                    of: surfaceFinder,
-                    matching: find.byType(Container),
-                  )
-                  .first,
-            );
-            final BoxDecoration decoration =
-                paintedSurface.decoration! as BoxDecoration;
+          final CustomPaint paintedSurface = tester.widget(
+            find
+                .descendant(
+                  of: surfaceFinder,
+                  matching: find.byType(CustomPaint),
+                )
+                .first,
+          );
+          final DovahMaterialPainter painter =
+              paintedSurface.painter! as DovahMaterialPainter;
+          final ClipPath clippedSurface = tester.widget(
+            find
+                .descendant(of: surfaceFinder, matching: find.byType(ClipPath))
+                .first,
+          );
+          final DovahPanelClipper clipper =
+              clippedSurface.clipper! as DovahPanelClipper;
 
-            expect(
-              decoration.borderRadius,
-              BorderRadius.circular(expectedTokens.cornerRadius),
-            );
-            expect(
-              (decoration.gradient! as LinearGradient).colors,
-              (expectedSurfaceGradient as LinearGradient).colors,
-            );
-            expect(decoration.border?.top.color, expectedTokens.lineStrong);
-          } else {
-            final CustomPaint paintedSurface = tester.widget(
-              find
-                  .descendant(
-                    of: surfaceFinder,
-                    matching: find.byType(CustomPaint),
-                  )
-                  .first,
-            );
-            final DovahMaterialPainter painter =
-                paintedSurface.painter! as DovahMaterialPainter;
-            final ClipPath clippedSurface = tester.widget(
-              find
-                  .descendant(
-                    of: surfaceFinder,
-                    matching: find.byType(ClipPath),
-                  )
-                  .first,
-            );
-            final DovahPanelClipper clipper =
-                clippedSurface.clipper! as DovahPanelClipper;
-
-            expect(painter.cornerStyle, expectedTokens.cornerStyle);
-            expect(painter.cornerRadius, expectedTokens.cornerRadius);
-            expect(painter.cutSize, expectedTokens.cornerCutSize);
-            expect(
-              (painter.gradient as LinearGradient).colors,
-              (expectedSurfaceGradient as LinearGradient).colors,
-            );
-            expect(painter.borderColor, expectedTokens.lineStrong);
-            expect(clipper.cornerStyle, expectedTokens.cornerStyle);
-            expect(clipper.cornerRadius, expectedTokens.cornerRadius);
-            expect(clipper.cutSize, expectedTokens.cornerCutSize);
-          }
+          expect(painter.cornerStyle, expectedTokens.cornerStyle);
+          expect(painter.cornerRadius, expectedTokens.cornerRadius);
+          expect(painter.cutSize, expectedTokens.cornerCutSize);
+          expect(painter.material, expectedSurfaceMaterial);
+          expect(clipper.cornerStyle, expectedTokens.cornerStyle);
+          expect(clipper.cornerRadius, expectedTokens.cornerRadius);
+          expect(clipper.cutSize, expectedTokens.cornerCutSize);
 
           final Container preview = tester.widget(
             find.byKey(const Key('appearance-preset-card-preview')),
           );
           final BoxDecoration previewDecoration =
               preview.decoration! as BoxDecoration;
-          expect(
-            (previewDecoration.gradient! as LinearGradient).colors,
-            (expectedTokens.materialGradient as LinearGradient).colors,
-          );
+          expect(previewDecoration.color, expectedTokens.surface);
           expect(
             previewDecoration.border?.top.color,
             expectedTokens.lineStrong,

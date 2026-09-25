@@ -146,6 +146,28 @@ void main() {
       },
     );
 
+    test(
+      'Property primaryAction keeps the approved fill colors per preset',
+      () {
+        const List<(DovahThemeMaterials, List<Color>)> expected = [
+          (
+            DovahThemeMaterials.frostbound,
+            [Color(0xFF263239), Color(0xFF11191D)],
+          ),
+          (DovahThemeMaterials.dovah, [Color(0xFFF0BD73), Color(0xFFC77D38)]),
+          (DovahThemeMaterials.hearth, [Color(0xFFA96932), Color(0xFF82491E)]),
+        ];
+
+        for (final (DovahThemeMaterials materials, List<Color> colors)
+            in expected) {
+          expect(
+            (materials.primaryAction.layers.first as DovahLinearLayer).colors,
+            colors,
+          );
+        }
+      },
+    );
+
     test('Property every layer of every material builds a shader', () {
       for (final DovahThemeMaterials materials in presetMaterials) {
         for (final DovahMaterialRole role in DovahMaterialRole.values) {
