@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
@@ -26,9 +27,12 @@ extension DovahThemeContext on BuildContext {
   DovahThemeMaterials get dovahMaterials =>
       Theme.of(this).extension<DovahThemeMaterials>()!;
 
-  /// The [DovahDialogMetrics] for the height of the window this context is shown in.
-  DovahDialogMetrics get dovahDialogMetrics =>
-      DovahDialogMetrics.forWindowHeight(MediaQuery.sizeOf(this).height);
+  /// The [DovahDialogMetrics] for the active theme and the size of the window this context is
+  /// shown in.
+  DovahDialogMetrics get dovahDialogMetrics => DovahDialogMetrics.forWindow(
+    themeMetrics: Theme.of(this).extension<DovahDialogThemeMetrics>()!,
+    window: MediaQuery.sizeOf(this),
+  );
 
   /// The [DovahRootMetrics] for the active theme and the size of the window this context is shown
   /// in. It follows the theme's own transition, so its measurements animate with the theme.

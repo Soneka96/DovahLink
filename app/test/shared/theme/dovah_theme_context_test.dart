@@ -66,6 +66,7 @@ void main() {
 
           await tester.pumpWidget(
             MaterialApp(
+              theme: dovahThemeDataFor(DovahThemePreset.dovah),
               home: Builder(
                 builder: (BuildContext context) {
                   resolved = context.dovahDialogMetrics;
@@ -90,6 +91,7 @@ void main() {
           const Size(1280, 720) * tester.view.devicePixelRatio;
       await tester.pumpWidget(
         MaterialApp(
+          theme: dovahThemeDataFor(DovahThemePreset.dovah),
           home: Builder(
             builder: (BuildContext context) {
               resolved = context.dovahDialogMetrics;
