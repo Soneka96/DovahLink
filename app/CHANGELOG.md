@@ -11,6 +11,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-24
+
 ### Added
 
 - The app's shared interface now renders in the Frostbound, Dovah, or Hearth style.

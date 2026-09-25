@@ -15,8 +15,7 @@ subscription/reconnect/session lifecycle — are complete. Phase 5.3 adds canoni
 subscription updates with Host reconciliation, SDK per-domain intent, ordinary reconnect
 restoration, administrative dormancy until explicit recovery, and intentional-disconnect cleanup.
 Its complete-set subscription meaning is incompatible with released Host `0.4.0`'s additive behavior;
-the SDK's supported Host line is `0.5.x`, with the release version bump deferred to a dedicated
-release branch.
+the SDK's supported Host line is `0.5.x`. The repository release is `0.5.0`.
 Phase 5.4's Flutter middleware integration remains, followed by Phase 5.5's version-impact audit
 and Stage 5 closure.
 The app's current `features/connection/` area owns Host selection and navigation rather than a
