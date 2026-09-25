@@ -71,8 +71,11 @@ Where reusable client behavior requires platform-specific facilities (secure cre
 cache/filesystem location, future local discovery, platform lifecycle integration), place them
 behind explicit ports/interfaces rather than hardcoding one platform's APIs into the reusable client
 model. Do not pre-create speculative adapters; add one when a real supported platform requires it.
-An initial Windows implementation may use Windows-appropriate facilities without those APIs becoming
-part of the reusable model; later Android/iOS implementations provide platform behavior without
+The shared client entry point depends only on the supplied storage port. The official app selects its
+storage implementation once at the composition boundary. Windows storage is available through the
+Windows-specific SDK entry point; mobile composition uses [UnsupportedClientStorage] until a secure
+mobile implementation exists, so importing or constructing the shared client never constructs a
+Windows facility. Later Android/iOS storage implementations can provide platform behavior without
 rewriting connection, authentication, or state semantics.
 
 ## Feature and capability organization

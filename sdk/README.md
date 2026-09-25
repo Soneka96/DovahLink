@@ -46,9 +46,14 @@ sdk/
 It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic
 reconnection after ordinary transport loss, plus SDK-owned `clientId`, credential, and
 `CONFIRMING` pairing-recovery persistence behind the `IClientStorage` interface (a real Windows
-DPAPI-backed implementation ships today) -- see `ai/context/sdk/persistence.md`. The official
+DPAPI-backed implementation ships today through the Windows-specific
+`dovahlink_client_windows.dart` entry point) -- see `ai/context/sdk/persistence.md`. The official
 Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
 client for pairing and authentication through `PairingRemoteDataSource`.
+
+The app selects storage at its composition boundary. Windows uses DPAPI; Android and iOS currently
+use an explicit unsupported-storage boundary that throws when SDK persistence is requested. No
+mobile secure-storage implementation is available yet.
 
 The SDK supports Host releases in the `0.5.x` range and rejects older or newer Host versions during
 `hello`, before admitting a session. Released Host `0.4.0` used additive subscription updates and is

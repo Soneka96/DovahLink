@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'package:get_it/get_it.dart';
@@ -13,6 +14,11 @@ import 'package:dovahlink_client/shared/navigation/app_router.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
+
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show IClientStorage, UnsupportedClientStorage;
+import 'package:dovahlink_client_sdk/dovahlink_client_windows.dart'
+    show DpapiClientStorage;
 
 /// Global service locator used by registered application dependencies.
 final GetIt sl = GetIt.instance;
@@ -35,6 +41,12 @@ Future<void> initDependencies() async {
     void _,
   ) {
     return DovahLinkAppViewModel.fromStore(store);
+  });
+  sl.registerLazySingleton<IClientStorage>(() {
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.windows => DpapiClientStorage(),
+      _ => const UnsupportedClientStorage(),
+    };
   });
   initConnectionDependencies();
   initPairingDependencies();

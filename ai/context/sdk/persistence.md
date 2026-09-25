@@ -36,6 +36,12 @@ implementation, `DpapiClientStorage`, is the platform port this section describe
 the per-user scope `ai/context/protocol/security.md` requires and failing closed on corrupt or
 undecryptable state rather than substituting a plausible default.
 
+The standard SDK entry point does not expose or import Windows storage. Windows consumers import
+`dovahlink_client_windows.dart` for `DpapiClientStorage` and inject it through `IClientStorage`.
+Until secure Android/iOS storage is implemented, mobile composition may use
+`UnsupportedClientStorage`: constructing the client remains safe, while the first persistence
+operation throws `UnsupportedError`. No plaintext or in-memory fallback is used for credentials.
+
 ## Versioning and migration
 
 Persisted SDK formats are versioned. The SDK that owns a persistent format owns its migrations; the

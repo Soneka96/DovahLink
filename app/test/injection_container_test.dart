@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
@@ -40,6 +41,9 @@ import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client_windows.dart'
+    show DpapiClientStorage;
+
 /// Mocks the asynchronous preference API without requiring a registered plugin.
 class MockSharedPreferencesAsync extends Mock
     implements SharedPreferencesAsync {}
@@ -63,6 +67,7 @@ void main() {
   });
 
   tearDown(() async {
+    debugDefaultTargetPlatformOverride = null;
     const MethodChannel(
       'dovahlink/window_lifecycle',
     ).setMethodCallHandler(null);
@@ -173,6 +178,31 @@ void main() {
       await initDependencies();
 
       expect(sl.isRegistered<DovahLinkClient>(), isTrue);
+    });
+
+    for (final TargetPlatform platform in <TargetPlatform>[
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    ]) {
+      test(
+        'initDependencies selects unsupported storage on $platform without constructing DPAPI',
+        () async {
+          debugDefaultTargetPlatformOverride = platform;
+
+          await initDependencies();
+
+          expect(sl<IClientStorage>(), isA<UnsupportedClientStorage>());
+          expect(sl<DovahLinkClient>(), isA<DovahLinkClient>());
+        },
+      );
+    }
+
+    test('initDependencies selects DPAPI storage on Windows', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+
+      await initDependencies();
+
+      expect(sl<IClientStorage>(), isA<DpapiClientStorage>());
     });
 
     test('initDependencies registers the pairing remote data source', () async {

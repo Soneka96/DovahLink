@@ -15,6 +15,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 - Closing the Windows app waits for app-owned retry cleanup and SDK client disconnect before the
   Flutter engine is destroyed.
+- Mobile startup selects an explicit unsupported-storage boundary instead of constructing Windows
+  DPAPI storage; pairing persistence remains unavailable until secure mobile storage is implemented.
 
 ### Added
 

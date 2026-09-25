@@ -23,7 +23,9 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Registers pairing dependencies.
 void initPairingDependencies() {
   sl.registerLazySingleton<IPairingMiddleware>(PairingMiddleware.new);
-  sl.registerLazySingleton<DovahLinkClient>(DovahLinkClient.windows);
+  sl.registerLazySingleton<DovahLinkClient>(
+    () => DovahLinkClient(storage: sl<IClientStorage>()),
+  );
   sl.registerLazySingleton<IPairingRemoteDataSource>(
     () => PairingRemoteDataSource(sl<DovahLinkClient>()),
   );
