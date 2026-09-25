@@ -28,11 +28,7 @@ class PairingMark extends StatelessWidget {
           borderRadius: BorderRadius.circular(tokens.cornerRadius),
           border: Border.all(color: tokens.lineStrong),
         ),
-        child: Icon(
-          icon,
-          size: metrics.markIconSize,
-          color: tokens.accentPrimary,
-        ),
+        child: Icon(icon, size: metrics.markIconSize, color: tokens.markIcon),
       ),
     );
   }

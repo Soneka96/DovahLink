@@ -6,6 +6,7 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_card.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
@@ -37,7 +38,7 @@ class AppearanceSection extends StatelessWidget {
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: DovahThemeTokens.spacing4),
+            const SizedBox(height: 4),
             Text(
               'The interface stays familiar, but its material, shape, density and motion change.',
               style: TextStyle(
@@ -45,14 +46,14 @@ class AppearanceSection extends StatelessWidget {
                 fontSize: DovahThemeTokens.compactFontSize,
               ),
             ),
-            const SizedBox(height: DovahThemeTokens.spacing16),
+            const SizedBox(height: 16),
             LayoutBuilder(
               builder: (BuildContext context, BoxConstraints constraints) {
-                const double columnGap = DovahThemeTokens.spacing6 * 2;
+                const double columnPadding = 6;
+                const double columnGap = columnPadding * 2;
                 final int columnCount =
                     (constraints.maxWidth /
-                            (DovahThemeTokens.appearancePresetCardMinimumWidth +
-                                columnGap))
+                            (appearancePresetCardMinimumWidth + columnGap))
                         .floor()
                         .clamp(1, DovahThemePreset.values.length)
                         .toInt();
@@ -67,7 +68,7 @@ class AppearanceSection extends StatelessWidget {
                         width: columnWidth,
                         child: Padding(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: DovahThemeTokens.spacing6,
+                            horizontal: columnPadding,
                           ),
                           child: AppearancePresetCard(
                             key: Key('appearance-preset-card-${preset.name}'),

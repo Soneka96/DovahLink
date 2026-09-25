@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Builds the Frostbound preset: cold, severe, and compact -- fractured stone, scratched iron,
@@ -53,18 +58,35 @@ ThemeData buildFrostboundTheme() {
       end: Alignment.bottomRight,
       colors: [Color(0xFF151E23), Color(0xFF070B0D)],
     ),
-    densityScale: 0.85,
     displayFontFamily: 'Arial Narrow',
     environmentAssetPath: 'assets/themes/frostbound/frostbound-environment.png',
     eyebrow: Color(0xFFBD5559),
-    rootHeaderHeight: 70,
-    pageTitleFontSize: 31,
-    connectionCardMinHeight: 68,
-    rootContentTopPadding: 20,
-    rootHeroBottomGap: 18,
     pageTitleLineHeight: 1.0,
     rootHeaderRuleFraction: 0.2,
     uppercaseLabels: true,
+    preset: DovahThemePreset.frostbound,
+    backdropColor: Color(0xC7000204),
+    backdropBlurSigma: 7,
+    panelCornerRadius: 0,
+    primaryActionCornerRadius: 0,
+    statusOffline: Color(0xFF7C8993),
+    brandTagline: Color(0xFF82919A),
+    brandAccent: Color(0xFFA9C7D1),
+    barTrack: Color(0xFF1B2931),
+    markIcon: Color(0xFFBD5559),
+    panelNote: Color(0xFF929DA2),
+    heroScrim: LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [Color(0xF0010406), Color(0x8A020609), Color(0x2B020609)],
+      stops: [0, 0.54, 1],
+    ),
+    heroFloorScrim: LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: [Color(0xEB030709), Color(0x00030709)],
+      stops: [0, 0.66],
+    ),
   );
 
   return ThemeData(
@@ -77,6 +99,13 @@ ThemeData buildFrostboundTheme() {
       error: tokens.danger,
       onSurface: tokens.textPrimary,
     ),
-    extensions: const [tokens],
+    extensions: const [
+      tokens,
+      DovahRootThemeMetrics.frostbound,
+      DovahConnectionCardThemeMetrics.frostbound,
+      DovahPageThemeMetrics.frostbound,
+      DovahSessionThemeMetrics.frostbound,
+      DovahOverviewThemeMetrics.frostbound,
+    ],
   );
 }

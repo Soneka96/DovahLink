@@ -15,8 +15,8 @@ import 'package:dovahlink_client/features/connection/presentation/widgets/root_h
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 
@@ -37,7 +37,7 @@ class ConnectionsScreen extends StatelessWidget {
       converter: (Store<AppState> store) =>
           sl<ConnectionsScreenViewModel>(param1: store),
       builder: (BuildContext context, ConnectionsScreenViewModel viewModel) {
-        final DovahThemeTokens tokens = context.dovahTokens;
+        final DovahRootMetrics metrics = context.dovahRootMetrics;
 
         return Scaffold(
           body: DovahEnvironmentBackground(
@@ -48,17 +48,17 @@ class ConnectionsScreen extends StatelessWidget {
                   child: SizedBox(
                     width: math.max(
                       constraints.maxWidth,
-                      DovahThemeTokens.rootMinimumWidth,
+                      DovahRootMetrics.minimumWidth,
                     ),
                     child: SingleChildScrollView(
                       child: Center(
                         child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: DovahThemeTokens.rootContentSideMargin,
+                          padding: EdgeInsets.symmetric(
+                            horizontal: metrics.sideMargin,
                           ),
                           child: ConstrainedBox(
                             constraints: const BoxConstraints(
-                              maxWidth: DovahThemeTokens.rootContentMaxWidth,
+                              maxWidth: DovahRootMetrics.contentMaxWidth,
                             ),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -71,9 +71,9 @@ class ConnectionsScreen extends StatelessWidget {
                                         child: const AppearanceSection(),
                                       ),
                                 ),
-                                SizedBox(height: tokens.rootContentTopPadding),
+                                SizedBox(height: metrics.contentTopPadding),
                                 const ConnectionsHero(onDiscover: null),
-                                SizedBox(height: tokens.rootHeroBottomGap),
+                                SizedBox(height: metrics.heroBottomGap),
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
                                   onSelectHost: (Host host) {
@@ -83,8 +83,7 @@ class ConnectionsScreen extends StatelessWidget {
                                 ),
                                 const ConnectionsFooter(),
                                 const SizedBox(
-                                  height:
-                                      DovahThemeTokens.rootContentBottomPadding,
+                                  height: DovahRootMetrics.contentBottomPadding,
                                 ),
                               ],
                             ),

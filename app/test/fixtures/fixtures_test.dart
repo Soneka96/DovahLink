@@ -221,24 +221,31 @@ void main() {
       expect(tokens.cornerStyle, DovahPanelCornerStyle.doubleBevel);
       expect(tokens.cornerRadius, isA<double>());
       expect(tokens.cornerRadius, 3);
-      expect(tokens.densityScale, isA<double>());
-      expect(tokens.densityScale, 1);
       expect(tokens.displayFontFamily, isA<String>());
       expect(tokens.displayFontFamily, 'Georgia');
       expect(tokens.environmentAssetPath, isNull);
       expect(tokens.eyebrow, isA<Color>());
       expect(tokens.eyebrow, const Color(0xFFE2A55E));
-      expect(tokens.rootHeaderHeight, isA<double>());
-      expect(tokens.rootHeaderHeight, 88);
-      expect(tokens.pageTitleFontSize, isA<double>());
-      expect(tokens.pageTitleFontSize, 34);
-      expect(tokens.connectionCardMinHeight, isA<double>());
-      expect(tokens.connectionCardMinHeight, 80);
       expect(tokens.uppercaseLabels, isFalse);
-      expect(tokens.rootContentTopPadding, 30);
-      expect(tokens.rootHeroBottomGap, 28);
       expect(tokens.rootHeaderRuleFraction, 0.36);
       expect(tokens.pageTitleLineHeight, 1.14);
+      expect(tokens.preset, DovahThemePreset.dovah);
+      expect(tokens.backdropColor, isA<Color>());
+      expect(tokens.backdropColor, const Color(0xC2020407));
+      expect(tokens.backdropBlurSigma, isA<double>());
+      expect(tokens.backdropBlurSigma, 8);
+      expect(tokens.panelCornerRadius, isA<double>());
+      expect(tokens.panelCornerRadius, 0);
+      expect(tokens.primaryActionCornerRadius, isA<double>());
+      expect(tokens.primaryActionCornerRadius, 0);
+      expect(tokens.statusOffline, const Color(0xFF7C8993));
+      expect(tokens.brandTagline, const Color(0xFF72899A));
+      expect(tokens.brandAccent, const Color(0xFF74BDE8));
+      expect(tokens.markIcon, const Color(0xFFE2A55E));
+      expect(tokens.barTrack, const Color(0xFF202B34));
+      expect(tokens.panelNote, const Color(0xFF667C8B));
+      expect((tokens.heroScrim as LinearGradient).stops, const [0, 0.52, 1]);
+      expect((tokens.heroFloorScrim as LinearGradient).stops, const [0, 0.72]);
     });
 
     test('Method buildDovahThemeTokens preserves named overrides', () {
@@ -248,23 +255,23 @@ void main() {
         soft: const Color(0x04050607),
         cornerStyle: DovahPanelCornerStyle.rounded,
         cornerRadius: 13,
-        densityScale: 1.15,
         environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
         eyebrow: const Color(0xFF010203),
-        rootHeaderHeight: 70,
-        pageTitleFontSize: 31,
-        connectionCardMinHeight: 61,
         uppercaseLabels: true,
+        preset: DovahThemePreset.hearth,
+        backdropColor: const Color(0x8A2F1F12),
+        backdropBlurSigma: 9,
+        panelCornerRadius: 14,
+        primaryActionCornerRadius: 9,
       );
 
+      expect(tokens.preset, DovahThemePreset.hearth);
+      expect(tokens.backdropColor, const Color(0x8A2F1F12));
+      expect(tokens.backdropBlurSigma, 9);
+      expect(tokens.panelCornerRadius, 14);
+      expect(tokens.primaryActionCornerRadius, 9);
       expect(tokens.eyebrow, isA<Color>());
       expect(tokens.eyebrow, const Color(0xFF010203));
-      expect(tokens.rootHeaderHeight, isA<double>());
-      expect(tokens.rootHeaderHeight, 70);
-      expect(tokens.pageTitleFontSize, isA<double>());
-      expect(tokens.pageTitleFontSize, 31);
-      expect(tokens.connectionCardMinHeight, isA<double>());
-      expect(tokens.connectionCardMinHeight, 61);
       expect(tokens.uppercaseLabels, isTrue);
       expect(tokens.background, isA<Color>());
       expect(tokens.background, const Color(0xFF000000));
@@ -276,8 +283,6 @@ void main() {
       expect(tokens.cornerStyle, DovahPanelCornerStyle.rounded);
       expect(tokens.cornerRadius, isA<double>());
       expect(tokens.cornerRadius, 13);
-      expect(tokens.densityScale, isA<double>());
-      expect(tokens.densityScale, 1.15);
       expect(tokens.environmentAssetPath, isA<String>());
       expect(
         tokens.environmentAssetPath,

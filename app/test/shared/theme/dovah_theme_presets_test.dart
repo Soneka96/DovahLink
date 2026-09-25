@@ -3,7 +3,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_preset_theme.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/frostbound_theme.dart';
@@ -26,6 +31,50 @@ void main() {
           Color(0xFF11191D),
         ]);
         expect(theme.brightness, Brightness.dark);
+      },
+    );
+
+    test('Method buildFrostboundTheme attaches its DovahRootThemeMetrics', () {
+      expect(
+        buildFrostboundTheme().extension<DovahRootThemeMetrics>(),
+        DovahRootThemeMetrics.frostbound,
+      );
+    });
+
+    test(
+      'Method buildFrostboundTheme attaches its DovahConnectionCardThemeMetrics',
+      () {
+        expect(
+          buildFrostboundTheme().extension<DovahConnectionCardThemeMetrics>(),
+          DovahConnectionCardThemeMetrics.frostbound,
+        );
+      },
+    );
+
+    test('Method buildFrostboundTheme attaches its DovahPageThemeMetrics', () {
+      expect(
+        buildFrostboundTheme().extension<DovahPageThemeMetrics>(),
+        DovahPageThemeMetrics.frostbound,
+      );
+    });
+
+    test(
+      'Method buildFrostboundTheme attaches its DovahSessionThemeMetrics',
+      () {
+        expect(
+          buildFrostboundTheme().extension<DovahSessionThemeMetrics>(),
+          DovahSessionThemeMetrics.frostbound,
+        );
+      },
+    );
+
+    test(
+      'Method buildFrostboundTheme attaches its DovahOverviewThemeMetrics',
+      () {
+        expect(
+          buildFrostboundTheme().extension<DovahOverviewThemeMetrics>(),
+          DovahOverviewThemeMetrics.frostbound,
+        );
       },
     );
   });
@@ -194,13 +243,8 @@ void main() {
           .extension<DovahThemeTokens>()!;
 
       expect(tokens.eyebrow, const Color(0xFFBD5559));
-      expect(tokens.rootHeaderHeight, 70);
-      expect(tokens.pageTitleFontSize, 31);
-      expect(tokens.connectionCardMinHeight, 68);
       expect(tokens.pageTitleLineHeight, 1.0);
       expect(tokens.uppercaseLabels, isTrue);
-      expect(tokens.rootContentTopPadding, 20);
-      expect(tokens.rootHeroBottomGap, 18);
       expect(tokens.rootHeaderRuleFraction, 0.2);
     });
 
@@ -209,13 +253,8 @@ void main() {
           .extension<DovahThemeTokens>()!;
 
       expect(tokens.eyebrow, const Color(0xFFE2A55E));
-      expect(tokens.rootHeaderHeight, 88);
-      expect(tokens.pageTitleFontSize, 34);
-      expect(tokens.connectionCardMinHeight, 80);
       expect(tokens.pageTitleLineHeight, 1.14);
       expect(tokens.uppercaseLabels, isFalse);
-      expect(tokens.rootContentTopPadding, 30);
-      expect(tokens.rootHeroBottomGap, 28);
       expect(tokens.rootHeaderRuleFraction, 0.36);
     });
 
@@ -224,16 +263,170 @@ void main() {
           .extension<DovahThemeTokens>()!;
 
       expect(tokens.eyebrow, const Color(0xFF945720));
-      expect(tokens.rootHeaderHeight, 86);
-      expect(tokens.pageTitleFontSize, 38);
-      expect(tokens.connectionCardMinHeight, 82);
       expect(tokens.pageTitleLineHeight, 1.14);
       expect(tokens.uppercaseLabels, isFalse);
-      expect(tokens.rootContentTopPadding, 30);
-      expect(tokens.rootHeroBottomGap, 28);
       expect(tokens.rootHeaderRuleFraction, 0.52);
     });
   });
+
+  group(
+    'Behavior prototype identity and backdrop token mappings behave correctly',
+    () {
+      for (final (
+            DovahThemePreset preset,
+            Color backdrop,
+            double blur,
+            double panelRadius,
+            double primaryRadius,
+          )
+          in [
+            (
+              DovahThemePreset.frostbound,
+              const Color(0xC7000204),
+              7.0,
+              0.0,
+              0.0,
+            ),
+            (DovahThemePreset.dovah, const Color(0xC2020407), 8.0, 0.0, 0.0),
+            (DovahThemePreset.hearth, const Color(0x8A2F1F12), 9.0, 14.0, 9.0),
+          ]) {
+        test(
+          'Behavior ${preset.name} tokens match the prototype backdrop and radii',
+          () {
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(tokens.preset, preset);
+            expect(tokens.backdropColor, backdrop);
+            expect(tokens.backdropBlurSigma, isA<double>());
+            expect(tokens.backdropBlurSigma, blur);
+            expect(tokens.panelCornerRadius, isA<double>());
+            expect(tokens.panelCornerRadius, panelRadius);
+            expect(tokens.primaryActionCornerRadius, isA<double>());
+            expect(tokens.primaryActionCornerRadius, primaryRadius);
+          },
+        );
+      }
+    },
+  );
+
+  group(
+    'Behavior prototype brand and status color mappings behave correctly',
+    () {
+      for (final (
+            DovahThemePreset preset,
+            Color offline,
+            Color tagline,
+            Color accent,
+            Color mark,
+            Color track,
+          )
+          in [
+            (
+              DovahThemePreset.frostbound,
+              const Color(0xFF7C8993),
+              const Color(0xFF82919A),
+              const Color(0xFFA9C7D1),
+              const Color(0xFFBD5559),
+              const Color(0xFF1B2931),
+            ),
+            (
+              DovahThemePreset.dovah,
+              const Color(0xFF7C8993),
+              const Color(0xFF72899A),
+              const Color(0xFF74BDE8),
+              const Color(0xFFE2A55E),
+              const Color(0xFF202B34),
+            ),
+            (
+              DovahThemePreset.hearth,
+              const Color(0xFF7F725F),
+              const Color(0xFF80674F),
+              const Color(0xFFA45F27),
+              const Color(0xFF965923),
+              const Color(0xFFB89463),
+            ),
+          ]) {
+        test(
+          'Behavior ${preset.name} tokens match the prototype brand and status colors',
+          () {
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(tokens.statusOffline, offline);
+            expect(tokens.brandTagline, tagline);
+            expect(tokens.brandAccent, accent);
+            expect(tokens.markIcon, mark);
+            expect(tokens.barTrack, track);
+          },
+        );
+      }
+    },
+  );
+
+  group(
+    'Behavior prototype hero scrim and panel note mappings behave correctly',
+    () {
+      for (final (
+            DovahThemePreset preset,
+            Color note,
+            List<Color> scrimColors,
+            List<double> scrimStops,
+            List<Color> floorColors,
+            List<double> floorStops,
+          )
+          in [
+            (
+              DovahThemePreset.frostbound,
+              const Color(0xFF929DA2),
+              const [Color(0xF0010406), Color(0x8A020609), Color(0x2B020609)],
+              const [0.0, 0.54, 1.0],
+              const [Color(0xEB030709), Color(0x00030709)],
+              const [0.0, 0.66],
+            ),
+            (
+              DovahThemePreset.dovah,
+              const Color(0xFF667C8B),
+              const [Color(0xE0050A0F), Color(0x5C050A0F), Color(0x0F050A0F)],
+              const [0.0, 0.52, 1.0],
+              const [Color(0xE00B141D), Color(0x000B141D)],
+              const [0.0, 0.72],
+            ),
+            (
+              DovahThemePreset.hearth,
+              const Color(0xFF765B3E),
+              const [Color(0xE6EFD9B5), Color(0xC2E4C69C), Color(0x2ECD9E62)],
+              const [0.0, 0.34, 0.72],
+              const [Color(0xD1E7CCA3), Color(0x94DAB57E), Color(0x00DAB57E)],
+              const [0.0, 0.31, 0.68],
+            ),
+          ]) {
+        test(
+          'Behavior ${preset.name} tokens match the prototype hero scrims and panel note',
+          () {
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+            final LinearGradient scrim = tokens.heroScrim as LinearGradient;
+            final LinearGradient floor =
+                tokens.heroFloorScrim as LinearGradient;
+
+            expect(tokens.panelNote, note);
+            expect(scrim.colors, scrimColors);
+            expect(scrim.stops, scrimStops);
+            expect(scrim.begin, Alignment.centerLeft);
+            expect(scrim.end, Alignment.centerRight);
+            expect(floor.colors, floorColors);
+            expect(floor.stops, floorStops);
+            expect(floor.begin, Alignment.bottomCenter);
+            expect(floor.end, Alignment.topCenter);
+          },
+        );
+      }
+    },
+  );
 
   group('Method buildDovahPresetTheme behaves correctly', () {
     test(
@@ -251,6 +444,50 @@ void main() {
         ]);
         expect(tokens.environmentAssetPath, isNull);
         expect(theme.brightness, Brightness.dark);
+      },
+    );
+
+    test('Method buildDovahPresetTheme attaches its DovahRootThemeMetrics', () {
+      expect(
+        buildDovahPresetTheme().extension<DovahRootThemeMetrics>(),
+        DovahRootThemeMetrics.dovah,
+      );
+    });
+
+    test(
+      'Method buildDovahPresetTheme attaches its DovahConnectionCardThemeMetrics',
+      () {
+        expect(
+          buildDovahPresetTheme().extension<DovahConnectionCardThemeMetrics>(),
+          DovahConnectionCardThemeMetrics.dovah,
+        );
+      },
+    );
+
+    test('Method buildDovahPresetTheme attaches its DovahPageThemeMetrics', () {
+      expect(
+        buildDovahPresetTheme().extension<DovahPageThemeMetrics>(),
+        DovahPageThemeMetrics.dovah,
+      );
+    });
+
+    test(
+      'Method buildDovahPresetTheme attaches its DovahSessionThemeMetrics',
+      () {
+        expect(
+          buildDovahPresetTheme().extension<DovahSessionThemeMetrics>(),
+          DovahSessionThemeMetrics.dovah,
+        );
+      },
+    );
+
+    test(
+      'Method buildDovahPresetTheme attaches its DovahOverviewThemeMetrics',
+      () {
+        expect(
+          buildDovahPresetTheme().extension<DovahOverviewThemeMetrics>(),
+          DovahOverviewThemeMetrics.dovah,
+        );
       },
     );
   });
@@ -272,6 +509,44 @@ void main() {
         expect(theme.brightness, Brightness.light);
       },
     );
+
+    test('Method buildHearthTheme attaches its DovahRootThemeMetrics', () {
+      expect(
+        buildHearthTheme().extension<DovahRootThemeMetrics>(),
+        DovahRootThemeMetrics.hearth,
+      );
+    });
+
+    test(
+      'Method buildHearthTheme attaches its DovahConnectionCardThemeMetrics',
+      () {
+        expect(
+          buildHearthTheme().extension<DovahConnectionCardThemeMetrics>(),
+          DovahConnectionCardThemeMetrics.hearth,
+        );
+      },
+    );
+
+    test('Method buildHearthTheme attaches its DovahPageThemeMetrics', () {
+      expect(
+        buildHearthTheme().extension<DovahPageThemeMetrics>(),
+        DovahPageThemeMetrics.hearth,
+      );
+    });
+
+    test('Method buildHearthTheme attaches its DovahSessionThemeMetrics', () {
+      expect(
+        buildHearthTheme().extension<DovahSessionThemeMetrics>(),
+        DovahSessionThemeMetrics.hearth,
+      );
+    });
+
+    test('Method buildHearthTheme attaches its DovahOverviewThemeMetrics', () {
+      expect(
+        buildHearthTheme().extension<DovahOverviewThemeMetrics>(),
+        DovahOverviewThemeMetrics.hearth,
+      );
+    });
   });
 
   group('Method dovahThemeDataFor behaves correctly', () {
@@ -350,28 +625,6 @@ void main() {
         };
 
         expect(radii, hasLength(3));
-      },
-    );
-
-    test(
-      'Behavior distinct presets use a different density scale per theme',
-      () {
-        final DovahThemeTokens frostbound = buildFrostboundTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens dovah = buildDovahPresetTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens hearth = buildHearthTheme()
-            .extension<DovahThemeTokens>()!;
-
-        final Set<double> densities = {
-          frostbound.densityScale,
-          dovah.densityScale,
-          hearth.densityScale,
-        };
-
-        expect(densities, hasLength(3));
-        expect(frostbound.densityScale, lessThan(dovah.densityScale));
-        expect(dovah.densityScale, lessThan(hearth.densityScale));
       },
     );
 

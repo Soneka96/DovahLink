@@ -7,6 +7,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
@@ -36,7 +38,15 @@ void main() {
             expect(tester.takeException(), isNull);
             expect(eyebrow.style?.color, tokens.eyebrow);
             expect(title.style?.fontSize, isA<double>());
-            expect(title.style?.fontSize, tokens.pageTitleFontSize);
+            expect(
+              title.style?.fontSize,
+              DovahRootMetrics.forWindow(
+                themeMetrics: dovahThemeDataFor(
+                  preset,
+                ).extension<DovahRootThemeMetrics>()!,
+                window: size,
+              ).pageTitleFontSize,
+            );
             expect(title.style?.fontFamily, tokens.displayFontFamily);
             expect(
               find.text('Select an available PC to enter its game.'),
@@ -159,5 +169,33 @@ void main() {
         }
       },
     );
+  });
+
+  group('ConnectionsHero follows the prototype compact title gap', () {
+    for (final (Size size, double gap) in [
+      (const Size(1280, 720), 7),
+      (const Size(800, 700), 7),
+      (const Size(900, 560), 4),
+      (const Size(720, 480), 4),
+    ]) {
+      testWidgets(
+        'ConnectionsHero puts $gap between its eyebrow and title at $size',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            ConnectionsHero(onDiscover: () {}),
+            preset: DovahThemePreset.dovah,
+            size: size,
+          );
+
+          expect(tester.takeException(), isNull);
+          expect(
+            tester.getRect(find.text('Connections')).top -
+                tester.getRect(find.text('YOUR SKYRIM')).bottom,
+            gap,
+          );
+        },
+      );
+    }
   });
 }

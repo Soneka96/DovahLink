@@ -78,7 +78,7 @@ class PairingProgress extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: [
               const ExcludeSemantics(child: PairingLoadingIndicator()),
-              const SizedBox(width: DovahThemeTokens.progressStatusGap),
+              const SizedBox(width: DovahDialogMetrics.progressStatusGap),
               Text(
                 status,
                 style: TextStyle(

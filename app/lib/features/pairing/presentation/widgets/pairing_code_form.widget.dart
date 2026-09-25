@@ -7,7 +7,6 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// The pairing-code entry form shown while pairing is awaiting the user to enter a code:
@@ -171,8 +170,8 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
         Wrap(
           alignment: WrapAlignment.center,
           runAlignment: WrapAlignment.center,
-          spacing: DovahThemeTokens.dialogActionGap,
-          runSpacing: DovahThemeTokens.dialogActionGap,
+          spacing: DovahDialogMetrics.actionGap,
+          runSpacing: DovahDialogMetrics.actionGap,
           // A DovahButton fills the width it is offered, so each action is laid out unconstrained
           // to size to its label and let the Wrap decide when to start a new row.
           children: [

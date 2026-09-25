@@ -67,7 +67,7 @@ class PairingCodeEntry extends StatelessWidget {
           'You’ll only need to do this once.',
           style: TextStyle(
             color: tokens.textMuted,
-            fontSize: DovahThemeTokens.pairingNoteFontSize,
+            fontSize: DovahDialogMetrics.noteFontSize,
           ),
         ),
       ],

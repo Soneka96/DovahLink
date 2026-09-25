@@ -111,6 +111,65 @@ void main() {
     });
   });
 
+  group('Property shared dialog and pairing constants behave correctly', () {
+    test(
+      'Property shared dialog constants keep the prototype modal values',
+      () {
+        expect(DovahDialogMetrics.backdropPadding, isA<double>());
+        expect(DovahDialogMetrics.backdropPadding, 24);
+        expect(DovahDialogMetrics.maxWidth, isA<double>());
+        expect(DovahDialogMetrics.maxWidth, 720);
+        expect(DovahDialogMetrics.widthFraction, isA<double>());
+        expect(DovahDialogMetrics.widthFraction, 0.88);
+        expect(DovahDialogMetrics.titleFontSize, isA<double>());
+        expect(DovahDialogMetrics.titleFontSize, 23);
+        expect(DovahDialogMetrics.actionGap, isA<double>());
+        expect(DovahDialogMetrics.actionGap, 10);
+      },
+    );
+
+    test('Property shared pairing constants keep the prototype values', () {
+      expect(DovahDialogMetrics.codeBoxGap, isA<double>());
+      expect(DovahDialogMetrics.codeBoxGap, 8);
+      expect(DovahDialogMetrics.codeBoxFontSize, isA<double>());
+      expect(DovahDialogMetrics.codeBoxFontSize, 22);
+      expect(DovahDialogMetrics.codeBoxFocusRingWidth, isA<double>());
+      expect(DovahDialogMetrics.codeBoxFocusRingWidth, 3);
+      expect(DovahDialogMetrics.messageFontSize, isA<double>());
+      expect(DovahDialogMetrics.messageFontSize, 12);
+      expect(DovahDialogMetrics.contentMaxWidth, isA<double>());
+      expect(DovahDialogMetrics.contentMaxWidth, 520);
+      expect(DovahDialogMetrics.bodyMaxWidth, isA<double>());
+      expect(DovahDialogMetrics.bodyMaxWidth, 430);
+      expect(DovahDialogMetrics.bodyFontSize, isA<double>());
+      expect(DovahDialogMetrics.bodyFontSize, 14);
+      expect(DovahDialogMetrics.noteFontSize, isA<double>());
+      expect(DovahDialogMetrics.noteFontSize, 12);
+    });
+
+    test(
+      'Property shared success and progress constants keep prototype values',
+      () {
+        expect(DovahDialogMetrics.successMarkSize, isA<double>());
+        expect(DovahDialogMetrics.successMarkSize, 62);
+        expect(DovahDialogMetrics.successMarkBottomGap, isA<double>());
+        expect(DovahDialogMetrics.successMarkBottomGap, 17);
+        expect(DovahDialogMetrics.successGlyphSize, isA<double>());
+        expect(DovahDialogMetrics.successGlyphSize, 29);
+        expect(DovahDialogMetrics.statusMarkFillOpacity, isA<double>());
+        expect(DovahDialogMetrics.statusMarkFillOpacity, 0.1);
+        expect(DovahDialogMetrics.statusMarkBorderOpacity, isA<double>());
+        expect(DovahDialogMetrics.statusMarkBorderOpacity, 0.36);
+        expect(DovahDialogMetrics.progressIndicatorSize, isA<double>());
+        expect(DovahDialogMetrics.progressIndicatorSize, 15);
+        expect(DovahDialogMetrics.progressIndicatorStrokeWidth, isA<double>());
+        expect(DovahDialogMetrics.progressIndicatorStrokeWidth, 2);
+        expect(DovahDialogMetrics.progressStatusGap, isA<double>());
+        expect(DovahDialogMetrics.progressStatusGap, 10);
+      },
+    );
+  });
+
   group('Property codeRowWidth behaves correctly', () {
     test('Property codeRowWidth spans six regular boxes and five gaps', () {
       expect(DovahDialogMetrics.regular.codeRowWidth, 6 * 49 + 5 * 8);

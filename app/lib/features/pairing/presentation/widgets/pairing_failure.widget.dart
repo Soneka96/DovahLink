@@ -4,7 +4,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_m
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_retry_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// The pairing state after an attempt ended without pairing: a code that expired or hit its
@@ -38,8 +38,8 @@ class PairingFailure extends StatelessWidget {
       children: [
         Wrap(
           alignment: WrapAlignment.center,
-          spacing: DovahThemeTokens.dialogActionGap,
-          runSpacing: DovahThemeTokens.dialogActionGap,
+          spacing: DovahDialogMetrics.actionGap,
+          runSpacing: DovahDialogMetrics.actionGap,
           children: [
             UnconstrainedBox(
               child: DovahButton(

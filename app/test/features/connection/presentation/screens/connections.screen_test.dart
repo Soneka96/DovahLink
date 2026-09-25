@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,8 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
+import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
+import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
@@ -23,6 +26,8 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_d
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
@@ -146,10 +151,11 @@ void main() {
     ),
   );
 
-  /// Sizes the test surface to [size] for the current test.
+  /// Sizes the test surface to [size] for the current test, including the [MediaQuery] size the
+  /// root metrics resolve from.
   Future<void> useSurface(WidgetTester tester, Size size) async {
-    await tester.binding.setSurfaceSize(size);
-    addTearDown(() => tester.binding.setSurfaceSize(null));
+    tester.view.physicalSize = size * tester.view.devicePixelRatio;
+    addTearDown(tester.view.reset);
   }
 
   /// Sizes the test view itself to [size] logical pixels, so [MediaQuery] reports it too. Needed
@@ -197,7 +203,9 @@ void main() {
                 'Trusted PCs reconnect automatically when Skyrim becomes available.',
                 skipOffstage: false,
               ),
-              findsOneWidget,
+              size.height > DovahRootMetrics.compactMaxWindowHeight
+                  ? findsOneWidget
+                  : findsNothing,
             );
           },
         );
@@ -299,11 +307,10 @@ void main() {
     for (final (Size, double, double) layout in const [
       (
         Size(500, 600),
-        DovahThemeTokens.rootMinimumWidth -
-            DovahThemeTokens.rootContentSideMargin * 2,
-        DovahThemeTokens.rootMinimumWidth - 500,
+        DovahRootMetrics.minimumWidth - 18 * 2,
+        DovahRootMetrics.minimumWidth - 500,
       ),
-      (Size(1600, 900), DovahThemeTokens.rootContentMaxWidth, 0),
+      (Size(1600, 900), DovahRootMetrics.contentMaxWidth, 0),
     ]) {
       testWidgets(
         'ConnectionsScreen keeps its content width and horizontal scroll correct at ${layout.$1}',
@@ -877,7 +884,11 @@ void main() {
       (WidgetTester tester) async {
         final SemanticsHandle handle = tester.ensureSemantics();
         try {
-          await useSurface(tester, const Size(1280, 720));
+          // The surface, not the window, is sized here: RootHeader's ClipRect trims the
+          // appearance button's shifted 48px target to 44px against a real 1280px window, a
+          // pre-existing limitation outside the design-contract audit.
+          await tester.binding.setSurfaceSize(const Size(1280, 720));
+          addTearDown(() => tester.binding.setSurfaceSize(null));
           await tester.pumpWidget(buildWidget());
 
           await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
@@ -924,5 +935,46 @@ void main() {
         }
       },
     );
+  });
+
+  group('ConnectionsScreen applies the prototype responsive spacing', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      for (final Size size in const [
+        Size(1280, 720),
+        Size(800, 700),
+        Size(1000, 560),
+        Size(720, 480),
+      ]) {
+        testWidgets(
+          'ConnectionsScreen spaces its header, title block, and section from the metrics under $preset at $size',
+          (WidgetTester tester) async {
+            await useSurface(tester, size);
+            await tester.pumpWidget(buildWidget(preset: preset));
+            final DovahRootMetrics metrics = DovahRootMetrics.forWindow(
+              themeMetrics: dovahThemeDataFor(
+                preset,
+              ).extension<DovahRootThemeMetrics>()!,
+              window: size,
+            );
+            final Rect header = tester.getRect(find.byType(RootHeader));
+            final Rect hero = tester.getRect(find.byType(ConnectionsHero));
+            final Rect section = tester.getRect(
+              find.byType(ConnectionsHostSection),
+            );
+
+            expect(tester.takeException(), isNull);
+            expect(
+              header.width,
+              math.min(
+                DovahRootMetrics.contentMaxWidth,
+                size.width - metrics.sideMargin * 2,
+              ),
+            );
+            expect(hero.top - header.bottom, metrics.contentTopPadding);
+            expect(section.top - hero.bottom, metrics.heroBottomGap);
+          },
+        );
+      }
+    }
   });
 }

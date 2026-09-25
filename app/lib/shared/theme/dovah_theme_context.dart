@@ -1,6 +1,16 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Reads the active [DovahThemeTokens] from the nearest [Theme]. Every shared DovahLink surface
@@ -14,4 +24,43 @@ extension DovahThemeContext on BuildContext {
   /// The [DovahDialogMetrics] for the height of the window this context is shown in.
   DovahDialogMetrics get dovahDialogMetrics =>
       DovahDialogMetrics.forWindowHeight(MediaQuery.sizeOf(this).height);
+
+  /// The [DovahRootMetrics] for the active theme and the size of the window this context is shown
+  /// in. It follows the theme's own transition, so its measurements animate with the theme.
+  DovahRootMetrics get dovahRootMetrics => DovahRootMetrics.forWindow(
+    themeMetrics: Theme.of(this).extension<DovahRootThemeMetrics>()!,
+    window: MediaQuery.sizeOf(this),
+  );
+
+  /// The [DovahConnectionCardMetrics] for the active theme and the size of the window this context
+  /// is shown in.
+  DovahConnectionCardMetrics get dovahConnectionCardMetrics =>
+      DovahConnectionCardMetrics.forWindow(
+        themeMetrics: Theme.of(
+          this,
+        ).extension<DovahConnectionCardThemeMetrics>()!,
+        window: MediaQuery.sizeOf(this),
+      );
+
+  /// The [DovahPageMetrics] for the active theme and the size of the window this context is shown
+  /// in.
+  DovahPageMetrics get dovahPageMetrics => DovahPageMetrics.forWindow(
+    themeMetrics: Theme.of(this).extension<DovahPageThemeMetrics>()!,
+    window: MediaQuery.sizeOf(this),
+  );
+
+  /// The [DovahSessionMetrics] for the active theme and the size of the window this context is
+  /// shown in.
+  DovahSessionMetrics get dovahSessionMetrics => DovahSessionMetrics.forWindow(
+    themeMetrics: Theme.of(this).extension<DovahSessionThemeMetrics>()!,
+    window: MediaQuery.sizeOf(this),
+  );
+
+  /// The [DovahOverviewMetrics] for the active theme and the size of the window this context is
+  /// shown in.
+  DovahOverviewMetrics get dovahOverviewMetrics =>
+      DovahOverviewMetrics.forWindow(
+        themeMetrics: Theme.of(this).extension<DovahOverviewThemeMetrics>()!,
+        window: MediaQuery.sizeOf(this),
+      );
 }

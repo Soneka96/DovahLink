@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -15,11 +16,11 @@ class PairingLoadingIndicator extends StatelessWidget {
     final DovahThemeTokens tokens = context.dovahTokens;
 
     return SizedBox(
-      width: DovahThemeTokens.progressIndicatorSize,
-      height: DovahThemeTokens.progressIndicatorSize,
+      width: DovahDialogMetrics.progressIndicatorSize,
+      height: DovahDialogMetrics.progressIndicatorSize,
       child: CircularProgressIndicator(
         key: const Key('pairing-loading'),
-        strokeWidth: DovahThemeTokens.progressIndicatorStrokeWidth,
+        strokeWidth: DovahDialogMetrics.progressIndicatorStrokeWidth,
         color: tokens.accentPrimary,
         backgroundColor: tokens.lineSubtle,
       ),

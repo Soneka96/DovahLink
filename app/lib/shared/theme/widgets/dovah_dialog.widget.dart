@@ -3,6 +3,7 @@ import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -49,22 +50,24 @@ class DovahDialog extends StatelessWidget {
   static Future<T?> showBuilder<T>(
     BuildContext context, {
     required WidgetBuilder builder,
-  }) => showDialog<T>(
-    context: context,
-    barrierColor: DovahThemeTokens.dialogBackdropColor.withValues(
-      alpha: DovahThemeTokens.dialogBackdropOpacity,
-    ),
-    builder: (BuildContext dialogContext) => BackdropFilter(
-      filter: ImageFilter.blur(
-        sigmaX: DovahThemeTokens.dialogBackdropBlurSigma,
-        sigmaY: DovahThemeTokens.dialogBackdropBlurSigma,
+  }) {
+    final DovahThemeTokens tokens = context.dovahTokens;
+
+    return showDialog<T>(
+      context: context,
+      barrierColor: tokens.backdropColor,
+      builder: (BuildContext dialogContext) => BackdropFilter(
+        filter: ImageFilter.blur(
+          sigmaX: tokens.backdropBlurSigma,
+          sigmaY: tokens.backdropBlurSigma,
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(DovahDialogMetrics.backdropPadding),
+          child: Center(child: builder(dialogContext)),
+        ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.all(DovahThemeTokens.spacing24),
-        child: Center(child: builder(dialogContext)),
-      ),
-    ),
-  );
+    );
+  }
 
   /// See [StatelessWidget.build].
   @override
@@ -77,8 +80,8 @@ class DovahDialog extends StatelessWidget {
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: math.min(
-            DovahThemeTokens.dialogMaxWidth,
-            window.width * DovahThemeTokens.dialogWidthFraction,
+            DovahDialogMetrics.maxWidth,
+            window.width * DovahDialogMetrics.widthFraction,
           ),
           maxHeight: window.height * metrics.heightFraction,
         ),
@@ -90,9 +93,8 @@ class DovahDialog extends StatelessWidget {
               Container(
                 key: const Key('dovah-dialog-header'),
                 padding: EdgeInsets.symmetric(
-                  horizontal:
-                      metrics.headerHorizontalPadding * tokens.densityScale,
-                  vertical: metrics.headerVerticalPadding * tokens.densityScale,
+                  horizontal: metrics.headerHorizontalPadding,
+                  vertical: metrics.headerVerticalPadding,
                 ),
                 decoration: BoxDecoration(
                   border: Border(bottom: BorderSide(color: tokens.lineSubtle)),
@@ -104,7 +106,7 @@ class DovahDialog extends StatelessWidget {
                         title,
                         style: TextStyle(
                           fontFamily: tokens.displayFontFamily,
-                          fontSize: DovahThemeTokens.dialogTitleFontSize,
+                          fontSize: DovahDialogMetrics.titleFontSize,
                           fontWeight: FontWeight.w500,
                           color: tokens.textPrimary,
                         ),
@@ -116,8 +118,8 @@ class DovahDialog extends StatelessWidget {
                           onClose ?? () => Navigator.of(context).maybePop(),
                       tooltip: 'Close',
                       constraints: const BoxConstraints(
-                        minWidth: DovahThemeTokens.minimumTapTargetSize,
-                        minHeight: DovahThemeTokens.minimumTapTargetSize,
+                        minWidth: DovahControlMetrics.minimumTapTargetSize,
+                        minHeight: DovahControlMetrics.minimumTapTargetSize,
                       ),
                     ),
                   ],
@@ -126,9 +128,8 @@ class DovahDialog extends StatelessWidget {
               Flexible(
                 child: Padding(
                   padding: EdgeInsets.symmetric(
-                    horizontal:
-                        metrics.bodyHorizontalPadding * tokens.densityScale,
-                    vertical: metrics.bodyVerticalPadding * tokens.densityScale,
+                    horizontal: metrics.bodyHorizontalPadding,
+                    vertical: metrics.bodyVerticalPadding,
                   ),
                   child: SingleChildScrollView(child: child),
                 ),

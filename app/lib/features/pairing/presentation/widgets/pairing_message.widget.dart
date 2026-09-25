@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
@@ -29,7 +30,7 @@ class PairingMessage extends StatelessWidget {
           textAlign: TextAlign.center,
           style: TextStyle(
             color: tokens.danger,
-            fontSize: DovahThemeTokens.formErrorFontSize,
+            fontSize: DovahDialogMetrics.messageFontSize,
           ),
         ),
       ),

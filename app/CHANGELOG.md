@@ -39,6 +39,10 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Pairing asks Skyrim for the code as soon as you select a Host, instead of waiting for you to
   request it.
 - Pairing no longer asks for a device name.
+- The Connections screen follows the prototype's narrow and short-window layouts: tighter margins,
+  header, title, and cards, no detail column below 900 px wide, and no footer note below 620 px
+  tall.
+- Connection cards use each theme's own padding, height, icon tile, and bevel.
 
 ### Fixed
 
@@ -51,6 +55,11 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Interactive theme, connection, and action controls expose a single, exact screen-reader label.
 - The shared theme tokens preserve every prototype surface color and the approved focus halo color.
 - Themed buttons respect reduced-motion settings.
+- Dialogs use each theme's own backdrop color and blur, and dialog and button padding no longer
+  change with the theme.
+- Hearth panels, dialogs, and primary buttons use the prototype's corner radii.
+- The wordmark's LINK half, its tagline, offline connection state, and pairing icon tiles use each
+  theme's own colors.
 
 ### Removed
 

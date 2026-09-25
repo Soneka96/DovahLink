@@ -3,7 +3,6 @@ import 'package:flutter/foundation.dart';
 import 'package:equatable/equatable.dart';
 
 import 'package:dovahlink_client/shared/constants/constants.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// The measurements a themed dialog and the content it hosts change with the window height: the
 /// approved prototype has a regular layout and a tighter one for short landscape windows, and
@@ -13,6 +12,75 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 class DovahDialogMetrics extends Equatable {
   /// The tallest window, in logical pixels, that still gets the [compact] measurements.
   static const double compactMaxWindowHeight = 620;
+
+  /// Padding between the window edge and the dialog (the prototype's `.modal-backdrop`
+  /// `padding:24px`).
+  static const double backdropPadding = 24;
+
+  /// Maximum width of a themed dialog (the prototype's `.modal` `width:min(720px,88vw)`).
+  static const double maxWidth = 720;
+
+  /// Fraction of the window width a themed dialog may fill, up to [maxWidth].
+  static const double widthFraction = 0.88;
+
+  /// Font size of a dialog title (the prototype's `.modal-head h2`).
+  static const double titleFontSize = 23;
+
+  /// Gap between adjacent action buttons in a dialog (the prototype's `.pair-actions`
+  /// `gap:10px`).
+  static const double actionGap = 10;
+
+  /// Gap between pairing-code digit boxes (the prototype's `.otp` `gap:8px`).
+  static const double codeBoxGap = 8;
+
+  /// Font size of a digit inside a pairing-code digit box (the prototype's `.otp input`).
+  static const double codeBoxFontSize = 22;
+
+  /// Width of the halo around the focused pairing-code digit box (the prototype's
+  /// `.otp input:focus` `0 0 0 3px`).
+  static const double codeBoxFocusRingWidth = 3;
+
+  /// Font size of an inline form message (the prototype's `.error`).
+  static const double messageFontSize = 12;
+
+  /// Maximum width of a pairing state's content column (the prototype's `.pairing`).
+  static const double contentMaxWidth = 520;
+
+  /// Maximum width of a pairing state's body copy (the prototype's `.pairing p`).
+  static const double bodyMaxWidth = 430;
+
+  /// Font size of a pairing state's body copy (the prototype's `.pairing p`).
+  static const double bodyFontSize = 14;
+
+  /// Font size of a pairing state's footnote (the prototype's `.pairing .pair-note`).
+  static const double noteFontSize = 12;
+
+  /// Width and height of a pairing success mark (the prototype's `.success-icon`).
+  static const double successMarkSize = 62;
+
+  /// Gap below a pairing success mark (the prototype's `.success-icon` bottom margin).
+  static const double successMarkBottomGap = 17;
+
+  /// Size of the check glyph inside a pairing success mark (the prototype's `.success-icon`).
+  static const double successGlyphSize = 29;
+
+  /// Opacity of the status tone filling a pairing success mark (the prototype's `.success-icon`
+  /// `rgba(...,.1)` fill).
+  static const double statusMarkFillOpacity = 0.1;
+
+  /// Opacity of the status tone outlining a pairing success mark (the prototype's
+  /// `.success-icon` `rgba(...,.36)` border).
+  static const double statusMarkBorderOpacity = 0.36;
+
+  /// Width and height of an inline progress spinner (the prototype's `.spinner`).
+  static const double progressIndicatorSize = 15;
+
+  /// Stroke width of an inline progress spinner (the prototype's `.spinner` border).
+  static const double progressIndicatorStrokeWidth = 2;
+
+  /// Gap between an inline progress spinner and its status text (the prototype's `.searching`
+  /// `gap:10px`).
+  static const double progressStatusGap = 10;
 
   /// The measurements for windows taller than [compactMaxWindowHeight].
   static const DovahDialogMetrics regular = DovahDialogMetrics(
@@ -60,16 +128,16 @@ class DovahDialogMetrics extends Equatable {
     noteTopGap: 8,
   );
 
-  /// Vertical padding of a dialog's header, before theme density scaling.
+  /// Vertical padding of a dialog's header.
   final double headerVerticalPadding;
 
-  /// Horizontal padding of a dialog's header, before theme density scaling.
+  /// Horizontal padding of a dialog's header.
   final double headerHorizontalPadding;
 
-  /// Vertical padding around a dialog's content, before theme density scaling.
+  /// Vertical padding around a dialog's content.
   final double bodyVerticalPadding;
 
-  /// Horizontal padding around a dialog's content, before theme density scaling.
+  /// Horizontal padding around a dialog's content.
   final double bodyHorizontalPadding;
 
   /// Fraction of the window height a dialog may fill.
@@ -143,8 +211,7 @@ class DovahDialogMetrics extends Equatable {
 
   /// The total width of a row of [pairingCodeLength] digit boxes and the gaps between them.
   double get codeRowWidth =>
-      pairingCodeLength * codeBoxWidth +
-      (pairingCodeLength - 1) * DovahThemeTokens.pairingCodeBoxGap;
+      pairingCodeLength * codeBoxWidth + (pairingCodeLength - 1) * codeBoxGap;
 
   /// Returns [compact] when [windowHeight] is at most [compactMaxWindowHeight], and [regular] for
   /// a taller window.

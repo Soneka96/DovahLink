@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
@@ -17,6 +18,7 @@ class ConnectionsHero extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final DovahRootMetrics metrics = context.dovahRootMetrics;
     final bool uppercase = tokens.uppercaseLabels;
     const String title = 'Connections';
 
@@ -31,15 +33,15 @@ class ConnectionsHero extends StatelessWidget {
                 'YOUR SKYRIM',
                 style: TextStyle(
                   color: tokens.eyebrow,
-                  fontSize: DovahThemeTokens.eyebrowFontSize,
+                  fontSize: DovahRootMetrics.eyebrowFontSize,
                   height: DovahThemeTokens.bodyLineHeight,
                   fontWeight: FontWeight.w800,
                   letterSpacing:
-                      DovahThemeTokens.eyebrowLetterSpacingEm *
-                      DovahThemeTokens.eyebrowFontSize,
+                      DovahRootMetrics.eyebrowLetterSpacingEm *
+                      DovahRootMetrics.eyebrowFontSize,
                 ),
               ),
-              const SizedBox(height: DovahThemeTokens.pageTitleTopGap),
+              SizedBox(height: metrics.pageTitleTopGap),
               Semantics(
                 header: true,
                 label: title,
@@ -49,30 +51,30 @@ class ConnectionsHero extends StatelessWidget {
                   style: TextStyle(
                     color: tokens.textPrimary,
                     fontFamily: tokens.displayFontFamily,
-                    fontSize: tokens.pageTitleFontSize,
+                    fontSize: metrics.pageTitleFontSize,
                     height: tokens.pageTitleLineHeight,
                     fontWeight: uppercase ? FontWeight.w700 : FontWeight.w500,
                     letterSpacing:
                         (uppercase
-                            ? DovahThemeTokens.pageTitleUppercaseLetterSpacingEm
-                            : DovahThemeTokens.pageTitleLetterSpacingEm) *
-                        tokens.pageTitleFontSize,
+                            ? DovahRootMetrics.pageTitleUppercaseLetterSpacingEm
+                            : DovahRootMetrics.pageTitleLetterSpacingEm) *
+                        metrics.pageTitleFontSize,
                   ),
                 ),
               ),
-              const SizedBox(height: DovahThemeTokens.pageTitleBottomGap),
+              const SizedBox(height: DovahRootMetrics.pageTitleBottomGap),
               Text(
                 'Select an available PC to enter its game.',
                 style: TextStyle(
                   color: tokens.textMuted,
-                  fontSize: DovahThemeTokens.pageDescriptionFontSize,
+                  fontSize: DovahRootMetrics.pageDescriptionFontSize,
                   height: DovahThemeTokens.bodyLineHeight,
                 ),
               ),
             ],
           ),
         ),
-        const SizedBox(width: DovahThemeTokens.rootHeroGap),
+        const SizedBox(width: DovahRootMetrics.heroGap),
         DovahButton(
           label: 'Discover Skyrim',
           icon: Icons.zoom_in,

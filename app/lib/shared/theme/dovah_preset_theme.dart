@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Builds the Dovah preset: the balanced DovahLink identity -- midnight steel, ember-to-ice
@@ -54,18 +59,35 @@ ThemeData buildDovahPresetTheme() {
       end: Alignment.bottomRight,
       colors: [Color(0xFF162A38), Color(0xFF09141D)],
     ),
-    densityScale: 1,
     displayFontFamily: 'Georgia',
     environmentAssetPath: null,
     eyebrow: Color(0xFFE2A55E),
-    rootHeaderHeight: 88,
-    pageTitleFontSize: 34,
-    connectionCardMinHeight: 80,
-    rootContentTopPadding: 30,
-    rootHeroBottomGap: 28,
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.36,
     uppercaseLabels: false,
+    preset: DovahThemePreset.dovah,
+    backdropColor: Color(0xC2020407),
+    backdropBlurSigma: 8,
+    panelCornerRadius: 0,
+    primaryActionCornerRadius: 0,
+    statusOffline: Color(0xFF7C8993),
+    brandTagline: Color(0xFF72899A),
+    brandAccent: Color(0xFF74BDE8),
+    barTrack: Color(0xFF202B34),
+    markIcon: Color(0xFFE2A55E),
+    panelNote: Color(0xFF667C8B),
+    heroScrim: LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [Color(0xE0050A0F), Color(0x5C050A0F), Color(0x0F050A0F)],
+      stops: [0, 0.52, 1],
+    ),
+    heroFloorScrim: LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: [Color(0xE00B141D), Color(0x000B141D)],
+      stops: [0, 0.72],
+    ),
   );
 
   return ThemeData(
@@ -78,6 +100,13 @@ ThemeData buildDovahPresetTheme() {
       error: tokens.danger,
       onSurface: tokens.textPrimary,
     ),
-    extensions: const [tokens],
+    extensions: const [
+      tokens,
+      DovahRootThemeMetrics.dovah,
+      DovahConnectionCardThemeMetrics.dovah,
+      DovahPageThemeMetrics.dovah,
+      DovahSessionThemeMetrics.dovah,
+      DovahOverviewThemeMetrics.dovah,
+    ],
   );
 }

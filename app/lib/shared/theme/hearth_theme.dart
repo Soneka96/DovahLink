@@ -1,6 +1,11 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Builds the Hearth preset: warm, spacious, and storybook-like -- parchment, walnut, bronze,
@@ -53,18 +58,35 @@ ThemeData buildHearthTheme() {
       end: Alignment.bottomRight,
       colors: [Color(0xFFFAE9CD), Color(0xFFDDB985)],
     ),
-    densityScale: 1.15,
     displayFontFamily: 'Georgia',
     environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
     eyebrow: Color(0xFF945720),
-    rootHeaderHeight: 86,
-    pageTitleFontSize: 38,
-    connectionCardMinHeight: 82,
-    rootContentTopPadding: 30,
-    rootHeroBottomGap: 28,
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.52,
     uppercaseLabels: false,
+    preset: DovahThemePreset.hearth,
+    backdropColor: Color(0x8A2F1F12),
+    backdropBlurSigma: 9,
+    panelCornerRadius: 14,
+    primaryActionCornerRadius: 9,
+    statusOffline: Color(0xFF7F725F),
+    brandTagline: Color(0xFF80674F),
+    brandAccent: Color(0xFFA45F27),
+    barTrack: Color(0xFFB89463),
+    markIcon: Color(0xFF965923),
+    panelNote: Color(0xFF765B3E),
+    heroScrim: LinearGradient(
+      begin: Alignment.centerLeft,
+      end: Alignment.centerRight,
+      colors: [Color(0xE6EFD9B5), Color(0xC2E4C69C), Color(0x2ECD9E62)],
+      stops: [0, 0.34, 0.72],
+    ),
+    heroFloorScrim: LinearGradient(
+      begin: Alignment.bottomCenter,
+      end: Alignment.topCenter,
+      colors: [Color(0xD1E7CCA3), Color(0x94DAB57E), Color(0x00DAB57E)],
+      stops: [0, 0.31, 0.68],
+    ),
   );
 
   return ThemeData(
@@ -77,6 +99,13 @@ ThemeData buildHearthTheme() {
       error: tokens.danger,
       onSurface: tokens.textPrimary,
     ),
-    extensions: const [tokens],
+    extensions: const [
+      tokens,
+      DovahRootThemeMetrics.hearth,
+      DovahConnectionCardThemeMetrics.hearth,
+      DovahPageThemeMetrics.hearth,
+      DovahSessionThemeMetrics.hearth,
+      DovahOverviewThemeMetrics.hearth,
+    ],
   );
 }
