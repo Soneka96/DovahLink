@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -84,7 +85,8 @@ class AppearancePresetCard extends StatelessWidget {
                     children: [
                       Container(
                         key: const Key('appearance-preset-card-preview'),
-                        height: appearancePreviewHeight,
+                        height:
+                            context.dovahDialogMetrics.appearancePreviewHeight,
                         decoration: BoxDecoration(
                           color: previewTokens.surface,
                           image: preset == DovahThemePreset.dovah

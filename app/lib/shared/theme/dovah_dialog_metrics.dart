@@ -103,6 +103,7 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight: 18,
     actionsTopGap: 18,
     noteTopGap: 17,
+    appearancePreviewHeight: 112,
   );
 
   /// The measurements for windows no taller than [compactMaxWindowHeight].
@@ -126,6 +127,7 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight: 14,
     actionsTopGap: 7,
     noteTopGap: 8,
+    appearancePreviewHeight: 78,
   );
 
   /// Vertical padding of a dialog's header.
@@ -185,6 +187,10 @@ class DovahDialogMetrics extends Equatable {
   /// Gap above a pairing state's footnote.
   final double noteTopGap;
 
+  /// Height of an appearance-preset preview scene (the prototype's `.preset-card`
+  /// `grid-template-rows`, first row).
+  final double appearancePreviewHeight;
+
   /// Creates a complete measurement set. Every value is required so a set cannot be assembled
   /// with an accidentally-inherited default.
   const DovahDialogMetrics({
@@ -207,6 +213,7 @@ class DovahDialogMetrics extends Equatable {
     required this.messageMinHeight,
     required this.actionsTopGap,
     required this.noteTopGap,
+    required this.appearancePreviewHeight,
   });
 
   /// The total width of a row of [pairingCodeLength] digit boxes and the gaps between them.
@@ -240,5 +247,6 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight,
     actionsTopGap,
     noteTopGap,
+    appearancePreviewHeight,
   ];
 }

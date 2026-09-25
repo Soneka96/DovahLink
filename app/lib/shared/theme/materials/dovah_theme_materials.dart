@@ -10,12 +10,15 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart'
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_sigil.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_radial_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_tile_layer.dart';
 
 /// The visual recipes each theme paints with, as a [ThemeExtension] installed by every preset: one
-/// material per [DovahMaterialRole], the canvas [atmosphere], and the dialog [backdrop], all transcribed from the approved
+/// material per [DovahMaterialRole], the canvas [atmosphere], the dialog [backdrop], and the
+/// appearance-picker [previewScene], all transcribed from the approved
 /// prototype's `themes.css`. Widgets ask for a role or the atmosphere and never inspect a recipe.
 ///
 /// Component texture, canvas atmosphere, and feature artwork are three separate things. A material
@@ -361,6 +364,38 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       blurSigma: 7,
       saturation: 0.72,
     ),
+    previewScene: DovahPreviewScene(
+      imageAssetPath: frostboundEnvironmentAsset,
+      imageFilter: DovahColorFilter(
+        grayscale: 0.35,
+        saturate: 0.55,
+        contrast: 1.15,
+      ),
+      layers: [
+        DovahLinearLayer(
+          angleDegrees: 180,
+          colors: [Color.fromRGBO(1, 3, 4, 0.5), Color.fromRGBO(1, 3, 4, 0.78)],
+          stops: [0, 1],
+        ),
+        DovahLinearLayer(
+          angleDegrees: 180,
+          colors: [_clear, _clear, Color(0xFF06090A)],
+          stops: [0, 0.54, 1],
+        ),
+      ],
+      sigil: DovahPreviewSigil(
+        fill: Color(0xFF090E12),
+        border: Color(0xFF71808A),
+        shape: DovahPreviewSigilShape.square,
+        markFilter: DovahColorFilter(grayscale: 0.72),
+      ),
+      barFill: DovahLinearLayer(
+        angleDegrees: 90,
+        colors: [Color(0xFF303B41), Color(0xFF303B41)],
+        stops: [0, 1],
+      ),
+      barEdgeColor: Color(0xFFA43B40),
+    ),
   );
 
   /// The Dovah preset's materials, from the prototype's `body.theme-dovah` `--material`,
@@ -472,6 +507,34 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       hazeOpacity: 0.32,
     ),
     backdrop: DovahBackdrop(tint: Color.fromRGBO(2, 4, 7, 0.76), blurSigma: 8),
+    previewScene: DovahPreviewScene(
+      imageAssetPath: dovahConnectionHeroAsset,
+      layers: [
+        DovahLinearLayer(
+          angleDegrees: 180,
+          colors: [
+            Color.fromRGBO(5, 10, 15, 0.25),
+            Color.fromRGBO(5, 10, 15, 0.68),
+          ],
+          stops: [0, 1],
+        ),
+        DovahLinearLayer(
+          angleDegrees: 180,
+          colors: [_clear, _clear, Color(0xFF0B151E)],
+          stops: [0, 0.54, 1],
+        ),
+      ],
+      sigil: DovahPreviewSigil(
+        fill: Color(0xFF10202C),
+        border: Color(0xFFD49A55),
+        shape: DovahPreviewSigilShape.diamond,
+      ),
+      barFill: DovahLinearLayer(
+        angleDegrees: 90,
+        colors: [Color(0xFFD7954D), Color(0xFF66B6E3)],
+        stops: [0, 1],
+      ),
+    ),
   );
 
   /// Hearth's materials, from the prototype's `body.theme-hearth` `--material`,
@@ -609,6 +672,41 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       blurSigma: 9,
       sepia: 0.12,
     ),
+    previewScene: DovahPreviewScene(
+      imageAssetPath: hearthEnvironmentAsset,
+      imageFilter: DovahColorFilter(saturate: 0.92, contrast: 1.05),
+      layers: [
+        DovahLinearLayer(
+          angleDegrees: 180,
+          colors: [
+            Color.fromRGBO(230, 209, 175, 0.12),
+            Color.fromRGBO(202, 160, 104, 0.48),
+          ],
+          stops: [0, 1],
+        ),
+        DovahLinearLayer(
+          angleDegrees: 180,
+          colors: [_clear, _clear, Color(0xFFD9B681)],
+          stops: [0, 0.54, 1],
+        ),
+      ],
+      sigil: DovahPreviewSigil(
+        fill: Color(0xFFDFBF8D),
+        border: Color(0xFF82592F),
+        shape: DovahPreviewSigilShape.circle,
+        markFilter: DovahColorFilter(
+          sepia: 0.38,
+          hueRotateDegrees: 345,
+          saturate: 0.75,
+        ),
+      ),
+      barFill: DovahLinearLayer(
+        angleDegrees: 90,
+        colors: [Color(0xFFA8652D), Color(0xFFA8652D)],
+        stops: [0, 1],
+      ),
+      barCornerRadius: 4,
+    ),
   );
 
   /// The resting panel, card, and dialog material.
@@ -632,6 +730,9 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
   /// The treatment behind a modal dialog.
   final DovahBackdrop backdrop;
 
+  /// How the theme shows itself in the appearance picker.
+  final DovahPreviewScene previewScene;
+
   /// Creates a complete material set. Every role is required so no theme can be assembled with an
   /// accidentally missing material.
   const DovahThemeMaterials({
@@ -642,6 +743,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     required this.primaryAction,
     required this.atmosphere,
     required this.backdrop,
+    required this.previewScene,
   });
 
   /// Returns the material this theme paints [role] with.
@@ -663,6 +765,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahMaterial? primaryAction,
     DovahAtmosphere? atmosphere,
     DovahBackdrop? backdrop,
+    DovahPreviewScene? previewScene,
   }) => DovahThemeMaterials(
     surface: surface ?? this.surface,
     raised: raised ?? this.raised,
@@ -671,6 +774,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     primaryAction: primaryAction ?? this.primaryAction,
     atmosphere: atmosphere ?? this.atmosphere,
     backdrop: backdrop ?? this.backdrop,
+    previewScene: previewScene ?? this.previewScene,
   );
 
   /// Switches to [other]'s materials once [t] passes the midpoint; a layered recipe has no
@@ -696,5 +800,6 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     primaryAction,
     atmosphere,
     backdrop,
+    previewScene,
   ];
 }

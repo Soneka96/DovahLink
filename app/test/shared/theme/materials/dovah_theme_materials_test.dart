@@ -10,6 +10,7 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart'
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_radial_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
@@ -257,6 +258,89 @@ void main() {
       );
     });
 
+    test('Property frostbound keeps the prototype preview scene', () {
+      final DovahPreviewScene scene =
+          DovahThemeMaterials.frostbound.previewScene;
+
+      expect(scene.imageAssetPath, frostboundEnvironmentAsset);
+      expect(
+        scene.imageFilter,
+        const DovahColorFilter(grayscale: 0.35, saturate: 0.55, contrast: 1.15),
+      );
+      expect(scene.layers, hasLength(2));
+      expect(scene.sigil.shape, DovahPreviewSigilShape.square);
+      expect(scene.sigil.fill, const Color(0xFF090E12));
+      expect(scene.sigil.markFilter, const DovahColorFilter(grayscale: 0.72));
+      expect(scene.barEdgeColor, const Color(0xFFA43B40));
+      expect(scene.barCornerRadius, 0);
+    });
+
+    test(
+      'Property dovah keeps the prototype preview scene with its hero art',
+      () {
+        final DovahPreviewScene scene = DovahThemeMaterials.dovah.previewScene;
+
+        expect(scene.imageAssetPath, dovahConnectionHeroAsset);
+        expect(scene.imageFilter.isNeutral, isTrue);
+        expect(scene.layers, hasLength(2));
+        expect(scene.sigil.shape, DovahPreviewSigilShape.diamond);
+        expect(scene.sigil.border, const Color(0xFFD49A55));
+        expect(scene.sigil.markFilter.isNeutral, isTrue);
+        expect(scene.barEdgeColor, isNull);
+      },
+    );
+
+    test('Property hearth keeps the prototype preview scene', () {
+      final DovahPreviewScene scene = DovahThemeMaterials.hearth.previewScene;
+
+      expect(scene.imageAssetPath, hearthEnvironmentAsset);
+      expect(
+        scene.imageFilter,
+        const DovahColorFilter(saturate: 0.92, contrast: 1.05),
+      );
+      expect(scene.layers, hasLength(2));
+      expect(scene.sigil.shape, DovahPreviewSigilShape.circle);
+      expect(
+        scene.sigil.markFilter,
+        const DovahColorFilter(
+          sepia: 0.38,
+          hueRotateDegrees: 345,
+          saturate: 0.75,
+        ),
+      );
+      expect(scene.barCornerRadius, isA<double>());
+      expect(scene.barCornerRadius, 4);
+    });
+
+    test(
+      'Property the frostbound and hearth scenes reuse their canvas environment image',
+      () {
+        expect(
+          DovahThemeMaterials.frostbound.previewScene.imageAssetPath,
+          DovahThemeMaterials.frostbound.atmosphere.imageAssetPath,
+        );
+        expect(
+          DovahThemeMaterials.hearth.previewScene.imageAssetPath,
+          DovahThemeMaterials.hearth.atmosphere.imageAssetPath,
+        );
+      },
+    );
+
+    test('Property every preview layer of every preset builds a shader', () {
+      for (final DovahThemeMaterials materials in presetMaterials) {
+        for (final DovahMaterialLayer layer in [
+          ...materials.previewScene.layers,
+          materials.previewScene.barFill,
+        ]) {
+          expect(
+            () => layer.createShader(const Size(240, 112)),
+            returnsNormally,
+            reason: 'preview layer $layer',
+          );
+        }
+      }
+    });
+
     test('Property every layer of every material builds a shader', () {
       for (final DovahThemeMaterials materials in presetMaterials) {
         for (final DovahMaterialRole role in DovahMaterialRole.values) {
@@ -274,6 +358,31 @@ void main() {
   });
 
   group('Behavior distinct presets behaves correctly', () {
+    test('Behavior distinct presets never share a preview scene', () {
+      expect(
+        DovahThemeMaterials.frostbound.previewScene,
+        isNot(DovahThemeMaterials.dovah.previewScene),
+      );
+      expect(
+        DovahThemeMaterials.dovah.previewScene,
+        isNot(DovahThemeMaterials.hearth.previewScene),
+      );
+      expect(
+        DovahThemeMaterials.frostbound.previewScene,
+        isNot(DovahThemeMaterials.hearth.previewScene),
+      );
+    });
+
+    test(
+      'Behavior distinct presets use three different preview scene images',
+      () {
+        expect({
+          for (final DovahThemeMaterials materials in presetMaterials)
+            materials.previewScene.imageAssetPath,
+        }, hasLength(3));
+      },
+    );
+
     test('Behavior distinct presets never share a backdrop', () {
       expect(
         DovahThemeMaterials.frostbound.backdrop,
@@ -418,6 +527,14 @@ void main() {
       expect(copy.surface, base.surface);
     });
 
+    test('Method copyWith replaces only the preview scene', () {
+      final DovahPreviewScene other = DovahThemeMaterials.hearth.previewScene;
+      final DovahThemeMaterials copy = base.copyWith(previewScene: other);
+
+      expect(copy.previewScene, other);
+      expect(copy.surface, base.surface);
+    });
+
     test('Method copyWith replaces only the backdrop', () {
       const DovahBackdrop plain = DovahBackdrop(
         tint: Color(0x00000000),
@@ -483,6 +600,13 @@ void main() {
       expect(base == base.copyWith(primaryAction: replacement), isFalse);
       expect(
         base == base.copyWith(atmosphere: const DovahAtmosphere()),
+        isFalse,
+      );
+      expect(
+        base ==
+            base.copyWith(
+              previewScene: DovahThemeMaterials.hearth.previewScene,
+            ),
         isFalse,
       );
       expect(

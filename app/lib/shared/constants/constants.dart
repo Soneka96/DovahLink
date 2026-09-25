@@ -17,9 +17,6 @@ final Uri defaultHostUri = Uri.parse('ws://127.0.0.1:58231/');
 /// || 'dovah'`).
 const DovahThemePreset defaultThemePreset = DovahThemePreset.dovah;
 
-/// Height of an appearance-preset preview.
-const double appearancePreviewHeight = 48;
-
 /// Minimum width of an appearance-preset card before it wraps to another row.
 const double appearancePresetCardMinimumWidth = 160;
 

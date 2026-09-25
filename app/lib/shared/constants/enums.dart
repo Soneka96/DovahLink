@@ -172,3 +172,15 @@ enum DovahMaterialRole {
   /// A primary action button (the approved prototype's `.primary`).
   primaryAction,
 }
+
+/// The outline of the sigil tile in an appearance-preset preview.
+enum DovahPreviewSigilShape {
+  /// An upright square (the approved prototype's Frostbound `.preset-sigil`).
+  square,
+
+  /// A square turned 45 degrees, with its mark turned back upright (Dovah).
+  diamond,
+
+  /// A full circle (Hearth).
+  circle,
+}

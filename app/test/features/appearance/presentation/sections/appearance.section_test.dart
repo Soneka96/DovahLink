@@ -109,7 +109,7 @@ void main() {
     testWidgets(
       'AppearanceSection lays out preset cards at large text scale on a narrow surface',
       (WidgetTester tester) async {
-        await tester.binding.setSurfaceSize(const Size(320, 900));
+        await tester.binding.setSurfaceSize(const Size(320, 1200));
         addTearDown(() => tester.binding.setSurfaceSize(null));
         await tester.pumpWidget(
           buildWidget(textScaler: const TextScaler.linear(2)),
@@ -125,7 +125,7 @@ void main() {
           expect(cardRect.left, greaterThanOrEqualTo(0));
           expect(cardRect.top, greaterThanOrEqualTo(0));
           expect(cardRect.right, lessThanOrEqualTo(320));
-          expect(cardRect.bottom, lessThanOrEqualTo(900));
+          expect(cardRect.bottom, lessThanOrEqualTo(1200));
         }
       },
     );
