@@ -165,6 +165,80 @@ void main() {
       expect(alphaOf(pixelAt(pixels, 50, -1)), 0);
     });
 
+    testWidgets(
+      'Method paint leaves the singleBevel diagonal without a border',
+      (WidgetTester tester) async {
+        final List<Color> pixels = await paint(
+          tester,
+          buildPainter(
+            material: DovahMaterial(layers: [solid(red)], borderColor: green),
+          ),
+        );
+
+        expect(pixelAt(pixels, 95, 6), red);
+        expect(pixelAt(pixels, 99, 30), green);
+        expect(pixelAt(pixels, 50, 0), green);
+        expect(pixelAt(pixels, 0, 30), green);
+      },
+    );
+
+    testWidgets(
+      'Method paint leaves both doubleBevel diagonals without a border',
+      (WidgetTester tester) async {
+        final List<Color> pixels = await paint(
+          tester,
+          buildPainter(
+            material: DovahMaterial(layers: [solid(red)], borderColor: green),
+            cornerStyle: DovahPanelCornerStyle.doubleBevel,
+          ),
+        );
+
+        expect(pixelAt(pixels, 95, 6), red);
+        expect(pixelAt(pixels, 6, 55), red);
+        expect(pixelAt(pixels, 50, 59), green);
+        expect(pixelAt(pixels, 0, 30), green);
+      },
+    );
+
+    testWidgets('Method paint clips the edge lines and border at the bevel', (
+      WidgetTester tester,
+    ) async {
+      final List<Color> pixels = await paint(
+        tester,
+        buildPainter(
+          material: DovahMaterial(
+            layers: [solid(red)],
+            topEdgeHighlight: white,
+            borderColor: green,
+          ),
+        ),
+      );
+
+      expect(alphaOf(pixelAt(pixels, 98, 1)), 0);
+      expect(alphaOf(pixelAt(pixels, 98, 0)), 0);
+      expect(pixelAt(pixels, 50, 1), white);
+    });
+
+    testWidgets('Method paint follows the rounded corner with the border', (
+      WidgetTester tester,
+    ) async {
+      final List<Color> pixels = await paint(
+        tester,
+        buildPainter(
+          material: DovahMaterial(layers: [solid(red)], borderColor: green),
+          cornerStyle: DovahPanelCornerStyle.rounded,
+          cornerRadius: 20,
+        ),
+      );
+
+      // The point on the rounded corner arc, 20 * (1 - cos 45) from each edge.
+      expect(
+        greenOf(pixelAt(pixels, 6, 6)),
+        greaterThan(redOf(pixelAt(pixels, 6, 6))),
+      );
+      expect(pixelAt(pixels, 50, 0), green);
+    });
+
     testWidgets('Method paint draws no border when the material has none', (
       WidgetTester tester,
     ) async {

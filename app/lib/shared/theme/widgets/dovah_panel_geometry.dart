@@ -7,7 +7,8 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 /// approved prototype's per-theme `clip-path`/`border-radius` treatment into a Flutter [Path]:
 /// a single top-right bevel for [DovahPanelCornerStyle.singleBevel], opposite-corner bevels for
 /// [DovahPanelCornerStyle.doubleBevel], and a plain rounded rectangle for
-/// [DovahPanelCornerStyle.rounded]. [cutSize] is clamped to half the shorter side so a bevel
+/// [DovahPanelCornerStyle.rounded]. A bevelled style is sharp elsewhere and ignores
+/// [cornerRadius], as the prototype's bevelled themes set `border-radius:0`. [cutSize] is clamped to half the shorter side so a bevel
 /// cannot self-intersect at small constraint sizes.
 Path buildDovahPanelPath(
   Size size, {

@@ -9,7 +9,9 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_geometry.dart'
 /// Paints a DovahLink surface's [DovahMaterial] on the theme's corner outline (including bevelled
 /// outlines, which [BoxDecoration] cannot clip or shadow): the drop shadow, then each texture layer
 /// clipped to the outline, the one-pixel top and bottom edge lines, and the border. The border is
-/// painted inside the outline, as a CSS border is, so it never grows the surface.
+/// painted inside the outline, as a CSS border is, so it never grows the surface. On a bevelled
+/// outline it runs along the box's straight edges only, as under CSS `clip-path`, and the bevel
+/// itself has no border line.
 ///
 /// Layers are gradient fills, so painting needs no `saveLayer` and no image processing. The shadow
 /// uses the shadow's offset and blur; its spread is not applied, because no prototype material has
@@ -82,9 +84,14 @@ class DovahMaterialPainter extends CustomPainter {
 
     if (borderColor != null) {
       // Stroking twice the border width and clipping to the outline leaves exactly the inner half,
-      // which is where a CSS border sits.
+      // which is where a CSS border sits. A bevelled outline is a `clip-path` over an ordinary
+      // rectangular border, so the border follows the box and the bevel cuts it off instead of
+      // drawing a line along the diagonal.
+      final Path borderOutline = cornerStyle == DovahPanelCornerStyle.rounded
+          ? path
+          : (Path()..addRect(bounds));
       canvas.drawPath(
-        path,
+        borderOutline,
         Paint()
           ..style = PaintingStyle.stroke
           ..strokeWidth = borderWidth * 2
