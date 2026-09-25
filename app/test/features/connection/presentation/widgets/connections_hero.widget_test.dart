@@ -48,6 +48,15 @@ void main() {
               ).pageTitleFontSize,
             );
             expect(title.style?.fontFamily, tokens.displayFontFamily);
+            final Text description = tester.widget(
+              find.text('Select an available PC to enter its game.'),
+            );
+            expect(eyebrow.style?.fontFamily, isNull);
+            expect(description.style?.fontFamily, isNull);
+            expect(
+              title.style?.fontFamilyFallback,
+              tokens.displayFontFamilyFallback,
+            );
             expect(
               find.text('Select an available PC to enter its game.'),
               findsOneWidget,

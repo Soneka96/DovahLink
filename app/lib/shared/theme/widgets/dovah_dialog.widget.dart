@@ -105,6 +105,7 @@ class DovahDialog extends StatelessWidget {
                         title,
                         style: TextStyle(
                           fontFamily: tokens.displayFontFamily,
+                          fontFamilyFallback: tokens.displayFontFamilyFallback,
                           fontSize: DovahDialogMetrics.titleFontSize,
                           fontWeight: FontWeight.w500,
                           color: tokens.textPrimary,

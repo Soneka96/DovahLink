@@ -39,6 +39,7 @@ ThemeData buildFrostboundTheme() {
     cornerRadius: 0,
     cornerCutSize: 9,
     displayFontFamily: 'Arial Narrow',
+    displayFontFamilyFallback: ['Impact'],
     eyebrow: Color(0xFFBD5559),
     pageTitleLineHeight: 1.0,
     rootHeaderRuleFraction: 0.2,
@@ -69,6 +70,8 @@ ThemeData buildFrostboundTheme() {
 
   return ThemeData(
     brightness: Brightness.dark,
+    fontFamily: DovahThemeTokens.bodyFontFamily,
+    fontFamilyFallback: DovahThemeTokens.bodyFontFamilyFallback,
     scaffoldBackgroundColor: tokens.background,
     colorScheme: ColorScheme.dark(
       surface: tokens.surface,

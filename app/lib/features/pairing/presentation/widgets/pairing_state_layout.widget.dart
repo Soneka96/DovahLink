@@ -65,6 +65,7 @@ class PairingStateLayout extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontFamily: tokens.displayFontFamily,
+                  fontFamilyFallback: tokens.displayFontFamilyFallback,
                   fontSize: metrics.headingFontSize,
                   fontWeight: FontWeight.w500,
                   color: tokens.textPrimary,

@@ -132,6 +132,28 @@ void main() {
     });
   });
 
+  group('Property body font behaves correctly', () {
+    test('Property body font keeps the prototype --body stack names', () {
+      expect(DovahThemeTokens.bodyFontFamily, isA<String>());
+      expect(DovahThemeTokens.bodyFontFamily, 'Inter');
+      expect(DovahThemeTokens.bodyFontFamilyFallback, const ['Segoe UI']);
+    });
+  });
+
+  group('Method copyWith replaces the font stack', () {
+    test('Method copyWith replaces only the display font fallback', () {
+      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
+
+      final DovahThemeTokens copy = original.copyWith(
+        displayFontFamilyFallback: const ['Impact'],
+      );
+
+      expect(copy.displayFontFamilyFallback, const ['Impact']);
+      expect(copy.displayFontFamily, original.displayFontFamily);
+      expect(original.displayFontFamilyFallback, const ['Times New Roman']);
+    });
+  });
+
   group('Method lerp behaves correctly', () {
     test('Method lerp at t=0 returns values equal to this', () {
       final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
@@ -146,6 +168,30 @@ void main() {
       final DovahThemeTokens result = tokens.lerp(other, 0);
 
       expect(result, tokens);
+    });
+
+    test('Method lerp snaps the display font family at the midpoint', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
+        displayFontFamily: 'Arial Narrow',
+      );
+
+      expect(tokens.lerp(other, 0.49).displayFontFamily, 'Georgia');
+      expect(tokens.lerp(other, 0.5).displayFontFamily, 'Arial Narrow');
+    });
+
+    test('Method lerp snaps the display font fallback at the midpoint', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
+        displayFontFamilyFallback: const ['Impact'],
+      );
+
+      expect(tokens.lerp(other, 0.49).displayFontFamilyFallback, const [
+        'Times New Roman',
+      ]);
+      expect(tokens.lerp(other, 0.5).displayFontFamilyFallback, const [
+        'Impact',
+      ]);
     });
 
     test('Method lerp at t=1 returns values equal to the other extension', () {
@@ -381,6 +427,15 @@ void main() {
       );
       final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
         displayFontFamily: 'Arial Narrow',
+      );
+
+      expect(first, isNot(second));
+    });
+
+    test('Behavior equality fails when displayFontFamilyFallback differs', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
+        displayFontFamilyFallback: const ['Impact'],
       );
 
       expect(first, isNot(second));

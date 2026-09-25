@@ -27,6 +27,17 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Border width shared by themed surfaces.
   static const double surfaceBorderWidth = 1;
 
+  /// The body font family of every theme, first in the prototype's `--body` stack
+  /// (`Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif`). The prototype ships no
+  /// font file, so no font is bundled: a machine without Inter falls through [bodyFontFamilyFallback]
+  /// and then Flutter's platform default, which is the system UI font the stack's `system-ui` names.
+  static const String bodyFontFamily = 'Inter';
+
+  /// The families of the body stack after [bodyFontFamily] that a Flutter font fallback can name;
+  /// the stack's generic keywords (`ui-sans-serif`, `system-ui`, `-apple-system`, `sans-serif`) have
+  /// no Flutter name and resolve to the platform default.
+  static const List<String> bodyFontFamilyFallback = ['Segoe UI'];
+
   /// The canvas behind every surface.
   final Color background;
 
@@ -103,9 +114,16 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// bevel differs (for example a connection card) takes its own from its metrics.
   final double cornerCutSize;
 
-  /// The display/heading font family for this theme. The body font family does not vary by
-  /// theme in the approved prototype, so it is not part of this contract.
+  /// The display/heading font family for this theme, first in the prototype's `--display` stack.
+  /// The body font family does not vary by theme in the approved prototype, so it is the shared
+  /// [bodyFontFamily]. The prototype ships no font file, so no font is bundled.
   final String displayFontFamily;
+
+  /// The families of this theme's `--display` stack after [displayFontFamily] that a Flutter font
+  /// fallback can name (Frostbound `Impact`; Dovah and Hearth `"Times New Roman"`). The stack's
+  /// generic keywords (`ui-sans-serif`, `sans-serif`, `serif`) have no Flutter name and resolve to
+  /// the platform default.
+  final List<String> displayFontFamilyFallback;
 
   /// The tone of the eyebrow label above a page title (the prototype's `.eyebrow`), which differs
   /// per theme rather than following [accentSecondary].
@@ -198,6 +216,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.cornerRadius,
     required this.cornerCutSize,
     required this.displayFontFamily,
+    required this.displayFontFamilyFallback,
     required this.eyebrow,
     required this.uppercaseLabels,
     required this.rootHeaderRuleFraction,
@@ -250,6 +269,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? cornerRadius,
     double? cornerCutSize,
     String? displayFontFamily,
+    List<String>? displayFontFamilyFallback,
     Color? eyebrow,
     bool? uppercaseLabels,
     double? rootHeaderRuleFraction,
@@ -293,6 +313,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     cornerRadius: cornerRadius ?? this.cornerRadius,
     cornerCutSize: cornerCutSize ?? this.cornerCutSize,
     displayFontFamily: displayFontFamily ?? this.displayFontFamily,
+    displayFontFamilyFallback:
+        displayFontFamilyFallback ?? this.displayFontFamilyFallback,
     eyebrow: eyebrow ?? this.eyebrow,
     uppercaseLabels: uppercaseLabels ?? this.uppercaseLabels,
     rootHeaderRuleFraction:
@@ -314,7 +336,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   );
 
   /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
-  /// family, gradients, and casing) snap to whichever side of [t] is closer
+  /// families, gradients, and casing) snap to whichever side of [t] is closer
   /// because they have no meaningful halfway point.
   @override
   DovahThemeTokens lerp(ThemeExtension<DovahThemeTokens>? other, double t) {
@@ -351,6 +373,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       cornerRadius: lerpDouble(cornerRadius, other.cornerRadius, t)!,
       cornerCutSize: lerpDouble(cornerCutSize, other.cornerCutSize, t)!,
       displayFontFamily: t < 0.5 ? displayFontFamily : other.displayFontFamily,
+      displayFontFamilyFallback: t < 0.5
+          ? displayFontFamilyFallback
+          : other.displayFontFamilyFallback,
       eyebrow: Color.lerp(eyebrow, other.eyebrow, t)!,
       uppercaseLabels: t < 0.5 ? uppercaseLabels : other.uppercaseLabels,
       rootHeaderRuleFraction: lerpDouble(
@@ -418,6 +443,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     cornerRadius,
     cornerCutSize,
     displayFontFamily,
+    displayFontFamilyFallback,
     eyebrow,
     uppercaseLabels,
     rootHeaderRuleFraction,

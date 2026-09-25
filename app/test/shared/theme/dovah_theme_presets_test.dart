@@ -649,6 +649,38 @@ void main() {
       );
     }
 
+    for (final (DovahThemePreset preset, String family, List<String> fallback)
+        in [
+          (DovahThemePreset.frostbound, 'Arial Narrow', const ['Impact']),
+          (DovahThemePreset.dovah, 'Georgia', const ['Times New Roman']),
+          (DovahThemePreset.hearth, 'Georgia', const ['Times New Roman']),
+        ]) {
+      test(
+        'Behavior ${preset.name} tokens carry the prototype display stack',
+        () {
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+
+          expect(tokens.displayFontFamily, family);
+          expect(tokens.displayFontFamilyFallback, fallback);
+        },
+      );
+
+      test(
+        'Behavior ${preset.name} sets the prototype body font on its theme',
+        () {
+          final ThemeData theme = dovahThemeDataFor(preset);
+
+          expect(theme.textTheme.bodyMedium?.fontFamily, 'Inter');
+          expect(theme.textTheme.bodyMedium?.fontFamilyFallback, const [
+            'Segoe UI',
+          ]);
+          expect(theme.textTheme.titleLarge?.fontFamily, 'Inter');
+        },
+      );
+    }
+
     test('Behavior distinct presets differ in background color per theme', () {
       final DovahThemeTokens frostbound = buildFrostboundTheme()
           .extension<DovahThemeTokens>()!;

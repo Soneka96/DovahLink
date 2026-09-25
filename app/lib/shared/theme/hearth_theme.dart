@@ -39,6 +39,7 @@ ThemeData buildHearthTheme() {
     cornerRadius: 13,
     cornerCutSize: 0,
     displayFontFamily: 'Georgia',
+    displayFontFamilyFallback: ['Times New Roman'],
     eyebrow: Color(0xFF945720),
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.52,
@@ -69,6 +70,8 @@ ThemeData buildHearthTheme() {
 
   return ThemeData(
     brightness: Brightness.light,
+    fontFamily: DovahThemeTokens.bodyFontFamily,
+    fontFamilyFallback: DovahThemeTokens.bodyFontFamilyFallback,
     scaffoldBackgroundColor: tokens.background,
     colorScheme: ColorScheme.light(
       surface: tokens.surface,

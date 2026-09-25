@@ -40,6 +40,7 @@ ThemeData buildDovahPresetTheme() {
     cornerRadius: 3,
     cornerCutSize: 12,
     displayFontFamily: 'Georgia',
+    displayFontFamilyFallback: ['Times New Roman'],
     eyebrow: Color(0xFFE2A55E),
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.36,
@@ -70,6 +71,8 @@ ThemeData buildDovahPresetTheme() {
 
   return ThemeData(
     brightness: Brightness.dark,
+    fontFamily: DovahThemeTokens.bodyFontFamily,
+    fontFamilyFallback: DovahThemeTokens.bodyFontFamilyFallback,
     scaffoldBackgroundColor: tokens.background,
     colorScheme: ColorScheme.dark(
       surface: tokens.surface,

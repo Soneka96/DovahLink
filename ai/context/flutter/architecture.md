@@ -298,7 +298,12 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
   constructor parameters or hidden DI lookups.
 - Visual values have one owner, chosen by what the value describes:
   - `DovahThemeTokens` owns theme identity and typography: semantic colors, status tones, corner
-    style, radius and bevel, font family, and casing.
+    style, radius and bevel, font families and their fallbacks, and casing. The prototype names its
+    fonts as CSS stacks (`Inter` for the body; `"Arial Narrow"` and `Impact` for Frostbound and
+    `Georgia` and `"Times New Roman"` for Dovah and Hearth as the display) but ships no font file,
+    so the client copies the stack names, resolves them through the installed fonts and the
+    platform default, and bundles no font. Bundling one needs a licensed font asset the maintainer
+    supplies; never substitute a different typeface.
   - `DovahThemeMaterials` owns each theme's visual recipes: one layered material per component role
     (surface, raised, control, icon, primary action), the canvas atmosphere, the dialog backdrop,
     the connection card's decoration, and the appearance preview scene. A recipe is a small typed value of layers, never a set of

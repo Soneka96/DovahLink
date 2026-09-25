@@ -9,6 +9,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_backdrop_scrim.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
@@ -37,6 +38,14 @@ void main() {
             expect(find.text('Dialog body content'), findsOneWidget);
             final Text title = tester.widget(find.text('Appearance'));
             expect(title.style?.fontSize, DovahDialogMetrics.titleFontSize);
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+            expect(title.style?.fontFamily, tokens.displayFontFamily);
+            expect(
+              title.style?.fontFamilyFallback,
+              tokens.displayFontFamilyFallback,
+            );
           },
         );
       }

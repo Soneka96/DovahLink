@@ -51,6 +51,7 @@ class ConnectionsHero extends StatelessWidget {
                   style: TextStyle(
                     color: tokens.textPrimary,
                     fontFamily: tokens.displayFontFamily,
+                    fontFamilyFallback: tokens.displayFontFamilyFallback,
                     fontSize: metrics.pageTitleFontSize,
                     height: tokens.pageTitleLineHeight,
                     fontWeight: uppercase ? FontWeight.w700 : FontWeight.w500,

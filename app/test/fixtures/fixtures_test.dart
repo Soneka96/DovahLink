@@ -219,6 +219,7 @@ void main() {
       expect(tokens.cornerRadius, 3);
       expect(tokens.displayFontFamily, isA<String>());
       expect(tokens.displayFontFamily, 'Georgia');
+      expect(tokens.displayFontFamilyFallback, const ['Times New Roman']);
       expect(tokens.eyebrow, isA<Color>());
       expect(tokens.eyebrow, const Color(0xFFE2A55E));
       expect(tokens.uppercaseLabels, isFalse);
