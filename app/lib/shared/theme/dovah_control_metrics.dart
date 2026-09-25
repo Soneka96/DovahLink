@@ -8,6 +8,21 @@ abstract final class DovahControlMetrics {
   /// Horizontal padding of a themed button (the prototype's `.primary` `padding:12px 17px`).
   static const double buttonHorizontalPadding = 17;
 
+  /// Horizontal padding of a themed secondary button: the prototype's `.secondary`
+  /// `padding:11px 15px` plus its 1px border, which the material paints inside the padding here.
+  static const double secondaryButtonHorizontalPadding = 16;
+
+  /// Vertical padding of a themed quiet button: the prototype's `.pair-tools .secondary`
+  /// `padding:7px 10px` plus its 1px transparent border.
+  static const double quietButtonVerticalPadding = 8;
+
+  /// Horizontal padding of a themed quiet button: the prototype's `.pair-tools .secondary`
+  /// `padding:7px 10px` plus its 1px transparent border.
+  static const double quietButtonHorizontalPadding = 11;
+
+  /// Font size of a themed quiet button's label (the prototype's `.pair-tools .secondary`).
+  static const double quietButtonFontSize = 12;
+
   /// Font size of a themed button's label (the prototype's inherited 16px button font).
   static const double buttonFontSize = 16;
 

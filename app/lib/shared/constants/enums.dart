@@ -145,12 +145,17 @@ enum DovahButtonVariant {
   primary,
 
   /// A bordered, low-emphasis surface (the approved prototype's `.secondary`).
-  secondary;
+  secondary,
+
+  /// A text-only action with no surface and a muted label (the approved prototype's
+  /// `.pair-tools .secondary`, which strips `.secondary` of its background, border, and shadow).
+  quiet;
 
   /// Returns the concise label for this variant.
   String get label => switch (this) {
     DovahButtonVariant.primary => 'Primary',
     DovahButtonVariant.secondary => 'Secondary',
+    DovahButtonVariant.quiet => 'Quiet',
   };
 }
 

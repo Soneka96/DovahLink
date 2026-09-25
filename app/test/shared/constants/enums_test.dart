@@ -110,6 +110,8 @@ void main() {
         expect(DovahButtonVariant.primary.label, 'Primary');
         expect(DovahButtonVariant.secondary.label, isA<String>());
         expect(DovahButtonVariant.secondary.label, 'Secondary');
+        expect(DovahButtonVariant.quiet.label, isA<String>());
+        expect(DovahButtonVariant.quiet.label, 'Quiet');
       },
     );
   });

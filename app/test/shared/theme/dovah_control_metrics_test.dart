@@ -12,6 +12,17 @@ void main() {
       expect(DovahControlMetrics.buttonHorizontalPadding, 17);
       expect(DovahControlMetrics.buttonFontSize, isA<double>());
       expect(DovahControlMetrics.buttonFontSize, 16);
+      expect(
+        DovahControlMetrics.secondaryButtonHorizontalPadding,
+        isA<double>(),
+      );
+      expect(DovahControlMetrics.secondaryButtonHorizontalPadding, 16);
+      expect(DovahControlMetrics.quietButtonVerticalPadding, isA<double>());
+      expect(DovahControlMetrics.quietButtonVerticalPadding, 8);
+      expect(DovahControlMetrics.quietButtonHorizontalPadding, isA<double>());
+      expect(DovahControlMetrics.quietButtonHorizontalPadding, 11);
+      expect(DovahControlMetrics.quietButtonFontSize, isA<double>());
+      expect(DovahControlMetrics.quietButtonFontSize, 12);
       expect(DovahControlMetrics.buttonIconSize, isA<double>());
       expect(DovahControlMetrics.buttonIconSize, 17);
       expect(DovahControlMetrics.buttonIconGap, isA<double>());

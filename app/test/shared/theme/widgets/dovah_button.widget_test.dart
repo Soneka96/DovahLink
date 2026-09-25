@@ -65,7 +65,12 @@ void main() {
           final Text text = tester.widget<Text>(find.text('Confirm'));
 
           expect(text.style?.fontSize, isA<double>());
-          expect(text.style?.fontSize, DovahControlMetrics.buttonFontSize);
+          expect(
+            text.style?.fontSize,
+            variant == DovahButtonVariant.quiet
+                ? DovahControlMetrics.quietButtonFontSize
+                : DovahControlMetrics.buttonFontSize,
+          );
           expect(text.style?.height, isA<double>());
           expect(text.style?.height, DovahThemeTokens.bodyLineHeight);
         },
@@ -154,6 +159,31 @@ void main() {
       expect(find.byIcon(Icons.zoom_in), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    for (final DovahButtonVariant variant in [
+      DovahButtonVariant.secondary,
+      DovahButtonVariant.quiet,
+    ]) {
+      testWidgets('DovahButton does not dim a disabled $variant button', (
+        WidgetTester tester,
+      ) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(label: 'Cancel', onPressed: null, variant: variant),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final Opacity opacity = tester.widget(
+          find.descendant(
+            of: find.byType(DovahButton),
+            matching: find.byType(Opacity),
+          ),
+        );
+        expect(opacity.opacity, isA<double>());
+        expect(opacity.opacity, 1);
+      });
+    }
 
     testWidgets('DovahButton dims its disabled appearance', (
       WidgetTester tester,
@@ -885,6 +915,171 @@ void main() {
 
       expect((await painterFor(() {})).material.shadow, isNotEmpty);
       expect((await painterFor(null)).material.shadow, isEmpty);
+    });
+  });
+
+  group('DovahButton follows the prototype padding per variant', () {
+    for (final (DovahButtonVariant variant, double vertical, double horizontal)
+        in [
+          (DovahButtonVariant.primary, 12.0, 17.0),
+          (DovahButtonVariant.secondary, 12.0, 16.0),
+          (DovahButtonVariant.quiet, 8.0, 11.0),
+        ]) {
+      testWidgets(
+        'DovahButton pads a $variant label by $vertical x $horizontal',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            Center(
+              child: DovahButton(
+                label: 'Confirm',
+                onPressed: () {},
+                variant: variant,
+              ),
+            ),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
+          final Size label = tester.getSize(find.text('Confirm'));
+          final Finder body = variant == DovahButtonVariant.quiet
+              ? find.descendant(
+                  of: find.byType(DovahButton),
+                  matching: find.byType(Padding),
+                )
+              : find.byType(DovahSurface);
+
+          expect(
+            tester.getSize(body.first),
+            Size(label.width + 2 * horizontal, label.height + 2 * vertical),
+          );
+        },
+      );
+    }
+  });
+
+  group('DovahButton draws a quiet button without a surface', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahButton draws a quiet button as a muted label with no surface under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(
+              label: 'Show code again',
+              onPressed: () {},
+              variant: DovahButtonVariant.quiet,
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final Text text = tester.widget<Text>(find.text('Show code again'));
+
+          expect(find.byType(DovahSurface), findsNothing);
+          expect(text.style?.color, tokens.textMuted);
+          expect(text.style?.fontWeight, FontWeight.w700);
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahButton outlines a focused quiet button by the theme radius',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(
+            label: 'Show code again',
+            onPressed: () {},
+            variant: DovahButtonVariant.quiet,
+          ),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+
+        final DovahFocusRingPainter painter =
+            tester
+                    .widget<CustomPaint>(find.byKey(DovahFocusRing.ringKey))
+                    .foregroundPainter!
+                as DovahFocusRingPainter;
+        expect(painter.cornerRadius, 13);
+      },
+    );
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahButton keeps a quiet label readable on the $preset surface',
+        (WidgetTester tester) async {
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final double lighter =
+              tokens.textMuted.computeLuminance() >
+                  tokens.surface.computeLuminance()
+              ? tokens.textMuted.computeLuminance()
+              : tokens.surface.computeLuminance();
+          final double darker =
+              tokens.textMuted.computeLuminance() >
+                  tokens.surface.computeLuminance()
+              ? tokens.surface.computeLuminance()
+              : tokens.textMuted.computeLuminance();
+
+          expect((lighter + 0.05) / (darker + 0.05), greaterThanOrEqualTo(4.5));
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahButton does not lift or brighten a hovered quiet button',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(
+            label: 'Show code again',
+            onPressed: () {},
+            variant: DovahButtonVariant.quiet,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await pointer.addPointer(location: const Offset(899, 559));
+        await tester.pump();
+        await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
+        await tester.pump(DovahControlMetrics.buttonHoverDuration);
+
+        final TweenAnimationBuilder<double> animation = tester.widget(
+          find.byKey(const Key('dovah-button-hover-effect')),
+        );
+        expect(animation.tween.end, 1);
+        await pointer.removePointer();
+      },
+    );
+
+    testWidgets('DovahButton calls onPressed for a quiet button', (
+      WidgetTester tester,
+    ) async {
+      int presses = 0;
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(
+          label: 'Show code again',
+          onPressed: () => presses++,
+          variant: DovahButtonVariant.quiet,
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      await tester.tap(find.text('Show code again'));
+
+      expect(presses, 1);
     });
   });
 
