@@ -891,6 +891,7 @@ public class ClientMessageDispatcherTests
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
+        Assert.Equal(4, outcome.AttemptsRemaining);
         Assert.Null(outcome.Credential);
         await WaitUntilAsync(() => adapterNotifier.IncorrectCodeNotifications.Count > 0);
         Assert.Equal([start.Challenge!.Code], adapterNotifier.IncorrectCodeNotifications);
@@ -921,6 +922,7 @@ public class ClientMessageDispatcherTests
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
+        Assert.Null(outcome.AttemptsRemaining);
         Assert.Empty(adapterNotifier.IncorrectCodeNotifications);
     }
 
@@ -949,6 +951,7 @@ public class ClientMessageDispatcherTests
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.Invalid, outcome.Outcome);
+        Assert.Equal(3, outcome.AttemptsRemaining);
         Assert.Empty(adapterNotifier.IncorrectCodeNotifications);
     }
 
@@ -1069,6 +1072,7 @@ public class ClientMessageDispatcherTests
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.HardLimitReached, outcome.Outcome);
+        Assert.Null(outcome.AttemptsRemaining);
         await WaitUntilAsync(() => adapterNotifier.AttemptsExhaustedCallCount > 0);
     }
 
@@ -1523,6 +1527,7 @@ public class ClientMessageDispatcherTests
         Assert.Equal(PublicMessageType.PairingOutcome, outcomeEnvelope.MessageType);
         Assert.Equal("msg-1", outcomeEnvelope.CorrelationId);
         Assert.Equal(PairingOutcomeWireValue.Renotified, outcome.Outcome);
+        Assert.Equal(5, outcome.RetryAfterSeconds);
         Assert.Equal([start.Challenge!.Code], adapterNotifier.RedisplayedCodes);
         // Cooldown was committed: a second immediate peek reports Cooldown, not Renotified.
         Assert.Equal(PairingRenotifyOutcome.Cooldown, pairingCoordinator.TryRenotify(clientId).Outcome);
@@ -1544,13 +1549,14 @@ public class ClientMessageDispatcherTests
         pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
         PairingRenotifyResult peek = pairingCoordinator.TryRenotify(clientId);
         pairingCoordinator.CommitRenotify(clientId, peek.ChallengeId!.Value, peek.ClaimId!.Value);
+        clock.Advance(TimeSpan.FromSeconds(2));
         PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRenotify, "msg-1", "session-1", new EmptyPayload());
 
         await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
 
         (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
         Assert.Equal(PairingOutcomeWireValue.RenotifyCooldown, outcome.Outcome);
-        Assert.Equal(5, outcome.RetryAfterSeconds);
+        Assert.Equal(3, outcome.RetryAfterSeconds);
         Assert.Empty(adapterNotifier.RedisplayedCodes);
     }
 

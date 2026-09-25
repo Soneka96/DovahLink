@@ -224,8 +224,10 @@ public class PairingCoordinatorTests
         PairingConfirmationResult second = coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
 
         Assert.Equal(PairingConfirmOutcome.Invalid, first.Outcome);
+        Assert.Equal(4, first.AttemptsRemaining);
         Assert.True(first.ShouldAutoRenotify);
         Assert.Equal(start.Challenge!.Code, first.AutoRenotifyCode);
+        Assert.Equal(3, second.AttemptsRemaining);
         Assert.False(second.ShouldAutoRenotify);
         Assert.Null(second.AutoRenotifyCode);
     }
@@ -274,12 +276,15 @@ public class PairingCoordinatorTests
         BeginAndDisplayPairing(coordinator, clientId);
 
         PairingConfirmationResult result = default!;
+        var attemptsRemaining = new List<int?>();
         for (int attempt = 0; attempt < 5; attempt++)
         {
             result = coordinator.ConfirmCode(clientId, "000000", "Living Room PC");
+            attemptsRemaining.Add(result.AttemptsRemaining);
             clock.Advance(TimeSpan.FromSeconds(1));
         }
 
+        Assert.Equal(new int?[] { 4, 3, 2, 1, null }, attemptsRemaining);
         Assert.Equal(PairingConfirmOutcome.HardLimitReached, result.Outcome);
         Assert.Equal(PairingStartOutcome.Started, coordinator.BeginPairing(clientId).Outcome);
     }
@@ -1429,6 +1434,7 @@ public class PairingCoordinatorTests
         PairingRenotifyResult cooldown = coordinator.TryRenotify(owner);
 
         Assert.Equal(PairingRenotifyOutcome.Renotified, first.Outcome);
+        Assert.Equal(TimeSpan.FromSeconds(5), first.RetryAfter);
         Assert.Equal(PairingRenotifyOutcome.Cooldown, cooldown.Outcome);
         Assert.NotNull(cooldown.RetryAfter);
     }

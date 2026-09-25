@@ -1758,7 +1758,7 @@ void main() {
             .requestPairingRenotify();
 
         expect(result.status, PairingRenotifyStatus.renotified);
-        expect(result.retryAfterSeconds, isNull);
+        expect(result.retryAfterSeconds, 5);
       },
     );
   });
@@ -1827,6 +1827,30 @@ void main() {
         final PersistedClientState stored = await storage.load();
         expect(stored.credential, 'already-confirming-credential');
         expect(stored.recoveryState, PairingRecoveryState.confirming);
+      },
+    );
+
+    test(
+      'Method confirmPairingCode exposes Host attempts remaining for an invalid code',
+      () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
+        await _connectAndHello(transport, client);
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-invalid.json'),
+        );
+
+        await expectLater(
+          client.confirmPairingCode(code: '000000'),
+          throwsA(
+            isA<DovahLinkPairingException>().having(
+              (DovahLinkPairingException error) => error.attemptsRemaining,
+              'attemptsRemaining',
+              4,
+            ),
+          ),
+        );
       },
     );
   });

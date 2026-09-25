@@ -11,6 +11,10 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ## [Unreleased]
 
+### Changed
+
+- The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
+
 ### Fixed
 
 - The shared SDK client no longer imports or constructs Windows DPAPI storage; consumers inject a
