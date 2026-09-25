@@ -6,10 +6,11 @@ import 'package:flutter/widgets.dart' show Matrix4;
 import 'package:dovahlink_client/shared/theme/materials/dovah_gradient_colors.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
 
-/// A radial highlight, stain, or speck (the prototype's `radial-gradient(... at X% Y%, ...)`).
-/// Without a [radius] it is a CSS `ellipse farthest-corner`: an ellipse that reaches the surface's
-/// farthest corner, so the same recipe covers wide and tall surfaces alike and [stops] are
-/// fractions of that ellipse. With a [radius] it is a circle of that many logical pixels.
+/// A radial highlight, stain, speck, or ring pattern (the prototype's `radial-gradient(... at X% Y%,
+/// ...)`). With a [radius] it is a circle of that many logical pixels. Without one it reaches the
+/// surface's farthest corner, as an ellipse (CSS `ellipse farthest-corner`) or, when [circular], as
+/// a circle (CSS `circle farthest-corner`), so one recipe covers wide and tall surfaces alike;
+/// [stops] are fractions of that extent.
 class DovahRadialLayer extends DovahMaterialLayer {
   /// The smallest radius the layer resolves to, so a zero-sized surface cannot collapse the
   /// gradient's transform.
@@ -24,8 +25,16 @@ class DovahRadialLayer extends DovahMaterialLayer {
   /// The position of each stop as a fraction of the radius, from `0` to `1`.
   final List<double> stops;
 
-  /// The circle's radius in logical pixels, or `null` for an ellipse to the farthest corner.
+  /// The circle's radius in logical pixels, or `null` to reach the farthest corner.
   final double? radius;
+
+  /// Whether a gradient without a [radius] is a circle to the farthest corner instead of an
+  /// ellipse.
+  final bool circular;
+
+  /// Whether the gradient repeats every [radius], as the prototype's `repeating-radial-gradient`
+  /// rings do. Only meaningful together with a [radius].
+  final bool repeating;
 
   /// Creates a radial layer. [colors] and [stops] must have the same length; [createShader]
   /// throws an [ArgumentError] otherwise.
@@ -34,6 +43,8 @@ class DovahRadialLayer extends DovahMaterialLayer {
     required this.colors,
     required this.stops,
     this.radius,
+    this.circular = false,
+    this.repeating = false,
   });
 
   /// See [DovahMaterialLayer.createShader].
@@ -43,20 +54,26 @@ class DovahRadialLayer extends DovahMaterialLayer {
       size.width * center.dx,
       size.height * center.dy,
     );
-    final double? circleRadius = radius;
+    final double farthestX = math.max(origin.dx, size.width - origin.dx);
+    final double farthestY = math.max(origin.dy, size.height - origin.dy);
+    final double? fixedRadius = radius;
     final double radiusX =
-        circleRadius ??
-        math.max(origin.dx, size.width - origin.dx) * math.sqrt2;
+        fixedRadius ??
+        (circular
+            ? math.sqrt(farthestX * farthestX + farthestY * farthestY)
+            : farthestX * math.sqrt2);
     final double radiusY =
-        circleRadius ??
-        math.max(origin.dy, size.height - origin.dy) * math.sqrt2;
+        fixedRadius ??
+        (circular
+            ? math.sqrt(farthestX * farthestX + farthestY * farthestY)
+            : farthestY * math.sqrt2);
 
     return Gradient.radial(
       Offset.zero,
       1,
       matchTransparentStops(colors),
       stops,
-      TileMode.clamp,
+      repeating ? TileMode.repeated : TileMode.clamp,
       (Matrix4.translationValues(origin.dx, origin.dy, 0)..multiply(
             Matrix4.diagonal3Values(
               math.max(radiusX, minimumRadius),
@@ -70,5 +87,12 @@ class DovahRadialLayer extends DovahMaterialLayer {
 
   /// The fields that define this layer's value equality.
   @override
-  List<Object?> get props => [center, colors, stops, radius];
+  List<Object?> get props => [
+    center,
+    colors,
+    stops,
+    radius,
+    circular,
+    repeating,
+  ];
 }

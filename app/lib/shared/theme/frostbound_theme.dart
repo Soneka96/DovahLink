@@ -7,6 +7,7 @@ import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 
 /// Builds the Frostbound preset: cold, severe, and compact -- fractured stone, scratched iron,
 /// and a single sharp bevel with no rounding.
@@ -106,6 +107,7 @@ ThemeData buildFrostboundTheme() {
       DovahPageThemeMetrics.frostbound,
       DovahSessionThemeMetrics.frostbound,
       DovahOverviewThemeMetrics.frostbound,
+      DovahThemeMaterials.frostbound,
     ],
   );
 }

@@ -7,6 +7,7 @@ import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 
 /// Builds the Hearth preset: warm, spacious, and storybook-like -- parchment, walnut, bronze,
 /// and plain rounded corners with no bevel.
@@ -106,6 +107,7 @@ ThemeData buildHearthTheme() {
       DovahPageThemeMetrics.hearth,
       DovahSessionThemeMetrics.hearth,
       DovahOverviewThemeMetrics.hearth,
+      DovahThemeMaterials.hearth,
     ],
   );
 }

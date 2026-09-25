@@ -12,6 +12,7 @@ import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 
 /// Reads the active [DovahThemeTokens] from the nearest [Theme]. Every shared DovahLink surface
 /// reads its look through this accessor rather than resolving [DovahThemeTokens] a different way.
@@ -20,6 +21,10 @@ extension DovahThemeContext on BuildContext {
   /// which is a composition error: every DovahLink theme attaches this extension.
   DovahThemeTokens get dovahTokens =>
       Theme.of(this).extension<DovahThemeTokens>()!;
+
+  /// The active theme's [DovahThemeMaterials]. Throws if no DovahLink preset theme is in scope.
+  DovahThemeMaterials get dovahMaterials =>
+      Theme.of(this).extension<DovahThemeMaterials>()!;
 
   /// The [DovahDialogMetrics] for the height of the window this context is shown in.
   DovahDialogMetrics get dovahDialogMetrics =>

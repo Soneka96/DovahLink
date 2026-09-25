@@ -13,6 +13,7 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/frostbound_theme.dart';
 import 'package:dovahlink_client/shared/theme/hearth_theme.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 
 /// Exercises the three DovahLink theme-preset builders and the [dovahThemeDataFor] mapping.
 void main() {
@@ -77,6 +78,13 @@ void main() {
         );
       },
     );
+
+    test('Method buildFrostboundTheme attaches its DovahThemeMaterials', () {
+      expect(
+        buildFrostboundTheme().extension<DovahThemeMaterials>(),
+        DovahThemeMaterials.frostbound,
+      );
+    });
   });
 
   group('Behavior prototype color token mappings behave correctly', () {
@@ -490,6 +498,13 @@ void main() {
         );
       },
     );
+
+    test('Method buildDovahPresetTheme attaches its DovahThemeMaterials', () {
+      expect(
+        buildDovahPresetTheme().extension<DovahThemeMaterials>(),
+        DovahThemeMaterials.dovah,
+      );
+    });
   });
 
   group('Method buildHearthTheme behaves correctly', () {
@@ -545,6 +560,13 @@ void main() {
       expect(
         buildHearthTheme().extension<DovahOverviewThemeMetrics>(),
         DovahOverviewThemeMetrics.hearth,
+      );
+    });
+
+    test('Method buildHearthTheme attaches its DovahThemeMaterials', () {
+      expect(
+        buildHearthTheme().extension<DovahThemeMaterials>(),
+        DovahThemeMaterials.hearth,
       );
     });
   });

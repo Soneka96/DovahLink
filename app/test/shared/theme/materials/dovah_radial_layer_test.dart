@@ -68,6 +68,52 @@ void main() {
     );
 
     testWidgets(
+      'Method createShader fades a circular gradient evenly in every direction',
+      (WidgetTester tester) async {
+        const DovahRadialLayer glow = DovahRadialLayer(
+          center: Offset(0.5, 0.5),
+          colors: whiteToClear,
+          stops: [0, 1],
+          circular: true,
+        );
+        final List<Color> pixels = (await tester.runAsync(
+          () => paintDovahLayer(glow, const Size(100, 50)),
+        ))!;
+        final int alongWidth = alphaOf(pixels[25 * 100 + 75]);
+        final int alongHeight = alphaOf(pixels[49 * 100 + 50]);
+
+        expect(alongWidth, inInclusiveRange(100, 200));
+        expect(alongHeight, greaterThan(alongWidth));
+      },
+    );
+
+    testWidgets(
+      'Method createShader repeats rings every radius when repeating',
+      (WidgetTester tester) async {
+        const DovahRadialLayer rings = DovahRadialLayer(
+          center: Offset(0, 0.5),
+          colors: [
+            Color(0xFFFFFFFF),
+            Color(0xFFFFFFFF),
+            Color(0x00FFFFFF),
+            Color(0x00FFFFFF),
+          ],
+          stops: [0, 0.2, 0.2, 1],
+          radius: 10,
+          repeating: true,
+        );
+        final List<Color> pixels = (await tester.runAsync(
+          () => paintDovahLayer(rings, const Size(40, 1)),
+        ))!;
+
+        expect(alphaOf(pixels[0]), 255);
+        expect(alphaOf(pixels[5]), 0);
+        expect(alphaOf(pixels[10]), 255);
+        expect(alphaOf(pixels[15]), 0);
+      },
+    );
+
+    testWidgets(
       'Method createShader anchors the gradient at the fractional center',
       (WidgetTester tester) async {
         const DovahRadialLayer corner = DovahRadialLayer(
@@ -136,6 +182,28 @@ void main() {
         colors: whiteToClear,
         stops: [0, 1],
         radius: 4,
+      );
+
+      expect(glow == other, isFalse);
+    });
+
+    test('Behavior equality fails when circular differs', () {
+      const DovahRadialLayer other = DovahRadialLayer(
+        center: Offset(0.5, 0.5),
+        colors: whiteToClear,
+        stops: [0, 1],
+        circular: true,
+      );
+
+      expect(glow == other, isFalse);
+    });
+
+    test('Behavior equality fails when repeating differs', () {
+      const DovahRadialLayer other = DovahRadialLayer(
+        center: Offset(0.5, 0.5),
+        colors: whiteToClear,
+        stops: [0, 1],
+        repeating: true,
       );
 
       expect(glow == other, isFalse);
