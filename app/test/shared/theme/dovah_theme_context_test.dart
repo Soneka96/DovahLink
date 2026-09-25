@@ -7,11 +7,13 @@ import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -277,7 +279,12 @@ void main() {
 
           expect(
             resolved,
-            DovahSessionMetrics.forWindow(preset: preset, window: size),
+            DovahSessionMetrics.forWindow(
+              themeMetrics: dovahThemeDataFor(
+                preset,
+              ).extension<DovahSessionThemeMetrics>()!,
+              window: size,
+            ),
           );
         },
       );
@@ -311,7 +318,12 @@ void main() {
 
           expect(
             resolved,
-            DovahOverviewMetrics.forWindow(preset: preset, window: size),
+            DovahOverviewMetrics.forWindow(
+              themeMetrics: dovahThemeDataFor(
+                preset,
+              ).extension<DovahOverviewThemeMetrics>()!,
+              window: size,
+            ),
           );
         },
       );

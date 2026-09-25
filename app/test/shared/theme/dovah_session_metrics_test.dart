@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// One expected resolution: the preset and window it is resolved for, then the bar height,
 /// navigation height, bar side margin, tab padding, and whether the first action is shown.
@@ -17,7 +19,7 @@ typedef _SessionCase = (
   bool,
 );
 
-/// Exercises [DovahSessionMetrics]'s prototype constants, per-theme tables, breakpoints, and
+/// Exercises [DovahSessionMetrics]'s prototype constants, window resolution of each preset's theme metrics, breakpoints, and
 /// equality.
 void main() {
   group('Property shared constants behave correctly', () {
@@ -101,7 +103,9 @@ void main() {
         'Method forWindow resolves the prototype session measurements for ${testCase.$1.name} at ${testCase.$2}',
         () {
           final DovahSessionMetrics metrics = DovahSessionMetrics.forWindow(
-            preset: testCase.$1,
+            themeMetrics: dovahThemeDataFor(
+              testCase.$1,
+            ).extension<DovahSessionThemeMetrics>()!,
             window: testCase.$2,
           );
 
@@ -120,14 +124,52 @@ void main() {
     }
 
     test(
+      'Method forWindow keeps window-only values identical across themes',
+      () {
+        final DovahSessionThemeMetrics mid = DovahSessionThemeMetrics.frostbound
+            .lerp(DovahSessionThemeMetrics.dovah, 0.5);
+
+        for (final (
+              Size window,
+              double bar,
+              double margin,
+              double tabs,
+              bool first,
+            )
+            in [
+              (const Size(1280, 720), 65.0, 24.0, 22.0, true),
+              (const Size(800, 700), 65.0, 14.0, 16.0, false),
+              (const Size(1280, 560), 54.0, 24.0, 22.0, true),
+            ]) {
+          for (final DovahSessionThemeMetrics themeMetrics in [
+            DovahSessionThemeMetrics.frostbound,
+            DovahSessionThemeMetrics.dovah,
+            DovahSessionThemeMetrics.hearth,
+            mid,
+          ]) {
+            final DovahSessionMetrics metrics = DovahSessionMetrics.forWindow(
+              themeMetrics: themeMetrics,
+              window: window,
+            );
+
+            expect(metrics.barHeight, bar);
+            expect(metrics.barSideMargin, margin);
+            expect(metrics.tabHorizontalPadding, tabs);
+            expect(metrics.showFirstAction, first);
+          }
+        }
+      },
+    );
+
+    test(
       'Method forWindow treats 900 wide and 620 tall as the last narrow and compact',
       () {
         final DovahSessionMetrics edge = DovahSessionMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahSessionThemeMetrics.dovah,
           window: const Size(900, 620),
         );
         final DovahSessionMetrics past = DovahSessionMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahSessionThemeMetrics.dovah,
           window: const Size(901, 621),
         );
 
@@ -143,11 +185,11 @@ void main() {
     test('Behavior equality holds across presets that share a table row', () {
       expect(
         DovahSessionMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahSessionThemeMetrics.dovah,
           window: const Size(1280, 720),
         ),
         DovahSessionMetrics.forWindow(
-          preset: DovahThemePreset.hearth,
+          themeMetrics: DovahSessionThemeMetrics.hearth,
           window: const Size(1600, 900),
         ),
       );
@@ -158,12 +200,12 @@ void main() {
       () {
         expect(
           DovahSessionMetrics.forWindow(
-            preset: DovahThemePreset.frostbound,
+            themeMetrics: DovahSessionThemeMetrics.frostbound,
             window: const Size(1280, 720),
           ),
           isNot(
             DovahSessionMetrics.forWindow(
-              preset: DovahThemePreset.dovah,
+              themeMetrics: DovahSessionThemeMetrics.dovah,
               window: const Size(1280, 720),
             ),
           ),

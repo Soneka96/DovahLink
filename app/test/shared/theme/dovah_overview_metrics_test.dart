@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 
 /// One expected resolution: the preset and window it is resolved for, then the main and side
 /// column flex, grid gap, hero minimum height, and stats top gap.
@@ -17,7 +19,7 @@ typedef _OverviewCase = (
   double,
 );
 
-/// Exercises [DovahOverviewMetrics]'s prototype constants, per-theme tables, breakpoints, and
+/// Exercises [DovahOverviewMetrics]'s prototype constants, window resolution of each preset's theme metrics, breakpoints, and
 /// equality.
 void main() {
   group('Property hero and stats constants behave correctly', () {
@@ -113,7 +115,9 @@ void main() {
         'Method forWindow resolves the prototype overview measurements for ${testCase.$1.name} at ${testCase.$2}',
         () {
           final DovahOverviewMetrics metrics = DovahOverviewMetrics.forWindow(
-            preset: testCase.$1,
+            themeMetrics: dovahThemeDataFor(
+              testCase.$1,
+            ).extension<DovahOverviewThemeMetrics>()!,
             window: testCase.$2,
           );
 
@@ -135,11 +139,11 @@ void main() {
       'Method forWindow treats 900 wide and 620 tall as the last narrow and compact',
       () {
         final DovahOverviewMetrics edge = DovahOverviewMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahOverviewThemeMetrics.dovah,
           window: const Size(900, 620),
         );
         final DovahOverviewMetrics past = DovahOverviewMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahOverviewThemeMetrics.dovah,
           window: const Size(901, 621),
         );
 
@@ -155,11 +159,11 @@ void main() {
     test('Behavior equality holds for the same resolved measurements', () {
       expect(
         DovahOverviewMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahOverviewThemeMetrics.dovah,
           window: const Size(1280, 720),
         ),
         DovahOverviewMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahOverviewThemeMetrics.dovah,
           window: const Size(1600, 900),
         ),
       );
@@ -168,12 +172,12 @@ void main() {
     test('Behavior equality fails between different presets', () {
       expect(
         DovahOverviewMetrics.forWindow(
-          preset: DovahThemePreset.dovah,
+          themeMetrics: DovahOverviewThemeMetrics.dovah,
           window: const Size(1280, 720),
         ),
         isNot(
           DovahOverviewMetrics.forWindow(
-            preset: DovahThemePreset.hearth,
+            themeMetrics: DovahOverviewThemeMetrics.hearth,
             window: const Size(1280, 720),
           ),
         ),

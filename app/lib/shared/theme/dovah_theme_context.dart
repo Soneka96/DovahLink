@@ -4,11 +4,13 @@ import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 /// Reads the active [DovahThemeTokens] from the nearest [Theme]. Every shared DovahLink surface
@@ -50,7 +52,7 @@ extension DovahThemeContext on BuildContext {
   /// The [DovahSessionMetrics] for the active theme and the size of the window this context is
   /// shown in.
   DovahSessionMetrics get dovahSessionMetrics => DovahSessionMetrics.forWindow(
-    preset: dovahTokens.preset,
+    themeMetrics: Theme.of(this).extension<DovahSessionThemeMetrics>()!,
     window: MediaQuery.sizeOf(this),
   );
 
@@ -58,7 +60,7 @@ extension DovahThemeContext on BuildContext {
   /// shown in.
   DovahOverviewMetrics get dovahOverviewMetrics =>
       DovahOverviewMetrics.forWindow(
-        preset: dovahTokens.preset,
+        themeMetrics: Theme.of(this).extension<DovahOverviewThemeMetrics>()!,
         window: MediaQuery.sizeOf(this),
       );
 }

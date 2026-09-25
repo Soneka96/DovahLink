@@ -4,15 +4,16 @@ import 'package:flutter/foundation.dart';
 
 import 'package:equatable/equatable.dart';
 
-import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 
 /// The measurements of the Overview page's panels (the approved prototype's `.overview-grid`,
 /// `.hero-panel`, `.stats`, `.quest`, and `.bars`). The grid ratio changes at the narrow window
 /// width, and the grid gap, hero height, and stats gap are pinned differently by each theme and
-/// tighten at the compact height, so those are resolved by [forWindow] from prototype-exact tables;
-/// the page never branches on the window size or the preset itself. Panel padding is
-/// `DovahPageMetrics.panelPadding`.
+/// tighten at the compact height. The theme-varying values live in [DovahOverviewThemeMetrics], a
+/// theme extension that Flutter interpolates during a theme change, and [forWindow] resolves them
+/// for the window; the page never branches on the window size or the preset itself. Panel padding
+/// is `DovahPageMetrics.panelPadding`.
 @immutable
 class DovahOverviewMetrics extends Equatable {
   /// Width of the accent bar down a panel's leading edge (the prototype's `inset 3px 0` shadow).
@@ -121,34 +122,28 @@ class DovahOverviewMetrics extends Equatable {
     required this.statsTopGap,
   });
 
-  /// Resolves the measurements for [preset] in a window of size [window]. The hero and stats rows
-  /// list the regular and compact values; the narrow width only changes the column ratio. Taken
-  /// from the prototype's `index.html` media queries and `themes.css` per-theme overrides. The hero
-  /// height is the prototype's declared `min-height`, which its content can exceed.
+  /// Resolves the measurements for a window of size [window] from [themeMetrics], the active
+  /// theme's (possibly mid-transition) values for each window mode. The compact height selects the
+  /// other hero and stats values; the narrow width only changes the column ratio. Taken from the
+  /// prototype's `index.html` media queries and `themes.css` per-theme overrides.
   factory DovahOverviewMetrics.forWindow({
-    required DovahThemePreset preset,
+    required DovahOverviewThemeMetrics themeMetrics,
     required Size window,
   }) {
     final bool narrow = window.width <= DovahRootMetrics.narrowMaxWindowWidth;
     final bool compact =
         window.height <= DovahRootMetrics.compactMaxWindowHeight;
 
-    double level((double, double) row) => compact ? row.$2 : row.$1;
-
     return DovahOverviewMetrics(
       mainColumnFlex: narrow ? 115 : 125,
       sideColumnFlex: narrow ? 85 : 75,
-      gridGap: preset == DovahThemePreset.frostbound ? 10 : 14,
-      heroMinHeight: level(switch (preset) {
-        DovahThemePreset.frostbound => (226, 205),
-        DovahThemePreset.dovah => (270, 210),
-        DovahThemePreset.hearth => (278, 215),
-      }),
-      statsTopGap: level(switch (preset) {
-        DovahThemePreset.frostbound => (14, 14),
-        DovahThemePreset.dovah => (20, 14),
-        DovahThemePreset.hearth => (20, 14),
-      }),
+      gridGap: themeMetrics.gridGap,
+      heroMinHeight: compact
+          ? themeMetrics.compactHeroMinHeight
+          : themeMetrics.regularHeroMinHeight,
+      statsTopGap: compact
+          ? themeMetrics.compactStatsTopGap
+          : themeMetrics.regularStatsTopGap,
     );
   }
 

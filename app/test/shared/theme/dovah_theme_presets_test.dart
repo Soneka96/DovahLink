@@ -4,9 +4,11 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_preset_theme.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/frostbound_theme.dart';
@@ -55,6 +57,26 @@ void main() {
         DovahPageThemeMetrics.frostbound,
       );
     });
+
+    test(
+      'Method buildFrostboundTheme attaches its DovahSessionThemeMetrics',
+      () {
+        expect(
+          buildFrostboundTheme().extension<DovahSessionThemeMetrics>(),
+          DovahSessionThemeMetrics.frostbound,
+        );
+      },
+    );
+
+    test(
+      'Method buildFrostboundTheme attaches its DovahOverviewThemeMetrics',
+      () {
+        expect(
+          buildFrostboundTheme().extension<DovahOverviewThemeMetrics>(),
+          DovahOverviewThemeMetrics.frostbound,
+        );
+      },
+    );
   });
 
   group('Behavior prototype color token mappings behave correctly', () {
@@ -448,6 +470,26 @@ void main() {
         DovahPageThemeMetrics.dovah,
       );
     });
+
+    test(
+      'Method buildDovahPresetTheme attaches its DovahSessionThemeMetrics',
+      () {
+        expect(
+          buildDovahPresetTheme().extension<DovahSessionThemeMetrics>(),
+          DovahSessionThemeMetrics.dovah,
+        );
+      },
+    );
+
+    test(
+      'Method buildDovahPresetTheme attaches its DovahOverviewThemeMetrics',
+      () {
+        expect(
+          buildDovahPresetTheme().extension<DovahOverviewThemeMetrics>(),
+          DovahOverviewThemeMetrics.dovah,
+        );
+      },
+    );
   });
 
   group('Method buildHearthTheme behaves correctly', () {
@@ -489,6 +531,20 @@ void main() {
       expect(
         buildHearthTheme().extension<DovahPageThemeMetrics>(),
         DovahPageThemeMetrics.hearth,
+      );
+    });
+
+    test('Method buildHearthTheme attaches its DovahSessionThemeMetrics', () {
+      expect(
+        buildHearthTheme().extension<DovahSessionThemeMetrics>(),
+        DovahSessionThemeMetrics.hearth,
+      );
+    });
+
+    test('Method buildHearthTheme attaches its DovahOverviewThemeMetrics', () {
+      expect(
+        buildHearthTheme().extension<DovahOverviewThemeMetrics>(),
+        DovahOverviewThemeMetrics.hearth,
       );
     });
   });

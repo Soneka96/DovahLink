@@ -3,15 +3,16 @@ import 'package:flutter/painting.dart';
 
 import 'package:equatable/equatable.dart';
 
-import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 
 /// The measurements of the session shell's chrome: the session header bar and the game navigation
 /// under it (the approved prototype's `.session-header`, `.session-top`, and `.game-nav`). They
-/// change at the narrow and compact window breakpoints and Frostbound pins the navigation height,
-/// so the varying values are resolved by [forWindow] from prototype-exact tables; the shell never
-/// branches on the window size or the preset itself. The header's blurred translucent fill is the
-/// root header's, [DovahRootMetrics.headerBackgroundOpacity] and
+/// change at the narrow and compact window breakpoints and Frostbound pins the navigation height.
+/// The theme-varying navigation height lives in [DovahSessionThemeMetrics], a theme extension that
+/// Flutter interpolates during a theme change, and [forWindow] resolves it for the window; the
+/// shell never branches on the window size or the preset itself. The header's blurred translucent
+/// fill is the root header's, [DovahRootMetrics.headerBackgroundOpacity] and
 /// [DovahRootMetrics.headerBlurSigma].
 @immutable
 class DovahSessionMetrics extends Equatable {
@@ -122,10 +123,12 @@ class DovahSessionMetrics extends Equatable {
     required this.showFirstAction,
   });
 
-  /// Resolves the measurements for [preset] in a window of size [window], from the prototype's
-  /// `index.html` media queries and `themes.css` per-theme overrides.
+  /// Resolves the measurements for a window of size [window] from [themeMetrics], the active
+  /// theme's (possibly mid-transition) navigation heights. The compact height selects the other
+  /// navigation height; the remaining measurements vary by window alone. Taken from the
+  /// prototype's `index.html` media queries.
   factory DovahSessionMetrics.forWindow({
-    required DovahThemePreset preset,
+    required DovahSessionThemeMetrics themeMetrics,
     required Size window,
   }) {
     final bool narrow = window.width <= DovahRootMetrics.narrowMaxWindowWidth;
@@ -134,7 +137,9 @@ class DovahSessionMetrics extends Equatable {
 
     return DovahSessionMetrics(
       barHeight: compact ? 54 : 65,
-      navHeight: compact || preset == DovahThemePreset.frostbound ? 45 : 53,
+      navHeight: compact
+          ? themeMetrics.compactNavHeight
+          : themeMetrics.regularNavHeight,
       barSideMargin: narrow ? 14 : 24,
       tabHorizontalPadding: narrow ? 16 : 22,
       showFirstAction: !narrow,
