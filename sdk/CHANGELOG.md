@@ -11,6 +11,10 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ## [Unreleased]
 
+### Changed
+
+- The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
+
 ## [0.5.0] - 2026-09-24
 
 ### Added

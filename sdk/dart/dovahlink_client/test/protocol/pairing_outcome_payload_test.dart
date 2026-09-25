@@ -116,6 +116,32 @@ void main() {
       },
     );
 
+    test('Method fromJson exposes Host attempts remaining for invalid', () {
+      final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
+        _readPayload('pairing/pairing-outcome-invalid.json'),
+      );
+
+      expect(payload.outcome, PairingOutcome.invalid);
+      expect(payload.attemptsRemaining, 4);
+    });
+
+    test(
+      'Method fromJson accepts invalid with null attemptsRemaining when no attempt was counted',
+      () {
+        final PairingOutcomePayload payload =
+            PairingOutcomePayload.fromJson(<String, dynamic>{
+              'outcome': 'invalid',
+              'credential': null,
+              'shortId': null,
+              'displayName': null,
+              'attemptsRemaining': null,
+              'retryAfterSeconds': null,
+            });
+
+        expect(payload.attemptsRemaining, isNull);
+      },
+    );
+
     test('Method fromJson decodes pairing_invalidated with no trust data', () {
       final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
         _readPayload('pairing/pairing-outcome-invalidated.json'),
@@ -137,6 +163,7 @@ void main() {
               'credential': null,
               'shortId': null,
               'displayName': null,
+              'attemptsRemaining': null,
               'retryAfterSeconds': 0,
             });
 
@@ -167,21 +194,23 @@ void main() {
     );
 
     test(
-      'Method fromJson decodes renotified, cancelled, and already_idle with no retryAfterSeconds',
+      'Method fromJson decodes retryAfterSeconds for a committed renotified outcome',
       () {
-        for (final String fixture in <String>[
-          'pairing/pairing-outcome-renotified.json',
-          'pairing/pairing-outcome-cancelled.json',
-          'pairing/pairing-outcome-already-idle.json',
-        ]) {
-          final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
-            _readPayload(fixture),
-          );
+        final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
+          _readPayload('pairing/pairing-outcome-renotified.json'),
+        );
 
-          expect(payload.retryAfterSeconds, isNull, reason: fixture);
-        }
+        expect(payload.retryAfterSeconds, 5);
       },
     );
+
+    test('Method fromJson keeps retryAfterSeconds null for already_idle', () {
+      final PairingOutcomePayload payload = PairingOutcomePayload.fromJson(
+        _readPayload('pairing/pairing-outcome-already-idle.json'),
+      );
+
+      expect(payload.retryAfterSeconds, isNull);
+    });
 
     test(
       'Method fromJson rejects outcome-dependent credential, shortId, displayName, and retryAfterSeconds combinations',
@@ -192,6 +221,7 @@ void main() {
             'credential': null,
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -199,6 +229,7 @@ void main() {
             'credential': 'credential-1',
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -206,6 +237,7 @@ void main() {
             'credential': '',
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -213,6 +245,7 @@ void main() {
             'credential': 'credential-1',
             'shortId': '12345',
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -220,6 +253,7 @@ void main() {
             'credential': 'credential-1',
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -227,6 +261,7 @@ void main() {
             'credential': 'credential-1',
             'shortId': '',
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -234,6 +269,7 @@ void main() {
             'credential': null,
             'shortId': '12345',
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -241,6 +277,7 @@ void main() {
             'credential': null,
             'shortId': '12345',
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -248,6 +285,7 @@ void main() {
             'credential': 'credential-1',
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -255,6 +293,7 @@ void main() {
             'credential': null,
             'shortId': null,
             'displayName': 'My PC',
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -262,6 +301,7 @@ void main() {
             'credential': null,
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -269,6 +309,15 @@ void main() {
             'credential': null,
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
+            'retryAfterSeconds': null,
+          },
+          <String, dynamic>{
+            'outcome': 'renotified',
+            'credential': null,
+            'shortId': null,
+            'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
           <String, dynamic>{
@@ -276,6 +325,23 @@ void main() {
             'credential': null,
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': 4,
+            'retryAfterSeconds': null,
+          },
+          <String, dynamic>{
+            'outcome': 'invalid',
+            'credential': null,
+            'shortId': null,
+            'displayName': null,
+            'attemptsRemaining': 0,
+            'retryAfterSeconds': null,
+          },
+          <String, dynamic>{
+            'outcome': 'expired',
+            'credential': null,
+            'shortId': null,
+            'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': 1,
           },
           <String, dynamic>{
@@ -283,6 +349,7 @@ void main() {
             'credential': 'credential-1',
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           },
         ];
@@ -307,10 +374,31 @@ void main() {
               'credential': null,
               'shortId': null,
               'displayName': null,
+              'attemptsRemaining': null,
               'retryAfterSeconds': value,
             }),
             throwsA(isA<ProtocolFormatException>()),
             reason: '$value is not a valid retryAfterSeconds value',
+          );
+        }
+      },
+    );
+
+    test(
+      'Method fromJson rejects negative, non-integral, and non-integer attemptsRemaining',
+      () {
+        for (final Object value in <Object>[-1, 1.5, 'four']) {
+          expect(
+            () => PairingOutcomePayload.fromJson(<String, dynamic>{
+              'outcome': 'invalid',
+              'credential': null,
+              'shortId': null,
+              'displayName': null,
+              'attemptsRemaining': value,
+              'retryAfterSeconds': null,
+            }),
+            throwsA(isA<ProtocolFormatException>()),
+            reason: '$value is not a valid attemptsRemaining value',
           );
         }
       },
@@ -325,6 +413,7 @@ void main() {
             'credential': null,
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           }),
           throwsA(isA<ProtocolFormatException>()),
@@ -350,6 +439,7 @@ void main() {
           'credential',
           'shortId',
           'displayName',
+          'attemptsRemaining',
         ]) {
           final JsonMap withMissingKey = _readPayload(
             'pairing/pairing-outcome-trusted.json',
@@ -365,16 +455,22 @@ void main() {
     );
 
     test(
-      'Method fromJson rejects a payload missing the required retryAfterSeconds key',
+      'Method fromJson rejects a payload missing required runtime metadata keys',
       () {
-        final JsonMap withMissingKey = _readPayload(
-          'pairing/pairing-outcome-trusted.json',
-        )..remove('retryAfterSeconds');
+        for (final String key in <String>[
+          'attemptsRemaining',
+          'retryAfterSeconds',
+        ]) {
+          final JsonMap withMissingKey = _readPayload(
+            'pairing/pairing-outcome-trusted.json',
+          )..remove(key);
 
-        expect(
-          () => PairingOutcomePayload.fromJson(withMissingKey),
-          throwsA(isA<ProtocolFormatException>()),
-        );
+          expect(
+            () => PairingOutcomePayload.fromJson(withMissingKey),
+            throwsA(isA<ProtocolFormatException>()),
+            reason: '$key is required even when its value may be null',
+          );
+        }
       },
     );
 
@@ -438,6 +534,7 @@ void main() {
             'credential': 'credential-1',
             'shortId': null,
             'displayName': null,
+            'attemptsRemaining': null,
             'retryAfterSeconds': null,
           }),
           throwsA(

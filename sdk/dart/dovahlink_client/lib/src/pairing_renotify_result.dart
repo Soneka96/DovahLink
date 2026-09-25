@@ -8,7 +8,8 @@ class PairingRenotifyResult {
   /// Whether the code was redisplayed, rejected by the renotify cooldown, or nothing was owned.
   final PairingRenotifyStatus status;
 
-  /// The remaining cooldown in seconds before the next manual renotify is accepted, present only
-  /// for [PairingRenotifyStatus.cooldown].
+  /// Host-reported cooldown seconds, newly started after [PairingRenotifyStatus.renotified] or
+  /// remaining before another request is accepted for [PairingRenotifyStatus.cooldown]; `null` for
+  /// [PairingRenotifyStatus.alreadyIdle].
   final int? retryAfterSeconds;
 }

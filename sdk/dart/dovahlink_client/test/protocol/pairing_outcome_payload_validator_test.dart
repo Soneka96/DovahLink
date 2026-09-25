@@ -14,6 +14,7 @@ void main() {
           String? credential,
           String? shortId,
           String? displayName,
+          int? attemptsRemaining,
           int? retryAfterSeconds,
         })
       >
@@ -24,6 +25,7 @@ void main() {
               String? credential,
               String? shortId,
               String? displayName,
+              int? attemptsRemaining,
               int? retryAfterSeconds,
             })
           >[
@@ -32,6 +34,7 @@ void main() {
               credential: 'credential-1',
               shortId: null,
               displayName: 'My PC',
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -39,6 +42,7 @@ void main() {
               credential: 'credential-1',
               shortId: '12345',
               displayName: 'My PC',
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -46,6 +50,7 @@ void main() {
               credential: 'credential-1',
               shortId: '12345',
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -53,6 +58,7 @@ void main() {
               credential: null,
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -60,6 +66,7 @@ void main() {
               credential: null,
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: 1,
             ),
             (
@@ -67,7 +74,32 @@ void main() {
               credential: null,
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: 1,
+            ),
+            (
+              outcome: PairingOutcome.renotified,
+              credential: null,
+              shortId: null,
+              displayName: null,
+              attemptsRemaining: null,
+              retryAfterSeconds: 5,
+            ),
+            (
+              outcome: PairingOutcome.invalid,
+              credential: null,
+              shortId: null,
+              displayName: null,
+              attemptsRemaining: null,
+              retryAfterSeconds: null,
+            ),
+            (
+              outcome: PairingOutcome.invalid,
+              credential: null,
+              shortId: null,
+              displayName: null,
+              attemptsRemaining: 4,
+              retryAfterSeconds: null,
             ),
           ];
 
@@ -76,6 +108,7 @@ void main() {
             String? credential,
             String? shortId,
             String? displayName,
+            int? attemptsRemaining,
             int? retryAfterSeconds,
           })
           validCase
@@ -86,8 +119,10 @@ void main() {
             credential: validCase.credential,
             shortId: validCase.shortId,
             displayName: validCase.displayName,
+            attemptsRemaining: validCase.attemptsRemaining,
             retryAfterSeconds: validCase.retryAfterSeconds,
             json: <String, dynamic>{
+              'attemptsRemaining': validCase.attemptsRemaining,
               'retryAfterSeconds': validCase.retryAfterSeconds,
             },
           ),
@@ -104,6 +139,7 @@ void main() {
           String? credential,
           String? shortId,
           String? displayName,
+          int? attemptsRemaining,
           int? retryAfterSeconds,
         })
       >
@@ -114,6 +150,7 @@ void main() {
               String? credential,
               String? shortId,
               String? displayName,
+              int? attemptsRemaining,
               int? retryAfterSeconds,
             })
           >[
@@ -122,6 +159,7 @@ void main() {
               credential: null,
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -129,6 +167,7 @@ void main() {
               credential: 'credential-1',
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -136,6 +175,7 @@ void main() {
               credential: '',
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -143,6 +183,7 @@ void main() {
               credential: 'credential-1',
               shortId: '12345',
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -150,6 +191,7 @@ void main() {
               credential: 'credential-1',
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -157,6 +199,7 @@ void main() {
               credential: 'credential-1',
               shortId: '',
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -164,6 +207,7 @@ void main() {
               credential: null,
               shortId: null,
               displayName: 'My PC',
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -171,6 +215,7 @@ void main() {
               credential: null,
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
             ),
             (
@@ -178,7 +223,24 @@ void main() {
               credential: null,
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: 1,
+            ),
+            (
+              outcome: PairingOutcome.expired,
+              credential: null,
+              shortId: null,
+              displayName: null,
+              attemptsRemaining: 4,
+              retryAfterSeconds: null,
+            ),
+            (
+              outcome: PairingOutcome.invalid,
+              credential: null,
+              shortId: null,
+              displayName: null,
+              attemptsRemaining: 0,
+              retryAfterSeconds: null,
             ),
           ];
 
@@ -187,6 +249,7 @@ void main() {
             String? credential,
             String? shortId,
             String? displayName,
+            int? attemptsRemaining,
             int? retryAfterSeconds,
           })
           invalidCase
@@ -197,8 +260,10 @@ void main() {
             credential: invalidCase.credential,
             shortId: invalidCase.shortId,
             displayName: invalidCase.displayName,
+            attemptsRemaining: invalidCase.attemptsRemaining,
             retryAfterSeconds: invalidCase.retryAfterSeconds,
             json: <String, dynamic>{
+              'attemptsRemaining': invalidCase.attemptsRemaining,
               'retryAfterSeconds': invalidCase.retryAfterSeconds,
             },
           ),
@@ -218,8 +283,12 @@ void main() {
               credential: null,
               shortId: null,
               displayName: null,
+              attemptsRemaining: null,
               retryAfterSeconds: null,
-              json: <String, dynamic>{'retryAfterSeconds': value},
+              json: <String, dynamic>{
+                'attemptsRemaining': null,
+                'retryAfterSeconds': value,
+              },
             ),
             throwsA(isA<ProtocolFormatException>()),
             reason: '$value is not a valid retryAfterSeconds value',
@@ -227,6 +296,27 @@ void main() {
         }
       },
     );
+
+    test('Method validate rejects invalid raw attemptsRemaining values', () {
+      for (final Object value in <Object>[-1, 1.5, 'four']) {
+        expect(
+          () => PairingOutcomePayloadValidator.validate(
+            outcome: PairingOutcome.invalid,
+            credential: null,
+            shortId: null,
+            displayName: null,
+            attemptsRemaining: null,
+            retryAfterSeconds: null,
+            json: <String, dynamic>{
+              'attemptsRemaining': value,
+              'retryAfterSeconds': null,
+            },
+          ),
+          throwsA(isA<ProtocolFormatException>()),
+          reason: '$value is not a valid attemptsRemaining value',
+        );
+      }
+    });
 
     test(
       'Method validate rejects a non-null raw retry value with an invalid type',
@@ -237,8 +327,12 @@ void main() {
             credential: null,
             shortId: null,
             displayName: null,
+            attemptsRemaining: null,
             retryAfterSeconds: null,
-            json: <String, dynamic>{'retryAfterSeconds': 'soon'},
+            json: <String, dynamic>{
+              'attemptsRemaining': null,
+              'retryAfterSeconds': 'soon',
+            },
           ),
           throwsA(isA<ProtocolFormatException>()),
         );

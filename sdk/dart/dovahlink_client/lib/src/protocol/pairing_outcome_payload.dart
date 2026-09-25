@@ -11,16 +11,22 @@ part 'pairing_outcome_payload.g.dart';
 /// Decode-only: the client never sends `pairing_outcome`.
 @JsonSerializable(checked: true, createToJson: false)
 class PairingOutcomePayload {
-  /// Creates a pairing-outcome payload.
+  /// Creates a pairing-outcome payload from decoded Host values.
+  /// [outcome] is the Host-reported result.
+  /// [credential], [shortId], and [displayName] carry trust metadata when applicable.
+  /// [attemptsRemaining] and [retryAfterSeconds] carry Host runtime metadata when applicable.
   const PairingOutcomePayload({
     required this.outcome,
     required this.credential,
     required this.shortId,
     required this.displayName,
+    required this.attemptsRemaining,
     this.retryAfterSeconds,
   });
 
-  /// Decodes and validates one `pairing_outcome` payload.
+  /// Decodes and validates one `pairing_outcome` payload from [json].
+  /// Returns the typed Host reply.
+  /// Throws [ProtocolFormatException] if its shape or metadata is malformed.
   factory PairingOutcomePayload.fromJson(JsonMap json) {
     try {
       final PairingOutcomePayload payload = _$PairingOutcomePayloadFromJson(
@@ -31,6 +37,7 @@ class PairingOutcomePayload {
         credential: payload.credential,
         shortId: payload.shortId,
         displayName: payload.displayName,
+        attemptsRemaining: payload.attemptsRemaining,
         retryAfterSeconds: payload.retryAfterSeconds,
         json: json,
       );
@@ -57,9 +64,13 @@ class PairingOutcomePayload {
   @JsonKey(required: true)
   final String? displayName;
 
-  /// The remaining wait in seconds before the next attempt is accepted, present for
-  /// `"pacing_limited"` (next `pairing_confirm`) and `"renotify_cooldown"` (next
-  /// `pairing_renotify`); `null` otherwise.
+  /// The Host-calculated number of wrong-code attempts remaining after a counted `invalid` result;
+  /// `null` when the attempt was not counted or the outcome is not `invalid`.
+  @JsonKey(required: true)
+  final int? attemptsRemaining;
+
+  /// Host-authoritative whole seconds until retry is safe, present for `"pacing_limited"`,
+  /// `"renotify_cooldown"`, and the newly committed cooldown on `"renotified"`; `null` otherwise.
   @JsonKey(required: true)
   final int? retryAfterSeconds;
 }
