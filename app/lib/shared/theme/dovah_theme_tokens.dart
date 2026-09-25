@@ -144,8 +144,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Line height, as a multiple of font size, of a page title.
   final double pageTitleLineHeight;
 
-  /// Which preset these tokens belong to. Metrics classes key their prototype-exact per-theme
-  /// tables on it; widgets never branch on it.
+  /// Which preset these tokens belong to. It snaps at the midpoint of a theme transition, so
+  /// neither metrics classes nor widgets resolve visual values from it; theme-varying geometry
+  /// lives in the `Dovah*ThemeMetrics` extensions.
   final DovahThemePreset preset;
 
   /// The scrim color, alpha included, drawn behind a dialog (the prototype's per-theme
