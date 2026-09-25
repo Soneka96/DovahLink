@@ -298,6 +298,13 @@ resolve the lazy client registration just to disconnect an unused client. Window
 service. Android and iOS do not register that bridge, and ordinary background/pause lifecycle events
 do not invoke application shutdown.
 
+For a normal Windows close, the runner holds `WM_CLOSE` until Dart replies or a five-second native
+timer expires; repeated close requests share that pending attempt, and only its current generation
+can continue closing the window. `WM_QUERYENDSESSION` returns success immediately without cleanup,
+since another application may cancel the system request. When `WM_ENDSESSION` reports a committed
+session ending, the runner requests best-effort Dart cleanup once and returns immediately; Windows
+may terminate the process before that cleanup finishes. Neither path shuts down the separate Host.
+
 ## Theming and layout
 
 - Colors and text styles come from `Theme.of(context)` and the approved app theme.

@@ -8,13 +8,18 @@
 
 #include <memory>
 
+#include "window_lifecycle_state.h"
+
 #include "win32_window.h"
 
 ///  A native window that hosts a Flutter view.
 class FlutterWindow : public Win32Window {
   public:
     ///  Creates a window that hosts the supplied Flutter project.
-    explicit FlutterWindow(const flutter::DartProject& project);
+    ///  @param project The Flutter project hosted by this window.
+    ///  @param lifecycleState Non-null state that deduplicates close and session-end requests.
+    FlutterWindow(const flutter::DartProject& project,
+                  std::unique_ptr<IWindowLifecycleState> lifecycleState);
 
     ///  Destroys the window and its Flutter controller.
     virtual ~FlutterWindow();
@@ -41,8 +46,8 @@ class FlutterWindow : public Win32Window {
     std::unique_ptr<flutter::MethodChannel<flutter::EncodableValue>>
         window_lifecycle_channel_;
 
-    ///  Whether a native close request is waiting for the Dart shutdown reply.
-    bool close_request_pending_ = false;
+    ///  Owns the active close and session-ending state for this native window.
+    std::unique_ptr<IWindowLifecycleState> lifecycle_state_;
 };
 
 #endif //  RUNNER_FLUTTER_WINDOW_H_
