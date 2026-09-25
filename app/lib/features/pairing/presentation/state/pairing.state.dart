@@ -17,6 +17,7 @@ class PairingState extends Equatable {
     this.credentialRejectionReason,
     required this.codeExpiresAt,
     required this.renotifyAvailableAt,
+    this.isRenotifyPending = false,
     this.support = PairingSupport.available,
   });
 
@@ -30,6 +31,7 @@ class PairingState extends Equatable {
     credentialRejectionReason: null,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
+    isRenotifyPending: false,
     support: support,
   );
 
@@ -57,6 +59,9 @@ class PairingState extends Equatable {
   /// `null` when renotify is available immediately or no challenge is active.
   final DateTime? renotifyAvailableAt;
 
+  /// Whether the Host is waiting for Skyrim to acknowledge a code redisplay.
+  final bool isRenotifyPending;
+
   /// Returns a copy with selected values replaced.
   PairingState copyWith({
     PairingPhase? phase,
@@ -67,6 +72,7 @@ class PairingState extends Equatable {
     Option<PairingCredentialRejectionReason>? credentialRejectionReason,
     Option<DateTime>? codeExpiresAt,
     Option<DateTime>? renotifyAvailableAt,
+    bool? isRenotifyPending,
     PairingSupport? support,
   }) => PairingState(
     phase: phase ?? this.phase,
@@ -84,6 +90,7 @@ class PairingState extends Equatable {
     renotifyAvailableAt: renotifyAvailableAt == null
         ? this.renotifyAvailableAt
         : renotifyAvailableAt.toNullable(),
+    isRenotifyPending: isRenotifyPending ?? this.isRenotifyPending,
   );
 
   /// See [Equatable.props].
@@ -96,5 +103,6 @@ class PairingState extends Equatable {
     credentialRejectionReason,
     codeExpiresAt,
     renotifyAvailableAt,
+    isRenotifyPending,
   ];
 }

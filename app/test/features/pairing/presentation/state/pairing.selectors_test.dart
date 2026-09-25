@@ -328,4 +328,25 @@ void main() {
       },
     );
   });
+
+  group('Selector renotifyPendingSelector behaves correctly', () {
+    test(
+      'Selector renotifyPendingSelector returns true while redisplay is pending',
+      () {
+        final AppState state = AppState(
+          connection: ConnectionState.initial(),
+          pairing: PairingState.initial().copyWith(isRenotifyPending: true),
+        );
+
+        expect(PairingSelectors.renotifyPendingSelector(state), isTrue);
+      },
+    );
+
+    test('Selector renotifyPendingSelector returns false when idle', () {
+      expect(
+        PairingSelectors.renotifyPendingSelector(AppState.initial()),
+        isFalse,
+      );
+    });
+  });
 }

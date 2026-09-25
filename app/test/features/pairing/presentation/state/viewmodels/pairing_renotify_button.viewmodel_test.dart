@@ -32,9 +32,26 @@ void main() {
           PairingRenotifyButtonViewModel.fromStore(store);
 
       expect(viewModel.isAvailable, isTrue);
+      expect(viewModel.isPending, isFalse);
       expect(viewModel.cooldownSeconds, isNull);
       expect(viewModel.onPressed, isNotNull);
       verifyNever(() => store.dispatch(any()));
+    });
+
+    test('Method fromStore disables redisplay while a request is pending', () {
+      when(() => store.state).thenReturn(
+        AppState(
+          connection: ConnectionState.initial(),
+          pairing: PairingState.initial().copyWith(isRenotifyPending: true),
+        ),
+      );
+
+      final PairingRenotifyButtonViewModel viewModel =
+          PairingRenotifyButtonViewModel.fromStore(store);
+
+      expect(viewModel.isPending, isTrue);
+      expect(viewModel.isAvailable, isFalse);
+      expect(viewModel.onPressed, isNull);
     });
 
     test('Method fromStore maps an active cooldown and disables redisplay', () {
@@ -55,6 +72,7 @@ void main() {
           PairingRenotifyButtonViewModel.fromStore(store);
 
       expect(viewModel.isAvailable, isFalse);
+      expect(viewModel.isPending, isFalse);
       expect(viewModel.cooldownSeconds, isA<int>());
       expect(viewModel.cooldownSeconds, greaterThan(0));
       expect(viewModel.onPressed, isNull);
@@ -107,6 +125,7 @@ void main() {
       const PairingRenotifyButtonViewModel viewModel =
           PairingRenotifyButtonViewModel(
             isAvailable: true,
+            isPending: false,
             cooldownSeconds: null,
             onPressed: null,
           );
@@ -118,6 +137,7 @@ void main() {
       const PairingRenotifyButtonViewModel viewModel =
           PairingRenotifyButtonViewModel(
             isAvailable: false,
+            isPending: false,
             cooldownSeconds: 3,
             onPressed: null,
           );
@@ -129,6 +149,7 @@ void main() {
       const PairingRenotifyButtonViewModel viewModel =
           PairingRenotifyButtonViewModel(
             isAvailable: false,
+            isPending: false,
             cooldownSeconds: 3,
             onPressed: null,
           );
@@ -141,6 +162,45 @@ void main() {
         'Please wait',
       );
     });
+
+    test(
+      'Method displayLabel shows when redisplay is being sent to Skyrim',
+      () {
+        const PairingRenotifyButtonViewModel viewModel =
+            PairingRenotifyButtonViewModel(
+              isAvailable: false,
+              isPending: true,
+              cooldownSeconds: null,
+              onPressed: null,
+            );
+
+        expect(
+          viewModel.displayLabel(label: 'Send Again'),
+          'Sending to Skyrim…',
+        );
+      },
+    );
+
+    test(
+      'Method displayLabel prioritizes pending state over a cooldown label',
+      () {
+        const PairingRenotifyButtonViewModel viewModel =
+            PairingRenotifyButtonViewModel(
+              isAvailable: false,
+              isPending: true,
+              cooldownSeconds: 3,
+              onPressed: null,
+            );
+
+        expect(
+          viewModel.displayLabel(
+            label: 'Send Again',
+            cooldownLabel: 'Please wait',
+          ),
+          'Sending to Skyrim…',
+        );
+      },
+    );
   });
 
   group('Behavior equality behaves correctly', () {
@@ -152,12 +212,14 @@ void main() {
         final PairingRenotifyButtonViewModel first =
             PairingRenotifyButtonViewModel(
               isAvailable: false,
+              isPending: false,
               cooldownSeconds: 3,
               onPressed: firstCallback,
             );
         final PairingRenotifyButtonViewModel second =
             PairingRenotifyButtonViewModel(
               isAvailable: false,
+              isPending: false,
               cooldownSeconds: 3,
               onPressed: secondCallback,
             );
@@ -171,17 +233,38 @@ void main() {
       const PairingRenotifyButtonViewModel first =
           PairingRenotifyButtonViewModel(
             isAvailable: false,
+            isPending: false,
             cooldownSeconds: 3,
             onPressed: null,
           );
       const PairingRenotifyButtonViewModel second =
           PairingRenotifyButtonViewModel(
             isAvailable: false,
+            isPending: false,
             cooldownSeconds: 2,
             onPressed: null,
           );
 
       expect(first, isNot(second));
+    });
+
+    test('Behavior equality differs when redisplay pending changes', () {
+      const PairingRenotifyButtonViewModel idle =
+          PairingRenotifyButtonViewModel(
+            isAvailable: true,
+            isPending: false,
+            cooldownSeconds: null,
+            onPressed: null,
+          );
+      const PairingRenotifyButtonViewModel pending =
+          PairingRenotifyButtonViewModel(
+            isAvailable: false,
+            isPending: true,
+            cooldownSeconds: null,
+            onPressed: null,
+          );
+
+      expect(idle, isNot(pending));
     });
   });
 }

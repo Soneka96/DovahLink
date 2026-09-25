@@ -116,6 +116,29 @@ void main() {
       },
     );
 
+    testWidgets(
+      'PairingRenotifyButton displays sending state and disables redisplay while pending',
+      (WidgetTester tester) async {
+        when(() => viewModel.isAvailable).thenReturn(false);
+        when(() => viewModel.cooldownSeconds).thenReturn(null);
+        when(() => viewModel.onPressed).thenReturn(null);
+        when(
+          () => viewModel.displayLabel(
+            label: 'Send Code Again',
+            cooldownLabel: null,
+          ),
+        ).thenReturn('Sending to Skyrim…');
+
+        await tester.pumpWidget(buildWidget());
+
+        final DovahButton button = tester.widget<DovahButton>(
+          find.byType(DovahButton),
+        );
+        expect(button.onPressed, isNull);
+        expect(find.text('Sending to Skyrim…'), findsOneWidget);
+      },
+    );
+
     testWidgets('PairingRenotifyButton displays the custom cooldown label', (
       WidgetTester tester,
     ) async {
@@ -195,12 +218,14 @@ void main() {
         const PairingRenotifyButtonViewModel coolingDown =
             PairingRenotifyButtonViewModel(
               isAvailable: false,
+              isPending: false,
               cooldownSeconds: 3,
               onPressed: null,
             );
         final PairingRenotifyButtonViewModel available =
             PairingRenotifyButtonViewModel(
               isAvailable: true,
+              isPending: false,
               cooldownSeconds: 0,
               onPressed: () {},
             );
