@@ -1117,6 +1117,13 @@ void main() {
           reconnectClient.connectionState,
           DovahLinkConnectionState.disconnected,
         );
+        final int connectCallsAfterDisconnect =
+            reconnectTransport.connectCalls.length;
+        await Future<void>.delayed(const Duration(milliseconds: 250));
+        expect(
+          reconnectTransport.connectCalls.length,
+          connectCallsAfterDisconnect,
+        );
         expect(
           (await reconnectClient.characterXpChanges.first).status,
           DovahLinkStateStatus.notSubscribed,

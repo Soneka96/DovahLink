@@ -11,6 +11,11 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ## [Unreleased]
 
+### Fixed
+
+- Explicit client disconnect cancels pending reconnect delays and stops in-flight recovery from
+  starting another attempt.
+
 ## [0.5.0] - 2026-09-24
 
 ### Added
