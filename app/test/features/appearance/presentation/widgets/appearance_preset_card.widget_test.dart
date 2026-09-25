@@ -12,9 +12,11 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_scene.widget.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Exercises [AppearancePresetCard] across every DovahLink theme, selected state, and
@@ -194,73 +196,149 @@ void main() {
           expect(clipper.cornerStyle, expectedTokens.cornerStyle);
           expect(clipper.cornerRadius, expectedTokens.cornerRadius);
           expect(clipper.cutSize, expectedTokens.cornerCutSize);
-
-          final Container preview = tester.widget(
-            find.byKey(const Key('appearance-preset-card-preview')),
-          );
-          final BoxDecoration previewDecoration =
-              preview.decoration! as BoxDecoration;
-          expect(previewDecoration.color, expectedTokens.surface);
-          expect(
-            previewDecoration.border?.top.color,
-            expectedTokens.lineStrong,
-          );
         });
       }
     }
   });
 
-  group('AppearancePresetCard uses the Dovah preview asset', () {
-    testWidgets(
-      'AppearancePresetCard shows the approved hero image in the Dovah preview',
-      (WidgetTester tester) async {
-        await pumpDovahThemedWidget(
-          tester,
-          AppearancePresetCard(
-            preset: DovahThemePreset.dovah,
-            selected: false,
-            onTap: () {},
-          ),
-          preset: DovahThemePreset.hearth,
-          size: dovahTestSizes.first,
-        );
+  group('AppearancePresetCard previews its own theme scene', () {
+    for (final DovahThemePreset activeTheme in DovahThemePreset.values) {
+      for (final (DovahThemePreset preset, String asset) in [
+        (DovahThemePreset.frostbound, frostboundEnvironmentAsset),
+        (DovahThemePreset.dovah, dovahConnectionHeroAsset),
+        (DovahThemePreset.hearth, hearthEnvironmentAsset),
+      ]) {
+        testWidgets(
+          'AppearancePresetCard shows the $preset scene image while $activeTheme is active',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              AppearancePresetCard(
+                preset: preset,
+                selected: preset == activeTheme,
+                onTap: () {},
+              ),
+              preset: activeTheme,
+              size: dovahTestSizes.first,
+            );
+            final Image image = tester.widget(
+              find.descendant(
+                of: find.byKey(const Key('appearance-preset-card-preview')),
+                matching: find.byType(Image),
+              ),
+            );
 
-        final Container preview = tester.widget(
-          find.byKey(const Key('appearance-preset-card-preview')),
+            expect((image.image as AssetImage).assetName, asset);
+            expect(image.fit, BoxFit.cover);
+          },
         );
-        final BoxDecoration decoration = preview.decoration! as BoxDecoration;
-        final AssetImage image = decoration.image!.image as AssetImage;
+      }
+    }
 
-        expect(
-          image.assetName,
-          'assets/themes/dovah/dovahlink-connection-hero.png',
-        );
-        expect(decoration.image!.fit, BoxFit.cover);
-      },
-    );
-
-    for (final DovahThemePreset preset in <DovahThemePreset>[
-      DovahThemePreset.frostbound,
-      DovahThemePreset.hearth,
-    ]) {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
-        'AppearancePresetCard does not use the Dovah image for $preset',
+        'AppearancePresetCard draws the $preset scene from its own theme',
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
             AppearancePresetCard(preset: preset, selected: false, onTap: () {}),
-            preset: DovahThemePreset.dovah,
+            preset: DovahThemePreset.hearth,
             size: dovahTestSizes.first,
           );
-
-          final Container preview = tester.widget(
-            find.byKey(const Key('appearance-preset-card-preview')),
+          final DovahScene scene = tester.widget(
+            find.descendant(
+              of: find.byKey(const Key('appearance-preset-card-preview')),
+              matching: find.byType(DovahScene),
+            ),
           );
-          final BoxDecoration decoration = preview.decoration! as BoxDecoration;
+          final DovahPreviewScene expected = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeMaterials>()!.previewScene;
 
-          expect(decoration.image, isNull);
+          expect(scene.imageAssetPath, expected.imageAssetPath);
+          expect(scene.imageFilter, expected.imageFilter);
+          expect(scene.layers, expected.layers);
         },
       );
+    }
+  });
+
+  group(
+    'AppearancePresetCard lays out the preview and label like the prototype',
+    () {
+      for (final (Size size, double padding) in [
+        (const Size(720, 480), 9.0),
+        (const Size(900, 560), 9.0),
+        (const Size(1280, 720), 13.0),
+        (const Size(1600, 900), 13.0),
+      ]) {
+        testWidgets(
+          'AppearancePresetCard runs its preview edge to edge and pads its label by $padding at $size',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              Align(
+                alignment: Alignment.topLeft,
+                child: SizedBox(
+                  width: 240,
+                  child: AppearancePresetCard(
+                    preset: DovahThemePreset.hearth,
+                    selected: false,
+                    onTap: () {},
+                  ),
+                ),
+              ),
+              preset: DovahThemePreset.dovah,
+              size: size,
+            );
+            final Rect card = tester.getRect(
+              find.byKey(const Key('appearance-preset-card-surface')),
+            );
+            final Rect preview = tester.getRect(
+              find.byKey(const Key('appearance-preset-card-preview')),
+            );
+            final Rect label = tester.getRect(
+              find.text(DovahThemePreset.hearth.label),
+            );
+
+            expect(preview.left, card.left);
+            expect(preview.width, card.width);
+            expect(preview.top, card.top);
+            expect(label.left - card.left, padding);
+            expect(label.top - preview.bottom, padding);
+          },
+        );
+      }
+    },
+  );
+
+  group('AppearancePresetCard fits at every responsive size', () {
+    for (final DovahThemePreset activeTheme in DovahThemePreset.values) {
+      for (final DovahThemePreset previewedPreset in DovahThemePreset.values) {
+        for (final Size size in dovahResponsiveTestSizes) {
+          testWidgets(
+            'AppearancePresetCard renders $previewedPreset under $activeTheme at $size without overflow',
+            (WidgetTester tester) async {
+              await pumpDovahThemedWidget(
+                tester,
+                SizedBox(
+                  width: 240,
+                  child: AppearancePresetCard(
+                    preset: previewedPreset,
+                    selected: previewedPreset == activeTheme,
+                    onTap: () {},
+                  ),
+                ),
+                preset: activeTheme,
+                size: size,
+              );
+
+              expect(tester.takeException(), isNull);
+              expect(find.text(previewedPreset.label), findsOneWidget);
+            },
+          );
+        }
+      }
     }
   });
 
@@ -387,6 +465,38 @@ void main() {
         }
       },
     );
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'AppearancePresetCard exposes the $preset preset once and not through its preview',
+        (WidgetTester tester) async {
+          final SemanticsHandle semantics = tester.ensureSemantics();
+          try {
+            await pumpDovahThemedWidget(
+              tester,
+              AppearancePresetCard(
+                preset: preset,
+                selected: true,
+                onTap: () {},
+              ),
+              preset: DovahThemePreset.dovah,
+              size: dovahTestSizes.first,
+            );
+
+            expect(find.bySemanticsLabel(preset.label), findsOneWidget);
+            expect(
+              find.descendant(
+                of: find.byKey(const Key('appearance-preset-card-preview')),
+                matching: find.byType(Semantics),
+              ),
+              findsNothing,
+            );
+          } finally {
+            semantics.dispose();
+          }
+        },
+      );
+    }
 
     testWidgets('AppearancePresetCard exposes its unselected state', (
       WidgetTester tester,

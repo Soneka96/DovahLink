@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_preview.widget.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
@@ -8,9 +9,9 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
-/// One selectable theme preset card in the appearance picker: a small preview of that preset's
-/// own material and accent colors (independent of the currently active theme), its label, and a
-/// selection indicator.
+/// One selectable theme preset card in the appearance picker: a picture of that preset drawn from
+/// its own theme (independent of the currently active theme), its label, and a selection
+/// indicator.
 class AppearancePresetCard extends StatelessWidget {
   /// Creates a preset card.
   const AppearancePresetCard({
@@ -78,65 +79,36 @@ class AppearancePresetCard extends StatelessWidget {
                   role: selected
                       ? DovahMaterialRole.raised
                       : DovahMaterialRole.surface,
-                  padding: const EdgeInsets.all(12),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
-                      Container(
-                        key: const Key('appearance-preset-card-preview'),
-                        height:
-                            context.dovahDialogMetrics.appearancePreviewHeight,
-                        decoration: BoxDecoration(
-                          color: previewTokens.surface,
-                          image: preset == DovahThemePreset.dovah
-                              ? const DecorationImage(
-                                  image: AssetImage(
-                                    'assets/themes/dovah/dovahlink-connection-hero.png',
-                                  ),
-                                  fit: BoxFit.cover,
-                                )
-                              : null,
-                          border: Border.all(color: previewTokens.lineStrong),
-                        ),
-                        child: Align(
-                          alignment: Alignment.bottomCenter,
-                          child: SizedBox(
-                            height: appearancePreviewAccentHeight,
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: ColoredBox(
-                                    color: previewTokens.signal,
-                                  ),
-                                ),
-                                Expanded(
-                                  child: ColoredBox(color: previewTokens.ember),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
+                      const AppearancePresetPreview(
+                        key: Key('appearance-preset-card-preview'),
                       ),
-                      const SizedBox(height: 8),
-                      Row(
-                        children: [
-                          Expanded(
-                            child: Text(
-                              preset.label,
-                              style: TextStyle(
-                                color: previewTokens.textPrimary,
-                                fontWeight: FontWeight.w700,
+                      Padding(
+                        padding: EdgeInsets.all(
+                          context.dovahDialogMetrics.appearanceCopyPadding,
+                        ),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                preset.label,
+                                style: TextStyle(
+                                  color: previewTokens.textPrimary,
+                                  fontWeight: FontWeight.w700,
+                                ),
                               ),
                             ),
-                          ),
-                          if (selected)
-                            Icon(
-                              Icons.check_circle,
-                              color: previewTokens.signal,
-                              size: appearanceSelectionIconSize,
-                            ),
-                        ],
+                            if (selected)
+                              Icon(
+                                Icons.check_circle,
+                                color: previewTokens.signal,
+                                size: appearanceSelectionIconSize,
+                              ),
+                          ],
+                        ),
                       ),
                     ],
                   ),

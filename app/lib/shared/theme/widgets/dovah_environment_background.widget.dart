@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_layers_painter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_scene.widget.dart';
 
 /// The DovahLink application canvas: the theme's [DovahAtmosphere] behind [child]. It stacks the
 /// theme's base color, the environment image (Frostbound, Hearth) with its gradient layers seen
@@ -25,20 +26,6 @@ class DovahEnvironmentBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
     final DovahAtmosphere atmosphere = context.dovahMaterials.atmosphere;
-    final String? imageAssetPath = atmosphere.imageAssetPath;
-
-    final Widget scene = Stack(
-      fit: StackFit.expand,
-      children: [
-        if (imageAssetPath != null)
-          Image.asset(
-            imageAssetPath,
-            fit: BoxFit.cover,
-            excludeFromSemantics: true,
-          ),
-        CustomPaint(painter: DovahLayersPainter(layers: atmosphere.layers)),
-      ],
-    );
 
     return Stack(
       fit: StackFit.expand,
@@ -49,12 +36,11 @@ class DovahEnvironmentBackground extends StatelessWidget {
               fit: StackFit.expand,
               children: [
                 ColoredBox(color: tokens.background),
-                atmosphere.imageFilter.isNeutral
-                    ? scene
-                    : ColorFiltered(
-                        colorFilter: atmosphere.imageFilter.toColorFilter(),
-                        child: scene,
-                      ),
+                DovahScene(
+                  imageAssetPath: atmosphere.imageAssetPath,
+                  imageFilter: atmosphere.imageFilter,
+                  layers: atmosphere.layers,
+                ),
                 CustomPaint(
                   painter: DovahLayersPainter(
                     layers: atmosphere.hazeLayers,

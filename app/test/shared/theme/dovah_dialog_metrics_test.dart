@@ -84,6 +84,8 @@ void main() {
       expect(metrics.noteTopGap, 17);
       expect(metrics.appearancePreviewHeight, isA<double>());
       expect(metrics.appearancePreviewHeight, 112);
+      expect(metrics.appearanceCopyPadding, isA<double>());
+      expect(metrics.appearanceCopyPadding, 13);
     });
   });
 
@@ -112,6 +114,8 @@ void main() {
       expect(metrics.noteTopGap, 8);
       expect(metrics.appearancePreviewHeight, isA<double>());
       expect(metrics.appearancePreviewHeight, 78);
+      expect(metrics.appearanceCopyPadding, isA<double>());
+      expect(metrics.appearanceCopyPadding, 9);
     });
   });
 
