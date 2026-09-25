@@ -124,7 +124,8 @@ enum DovahPanelCornerStyle {
   /// One bevelled corner (top-right), sharp elsewhere, no rounding. Frostbound.
   singleBevel,
 
-  /// Two bevelled corners on opposite edges, slight rounding. Dovah.
+  /// Two bevelled corners on opposite edges, sharp elsewhere, no rounding (the prototype's Dovah
+  /// `border-radius:0` with a six-point `clip-path`). Dovah.
   doubleBevel,
 
   /// No bevel; plain rounded corners. Hearth.

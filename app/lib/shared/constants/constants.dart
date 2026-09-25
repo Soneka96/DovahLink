@@ -68,5 +68,5 @@ const String hearthEnvironmentAsset =
 
 /// The number of digits in a pairing code. Matches the Host's own
 /// `Constants.PairingChallengeCodeDigits`, which rejects a `pairing_confirm` code of any other
-/// length; the approved prototype's five-digit boxes predate that contract.
+/// length; the approved prototype's six `.otp` boxes match that contract.
 const int pairingCodeLength = 6;

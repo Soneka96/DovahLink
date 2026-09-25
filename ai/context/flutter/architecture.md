@@ -375,6 +375,12 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 
 ## Visual rules
 
+- The canonical visual source of truth is the final approved prototype, `DovahLink-Prototype-final`
+  (`index.html`, `assets/themes.css`, `assets/branding.js`, and its image assets). Every "approved
+  prototype" in this repository, in code comments and in these conventions, means that prototype;
+  older prototype versions are stale and are never a reference. Cite the prototype's selector, not
+  a file path, in a doc comment, and never hardcode a location of the prototype in production code.
+  The prototype ships no font files, so the typography it names cannot be bundled from it.
 - Check approved DovahLink design references before making a new visual decision. If no local reference or design system exists, record the decision and do not import an external design system without approval.
 - Build the approved Skyrim-inspired presentation with native Flutter theming and components.
 - Keep fonts, colors, panels, icons, spacing, and animations behind shared theme tokens or themed components so the Core UI Theme System can support future adapters.
