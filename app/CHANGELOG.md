@@ -44,6 +44,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- An open dialog now updates its backdrop as the application theme changes.
 - Bevelled panels, cards, and buttons no longer draw a border line along the bevel.
 
 ## [0.5.0] - 2026-09-24

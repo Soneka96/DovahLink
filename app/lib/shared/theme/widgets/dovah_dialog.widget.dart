@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
-import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_backdrop_scrim.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 
@@ -52,14 +51,11 @@ class DovahDialog extends StatelessWidget {
     BuildContext context, {
     required WidgetBuilder builder,
   }) {
-    final DovahBackdrop backdrop = context.dovahMaterials.backdrop;
-
     return showDialog<T>(
       context: context,
       // The scrim tint is painted by the backdrop itself, above the treated page.
       barrierColor: Colors.transparent,
       builder: (BuildContext dialogContext) => DovahBackdropScrim(
-        backdrop: backdrop,
         child: Padding(
           padding: const EdgeInsets.all(DovahDialogMetrics.backdropPadding),
           child: Center(child: builder(dialogContext)),

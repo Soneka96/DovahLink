@@ -7,6 +7,7 @@ import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_backdrop_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_backdrop_scrim.widget.dart';
 
@@ -23,14 +24,19 @@ void main() {
     required DovahBackdrop backdrop,
     Widget child = const Text('Dialog'),
   }) => MaterialApp(
-    home: RepaintBoundary(
-      key: captureKey,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          const ColoredBox(color: Color(0xFFFF0000)),
-          DovahBackdropScrim(backdrop: backdrop, child: child),
-        ],
+    home: Theme(
+      data: ThemeData(
+        extensions: [DovahThemeMaterials.dovah.copyWith(backdrop: backdrop)],
+      ),
+      child: RepaintBoundary(
+        key: captureKey,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            const ColoredBox(color: Color(0xFFFF0000)),
+            DovahBackdropScrim(child: child),
+          ],
+        ),
       ),
     ),
   );
@@ -121,9 +127,13 @@ void main() {
                   behavior: HitTestBehavior.opaque,
                   onTap: () => tapCount++,
                 ),
-                const DovahBackdropScrim(
-                  backdrop: backdrop,
-                  child: SizedBox.expand(),
+                Theme(
+                  data: ThemeData(
+                    extensions: [
+                      DovahThemeMaterials.dovah.copyWith(backdrop: backdrop),
+                    ],
+                  ),
+                  child: const DovahBackdropScrim(child: SizedBox.expand()),
                 ),
               ],
             ),
@@ -142,12 +152,18 @@ void main() {
       int tapCount = 0;
       await tester.pumpWidget(
         MaterialApp(
-          home: DovahBackdropScrim(
-            backdrop: backdrop,
-            child: Center(
-              child: TextButton(
-                onPressed: () => tapCount++,
-                child: const Text('Inside'),
+          home: Theme(
+            data: ThemeData(
+              extensions: [
+                DovahThemeMaterials.dovah.copyWith(backdrop: backdrop),
+              ],
+            ),
+            child: DovahBackdropScrim(
+              child: Center(
+                child: TextButton(
+                  onPressed: () => tapCount++,
+                  child: const Text('Inside'),
+                ),
               ),
             ),
           ),
