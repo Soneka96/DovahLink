@@ -5,10 +5,16 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dar
 
 /// The atmosphere a theme paints behind the whole application: the canvas, never a component. It
 /// is the prototype's `body:before` (an optional environment image under gradient layers, all seen
-/// through one color treatment) plus its `body:after` (a faint haze of fine lines or grain).
+/// through one color treatment) plus its `body:after` (a faint haze of fine lines or grain that
+/// fades out down the canvas, see [hazeFadeEnd]).
 /// Component texture lives in a themed material and feature artwork stays with its feature; this
 /// recipe only describes the world the components sit in.
 class DovahAtmosphere extends Equatable {
+  /// How far down the canvas, as a fraction of its height, the haze fades from fully visible at the
+  /// top to gone. Every theme shares it: the prototype's base `body:after` keeps
+  /// `mask-image:linear-gradient(to bottom,black,transparent 80%)` under each theme's own haze.
+  static const double hazeFadeEnd = 0.8;
+
   /// The asset path of the environment image, or `null` for a purely gradient atmosphere.
   final String? imageAssetPath;
 

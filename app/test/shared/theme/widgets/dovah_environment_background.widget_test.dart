@@ -1,4 +1,8 @@
+import 'dart:typed_data';
+import 'dart:ui' as ui;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -7,6 +11,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_layers_painter.dart';
@@ -275,5 +280,118 @@ void main() {
         expect(stack.children.first, isA<Positioned>());
       },
     );
+  });
+
+  group('DovahEnvironmentBackground fades its haze down the canvas', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahEnvironmentBackground masks the $preset haze from visible at the top to gone at 80%',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahEnvironmentBackground(child: SizedBox.shrink()),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final ShaderMask mask = tester.widget(find.byType(ShaderMask));
+
+          expect(mask.blendMode, BlendMode.dstIn);
+          expect(
+            find.descendant(
+              of: find.byType(ShaderMask),
+              matching: find.byWidgetPredicate(
+                (Widget widget) =>
+                    widget is CustomPaint &&
+                    widget.painter is DovahLayersPainter,
+              ),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: find.byType(ShaderMask),
+              matching: find.byType(Image),
+            ),
+            findsNothing,
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahEnvironmentBackground adds no mask for an atmosphere without haze',
+      (WidgetTester tester) async {
+        final ThemeData base = dovahThemeDataFor(DovahThemePreset.dovah);
+        setDovahTestWindow(tester, dovahTestSizes.first);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: base.copyWith(
+              extensions: [
+                for (final ThemeExtension<dynamic> extension
+                    in base.extensions.values)
+                  if (extension is DovahThemeMaterials)
+                    extension.copyWith(atmosphere: const DovahAtmosphere())
+                  else
+                    extension,
+              ],
+            ),
+            home: const DovahEnvironmentBackground(child: SizedBox.shrink()),
+          ),
+        );
+
+        expect(find.byType(ShaderMask), findsNothing);
+      },
+    );
+
+    testWidgets('DovahEnvironmentBackground fades a solid haze by height', (
+      WidgetTester tester,
+    ) async {
+      const Key boundaryKey = Key('background-boundary');
+      final ThemeData base = dovahThemeDataFor(DovahThemePreset.dovah);
+      setDovahTestWindow(tester, const Size(400, 500));
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: base.copyWith(
+            extensions: [
+              for (final ThemeExtension<dynamic> extension
+                  in base.extensions.values)
+                if (extension is DovahThemeMaterials)
+                  extension.copyWith(
+                    atmosphere: const DovahAtmosphere(
+                      hazeLayers: [
+                        DovahLinearLayer(
+                          angleDegrees: 180,
+                          colors: [Color(0xFFFFFFFF), Color(0xFFFFFFFF)],
+                          stops: [0, 1],
+                        ),
+                      ],
+                    ),
+                  )
+                else
+                  extension,
+            ],
+          ),
+          home: const RepaintBoundary(
+            key: boundaryKey,
+            child: DovahEnvironmentBackground(child: SizedBox.shrink()),
+          ),
+        ),
+      );
+      final RenderRepaintBoundary boundary = tester.renderObject(
+        find.byKey(boundaryKey),
+      );
+      final ByteData data = (await tester.runAsync(() async {
+        final ui.Image image = await boundary.toImage();
+        return (await image.toByteData())!;
+      }))!;
+      int red(int y) => data.getUint8((y * 400 + 200) * 4);
+
+      // The Dovah base is nearly black, so red tracks how much white haze shows through.
+      expect(red(2), greaterThan(240));
+      expect(red(200), inInclusiveRange(110, 150));
+      expect(red(350), inInclusiveRange(20, 45));
+      expect(red(410), lessThan(10));
+      expect(red(499), lessThan(10));
+    });
   });
 }
