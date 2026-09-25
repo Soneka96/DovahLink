@@ -46,6 +46,16 @@ class DovahMaterial extends Equatable {
     borderColor: borderColor,
   );
 
+  /// Returns this material with its border painted in [color], for a component whose prototype rule
+  /// pins a border the role's own does not (a Hearth connection card's `--line2` border).
+  DovahMaterial withBorderColor(Color color) => DovahMaterial(
+    layers: layers,
+    topEdgeHighlight: topEdgeHighlight,
+    bottomEdgeShade: bottomEdgeShade,
+    borderColor: color,
+    shadow: shadow,
+  );
+
   /// See [Equatable.props].
   @override
   List<Object?> get props => [

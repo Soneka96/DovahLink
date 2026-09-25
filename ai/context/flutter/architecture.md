@@ -301,7 +301,7 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
     style, radius and bevel, font family, and casing.
   - `DovahThemeMaterials` owns each theme's visual recipes: one layered material per component role
     (surface, raised, control, icon, primary action), the canvas atmosphere, the dialog backdrop,
-    and the appearance preview scene. A recipe is a small typed value of layers, never a set of
+    the connection card's decoration, and the appearance preview scene. A recipe is a small typed value of layers, never a set of
     per-texture scalar tokens, and every value is copied from the approved prototype with its
     selector cited. Widgets ask `DovahSurface` for a role and never inspect a recipe; a component
     whose shape its own metrics fix, such as an icon tile, overrides the corner treatment and keeps

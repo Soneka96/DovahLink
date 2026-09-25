@@ -47,6 +47,37 @@ void main() {
     });
   });
 
+  group('Method withBorderColor behaves correctly', () {
+    test('Method withBorderColor replaces only the border color', () {
+      const DovahMaterial material = DovahMaterial(
+        layers: [base],
+        topEdgeHighlight: Color(0x21DCEBF0),
+        bottomEdgeShade: Color(0xB8000000),
+        borderColor: Color(0xFF71808A),
+        shadow: [BoxShadow(color: Color(0x80000000), blurRadius: 32)],
+      );
+
+      final DovahMaterial pinned = material.withBorderColor(
+        const Color(0xFF79542F),
+      );
+
+      expect(pinned.borderColor, const Color(0xFF79542F));
+      expect(pinned.layers, material.layers);
+      expect(pinned.topEdgeHighlight, material.topEdgeHighlight);
+      expect(pinned.bottomEdgeShade, material.bottomEdgeShade);
+      expect(pinned.shadow, material.shadow);
+    });
+
+    test('Method withBorderColor adds a border to a borderless material', () {
+      const DovahMaterial material = DovahMaterial(layers: [base]);
+
+      expect(
+        material.withBorderColor(const Color(0xFF79542F)).borderColor,
+        const Color(0xFF79542F),
+      );
+    });
+  });
+
   group('Method withoutShadow keeps a shadowless material equal', () {
     test('Method withoutShadow returns an equal material without a shadow', () {
       const DovahMaterial material = DovahMaterial(layers: [base]);

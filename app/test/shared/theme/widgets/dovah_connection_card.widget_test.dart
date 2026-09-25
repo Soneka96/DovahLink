@@ -15,6 +15,7 @@ import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_accent_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring_painter.dart';
@@ -957,6 +958,164 @@ void main() {
 
         expect(tester.getTopLeft(outerSurface()), const Offset(45, 40));
         await pointer.removePointer();
+      },
+    );
+  });
+
+  group('DovahConnectionCard paints the theme connection decoration', () {
+    Future<DovahSurface> pumpSurface(
+      WidgetTester tester, {
+      required DovahThemePreset preset,
+      Size size = const Size(1280, 720),
+      DovahConnectionCardState state = DovahConnectionCardState.available,
+    }) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahConnectionCard(
+          title: 'Gaming PC',
+          subtitle: 'Skyrim Special Edition',
+          detail: 'Level 43 · Whiterun',
+          state: state,
+          onTap: () {},
+        ),
+        preset: preset,
+        size: size,
+      );
+      return tester.widget(
+        find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is DovahSurface && widget.role != DovahMaterialRole.icon,
+        ),
+      );
+    }
+
+    testWidgets(
+      'DovahConnectionCard paints Frostbound decoration beneath and above its content',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.frostbound,
+        );
+        final DovahConnectionAccentPainter under =
+            surface.underlay! as DovahConnectionAccentPainter;
+        final DovahConnectionAccentPainter over =
+            surface.overlay! as DovahConnectionAccentPainter;
+
+        expect(under.aboveContent, isFalse);
+        expect(over.aboveContent, isTrue);
+        expect(under.accent, DovahThemeMaterials.frostbound.connectionAccent);
+        expect(under.available, isTrue);
+        expect(surface.borderColor, isNull);
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard paints Dovah decoration only beneath its content',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.dovah,
+        );
+
+        expect(surface.underlay, isA<DovahConnectionAccentPainter>());
+        expect(surface.overlay, isNull);
+        expect(
+          (surface.underlay! as DovahConnectionAccentPainter).showLinkLine,
+          isTrue,
+        );
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard hides the Dovah link line at a narrow window',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.dovah,
+          size: const Size(800, 560),
+        );
+
+        expect(
+          (surface.underlay! as DovahConnectionAccentPainter).showLinkLine,
+          isFalse,
+        );
+      },
+    );
+
+    testWidgets('DovahConnectionCard paints no drawn decoration for Hearth', (
+      WidgetTester tester,
+    ) async {
+      final DovahSurface surface = await pumpSurface(
+        tester,
+        preset: DovahThemePreset.hearth,
+      );
+
+      expect(surface.underlay, isNull);
+      expect(surface.overlay, isNull);
+    });
+
+    testWidgets('DovahConnectionCard pins the darker Hearth border at rest', (
+      WidgetTester tester,
+    ) async {
+      final DovahSurface surface = await pumpSurface(
+        tester,
+        preset: DovahThemePreset.hearth,
+      );
+
+      expect(surface.borderColor, const Color(0xFF79542F));
+    });
+
+    testWidgets(
+      'DovahConnectionCard keeps the raised border while Hearth is hovered',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahConnectionCard(
+            title: 'Gaming PC',
+            subtitle: 'Skyrim Special Edition',
+            detail: 'Level 43 · Whiterun',
+            state: DovahConnectionCardState.available,
+            onTap: () {},
+          ),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.last,
+        );
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await pointer.addPointer(location: const Offset(1200, 700));
+        await tester.pump();
+        await pointer.moveTo(
+          tester.getCenter(find.byType(DovahConnectionCard)),
+        );
+        await tester.pump();
+        await tester.pump(DovahControlMetrics.liftDuration);
+
+        final DovahSurface surface = tester.widget(
+          find.byWidgetPredicate(
+            (Widget widget) =>
+                widget is DovahSurface && widget.role != DovahMaterialRole.icon,
+          ),
+        );
+        expect(surface.role, DovahMaterialRole.raised);
+        expect(surface.borderColor, isNull);
+        await pointer.removePointer();
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard marks only an available card for the edge',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.frostbound,
+          state: DovahConnectionCardState.offline,
+        );
+
+        expect(
+          (surface.underlay! as DovahConnectionAccentPainter).available,
+          isFalse,
+        );
       },
     );
   });

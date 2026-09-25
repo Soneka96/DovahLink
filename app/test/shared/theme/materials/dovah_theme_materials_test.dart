@@ -7,6 +7,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
@@ -357,6 +358,55 @@ void main() {
     });
   });
 
+  group('Property connection accent recipes behave correctly', () {
+    test('Property frostbound keeps the prototype connection decoration', () {
+      final DovahConnectionAccent accent =
+          DovahThemeMaterials.frostbound.connectionAccent;
+      final DovahLinearLayer fracture =
+          accent.overlayLayers.single as DovahLinearLayer;
+
+      expect(fracture.angleDegrees, 118);
+      expect(fracture.stops, [0, 0.17, 0.173, 0.177, 0.63, 0.632, 0.636]);
+      expect(fracture.colors[2], const Color.fromRGBO(206, 229, 237, 0.07));
+      expect(fracture.colors[5], const Color.fromRGBO(206, 229, 237, 0.05));
+      expect(accent.overlayOpacity, 0.8);
+      expect(accent.linkLayer, isNull);
+      expect(accent.cornerOutline, const Color.fromRGBO(169, 201, 216, 0.08));
+      expect(accent.availableEdge, const Color(0xFF86B4C7));
+      expect(accent.restingBorder, isNull);
+      expect(accent.overContent, isTrue);
+    });
+
+    test('Property dovah keeps the prototype connection decoration', () {
+      final DovahConnectionAccent accent =
+          DovahThemeMaterials.dovah.connectionAccent;
+      final DovahLinearLayer link = accent.linkLayer! as DovahLinearLayer;
+
+      expect(link.angleDegrees, 90);
+      expect(link.stops, [0, 0.25, 0.73, 1]);
+      expect(link.colors, const [
+        Color.fromRGBO(226, 165, 94, 0.75),
+        Color.fromRGBO(226, 165, 94, 0.08),
+        Color.fromRGBO(116, 189, 232, 0.08),
+        Color.fromRGBO(116, 189, 232, 0.75),
+      ]);
+      expect(accent.linkOpacity, 0.6);
+      expect(accent.overlayLayers, isEmpty);
+      expect(accent.cornerOutline, const Color.fromRGBO(169, 201, 216, 0.08));
+      expect(accent.availableEdge, isNull);
+      expect(accent.restingBorder, isNull);
+      expect(accent.overContent, isFalse);
+    });
+
+    test('Property hearth keeps only the darker resting border', () {
+      final DovahConnectionAccent accent =
+          DovahThemeMaterials.hearth.connectionAccent;
+
+      expect(accent.restingBorder, const Color(0xFF79542F));
+      expect(accent.drawsNothing, isTrue);
+    });
+  });
+
   group('Behavior distinct presets behaves correctly', () {
     test('Behavior distinct presets never share a preview scene', () {
       expect(
@@ -519,6 +569,14 @@ void main() {
       expect(copy.surface, base.surface);
     });
 
+    test('Method copyWith replaces only the connection accent', () {
+      const DovahConnectionAccent plain = DovahConnectionAccent();
+      final DovahThemeMaterials copy = base.copyWith(connectionAccent: plain);
+
+      expect(copy.connectionAccent, plain);
+      expect(copy.surface, base.surface);
+    });
+
     test('Method copyWith replaces only the atmosphere', () {
       const DovahAtmosphere plain = DovahAtmosphere();
       final DovahThemeMaterials copy = base.copyWith(atmosphere: plain);
@@ -600,6 +658,10 @@ void main() {
       expect(base == base.copyWith(primaryAction: replacement), isFalse);
       expect(
         base == base.copyWith(atmosphere: const DovahAtmosphere()),
+        isFalse,
+      );
+      expect(
+        base == base.copyWith(connectionAccent: DovahConnectionAccent.none),
         isFalse,
       );
       expect(

@@ -6,6 +6,8 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_accent_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_hover_lift.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_tile.widget.dart';
@@ -14,10 +16,10 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart'
 /// A DovahLink connection entry styled by [DovahConnectionCardState]. It takes display data and a
 /// callback as props without reading connection or host state.
 ///
-/// Known limitation: the prototype adds per-theme overlays to this card (Frostbound's fracture
-/// lines, Dovah's engraved link line, whose offsets follow the card's layout) and a slightly darker
-/// Hearth border. The card paints the theme's surface material without them, and they remain to
-/// be added with the card's own layout.
+/// The card paints the theme's connection decoration (the prototype's `.connection:before`,
+/// `.connection:after`, and `.connection.available` rules) over its surface: Frostbound's fracture
+/// lines and available edge, Dovah's link line, both bevelled themes' corner outline, and Hearth's
+/// darker resting border.
 ///
 /// While hovered, an interactive card takes the theme's raised material and slides by the theme's
 /// hover offset, as the prototype's `.connection:hover` does.
@@ -65,6 +67,9 @@ class DovahConnectionCard extends StatelessWidget {
         tokens.cornerStyle == DovahPanelCornerStyle.rounded
         ? metrics.cornerRadius
         : 0;
+    final DovahConnectionAccent accent =
+        context.dovahMaterials.connectionAccent;
+    final bool available = state == DovahConnectionCardState.available;
     final bool uppercase = tokens.uppercaseLabels;
     final double? uppercaseSpacing = uppercase
         ? DovahThemeTokens.uppercaseLetterSpacingEm *
@@ -101,6 +106,23 @@ class DovahConnectionCard extends StatelessWidget {
                   role: hovered
                       ? DovahMaterialRole.raised
                       : DovahMaterialRole.surface,
+                  borderColor: hovered ? null : accent.restingBorder,
+                  underlay: accent.drawsNothing
+                      ? null
+                      : DovahConnectionAccentPainter(
+                          accent: accent,
+                          available: available,
+                          showLinkLine: metrics.showLinkLine,
+                          aboveContent: false,
+                        ),
+                  overlay: accent.drawsNothing || !accent.overContent
+                      ? null
+                      : DovahConnectionAccentPainter(
+                          accent: accent,
+                          available: available,
+                          showLinkLine: metrics.showLinkLine,
+                          aboveContent: true,
+                        ),
                   padding: metrics.padding,
                   cornerRadius: metrics.cornerRadius,
                   cornerCutSize: metrics.cornerCutSize,

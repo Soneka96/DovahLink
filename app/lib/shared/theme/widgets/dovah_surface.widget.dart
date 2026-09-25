@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
@@ -36,6 +37,17 @@ class DovahSurface extends StatelessWidget {
   /// surface's corner style is a bevel.
   final double? cornerCutSize;
 
+  /// Paints beneath [child], inside the clipped surface and above the material, or `null` for
+  /// nothing (a connection card's decoration).
+  final CustomPainter? underlay;
+
+  /// Paints above [child], inside the clipped surface, or `null` for nothing.
+  final CustomPainter? overlay;
+
+  /// Replaces the role material's border color, for a component whose prototype rule pins a border
+  /// the role's own does not, or `null` to keep the material's.
+  final Color? borderColor;
+
   /// Whether the material's drop shadow is painted; `false` for a component whose prototype rule
   /// sets `box-shadow:none` (a disabled primary button).
   final bool castsShadow;
@@ -49,6 +61,9 @@ class DovahSurface extends StatelessWidget {
     this.cornerRadius,
     this.cornerCutSize,
     this.castsShadow = true,
+    this.underlay,
+    this.overlay,
+    this.borderColor,
     super.key,
   });
 
@@ -64,14 +79,28 @@ class DovahSurface extends StatelessWidget {
     final double radius = cornerRadius ?? tokens.cornerRadius;
     final double cut = cornerCutSize ?? tokens.cornerCutSize;
 
+    final DovahMaterial roleMaterial = context.dovahMaterials.forRole(role);
+    final DovahMaterial baseMaterial = castsShadow
+        ? roleMaterial
+        : roleMaterial.withoutShadow();
+    final Color? pinnedBorder = borderColor;
+    Widget content = Padding(padding: padding ?? EdgeInsets.zero, child: child);
+    if (underlay != null || overlay != null) {
+      content = CustomPaint(
+        painter: underlay,
+        foregroundPainter: overlay,
+        child: content,
+      );
+    }
+
     return CustomPaint(
       painter: DovahMaterialPainter(
         cornerStyle: style,
         cornerRadius: radius,
         cutSize: cut,
-        material: castsShadow
-            ? context.dovahMaterials.forRole(role)
-            : context.dovahMaterials.forRole(role).withoutShadow(),
+        material: pinnedBorder == null
+            ? baseMaterial
+            : baseMaterial.withBorderColor(pinnedBorder),
       ),
       child: ClipPath(
         clipper: DovahPanelClipper(
@@ -79,7 +108,7 @@ class DovahSurface extends StatelessWidget {
           cornerRadius: radius,
           cutSize: cut,
         ),
-        child: Padding(padding: padding ?? EdgeInsets.zero, child: child),
+        child: content,
       ),
     );
   }

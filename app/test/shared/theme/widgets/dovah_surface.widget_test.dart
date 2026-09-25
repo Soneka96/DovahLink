@@ -230,6 +230,94 @@ void main() {
     });
   });
 
+  group('DovahSurface layers decoration and pins a border', () {
+    testWidgets(
+      'DovahSurface paints an underlay beneath and an overlay above its child',
+      (WidgetTester tester) async {
+        const _MarkerPainter underlay = _MarkerPainter();
+        const _MarkerPainter overlay = _MarkerPainter();
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            underlay: underlay,
+            overlay: overlay,
+            child: Text('Decorated'),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final CustomPaint decorated = tester.widget(
+          find
+              .descendant(
+                of: find.byType(ClipPath),
+                matching: find.byType(CustomPaint),
+              )
+              .first,
+        );
+
+        expect(decorated.painter, underlay);
+        expect(decorated.foregroundPainter, overlay);
+      },
+    );
+
+    testWidgets(
+      'DovahSurface adds no decoration painter without an underlay or overlay',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(child: Text('Plain')),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          find.descendant(
+            of: find.byType(ClipPath),
+            matching: find.byType(CustomPaint),
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets('DovahSurface pins the border color over the role material', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(
+          borderColor: Color(0xFF79542F),
+          child: Text('Pinned'),
+        ),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        findSurfacePainter(tester).material,
+        DovahThemeMaterials.hearth.surface.withBorderColor(
+          const Color(0xFF79542F),
+        ),
+      );
+    });
+
+    testWidgets('DovahSurface keeps the role border without a pinned color', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(child: Text('Role border')),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        findSurfacePainter(tester).material.borderColor,
+        DovahThemeMaterials.hearth.surface.borderColor,
+      );
+    });
+  });
+
   group('DovahSurface keeps the theme corner geometry', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
@@ -380,4 +468,18 @@ void main() {
       },
     );
   });
+}
+
+/// A painter that paints nothing, so a test can tell where a surface places it.
+class _MarkerPainter extends CustomPainter {
+  /// Creates a marker painter.
+  const _MarkerPainter();
+
+  /// See [CustomPainter.paint].
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  /// See [CustomPainter.shouldRepaint].
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
