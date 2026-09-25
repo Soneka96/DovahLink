@@ -49,6 +49,15 @@ enum PairingPhase {
   };
 }
 
+/// Whether the current platform can safely persist the local client identity and credentials.
+enum PairingSupport {
+  /// Secure client storage is available, so pairing can proceed.
+  available,
+
+  /// No secure client storage implementation is available for this platform.
+  secureStorageUnavailable,
+}
+
 /// The Host's typed reason for rejecting a previously stored pairing credential.
 enum PairingCredentialRejectionReason {
   /// The Host revoked this device's previously trusted credential.

@@ -10,6 +10,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_f
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_progress.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_repair.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_success.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_unavailable.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -37,6 +38,13 @@ class PairingSection extends StatelessWidget {
           sl<PairingSectionViewModel>(param1: store),
       builder: (BuildContext context, PairingSectionViewModel viewModel) {
         void close() => Navigator.of(context).maybePop();
+
+        if (viewModel.support == PairingSupport.secureStorageUnavailable) {
+          return PopScope(
+            canPop: viewModel.canDismiss,
+            child: PairingUnavailable(onClose: close),
+          );
+        }
 
         return PopScope(
           canPop: viewModel.canDismiss,

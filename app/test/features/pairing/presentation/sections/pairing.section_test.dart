@@ -16,6 +16,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_f
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_progress.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_repair.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_success.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_unavailable.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -58,6 +59,7 @@ void main() {
       () => store.onChange,
     ).thenAnswer((_) => const Stream<AppState>.empty());
     when(() => viewModel.phase).thenReturn(PairingPhase.none);
+    when(() => viewModel.support).thenReturn(PairingSupport.available);
     when(() => viewModel.hostName).thenReturn('Bedroom PC');
     when(() => viewModel.error).thenReturn(null);
     when(() => viewModel.isRepair).thenReturn(false);
@@ -290,6 +292,20 @@ void main() {
         expect(find.text('That code is not correct.'), findsOneWidget);
       },
     );
+  });
+
+  testWidgets('PairingSection explains when secure storage is unavailable', (
+    WidgetTester tester,
+  ) async {
+    when(
+      () => viewModel.support,
+    ).thenReturn(PairingSupport.secureStorageUnavailable);
+
+    await pumpSection(tester);
+
+    expect(find.byType(PairingUnavailable), findsOneWidget);
+    expect(find.textContaining('does not have secure storage'), findsOneWidget);
+    expect(find.byKey(const Key('pairing-request-code-button')), findsNothing);
   });
 
   group('PairingSection calls callbacks', () {

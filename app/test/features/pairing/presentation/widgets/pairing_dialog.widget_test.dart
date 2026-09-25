@@ -45,6 +45,7 @@ void main() {
     ).thenAnswer((_) => const Stream<AppState>.empty());
     when(() => dialogViewModel.title).thenReturn('Pair with Bedroom PC');
     when(() => sectionViewModel.phase).thenReturn(PairingPhase.none);
+    when(() => sectionViewModel.support).thenReturn(PairingSupport.available);
     when(() => sectionViewModel.hostName).thenReturn('Bedroom PC');
     when(() => sectionViewModel.error).thenReturn(null);
     when(() => sectionViewModel.isRepair).thenReturn(false);

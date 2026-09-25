@@ -167,7 +167,7 @@ PairingState pairingFailedReducer(
 PairingState pairingDisposedReducer(
   PairingState state,
   PairingDisposedAction action,
-) => PairingState.initial();
+) => PairingState.initial(support: state.support);
 
 /// Handles [PairingRenotifyRequestedAction].
 /// Stays in [PairingPhase.awaitingCode], clears error.

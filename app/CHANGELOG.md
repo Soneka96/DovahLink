@@ -19,6 +19,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 - Canvas backgrounds now render each theme's complete atmosphere recipe, including its image
   treatment and haze layers.
+- Pairing is clearly unavailable on platforms without secure client storage, and authentication is skipped there.
 
 ## [0.5.0] - 2026-09-24
 

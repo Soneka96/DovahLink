@@ -354,6 +354,7 @@ void main() {
     test('PairingDisposedAction resets phase, host version, and error', () {
       const PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
+        support: PairingSupport.secureStorageUnavailable,
         hostVersion: '1.2.3',
         error: 'old error',
         credentialRejectionReason: PairingCredentialRejectionReason.blocked,
@@ -367,6 +368,7 @@ void main() {
       );
 
       expect(result.phase, PairingPhase.none);
+      expect(result.support, PairingSupport.secureStorageUnavailable);
       expect(result.hostVersion, isNull);
       expect(result.error, isNull);
       expect(result.credentialRejectionReason, isNull);

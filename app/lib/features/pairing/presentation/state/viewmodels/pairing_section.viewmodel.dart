@@ -16,6 +16,9 @@ class PairingSectionViewModel extends Equatable {
   /// Current pairing lifecycle phase.
   final PairingPhase phase;
 
+  /// Whether secure client storage allows pairing on this platform.
+  final PairingSupport support;
+
   /// The name of the Host being paired with, or [unknownHostName].
   final String hostName;
 
@@ -47,6 +50,7 @@ class PairingSectionViewModel extends Equatable {
   /// Creates a pairing section ViewModel.
   const PairingSectionViewModel({
     required this.phase,
+    required this.support,
     required this.hostName,
     required this.error,
     required this.isRepair,
@@ -65,6 +69,7 @@ class PairingSectionViewModel extends Equatable {
     final AppState state = store.state;
     return PairingSectionViewModel(
       phase: PairingSelectors.phaseSelector(state),
+      support: state.pairing.support,
       hostName:
           ConnectionSelectors.selectedHostNameSelector(state) ??
           unknownHostName,
@@ -90,6 +95,7 @@ class PairingSectionViewModel extends Equatable {
   @override
   List<Object?> get props => [
     phase,
+    support,
     hostName,
     error,
     isRepair,

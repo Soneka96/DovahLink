@@ -54,10 +54,15 @@ class MockStore extends Mock implements Store<AppState> {}
 
 /// Builds an [AppState] with the given pairing [phase] and the selected [host] (the representative
 /// Host when omitted) -- the two things [PairingMiddleware] itself reads from the Store.
-AppState _stateWithPhase(PairingPhase phase, {Host? host}) => AppState(
+AppState _stateWithPhase(
+  PairingPhase phase, {
+  Host? host,
+  PairingSupport support = PairingSupport.available,
+}) => AppState(
   connection: ConnectionState(selectedHost: host ?? Fixtures.buildHost()),
   pairing: PairingState(
     phase: phase,
+    support: support,
     hostVersion: null,
     error: null,
     codeExpiresAt: null,
@@ -127,6 +132,20 @@ void main() {
     // reaches it runs inside fakeAsync and elapses its own timer before returning, so this value
     // only matters to tests that don't override it with a more specific phase.
     when(() => store.state).thenReturn(_stateWithPhase(PairingPhase.none));
+  });
+
+  test('does not authenticate when secure storage is unavailable', () {
+    when(() => store.state).thenReturn(
+      _stateWithPhase(
+        PairingPhase.none,
+        support: PairingSupport.secureStorageUnavailable,
+      ),
+    );
+
+    middleware.call(store, const PairingStartedAction(), next);
+
+    expect(actionLog, [isA<PairingStartedAction>()]);
+    verifyNever(() => mockAuthenticate(any()));
   });
 
   tearDown(() async {
