@@ -171,7 +171,17 @@ enum DovahMaterialRole {
   icon,
 
   /// A primary action button (the approved prototype's `.primary`).
-  primaryAction,
+  primaryAction;
+
+  /// Whether a surface of this role takes the theme's panel outline (bevel or panel radius). The
+  /// prototype clips panels, cards, dialogs, and primary buttons with a `clip-path`, but never a
+  /// [control] or [icon] tile: those are plain boxes rounded by the theme's `--radius`.
+  bool get followsThemeOutline => switch (this) {
+    DovahMaterialRole.control || DovahMaterialRole.icon => false,
+    DovahMaterialRole.surface ||
+    DovahMaterialRole.raised ||
+    DovahMaterialRole.primaryAction => true,
+  };
 }
 
 /// The outline of the sigil tile in an appearance-preset preview.

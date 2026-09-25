@@ -123,6 +123,113 @@ void main() {
     }
   });
 
+  group('DovahSurface outlines each role as the prototype does', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      for (final DovahMaterialRole role in [
+        DovahMaterialRole.control,
+        DovahMaterialRole.icon,
+      ]) {
+        testWidgets(
+          'DovahSurface rounds a $role surface by the theme radius under $preset',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              DovahSurface(role: role, child: const Text('Plain box')),
+              preset: preset,
+              size: dovahTestSizes.first,
+            );
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(
+              findSurfacePainter(tester).cornerStyle,
+              DovahPanelCornerStyle.rounded,
+            );
+            expect(
+              findSurfacePainter(tester).cornerRadius,
+              tokens.cornerRadius,
+            );
+            expect(
+              findSurfaceClipper(tester).cornerStyle,
+              DovahPanelCornerStyle.rounded,
+            );
+          },
+        );
+      }
+
+      for (final DovahMaterialRole role in [
+        DovahMaterialRole.surface,
+        DovahMaterialRole.raised,
+        DovahMaterialRole.primaryAction,
+      ]) {
+        testWidgets(
+          'DovahSurface keeps the theme corner style on a $role surface under $preset',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              DovahSurface(role: role, child: const Text('Clipped box')),
+              preset: preset,
+              size: dovahTestSizes.first,
+            );
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(findSurfacePainter(tester).cornerStyle, tokens.cornerStyle);
+          },
+        );
+      }
+    }
+
+    testWidgets(
+      'DovahSurface lets an explicit corner style override the role',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            role: DovahMaterialRole.icon,
+            cornerStyle: DovahPanelCornerStyle.singleBevel,
+            child: Text('Explicit'),
+          ),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.singleBevel,
+        );
+      },
+    );
+
+    testWidgets('DovahSurface paints the role shadow by default', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(child: Text('Shadow')),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(findSurfacePainter(tester).material.shadow, isNotEmpty);
+    });
+
+    testWidgets('DovahSurface drops the material shadow when it casts none', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(castsShadow: false, child: Text('No shadow')),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(findSurfacePainter(tester).material.shadow, isEmpty);
+    });
+  });
+
   group('DovahSurface keeps the theme corner geometry', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(

@@ -37,6 +37,15 @@ class DovahMaterial extends Equatable {
     this.shadow = const [],
   });
 
+  /// Returns this material with no drop shadow, for a component whose prototype rule sets
+  /// `box-shadow:none` (a disabled primary button).
+  DovahMaterial withoutShadow() => DovahMaterial(
+    layers: layers,
+    topEdgeHighlight: topEdgeHighlight,
+    bottomEdgeShade: bottomEdgeShade,
+    borderColor: borderColor,
+  );
+
   /// See [Equatable.props].
   @override
   List<Object?> get props => [

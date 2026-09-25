@@ -20,8 +20,10 @@ class DovahSurface extends StatelessWidget {
   /// Padding applied inside the clipped surface, around [child].
   final EdgeInsetsGeometry? padding;
 
-  /// Overrides the theme's corner treatment for this surface, for a component whose shape its own
-  /// metrics fix regardless of the theme's panel geometry (for example a leading icon tile).
+  /// Overrides the corner treatment for this surface, for a component whose shape its own metrics
+  /// fix (for example a leading icon tile). Without one, a [role] that
+  /// [DovahMaterialRole.followsThemeOutline] takes the theme's corner treatment, and any other role
+  /// is rounded by the theme's `--radius`.
   final DovahPanelCornerStyle? cornerStyle;
 
   /// Overrides the theme's corner radius for this surface, for a component whose approved radius
@@ -34,6 +36,10 @@ class DovahSurface extends StatelessWidget {
   /// surface's corner style is a bevel.
   final double? cornerCutSize;
 
+  /// Whether the material's drop shadow is painted; `false` for a component whose prototype rule
+  /// sets `box-shadow:none` (a disabled primary button).
+  final bool castsShadow;
+
   /// Creates a themed surface around [child].
   const DovahSurface({
     required this.child,
@@ -42,6 +48,7 @@ class DovahSurface extends StatelessWidget {
     this.cornerStyle,
     this.cornerRadius,
     this.cornerCutSize,
+    this.castsShadow = true,
     super.key,
   });
 
@@ -49,7 +56,11 @@ class DovahSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
-    final DovahPanelCornerStyle style = cornerStyle ?? tokens.cornerStyle;
+    final DovahPanelCornerStyle style =
+        cornerStyle ??
+        (role.followsThemeOutline
+            ? tokens.cornerStyle
+            : DovahPanelCornerStyle.rounded);
     final double radius = cornerRadius ?? tokens.cornerRadius;
     final double cut = cornerCutSize ?? tokens.cornerCutSize;
 
@@ -58,7 +69,9 @@ class DovahSurface extends StatelessWidget {
         cornerStyle: style,
         cornerRadius: radius,
         cutSize: cut,
-        material: context.dovahMaterials.forRole(role),
+        material: castsShadow
+            ? context.dovahMaterials.forRole(role)
+            : context.dovahMaterials.forRole(role).withoutShadow(),
       ),
       child: ClipPath(
         clipper: DovahPanelClipper(

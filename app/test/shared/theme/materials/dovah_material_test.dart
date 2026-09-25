@@ -27,6 +27,34 @@ void main() {
     });
   });
 
+  group('Method withoutShadow behaves correctly', () {
+    test('Method withoutShadow drops only the shadow', () {
+      const DovahMaterial material = DovahMaterial(
+        layers: [base],
+        topEdgeHighlight: Color(0x21DCEBF0),
+        bottomEdgeShade: Color(0xB8000000),
+        borderColor: Color(0xFF71808A),
+        shadow: [BoxShadow(color: Color(0x80000000), blurRadius: 32)],
+      );
+
+      final DovahMaterial stripped = material.withoutShadow();
+
+      expect(stripped.shadow, isEmpty);
+      expect(stripped.layers, material.layers);
+      expect(stripped.topEdgeHighlight, material.topEdgeHighlight);
+      expect(stripped.bottomEdgeShade, material.bottomEdgeShade);
+      expect(stripped.borderColor, material.borderColor);
+    });
+  });
+
+  group('Method withoutShadow keeps a shadowless material equal', () {
+    test('Method withoutShadow returns an equal material without a shadow', () {
+      const DovahMaterial material = DovahMaterial(layers: [base]);
+
+      expect(material.withoutShadow() == material, isTrue);
+    });
+  });
+
   group('Behavior equality behaves correctly', () {
     const DovahMaterial material = DovahMaterial(
       layers: [base],

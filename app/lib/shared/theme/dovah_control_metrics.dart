@@ -34,6 +34,10 @@ abstract final class DovahControlMetrics {
   /// Disabled-control opacity (the prototype's `.primary:disabled{opacity:.46}`).
   static const double disabledControlOpacity = 0.46;
 
+  /// Saturation of a disabled primary button (the prototype's
+  /// `.primary:disabled{filter:saturate(.45)}`).
+  static const double disabledPrimarySaturation = 0.45;
+
   /// Width of themed focus outlines (the prototype's `:focus-visible` 2px outline).
   static const double focusOutlineWidth = 2;
 

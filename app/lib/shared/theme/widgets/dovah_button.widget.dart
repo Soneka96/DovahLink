@@ -4,6 +4,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 /// A DovahLink themed button. Primary buttons use each preset's approved primary-action material
@@ -64,6 +65,7 @@ class _DovahButtonState extends State<DovahButton> {
       ),
     );
     final Widget surface = DovahSurface(
+      castsShadow: enabled || !primary,
       role: primary
           ? DovahMaterialRole.primaryAction
           : DovahMaterialRole.control,
@@ -88,6 +90,15 @@ class _DovahButtonState extends State<DovahButton> {
               ),
       ),
     );
+
+    final Widget shownSurface = primary && !enabled
+        ? ColorFiltered(
+            colorFilter: const DovahColorFilter(
+              saturate: DovahControlMetrics.disabledPrimarySaturation,
+            ).toColorFilter(),
+            child: surface,
+          )
+        : surface;
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
@@ -193,7 +204,7 @@ class _DovahButtonState extends State<DovahButton> {
                         minWidth: DovahControlMetrics.minimumTapTargetSize,
                         minHeight: DovahControlMetrics.minimumTapTargetSize,
                       ),
-                      child: Center(child: surface),
+                      child: Center(child: shownSurface),
                     ),
                   );
                 },

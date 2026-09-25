@@ -67,6 +67,27 @@ void main() {
     );
   });
 
+  group('Property followsThemeOutline in DovahMaterialRole behaves correctly', () {
+    test(
+      'Property followsThemeOutline in DovahMaterialRole is true for clipped roles',
+      () {
+        expect(DovahMaterialRole.surface.followsThemeOutline, isA<bool>());
+        expect(DovahMaterialRole.surface.followsThemeOutline, true);
+        expect(DovahMaterialRole.raised.followsThemeOutline, true);
+        expect(DovahMaterialRole.primaryAction.followsThemeOutline, true);
+      },
+    );
+
+    test(
+      'Property followsThemeOutline in DovahMaterialRole is false for plain boxes',
+      () {
+        expect(DovahMaterialRole.control.followsThemeOutline, isA<bool>());
+        expect(DovahMaterialRole.control.followsThemeOutline, false);
+        expect(DovahMaterialRole.icon.followsThemeOutline, false);
+      },
+    );
+  });
+
   group('Property label in DovahPanelCornerStyle behaves correctly', () {
     test(
       'Property label in DovahPanelCornerStyle returns the concise label for every style',

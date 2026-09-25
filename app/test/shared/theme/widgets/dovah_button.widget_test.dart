@@ -11,6 +11,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
@@ -416,7 +417,7 @@ void main() {
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
-            const DovahButton(label: 'Confirm', onPressed: null),
+            DovahButton(label: 'Confirm', onPressed: () {}),
             preset: preset,
             size: dovahTestSizes.first,
           );
@@ -720,14 +721,174 @@ void main() {
         find.byKey(const Key('dovah-button-hover-effect')),
       );
       expect(animation.tween.end, 1);
-      expect(
+      final ColorFiltered filtered = tester.widget(
         find.descendant(
           of: find.byKey(const Key('dovah-button-hover-effect')),
           matching: find.byType(ColorFiltered),
         ),
-        findsNothing,
+      );
+      expect(
+        filtered.colorFilter,
+        const DovahColorFilter(
+          saturate: DovahControlMetrics.disabledPrimarySaturation,
+        ).toColorFilter(),
       );
       await pointer.removePointer();
+    });
+  });
+
+  group('DovahButton follows the prototype geometry and disabled treatment', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahButton outlines a secondary button as a plain rounded box under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(
+              label: 'Cancel',
+              onPressed: () {},
+              variant: DovahButtonVariant.secondary,
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: find.byType(DovahSurface),
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+
+          expect(painter.cornerStyle, DovahPanelCornerStyle.rounded);
+          expect(painter.cornerRadius, tokens.cornerRadius);
+        },
+      );
+
+      testWidgets(
+        'DovahButton keeps the theme outline on a primary button under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(label: 'Confirm', onPressed: () {}),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: find.byType(DovahSurface),
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+
+          expect(painter.cornerStyle, tokens.cornerStyle);
+        },
+      );
+    }
+
+    testWidgets('DovahButton desaturates a disabled primary button', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(label: 'Confirm', onPressed: null),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(DovahButton),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('DovahButton does not desaturate an enabled primary button', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(label: 'Confirm', onPressed: () {}),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(DovahButton),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('DovahButton does not desaturate a disabled secondary button', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(
+          label: 'Cancel',
+          onPressed: null,
+          variant: DovahButtonVariant.secondary,
+        ),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(DovahButton),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('DovahButton drops the Hearth shadow of a disabled primary', (
+      WidgetTester tester,
+    ) async {
+      Future<DovahMaterialPainter> painterFor(VoidCallback? onPressed) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(label: 'Confirm', onPressed: onPressed),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+        return tester
+                .widget<CustomPaint>(
+                  find
+                      .descendant(
+                        of: find.byType(DovahSurface),
+                        matching: find.byType(CustomPaint),
+                      )
+                      .first,
+                )
+                .painter!
+            as DovahMaterialPainter;
+      }
+
+      expect((await painterFor(() {})).material.shadow, isNotEmpty);
+      expect((await painterFor(null)).material.shadow, isEmpty);
     });
   });
 

@@ -48,6 +48,8 @@ void main() {
     test('Property disabled and focus constants keep the approved values', () {
       expect(DovahControlMetrics.disabledControlOpacity, isA<double>());
       expect(DovahControlMetrics.disabledControlOpacity, 0.46);
+      expect(DovahControlMetrics.disabledPrimarySaturation, isA<double>());
+      expect(DovahControlMetrics.disabledPrimarySaturation, 0.45);
       expect(DovahControlMetrics.focusOutlineWidth, isA<double>());
       expect(DovahControlMetrics.focusOutlineWidth, 2);
       expect(DovahControlMetrics.focusGlowBlurRadius, isA<double>());

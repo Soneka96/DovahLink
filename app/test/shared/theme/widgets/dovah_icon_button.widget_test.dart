@@ -11,11 +11,50 @@ import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
 
 /// Exercises [DovahIconButton] across every DovahLink theme, both test sizes, and interaction.
 void main() {
+  group('DovahIconButton outlines its surface as the prototype does', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahIconButton paints a plain rounded box by the theme radius under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahIconButton(
+              icon: Icons.settings_outlined,
+              label: 'Appearance settings',
+              onPressed: () {},
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: find.byType(DovahSurface),
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+
+          expect(painter.cornerStyle, DovahPanelCornerStyle.rounded);
+          expect(painter.cornerRadius, tokens.cornerRadius);
+        },
+      );
+    }
+  });
+
   group('DovahIconButton renders correctly', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final Size size in dovahTestSizes) {
