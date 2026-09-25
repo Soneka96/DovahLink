@@ -3,10 +3,10 @@ import 'package:flutter/material.dart';
 import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_preview.widget.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 /// One selectable theme preset card in the appearance picker: a picture of that preset drawn from
@@ -56,29 +56,14 @@ class AppearancePresetCard extends StatelessWidget {
           builder: (BuildContext context) {
             final bool focused = Focus.of(context).hasPrimaryFocus;
 
-            return Theme(
-              data: previewTheme,
-              child: Container(
-                key: focused
-                    ? const Key('appearance-preset-card-focus-outline')
-                    : null,
-                foregroundDecoration: focused
-                    ? BoxDecoration(
-                        border: Border.all(
-                          color: previewTokens.signal,
-                          width: DovahControlMetrics.focusOutlineWidth,
-                        ),
-                        borderRadius: BorderRadius.circular(
-                          previewTokens.cornerRadius,
-                        ),
-                        boxShadow: <BoxShadow>[
-                          BoxShadow(
-                            color: previewTokens.soft,
-                            blurRadius: DovahControlMetrics.focusGlowBlurRadius,
-                          ),
-                        ],
-                      )
-                    : null,
+            return DovahFocusRing(
+              focused: focused,
+              cornerRadius:
+                  previewTokens.cornerStyle == DovahPanelCornerStyle.rounded
+                  ? previewTokens.cornerRadius
+                  : 0,
+              child: Theme(
+                data: previewTheme,
                 child: DovahSurface(
                   key: const Key('appearance-preset-card-surface'),
                   role: selected

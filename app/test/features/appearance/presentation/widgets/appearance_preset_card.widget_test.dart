@@ -14,6 +14,8 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_scene.widget.dart';
@@ -414,18 +416,55 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('appearance-preset-card-focus-outline')),
-        findsOneWidget,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsOneWidget);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('appearance-preset-card-focus-outline')),
-        findsNothing,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
     });
+
+    for (final (
+          DovahThemePreset activeTheme,
+          DovahThemePreset previewedPreset,
+          double radius,
+        )
+        in [
+          (DovahThemePreset.dovah, DovahThemePreset.hearth, 13.0),
+          (DovahThemePreset.hearth, DovahThemePreset.frostbound, 0.0),
+          (DovahThemePreset.frostbound, DovahThemePreset.dovah, 0.0),
+        ]) {
+      testWidgets(
+        'AppearancePresetCard outlines its focus ring in the $activeTheme accent around a $previewedPreset card',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            AppearancePresetCard(
+              preset: previewedPreset,
+              selected: false,
+              onTap: () {},
+            ),
+            preset: activeTheme,
+            size: dovahTestSizes.first,
+          );
+
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+
+          final DovahFocusRingPainter painter =
+              tester
+                      .widget<CustomPaint>(find.byKey(DovahFocusRing.ringKey))
+                      .foregroundPainter!
+                  as DovahFocusRingPainter;
+          expect(
+            painter.color,
+            dovahThemeDataFor(
+              activeTheme,
+            ).extension<DovahThemeTokens>()!.accentPrimary,
+          );
+          expect(painter.cornerRadius, radius);
+        },
+      );
+    }
   });
 
   group('AppearancePresetCard exposes button semantics', () {

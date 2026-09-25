@@ -52,8 +52,8 @@ void main() {
       expect(DovahControlMetrics.disabledPrimarySaturation, 0.45);
       expect(DovahControlMetrics.focusOutlineWidth, isA<double>());
       expect(DovahControlMetrics.focusOutlineWidth, 2);
-      expect(DovahControlMetrics.focusGlowBlurRadius, isA<double>());
-      expect(DovahControlMetrics.focusGlowBlurRadius, 8);
+      expect(DovahControlMetrics.focusOutlineOffset, isA<double>());
+      expect(DovahControlMetrics.focusOutlineOffset, 3);
     });
 
     test('Property minimumTapTargetSize is the 48 logical-pixel floor', () {

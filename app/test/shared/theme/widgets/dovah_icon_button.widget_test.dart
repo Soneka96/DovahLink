@@ -10,6 +10,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -187,17 +188,11 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('dovah-icon-button-focus-outline')),
-        findsOneWidget,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsOneWidget);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('dovah-icon-button-focus-outline')),
-        findsNothing,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
     });
   });
 
@@ -227,10 +222,7 @@ void main() {
 
       expect(opacity.opacity, isA<double>());
       expect(opacity.opacity, DovahControlMetrics.disabledControlOpacity);
-      expect(
-        find.byKey(const Key('dovah-icon-button-focus-outline')),
-        findsNothing,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
     });
 
     testWidgets('DovahIconButton does not dim itself when enabled', (

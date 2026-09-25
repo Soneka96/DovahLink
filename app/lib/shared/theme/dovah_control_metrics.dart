@@ -41,8 +41,8 @@ abstract final class DovahControlMetrics {
   /// Width of themed focus outlines (the prototype's `:focus-visible` 2px outline).
   static const double focusOutlineWidth = 2;
 
-  /// Blur radius of themed focus glows.
-  static const double focusGlowBlurRadius = 8;
+  /// Gap between a focused control and its outline (the prototype's `outline-offset:3px`).
+  static const double focusOutlineOffset = 3;
 
   /// Minimum interactive target width and height for themed controls. An accessibility floor, not
   /// a prototype value.

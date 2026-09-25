@@ -15,6 +15,8 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart'
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
@@ -250,14 +252,11 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('dovah-button-focus-outline')),
-        findsOneWidget,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsOneWidget);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(find.byKey(const Key('dovah-button-focus-outline')), findsNothing);
+      expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
     });
   });
 
@@ -319,10 +318,7 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.sendKeyEvent(LogicalKeyboardKey.enter);
         await tester.sendKeyEvent(LogicalKeyboardKey.space);
-        expect(
-          find.byKey(const Key('dovah-button-focus-outline')),
-          findsNothing,
-        );
+        expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
       } finally {
         semantics.dispose();
       }
@@ -910,12 +906,46 @@ void main() {
           await tester.sendKeyEvent(LogicalKeyboardKey.tab);
           await tester.pump();
 
-          final Container outline = tester.widget<Container>(
-            find.byKey(const Key('dovah-button-focus-outline')),
+          final CustomPaint outline = tester.widget<CustomPaint>(
+            find.byKey(DovahFocusRing.ringKey),
           );
-          final BoxDecoration decoration =
-              outline.foregroundDecoration! as BoxDecoration;
-          expect(decoration.borderRadius, BorderRadius.circular(radius));
+          final DovahFocusRingPainter painter =
+              outline.foregroundPainter! as DovahFocusRingPainter;
+          expect(painter.cornerRadius, radius);
+        },
+      );
+    }
+
+    for (final (
+          DovahThemePreset preset,
+          DovahButtonVariant variant,
+          double radius,
+        )
+        in [
+          (DovahThemePreset.frostbound, DovahButtonVariant.primary, 0.0),
+          (DovahThemePreset.frostbound, DovahButtonVariant.secondary, 0.0),
+          (DovahThemePreset.dovah, DovahButtonVariant.primary, 0.0),
+          (DovahThemePreset.dovah, DovahButtonVariant.secondary, 3.0),
+        ]) {
+      testWidgets(
+        'DovahButton outlines a focused $preset $variant button with radius $radius',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(label: 'Confirm', onPressed: () {}, variant: variant),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+
+          final DovahFocusRingPainter painter =
+              tester
+                      .widget<CustomPaint>(find.byKey(DovahFocusRing.ringKey))
+                      .foregroundPainter!
+                  as DovahFocusRingPainter;
+          expect(painter.cornerRadius, radius);
         },
       );
     }

@@ -5,6 +5,7 @@ import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 /// A DovahLink themed button. Primary buttons use each preset's approved primary-action material
@@ -175,36 +176,19 @@ class _DovahButtonState extends State<DovahButton> {
                 builder: (BuildContext context) {
                   final bool focused = Focus.of(context).hasPrimaryFocus;
 
-                  return Container(
-                    key: focused
-                        ? const Key('dovah-button-focus-outline')
-                        : null,
-                    foregroundDecoration: focused
-                        ? BoxDecoration(
-                            border: Border.all(
-                              color: tokens.signal,
-                              width: DovahControlMetrics.focusOutlineWidth,
-                            ),
-                            borderRadius: BorderRadius.circular(
-                              primary
-                                  ? tokens.primaryActionCornerRadius
-                                  : tokens.cornerRadius,
-                            ),
-                            boxShadow: <BoxShadow>[
-                              BoxShadow(
-                                color: tokens.soft,
-                                blurRadius:
-                                    DovahControlMetrics.focusGlowBlurRadius,
-                              ),
-                            ],
-                          )
-                        : null,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        minWidth: DovahControlMetrics.minimumTapTargetSize,
-                        minHeight: DovahControlMetrics.minimumTapTargetSize,
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minWidth: DovahControlMetrics.minimumTapTargetSize,
+                      minHeight: DovahControlMetrics.minimumTapTargetSize,
+                    ),
+                    child: Center(
+                      child: DovahFocusRing(
+                        focused: focused,
+                        cornerRadius: primary
+                            ? tokens.primaryActionCornerRadius
+                            : tokens.cornerRadius,
+                        child: shownSurface,
                       ),
-                      child: Center(child: shownSurface),
                     ),
                   );
                 },

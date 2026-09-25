@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
-import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 /// A DovahLink connection entry styled by [DovahConnectionCardState]. It takes display data and a
@@ -59,7 +59,7 @@ class DovahConnectionCard extends StatelessWidget {
     final double focusRadius =
         tokens.cornerStyle == DovahPanelCornerStyle.rounded
         ? metrics.cornerRadius
-        : tokens.cornerRadius;
+        : 0;
     final bool uppercase = tokens.uppercaseLabels;
     final double? uppercaseSpacing = uppercase
         ? DovahThemeTokens.uppercaseLetterSpacingEm *
@@ -86,25 +86,9 @@ class DovahConnectionCard extends StatelessWidget {
           builder: (BuildContext context) {
             final bool focused = Focus.of(context).hasPrimaryFocus;
 
-            return Container(
-              key: focused
-                  ? const Key('dovah-connection-card-focus-outline')
-                  : null,
-              foregroundDecoration: focused
-                  ? BoxDecoration(
-                      border: Border.all(
-                        color: tokens.signal,
-                        width: DovahControlMetrics.focusOutlineWidth,
-                      ),
-                      borderRadius: BorderRadius.circular(focusRadius),
-                      boxShadow: <BoxShadow>[
-                        BoxShadow(
-                          color: tokens.soft,
-                          blurRadius: DovahControlMetrics.focusGlowBlurRadius,
-                        ),
-                      ],
-                    )
-                  : null,
+            return DovahFocusRing(
+              focused: focused,
+              cornerRadius: focusRadius,
               child: DovahSurface(
                 padding: metrics.padding,
                 cornerRadius: metrics.cornerRadius,

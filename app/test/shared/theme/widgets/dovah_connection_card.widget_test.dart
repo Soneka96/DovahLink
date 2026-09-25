@@ -13,6 +13,8 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
@@ -430,18 +432,46 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('dovah-connection-card-focus-outline')),
-        findsOneWidget,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsOneWidget);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('dovah-connection-card-focus-outline')),
-        findsNothing,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
     });
+
+    for (final (DovahThemePreset preset, double radius) in [
+      (DovahThemePreset.frostbound, 0.0),
+      (DovahThemePreset.dovah, 0.0),
+      (DovahThemePreset.hearth, 12.0),
+    ]) {
+      testWidgets(
+        'DovahConnectionCard outlines its focus ring with radius $radius under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+              onTap: () {},
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+
+          final DovahFocusRingPainter painter =
+              tester
+                      .widget<CustomPaint>(find.byKey(DovahFocusRing.ringKey))
+                      .foregroundPainter!
+                  as DovahFocusRingPainter;
+          expect(painter.cornerRadius, radius);
+        },
+      );
+    }
   });
 
   group('DovahConnectionCard exposes button semantics', () {
@@ -518,10 +548,7 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.sendKeyEvent(LogicalKeyboardKey.enter);
         await tester.sendKeyEvent(LogicalKeyboardKey.space);
-        expect(
-          find.byKey(const Key('dovah-connection-card-focus-outline')),
-          findsNothing,
-        );
+        expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
       } finally {
         semantics.dispose();
       }
