@@ -632,6 +632,23 @@ void main() {
       },
     );
 
+    for (final (DovahThemePreset preset, Color glyph) in [
+      (DovahThemePreset.frostbound, const Color(0xFFA9C7D1)),
+      (DovahThemePreset.dovah, const Color(0xFF8ED6FF)),
+      (DovahThemePreset.hearth, const Color(0xFF60462D)),
+    ]) {
+      test(
+        'Behavior ${preset.name} tokens match the prototype icon tile glyph color',
+        () {
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+
+          expect(tokens.iconTileForeground, glyph);
+        },
+      );
+    }
+
     test('Behavior distinct presets differ in background color per theme', () {
       final DovahThemeTokens frostbound = buildFrostboundTheme()
           .extension<DovahThemeTokens>()!;

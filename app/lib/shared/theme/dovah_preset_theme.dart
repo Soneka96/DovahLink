@@ -51,6 +51,7 @@ ThemeData buildDovahPresetTheme() {
     brandAccent: Color(0xFF74BDE8),
     barTrack: Color(0xFF202B34),
     markIcon: Color(0xFFE2A55E),
+    iconTileForeground: Color(0xFF8ED6FF),
     panelNote: Color(0xFF667C8B),
     heroScrim: LinearGradient(
       begin: Alignment.centerLeft,

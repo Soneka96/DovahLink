@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/painting.dart';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -132,6 +134,30 @@ void main() {
         true,
       ),
     ];
+
+    for (final (DovahThemePreset preset, double rotation) in [
+      (DovahThemePreset.frostbound, 0.0),
+      (DovahThemePreset.dovah, math.pi / 4),
+      (DovahThemePreset.hearth, 0.0),
+    ]) {
+      for (final Size window in const [Size(1280, 720), Size(900, 560)]) {
+        test(
+          'Method forWindow resolves the ${preset.name} icon tile rotation at $window',
+          () {
+            final DovahConnectionCardMetrics metrics =
+                DovahConnectionCardMetrics.forWindow(
+                  themeMetrics: dovahThemeDataFor(
+                    preset,
+                  ).extension<DovahConnectionCardThemeMetrics>()!,
+                  window: window,
+                );
+
+            expect(metrics.iconTileRotation, isA<double>());
+            expect(metrics.iconTileRotation, rotation);
+          },
+        );
+      }
+    }
 
     for (final _CardCase testCase in cases) {
       test(
@@ -288,5 +314,25 @@ void main() {
 
       expect(regular, isNot(compact));
     });
+
+    test(
+      'Behavior equality fails when only the icon tile rotation differs',
+      () {
+        final DovahConnectionCardMetrics turned =
+            DovahConnectionCardMetrics.forWindow(
+              themeMetrics: DovahConnectionCardThemeMetrics.dovah,
+              window: const Size(1280, 720),
+            );
+        final DovahConnectionCardMetrics upright =
+            DovahConnectionCardMetrics.forWindow(
+              themeMetrics: DovahConnectionCardThemeMetrics.dovah.copyWith(
+                iconTileRotation: 0,
+              ),
+              window: const Size(1280, 720),
+            );
+
+        expect(turned, isNot(upright));
+      },
+    );
   });
 }

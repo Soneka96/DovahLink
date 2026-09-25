@@ -74,6 +74,9 @@ class DovahConnectionCardMetrics extends Equatable {
   /// from the theme's general radius; unused by the bevelled themes.
   final double cornerRadius;
 
+  /// How far the icon tile turns, in radians, with its glyph turned back upright.
+  final double iconTileRotation;
+
   /// Whether the detail column is shown (the prototype hides it at narrow widths).
   final bool showDetail;
 
@@ -86,6 +89,7 @@ class DovahConnectionCardMetrics extends Equatable {
     required this.iconTileRadius,
     required this.cornerCutSize,
     required this.cornerRadius,
+    required this.iconTileRotation,
     required this.showDetail,
   });
 
@@ -115,6 +119,7 @@ class DovahConnectionCardMetrics extends Equatable {
           : themeMetrics.regularIconTileRadius,
       cornerCutSize: themeMetrics.cornerCutSize,
       cornerRadius: themeMetrics.cornerRadius,
+      iconTileRotation: themeMetrics.iconTileRotation,
       showDetail: window.width > DovahRootMetrics.narrowMaxWindowWidth,
     );
   }
@@ -128,6 +133,7 @@ class DovahConnectionCardMetrics extends Equatable {
     iconTileRadius,
     cornerCutSize,
     cornerRadius,
+    iconTileRotation,
     showDetail,
   ];
 }

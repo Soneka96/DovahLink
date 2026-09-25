@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show lerpDouble;
 
 import 'package:flutter/material.dart';
@@ -31,6 +32,7 @@ class DovahConnectionCardThemeMetrics
         compactIconTileRadius: 0,
         cornerCutSize: 11,
         cornerRadius: 0,
+        iconTileRotation: 0,
       );
 
   /// The Dovah preset's values, from the prototype's `index.html` media queries and `themes.css`
@@ -47,6 +49,7 @@ class DovahConnectionCardThemeMetrics
         compactIconTileRadius: 0,
         cornerCutSize: 16,
         cornerRadius: 0,
+        iconTileRotation: math.pi / 4,
       );
 
   /// Hearth's values, from the prototype's `index.html` media queries and `themes.css` per-theme
@@ -63,6 +66,7 @@ class DovahConnectionCardThemeMetrics
         compactIconTileRadius: 18.5,
         cornerCutSize: 0,
         cornerRadius: 12,
+        iconTileRotation: 0,
       );
 
   /// The card's padding in a regular or narrow window; the card has no narrow-only geometry.
@@ -98,6 +102,11 @@ class DovahConnectionCardThemeMetrics
   /// from the theme's general radius; unused by the bevelled themes.
   final double cornerRadius;
 
+  /// How far the icon tile turns, in radians, with its glyph turned back upright: a quarter of a
+  /// half turn in Dovah, whose tile is a diamond (the prototype's `.pc-icon` `rotate(45deg)`), and
+  /// none in Frostbound and Hearth.
+  final double iconTileRotation;
+
   /// Creates a complete set. Every value is required so a set cannot be assembled with an
   /// accidentally-inherited default.
   const DovahConnectionCardThemeMetrics({
@@ -111,6 +120,7 @@ class DovahConnectionCardThemeMetrics
     required this.compactIconTileRadius,
     required this.cornerCutSize,
     required this.cornerRadius,
+    required this.iconTileRotation,
   });
 
   /// Returns a copy with the given values replaced.
@@ -126,6 +136,7 @@ class DovahConnectionCardThemeMetrics
     double? compactIconTileRadius,
     double? cornerCutSize,
     double? cornerRadius,
+    double? iconTileRotation,
   }) => DovahConnectionCardThemeMetrics(
     regularPadding: regularPadding ?? this.regularPadding,
     compactPadding: compactPadding ?? this.compactPadding,
@@ -137,6 +148,7 @@ class DovahConnectionCardThemeMetrics
     compactIconTileRadius: compactIconTileRadius ?? this.compactIconTileRadius,
     cornerCutSize: cornerCutSize ?? this.cornerCutSize,
     cornerRadius: cornerRadius ?? this.cornerRadius,
+    iconTileRotation: iconTileRotation ?? this.iconTileRotation,
   );
 
   /// Interpolates every value; each is a continuous measurement with no discrete counterpart.
@@ -183,6 +195,11 @@ class DovahConnectionCardThemeMetrics
       )!,
       cornerCutSize: lerpDouble(cornerCutSize, other.cornerCutSize, t)!,
       cornerRadius: lerpDouble(cornerRadius, other.cornerRadius, t)!,
+      iconTileRotation: lerpDouble(
+        iconTileRotation,
+        other.iconTileRotation,
+        t,
+      )!,
     );
   }
 
@@ -199,5 +216,6 @@ class DovahConnectionCardThemeMetrics
     compactIconTileRadius,
     cornerCutSize,
     cornerRadius,
+    iconTileRotation,
   ];
 }

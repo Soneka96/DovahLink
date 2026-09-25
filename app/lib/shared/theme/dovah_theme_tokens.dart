@@ -151,6 +151,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// per theme rather than following [accentPrimary].
   final Color markIcon;
 
+  /// The tone of the glyph inside a leading icon tile (the prototype's `.pc-icon` `color`), which
+  /// follows [accentPrimary] in Frostbound and Dovah but not in Hearth.
+  final Color iconTileForeground;
+
   /// The empty track of a stat bar (the prototype's `.bar` background), which differs per theme.
   final Color barTrack;
 
@@ -205,6 +209,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.brandTagline,
     required this.brandAccent,
     required this.markIcon,
+    required this.iconTileForeground,
     required this.barTrack,
     required this.panelNote,
     required this.heroScrim,
@@ -256,6 +261,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     Color? brandTagline,
     Color? brandAccent,
     Color? markIcon,
+    Color? iconTileForeground,
     Color? barTrack,
     Color? panelNote,
     Gradient? heroScrim,
@@ -300,6 +306,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     brandTagline: brandTagline ?? this.brandTagline,
     brandAccent: brandAccent ?? this.brandAccent,
     markIcon: markIcon ?? this.markIcon,
+    iconTileForeground: iconTileForeground ?? this.iconTileForeground,
     barTrack: barTrack ?? this.barTrack,
     panelNote: panelNote ?? this.panelNote,
     heroScrim: heroScrim ?? this.heroScrim,
@@ -371,6 +378,11 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       brandTagline: Color.lerp(brandTagline, other.brandTagline, t)!,
       brandAccent: Color.lerp(brandAccent, other.brandAccent, t)!,
       markIcon: Color.lerp(markIcon, other.markIcon, t)!,
+      iconTileForeground: Color.lerp(
+        iconTileForeground,
+        other.iconTileForeground,
+        t,
+      )!,
       barTrack: Color.lerp(barTrack, other.barTrack, t)!,
       panelNote: Color.lerp(panelNote, other.panelNote, t)!,
       heroScrim: t < 0.5 ? heroScrim : other.heroScrim,
@@ -417,6 +429,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     brandTagline,
     brandAccent,
     markIcon,
+    iconTileForeground,
     barTrack,
     panelNote,
     heroScrim,

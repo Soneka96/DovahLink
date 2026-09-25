@@ -50,6 +50,7 @@ ThemeData buildHearthTheme() {
     brandAccent: Color(0xFFA45F27),
     barTrack: Color(0xFFB89463),
     markIcon: Color(0xFF965923),
+    iconTileForeground: Color(0xFF60462D),
     panelNote: Color(0xFF765B3E),
     heroScrim: LinearGradient(
       begin: Alignment.centerLeft,

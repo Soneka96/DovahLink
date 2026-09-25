@@ -102,6 +102,7 @@ void main() {
         brandTagline: const Color(0xFF040506),
         brandAccent: const Color(0xFF070809),
         markIcon: const Color(0xFF0A0B0C),
+        iconTileForeground: const Color(0xFF1A1B1C),
         barTrack: const Color(0xFF0D0E0F),
         panelNote: const Color(0xFF101112),
         heroScrim: const LinearGradient(
@@ -126,6 +127,7 @@ void main() {
       expect(copy.brandTagline, const Color(0xFF040506));
       expect(copy.brandAccent, const Color(0xFF070809));
       expect(copy.markIcon, const Color(0xFF0A0B0C));
+      expect(copy.iconTileForeground, const Color(0xFF1A1B1C));
       expect(original.statusOffline, const Color(0xFF7C8993));
     });
   });
@@ -224,6 +226,7 @@ void main() {
         brandTagline: const Color(0xFF000000),
         brandAccent: const Color(0xFF000000),
         markIcon: const Color(0xFF000000),
+        iconTileForeground: const Color(0xFF000000),
         barTrack: const Color(0xFF000000),
         panelNote: const Color(0xFF000000),
       );
@@ -232,6 +235,7 @@ void main() {
         brandTagline: const Color(0xFFFFFFFF),
         brandAccent: const Color(0xFFFFFFFF),
         markIcon: const Color(0xFFFFFFFF),
+        iconTileForeground: const Color(0xFFFFFFFF),
         barTrack: const Color(0xFFFFFFFF),
         panelNote: const Color(0xFFFFFFFF),
       );
@@ -247,6 +251,7 @@ void main() {
       expect(result.brandTagline, halfway);
       expect(result.brandAccent, halfway);
       expect(result.markIcon, halfway);
+      expect(result.iconTileForeground, halfway);
       expect(result.barTrack, halfway);
       expect(result.panelNote, halfway);
     });
@@ -405,6 +410,7 @@ void main() {
         first.copyWith(brandTagline: const Color(0xFF000000)),
         first.copyWith(brandAccent: const Color(0xFF000000)),
         first.copyWith(markIcon: const Color(0xFF000000)),
+        first.copyWith(iconTileForeground: const Color(0xFF000000)),
         first.copyWith(barTrack: const Color(0xFF000000)),
         first.copyWith(panelNote: const Color(0xFF000000)),
         first.copyWith(

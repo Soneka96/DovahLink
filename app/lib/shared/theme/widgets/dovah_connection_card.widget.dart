@@ -7,6 +7,7 @@ import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_tile.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 /// A DovahLink connection entry styled by [DovahConnectionCardState]. It takes display data and a
@@ -102,20 +103,14 @@ class DovahConnectionCard extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      SizedBox(
-                        width: metrics.iconTileSize,
-                        height: metrics.iconTileSize,
-                        child: DovahSurface(
-                          role: DovahMaterialRole.icon,
-                          cornerStyle: DovahPanelCornerStyle.rounded,
-                          cornerRadius: metrics.iconTileRadius,
-                          child: Center(
-                            child: Icon(
-                              Icons.desktop_windows_outlined,
-                              color: tokens.accentPrimary,
-                              size: DovahConnectionCardMetrics.iconSize,
-                            ),
-                          ),
+                      DovahIconTile(
+                        size: metrics.iconTileSize,
+                        cornerRadius: metrics.iconTileRadius,
+                        rotation: metrics.iconTileRotation,
+                        child: Icon(
+                          Icons.desktop_windows_outlined,
+                          color: tokens.iconTileForeground,
+                          size: DovahConnectionCardMetrics.iconSize,
                         ),
                       ),
                       const SizedBox(

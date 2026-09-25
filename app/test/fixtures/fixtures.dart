@@ -139,6 +139,7 @@ abstract final class Fixtures {
     Color brandTagline = const Color(0xFF72899A),
     Color brandAccent = const Color(0xFF74BDE8),
     Color markIcon = const Color(0xFFE2A55E),
+    Color iconTileForeground = const Color(0xFF8ED6FF),
     Color barTrack = const Color(0xFF202B34),
     Color panelNote = const Color(0xFF667C8B),
     Gradient? heroScrim,
@@ -180,6 +181,7 @@ abstract final class Fixtures {
     brandTagline: brandTagline,
     brandAccent: brandAccent,
     markIcon: markIcon,
+    iconTileForeground: iconTileForeground,
     barTrack: barTrack,
     panelNote: panelNote,
     heroScrim:

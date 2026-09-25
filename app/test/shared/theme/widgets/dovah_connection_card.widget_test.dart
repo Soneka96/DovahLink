@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:ui' show Tristate;
 
 import 'package:flutter/material.dart';
@@ -15,6 +16,7 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.da
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring_painter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_tile.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
@@ -598,8 +600,14 @@ void main() {
             expect(surface.cornerStyle, isNull);
             expect(surface.cornerCutSize, metrics.cornerCutSize);
             expect(surface.cornerRadius, metrics.cornerRadius);
-            expect(tile.cornerStyle, DovahPanelCornerStyle.rounded);
+            expect(tile.cornerStyle, isNull);
             expect(tile.cornerRadius, metrics.iconTileRadius);
+            final DovahIconTile iconTile = tester.widget(
+              find.byType(DovahIconTile),
+            );
+            expect(iconTile.size, metrics.iconTileSize);
+            expect(iconTile.cornerRadius, metrics.iconTileRadius);
+            expect(iconTile.rotation, metrics.iconTileRotation);
             expect(
               tester.getSize(tileFinder),
               Size.square(metrics.iconTileSize),
@@ -611,6 +619,41 @@ void main() {
           },
         );
       }
+    }
+
+    for (final (DovahThemePreset preset, double rotation, Color glyphColor) in [
+      (DovahThemePreset.frostbound, 0.0, const Color(0xFFA9C7D1)),
+      (DovahThemePreset.dovah, math.pi / 4, const Color(0xFF8ED6FF)),
+      (DovahThemePreset.hearth, 0.0, const Color(0xFF60462D)),
+    ]) {
+      testWidgets(
+        'DovahConnectionCard turns its $preset icon tile by $rotation and colors the glyph',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+            ),
+            preset: preset,
+            size: dovahTestSizes.last,
+          );
+
+          final DovahIconTile tile = tester.widget(find.byType(DovahIconTile));
+          final Icon glyph = tester.widget(
+            find.descendant(
+              of: find.byType(DovahIconTile),
+              matching: find.byType(Icon),
+            ),
+          );
+
+          expect(tile.rotation, isA<double>());
+          expect(tile.rotation, rotation);
+          expect(glyph.color, glyphColor);
+        },
+      );
     }
 
     for (final (Size size, bool shown) in [
@@ -732,7 +775,7 @@ void main() {
             icon.color,
             dovahThemeDataFor(
               preset,
-            ).extension<DovahThemeTokens>()!.accentPrimary,
+            ).extension<DovahThemeTokens>()!.iconTileForeground,
           );
         },
       );

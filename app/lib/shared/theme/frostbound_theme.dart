@@ -50,6 +50,7 @@ ThemeData buildFrostboundTheme() {
     brandAccent: Color(0xFFA9C7D1),
     barTrack: Color(0xFF1B2931),
     markIcon: Color(0xFFBD5559),
+    iconTileForeground: Color(0xFFA9C7D1),
     panelNote: Color(0xFF929DA2),
     heroScrim: LinearGradient(
       begin: Alignment.centerLeft,

@@ -233,6 +233,7 @@ void main() {
       expect(tokens.brandTagline, const Color(0xFF72899A));
       expect(tokens.brandAccent, const Color(0xFF74BDE8));
       expect(tokens.markIcon, const Color(0xFFE2A55E));
+      expect(tokens.iconTileForeground, const Color(0xFF8ED6FF));
       expect(tokens.barTrack, const Color(0xFF202B34));
       expect(tokens.panelNote, const Color(0xFF667C8B));
       expect((tokens.heroScrim as LinearGradient).stops, const [0, 0.52, 1]);

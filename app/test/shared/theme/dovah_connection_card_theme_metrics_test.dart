@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -35,6 +37,8 @@ void main() {
       expect(metrics.cornerCutSize, 11);
       expect(metrics.cornerRadius, isA<double>());
       expect(metrics.cornerRadius, 0);
+      expect(metrics.iconTileRotation, isA<double>());
+      expect(metrics.iconTileRotation, 0);
     });
 
     test('Property dovah keeps the prototype values', () {
@@ -57,6 +61,8 @@ void main() {
       expect(metrics.compactIconTileRadius, 0);
       expect(metrics.cornerCutSize, 16);
       expect(metrics.cornerRadius, 0);
+      expect(metrics.iconTileRotation, isA<double>());
+      expect(metrics.iconTileRotation, math.pi / 4);
     });
 
     test('Property hearth keeps the prototype values', () {
@@ -79,6 +85,7 @@ void main() {
       expect(metrics.compactIconTileRadius, 18.5);
       expect(metrics.cornerCutSize, 0);
       expect(metrics.cornerRadius, 12);
+      expect(metrics.iconTileRotation, 0);
     });
 
     test('Property hearth icon tile radius is half its tile size', () {
@@ -178,6 +185,16 @@ void main() {
       expect(mid.compactIconTileRadius, 9.25);
     });
 
+    test('Method lerp turns the icon tile between the endpoints at t 0.5', () {
+      final DovahConnectionCardThemeMetrics mid =
+          DovahConnectionCardThemeMetrics.dovah.lerp(
+            DovahConnectionCardThemeMetrics.hearth,
+            0.5,
+          );
+
+      expect(mid.iconTileRotation, math.pi / 8);
+    });
+
     test('Method lerp between identical metrics keeps every value', () {
       expect(
         DovahConnectionCardThemeMetrics.hearth.lerp(
@@ -251,6 +268,7 @@ void main() {
             compactIconTileRadius: 8,
             cornerCutSize: 9,
             cornerRadius: 10,
+            iconTileRotation: 11,
           );
 
       expect(copy.regularPadding, const EdgeInsets.all(1));
@@ -263,6 +281,7 @@ void main() {
       expect(copy.compactIconTileRadius, 8);
       expect(copy.cornerCutSize, 9);
       expect(copy.cornerRadius, 10);
+      expect(copy.iconTileRotation, 11);
     });
 
     test('Method copyWith keeps the values it is not given', () {
@@ -319,6 +338,7 @@ void main() {
             base.copyWith(compactIconTileRadius: 1),
             base.copyWith(cornerCutSize: 1),
             base.copyWith(cornerRadius: 1),
+            base.copyWith(iconTileRotation: 1),
           ]) {
         expect(changed, isNot(base));
       }
