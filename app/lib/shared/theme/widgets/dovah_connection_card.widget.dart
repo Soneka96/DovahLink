@@ -92,6 +92,8 @@ class DovahConnectionCard extends StatelessWidget {
         offset: metrics.hoverOffset,
         builder: (BuildContext context, bool hovered) => InkWell(
           onTap: onTap,
+          splashFactory: NoSplash.splashFactory,
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
           mouseCursor: enabled
               ? SystemMouseCursors.click
               : SystemMouseCursors.basic,

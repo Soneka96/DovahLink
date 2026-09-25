@@ -339,6 +339,28 @@ void main() {
     });
   });
 
+  group('DovahConnectionCard has no Material press overlay', () {
+    testWidgets(
+      'DovahConnectionCard keeps its surface free of splash effects',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahConnectionCard(
+            title: 'Gaming PC',
+            subtitle: 'Skyrim Special Edition',
+            detail: 'Level 43 · Whiterun',
+            state: DovahConnectionCardState.available,
+            onTap: () {},
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.click);
+      },
+    );
+  });
+
   group('DovahConnectionCard calls onTap', () {
     testWidgets('DovahConnectionCard calls onTap when tapped', (
       WidgetTester tester,
@@ -377,6 +399,7 @@ void main() {
         preset: DovahThemePreset.dovah,
         size: dovahTestSizes.first,
       );
+      expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.basic);
       await tester.tap(find.text('Gaming PC'), warnIfMissed: false);
       await tester.pump();
 

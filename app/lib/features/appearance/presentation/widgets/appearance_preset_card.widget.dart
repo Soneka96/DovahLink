@@ -66,6 +66,8 @@ class AppearancePresetCard extends StatelessWidget {
         offset: DovahAppearanceMetrics.hoverOffset,
         builder: (BuildContext context, bool hovered) => InkWell(
           onTap: onTap,
+          splashFactory: NoSplash.splashFactory,
+          overlayColor: const WidgetStatePropertyAll(Colors.transparent),
           mouseCursor: SystemMouseCursors.click,
           child: Builder(
             builder: (BuildContext context) {

@@ -94,6 +94,25 @@ void main() {
     }
   });
 
+  group('DovahIconButton has no Material press overlay', () {
+    testWidgets('DovahIconButton keeps its surface free of splash effects', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahIconButton(
+          icon: Icons.settings_outlined,
+          label: 'Appearance settings',
+          onPressed: () {},
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.click);
+    });
+  });
+
   group('DovahIconButton calls onPressed', () {
     testWidgets('DovahIconButton calls onPressed when tapped and enabled', (
       WidgetTester tester,
@@ -210,6 +229,8 @@ void main() {
         preset: DovahThemePreset.dovah,
         size: dovahTestSizes.first,
       );
+
+      expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.basic);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();

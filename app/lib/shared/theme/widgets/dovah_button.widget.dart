@@ -191,6 +191,8 @@ class _DovahButtonState extends State<DovahButton> {
             onTap: widget.onPressed,
             child: InkWell(
               onTap: widget.onPressed,
+              splashFactory: NoSplash.splashFactory,
+              overlayColor: const WidgetStatePropertyAll(Colors.transparent),
               mouseCursor: enabled
                   ? SystemMouseCursors.click
                   : SystemMouseCursors.basic,

@@ -47,6 +47,8 @@ class DovahIconButton extends StatelessWidget {
           message: label,
           child: InkWell(
             onTap: onPressed,
+            splashFactory: NoSplash.splashFactory,
+            overlayColor: const WidgetStatePropertyAll(Colors.transparent),
             mouseCursor: enabled
                 ? SystemMouseCursors.click
                 : SystemMouseCursors.basic,

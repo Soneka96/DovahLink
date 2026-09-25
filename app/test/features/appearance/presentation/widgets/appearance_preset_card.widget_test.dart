@@ -100,6 +100,17 @@ void main() {
     }
   });
 
+  group('AppearancePresetCard has no Material press overlay', () {
+    testWidgets(
+      'AppearancePresetCard keeps its surface free of splash effects',
+      (WidgetTester tester) async {
+        await pumpCard(tester, preset: DovahThemePreset.hearth);
+
+        expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.click);
+      },
+    );
+  });
+
   group('AppearancePresetCard draws each preset as the prototype does', () {
     for (final DovahThemePreset active in DovahThemePreset.values) {
       for (final (

@@ -50,6 +50,34 @@ void main() {
     }
   });
 
+  group('DovahButton has no Material press overlay', () {
+    testWidgets('DovahButton keeps its surface free of splash effects', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(label: 'Confirm', onPressed: () {}),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.click);
+    });
+
+    testWidgets('DovahButton uses a basic mouse cursor while disabled', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(label: 'Confirm', onPressed: null),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.basic);
+    });
+  });
+
   group('DovahButton renders its label typography', () {
     for (final DovahButtonVariant variant in DovahButtonVariant.values) {
       testWidgets(
