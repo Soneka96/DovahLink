@@ -1,6 +1,7 @@
 import 'dart:math' as math;
 import 'dart:ui' show Tristate;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -10,6 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
@@ -780,5 +782,182 @@ void main() {
         },
       );
     }
+  });
+
+  group('DovahConnectionCard follows the prototype hover treatment', () {
+    /// The card's outer surface: the one that is not the icon tile.
+    Finder outerSurface() => find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is DovahSurface && widget.role != DovahMaterialRole.icon,
+    );
+
+    Future<TestGesture> pumpCard(
+      WidgetTester tester, {
+      required DovahThemePreset preset,
+      VoidCallback? onTap,
+      bool disableAnimations = false,
+    }) async {
+      setDovahTestWindow(tester, dovahTestSizes.last);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: dovahThemeDataFor(preset),
+          home: MediaQuery(
+            data: MediaQueryData(disableAnimations: disableAnimations),
+            child: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(40),
+                  child: SizedBox(
+                    width: 700,
+                    child: DovahConnectionCard(
+                      title: 'Gaming PC',
+                      subtitle: 'Skyrim Special Edition',
+                      detail: 'Level 43 · Whiterun',
+                      state: DovahConnectionCardState.available,
+                      onTap: onTap,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final TestGesture pointer = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      await pointer.addPointer(location: const Offset(1200, 700));
+      await tester.pump();
+      return pointer;
+    }
+
+    for (final (DovahThemePreset preset, Offset offset) in [
+      (DovahThemePreset.frostbound, const Offset(2, 0)),
+      (DovahThemePreset.dovah, const Offset(5, 0)),
+      (DovahThemePreset.hearth, const Offset(0, -2)),
+    ]) {
+      testWidgets(
+        'DovahConnectionCard rests on the surface material in its place under $preset',
+        (WidgetTester tester) async {
+          final TestGesture pointer = await pumpCard(
+            tester,
+            preset: preset,
+            onTap: () {},
+          );
+
+          expect(
+            tester.widget<DovahSurface>(outerSurface()).role,
+            DovahMaterialRole.surface,
+          );
+          expect(tester.getTopLeft(outerSurface()), const Offset(40, 40));
+          await pointer.removePointer();
+        },
+      );
+
+      testWidgets(
+        'DovahConnectionCard takes the raised material and slides by $offset when hovered under $preset',
+        (WidgetTester tester) async {
+          final TestGesture pointer = await pumpCard(
+            tester,
+            preset: preset,
+            onTap: () {},
+          );
+
+          await pointer.moveTo(tester.getCenter(outerSurface()));
+          await tester.pump();
+          await tester.pump(DovahControlMetrics.liftDuration);
+
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: outerSurface(),
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+          expect(
+            tester.widget<DovahSurface>(outerSurface()).role,
+            DovahMaterialRole.raised,
+          );
+          expect(
+            painter.material,
+            dovahThemeDataFor(preset).extension<DovahThemeMaterials>()!.raised,
+          );
+          expect(
+            tester.getTopLeft(outerSurface()),
+            const Offset(40, 40) + offset,
+          );
+          await pointer.removePointer();
+        },
+      );
+
+      testWidgets(
+        'DovahConnectionCard returns to rest when the pointer leaves under $preset',
+        (WidgetTester tester) async {
+          final TestGesture pointer = await pumpCard(
+            tester,
+            preset: preset,
+            onTap: () {},
+          );
+          await pointer.moveTo(tester.getCenter(outerSurface()));
+          await tester.pump(DovahControlMetrics.liftDuration);
+
+          await pointer.moveTo(const Offset(1200, 700));
+          await tester.pump();
+          await tester.pump(DovahControlMetrics.liftDuration);
+
+          expect(
+            tester.widget<DovahSurface>(outerSurface()).role,
+            DovahMaterialRole.surface,
+          );
+          expect(tester.getTopLeft(outerSurface()), const Offset(40, 40));
+          await pointer.removePointer();
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahConnectionCard does not react to hover when not tappable',
+      (WidgetTester tester) async {
+        final TestGesture pointer = await pumpCard(
+          tester,
+          preset: DovahThemePreset.dovah,
+        );
+
+        await pointer.moveTo(tester.getCenter(outerSurface()));
+        await tester.pump(DovahControlMetrics.liftDuration);
+
+        expect(
+          tester.widget<DovahSurface>(outerSurface()).role,
+          DovahMaterialRole.surface,
+        );
+        expect(tester.getTopLeft(outerSurface()), const Offset(40, 40));
+        await pointer.removePointer();
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard applies its hover at once with reduced motion',
+      (WidgetTester tester) async {
+        final TestGesture pointer = await pumpCard(
+          tester,
+          preset: DovahThemePreset.dovah,
+          onTap: () {},
+          disableAnimations: true,
+        );
+
+        await pointer.moveTo(tester.getCenter(outerSurface()));
+        await tester.pump();
+        await tester.pump();
+
+        expect(tester.getTopLeft(outerSurface()), const Offset(45, 40));
+        await pointer.removePointer();
+      },
+    );
   });
 }

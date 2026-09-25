@@ -159,6 +159,29 @@ void main() {
       }
     }
 
+    for (final (DovahThemePreset preset, Offset offset) in [
+      (DovahThemePreset.frostbound, const Offset(2, 0)),
+      (DovahThemePreset.dovah, const Offset(5, 0)),
+      (DovahThemePreset.hearth, const Offset(0, -2)),
+    ]) {
+      for (final Size window in const [Size(1280, 720), Size(900, 560)]) {
+        test(
+          'Method forWindow resolves the ${preset.name} hover offset at $window',
+          () {
+            final DovahConnectionCardMetrics metrics =
+                DovahConnectionCardMetrics.forWindow(
+                  themeMetrics: dovahThemeDataFor(
+                    preset,
+                  ).extension<DovahConnectionCardThemeMetrics>()!,
+                  window: window,
+                );
+
+            expect(metrics.hoverOffset, offset);
+          },
+        );
+      }
+    }
+
     for (final _CardCase testCase in cases) {
       test(
         'Method forWindow resolves the prototype card measurements for ${testCase.$1.name} at ${testCase.$2}',

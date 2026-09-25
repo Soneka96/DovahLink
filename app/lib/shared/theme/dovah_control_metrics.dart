@@ -31,6 +31,9 @@ abstract final class DovahControlMetrics {
   /// Duration of the primary-button hover transition (the prototype's `transition:.16s ease`).
   static const Duration buttonHoverDuration = Duration(milliseconds: 160);
 
+  /// Duration of the hover slide of a card (the prototype's `transition:transform .18s ease`).
+  static const Duration liftDuration = Duration(milliseconds: 180);
+
   /// Disabled-control opacity (the prototype's `.primary:disabled{opacity:.46}`).
   static const double disabledControlOpacity = 0.46;
 

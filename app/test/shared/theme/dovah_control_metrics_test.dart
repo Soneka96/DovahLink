@@ -50,6 +50,10 @@ void main() {
       expect(DovahControlMetrics.disabledControlOpacity, 0.46);
       expect(DovahControlMetrics.disabledPrimarySaturation, isA<double>());
       expect(DovahControlMetrics.disabledPrimarySaturation, 0.45);
+      expect(
+        DovahControlMetrics.liftDuration,
+        const Duration(milliseconds: 180),
+      );
       expect(DovahControlMetrics.focusOutlineWidth, isA<double>());
       expect(DovahControlMetrics.focusOutlineWidth, 2);
       expect(DovahControlMetrics.focusOutlineOffset, isA<double>());

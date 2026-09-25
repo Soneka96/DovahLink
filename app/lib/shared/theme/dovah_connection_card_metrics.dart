@@ -77,6 +77,9 @@ class DovahConnectionCardMetrics extends Equatable {
   /// How far the icon tile turns, in radians, with its glyph turned back upright.
   final double iconTileRotation;
 
+  /// How far the card slides while hovered.
+  final Offset hoverOffset;
+
   /// Whether the detail column is shown (the prototype hides it at narrow widths).
   final bool showDetail;
 
@@ -90,6 +93,7 @@ class DovahConnectionCardMetrics extends Equatable {
     required this.cornerCutSize,
     required this.cornerRadius,
     required this.iconTileRotation,
+    required this.hoverOffset,
     required this.showDetail,
   });
 
@@ -120,6 +124,7 @@ class DovahConnectionCardMetrics extends Equatable {
       cornerCutSize: themeMetrics.cornerCutSize,
       cornerRadius: themeMetrics.cornerRadius,
       iconTileRotation: themeMetrics.iconTileRotation,
+      hoverOffset: themeMetrics.hoverOffset,
       showDetail: window.width > DovahRootMetrics.narrowMaxWindowWidth,
     );
   }
@@ -134,6 +139,7 @@ class DovahConnectionCardMetrics extends Equatable {
     cornerCutSize,
     cornerRadius,
     iconTileRotation,
+    hoverOffset,
     showDetail,
   ];
 }

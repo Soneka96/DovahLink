@@ -39,6 +39,7 @@ void main() {
       expect(metrics.cornerRadius, 0);
       expect(metrics.iconTileRotation, isA<double>());
       expect(metrics.iconTileRotation, 0);
+      expect(metrics.hoverOffset, const Offset(2, 0));
     });
 
     test('Property dovah keeps the prototype values', () {
@@ -63,6 +64,7 @@ void main() {
       expect(metrics.cornerRadius, 0);
       expect(metrics.iconTileRotation, isA<double>());
       expect(metrics.iconTileRotation, math.pi / 4);
+      expect(metrics.hoverOffset, const Offset(5, 0));
     });
 
     test('Property hearth keeps the prototype values', () {
@@ -86,6 +88,7 @@ void main() {
       expect(metrics.cornerCutSize, 0);
       expect(metrics.cornerRadius, 12);
       expect(metrics.iconTileRotation, 0);
+      expect(metrics.hoverOffset, const Offset(0, -2));
     });
 
     test('Property hearth icon tile radius is half its tile size', () {
@@ -195,6 +198,19 @@ void main() {
       expect(mid.iconTileRotation, math.pi / 8);
     });
 
+    test(
+      'Method lerp slides the hover offset between the endpoints at t 0.5',
+      () {
+        final DovahConnectionCardThemeMetrics mid =
+            DovahConnectionCardThemeMetrics.dovah.lerp(
+              DovahConnectionCardThemeMetrics.hearth,
+              0.5,
+            );
+
+        expect(mid.hoverOffset, const Offset(2.5, -1));
+      },
+    );
+
     test('Method lerp between identical metrics keeps every value', () {
       expect(
         DovahConnectionCardThemeMetrics.hearth.lerp(
@@ -269,6 +285,7 @@ void main() {
             cornerCutSize: 9,
             cornerRadius: 10,
             iconTileRotation: 11,
+            hoverOffset: const Offset(12, 13),
           );
 
       expect(copy.regularPadding, const EdgeInsets.all(1));
@@ -282,6 +299,7 @@ void main() {
       expect(copy.cornerCutSize, 9);
       expect(copy.cornerRadius, 10);
       expect(copy.iconTileRotation, 11);
+      expect(copy.hoverOffset, const Offset(12, 13));
     });
 
     test('Method copyWith keeps the values it is not given', () {
@@ -339,6 +357,7 @@ void main() {
             base.copyWith(cornerCutSize: 1),
             base.copyWith(cornerRadius: 1),
             base.copyWith(iconTileRotation: 1),
+            base.copyWith(hoverOffset: const Offset(1, 1)),
           ]) {
         expect(changed, isNot(base));
       }
