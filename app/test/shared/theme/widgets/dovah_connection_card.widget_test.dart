@@ -1,5 +1,7 @@
+import 'dart:math' as math;
 import 'dart:ui' show Tristate;
 
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
@@ -9,9 +11,17 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/materials/frostbound_materials.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_accent_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring_painter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_tile.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
 
@@ -330,6 +340,28 @@ void main() {
     });
   });
 
+  group('DovahConnectionCard has no Material press overlay', () {
+    testWidgets(
+      'DovahConnectionCard keeps its surface free of splash effects',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahConnectionCard(
+            title: 'Gaming PC',
+            subtitle: 'Skyrim Special Edition',
+            detail: 'Level 43 · Whiterun',
+            state: DovahConnectionCardState.available,
+            onTap: () {},
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.click);
+      },
+    );
+  });
+
   group('DovahConnectionCard calls onTap', () {
     testWidgets('DovahConnectionCard calls onTap when tapped', (
       WidgetTester tester,
@@ -368,6 +400,7 @@ void main() {
         preset: DovahThemePreset.dovah,
         size: dovahTestSizes.first,
       );
+      expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.basic);
       await tester.tap(find.text('Gaming PC'), warnIfMissed: false);
       await tester.pump();
 
@@ -428,18 +461,46 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('dovah-connection-card-focus-outline')),
-        findsOneWidget,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsOneWidget);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('dovah-connection-card-focus-outline')),
-        findsNothing,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
     });
+
+    for (final (DovahThemePreset preset, double radius) in [
+      (DovahThemePreset.frostbound, 0.0),
+      (DovahThemePreset.dovah, 0.0),
+      (DovahThemePreset.hearth, 12.0),
+    ]) {
+      testWidgets(
+        'DovahConnectionCard outlines its focus ring with radius $radius under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+              onTap: () {},
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+
+          final DovahFocusRingPainter painter =
+              tester
+                      .widget<CustomPaint>(find.byKey(DovahFocusRing.ringKey))
+                      .foregroundPainter!
+                  as DovahFocusRingPainter;
+          expect(painter.cornerRadius, radius);
+        },
+      );
+    }
   });
 
   group('DovahConnectionCard exposes button semantics', () {
@@ -516,10 +577,7 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.sendKeyEvent(LogicalKeyboardKey.enter);
         await tester.sendKeyEvent(LogicalKeyboardKey.space);
-        expect(
-          find.byKey(const Key('dovah-connection-card-focus-outline')),
-          findsNothing,
-        );
+        expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
       } finally {
         semantics.dispose();
       }
@@ -551,26 +609,35 @@ void main() {
                   window: size,
                 );
             final DovahSurface surface = tester.widget(
-              find.byType(DovahSurface),
-            );
-            final Container tile = tester.widget<Container>(
               find.byWidgetPredicate(
                 (Widget widget) =>
-                    widget is Container &&
-                    widget.constraints?.maxWidth == metrics.iconTileSize &&
-                    widget.decoration is BoxDecoration,
+                    widget is DovahSurface &&
+                    widget.role == DovahMaterialRole.surface,
               ),
             );
-            final BoxDecoration tileDecoration =
-                tile.decoration! as BoxDecoration;
+            final Finder tileFinder = find.byWidgetPredicate(
+              (Widget widget) =>
+                  widget is DovahSurface &&
+                  widget.role == DovahMaterialRole.icon,
+            );
+            final DovahSurface tile = tester.widget(tileFinder);
 
             expect(tester.takeException(), isNull);
             expect(surface.padding, metrics.padding);
+            expect(surface.cornerStyle, isNull);
             expect(surface.cornerCutSize, metrics.cornerCutSize);
             expect(surface.cornerRadius, metrics.cornerRadius);
+            expect(tile.cornerStyle, isNull);
+            expect(tile.cornerRadius, metrics.iconTileRadius);
+            final DovahIconTile iconTile = tester.widget(
+              find.byType(DovahIconTile),
+            );
+            expect(iconTile.size, metrics.iconTileSize);
+            expect(iconTile.cornerRadius, metrics.iconTileRadius);
+            expect(iconTile.rotation, metrics.iconTileRotation);
             expect(
-              tileDecoration.borderRadius,
-              BorderRadius.circular(metrics.iconTileRadius),
+              tester.getSize(tileFinder),
+              Size.square(metrics.iconTileSize),
             );
             expect(
               tester.getSize(find.byType(DovahConnectionCard)).height,
@@ -579,6 +646,41 @@ void main() {
           },
         );
       }
+    }
+
+    for (final (DovahThemePreset preset, double rotation, Color glyphColor) in [
+      (DovahThemePreset.frostbound, 0.0, const Color(0xFFA9C7D1)),
+      (DovahThemePreset.dovah, math.pi / 4, const Color(0xFF8ED6FF)),
+      (DovahThemePreset.hearth, 0.0, const Color(0xFF60462D)),
+    ]) {
+      testWidgets(
+        'DovahConnectionCard turns its $preset icon tile by $rotation and colors the glyph',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+            ),
+            preset: preset,
+            size: dovahTestSizes.last,
+          );
+
+          final DovahIconTile tile = tester.widget(find.byType(DovahIconTile));
+          final Icon glyph = tester.widget(
+            find.descendant(
+              of: find.byType(DovahIconTile),
+              matching: find.byType(Icon),
+            ),
+          );
+
+          expect(tile.rotation, isA<double>());
+          expect(tile.rotation, rotation);
+          expect(glyph.color, glyphColor);
+        },
+      );
     }
 
     for (final (Size size, bool shown) in [
@@ -650,6 +752,393 @@ void main() {
               )
               .width,
           greaterThanOrEqualTo(DovahConnectionCardMetrics.statusMinWidth),
+        );
+      },
+    );
+  });
+
+  group('DovahConnectionCard paints its icon tile with the icon material', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahConnectionCard paints its icon tile with the $preset icon material',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final Finder tileFinder = find.byWidgetPredicate(
+            (Widget widget) =>
+                widget is DovahSurface && widget.role == DovahMaterialRole.icon,
+          );
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: tileFinder,
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+          final Icon icon = tester.widget(
+            find.descendant(of: tileFinder, matching: find.byType(Icon)),
+          );
+
+          expect(
+            painter.material,
+            dovahThemeDataFor(preset).extension<DovahThemeMaterials>()!.icon,
+          );
+          expect(painter.cornerStyle, DovahPanelCornerStyle.rounded);
+          expect(
+            icon.color,
+            dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!.iconTileForeground,
+          );
+        },
+      );
+    }
+  });
+
+  group('DovahConnectionCard follows the prototype hover treatment', () {
+    /// The card's outer surface: the one that is not the icon tile.
+    Finder outerSurface() => find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is DovahSurface && widget.role != DovahMaterialRole.icon,
+    );
+
+    Future<TestGesture> pumpCard(
+      WidgetTester tester, {
+      required DovahThemePreset preset,
+      VoidCallback? onTap,
+      bool disableAnimations = false,
+    }) async {
+      setDovahTestWindow(tester, dovahTestSizes.last);
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: dovahThemeDataFor(preset),
+          home: MediaQuery(
+            data: MediaQueryData(disableAnimations: disableAnimations),
+            child: Scaffold(
+              body: Align(
+                alignment: Alignment.topLeft,
+                child: Padding(
+                  padding: const EdgeInsets.all(40),
+                  child: SizedBox(
+                    width: 700,
+                    child: DovahConnectionCard(
+                      title: 'Gaming PC',
+                      subtitle: 'Skyrim Special Edition',
+                      detail: 'Level 43 · Whiterun',
+                      state: DovahConnectionCardState.available,
+                      onTap: onTap,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      final TestGesture pointer = await tester.createGesture(
+        kind: PointerDeviceKind.mouse,
+      );
+      await pointer.addPointer(location: const Offset(1200, 700));
+      await tester.pump();
+      return pointer;
+    }
+
+    for (final (DovahThemePreset preset, Offset offset) in [
+      (DovahThemePreset.frostbound, const Offset(2, 0)),
+      (DovahThemePreset.dovah, const Offset(5, 0)),
+      (DovahThemePreset.hearth, const Offset(0, -2)),
+    ]) {
+      testWidgets(
+        'DovahConnectionCard rests on the surface material in its place under $preset',
+        (WidgetTester tester) async {
+          final TestGesture pointer = await pumpCard(
+            tester,
+            preset: preset,
+            onTap: () {},
+          );
+
+          expect(
+            tester.widget<DovahSurface>(outerSurface()).role,
+            DovahMaterialRole.surface,
+          );
+          expect(tester.getTopLeft(outerSurface()), const Offset(40, 40));
+          await pointer.removePointer();
+        },
+      );
+
+      testWidgets(
+        'DovahConnectionCard takes the raised material and slides by $offset when hovered under $preset',
+        (WidgetTester tester) async {
+          final TestGesture pointer = await pumpCard(
+            tester,
+            preset: preset,
+            onTap: () {},
+          );
+
+          await pointer.moveTo(tester.getCenter(outerSurface()));
+          await tester.pump();
+          await tester.pump(DovahControlMetrics.liftDuration);
+
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: outerSurface(),
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+          expect(
+            tester.widget<DovahSurface>(outerSurface()).role,
+            DovahMaterialRole.raised,
+          );
+          expect(
+            painter.material,
+            dovahThemeDataFor(preset).extension<DovahThemeMaterials>()!.raised,
+          );
+          expect(
+            tester.getTopLeft(outerSurface()),
+            const Offset(40, 40) + offset,
+          );
+          await pointer.removePointer();
+        },
+      );
+
+      testWidgets(
+        'DovahConnectionCard returns to rest when the pointer leaves under $preset',
+        (WidgetTester tester) async {
+          final TestGesture pointer = await pumpCard(
+            tester,
+            preset: preset,
+            onTap: () {},
+          );
+          await pointer.moveTo(tester.getCenter(outerSurface()));
+          await tester.pump(DovahControlMetrics.liftDuration);
+
+          await pointer.moveTo(const Offset(1200, 700));
+          await tester.pump();
+          await tester.pump(DovahControlMetrics.liftDuration);
+
+          expect(
+            tester.widget<DovahSurface>(outerSurface()).role,
+            DovahMaterialRole.surface,
+          );
+          expect(tester.getTopLeft(outerSurface()), const Offset(40, 40));
+          await pointer.removePointer();
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahConnectionCard does not react to hover when not tappable',
+      (WidgetTester tester) async {
+        final TestGesture pointer = await pumpCard(
+          tester,
+          preset: DovahThemePreset.dovah,
+        );
+
+        await pointer.moveTo(tester.getCenter(outerSurface()));
+        await tester.pump(DovahControlMetrics.liftDuration);
+
+        expect(
+          tester.widget<DovahSurface>(outerSurface()).role,
+          DovahMaterialRole.surface,
+        );
+        expect(tester.getTopLeft(outerSurface()), const Offset(40, 40));
+        await pointer.removePointer();
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard applies its hover at once with reduced motion',
+      (WidgetTester tester) async {
+        final TestGesture pointer = await pumpCard(
+          tester,
+          preset: DovahThemePreset.dovah,
+          onTap: () {},
+          disableAnimations: true,
+        );
+
+        await pointer.moveTo(tester.getCenter(outerSurface()));
+        await tester.pump();
+        await tester.pump();
+
+        expect(tester.getTopLeft(outerSurface()), const Offset(45, 40));
+        await pointer.removePointer();
+      },
+    );
+  });
+
+  group('DovahConnectionCard paints the theme connection decoration', () {
+    Future<DovahSurface> pumpSurface(
+      WidgetTester tester, {
+      required DovahThemePreset preset,
+      Size size = const Size(1280, 720),
+      DovahConnectionCardState state = DovahConnectionCardState.available,
+    }) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahConnectionCard(
+          title: 'Gaming PC',
+          subtitle: 'Skyrim Special Edition',
+          detail: 'Level 43 · Whiterun',
+          state: state,
+          onTap: () {},
+        ),
+        preset: preset,
+        size: size,
+      );
+      return tester.widget(
+        find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is DovahSurface && widget.role != DovahMaterialRole.icon,
+        ),
+      );
+    }
+
+    testWidgets(
+      'DovahConnectionCard paints Frostbound decoration beneath and above its content',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.frostbound,
+        );
+        final DovahConnectionAccentPainter under =
+            surface.underlay! as DovahConnectionAccentPainter;
+        final DovahConnectionAccentPainter over =
+            surface.overlay! as DovahConnectionAccentPainter;
+
+        expect(under.aboveContent, isFalse);
+        expect(over.aboveContent, isTrue);
+        expect(under.accent, frostboundMaterials.connectionAccent);
+        expect(under.available, isTrue);
+        expect(surface.borderColor, isNull);
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard paints Dovah decoration only beneath its content',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.dovah,
+        );
+
+        expect(surface.underlay, isA<DovahConnectionAccentPainter>());
+        expect(surface.overlay, isNull);
+        expect(
+          (surface.underlay! as DovahConnectionAccentPainter).showLinkLine,
+          isTrue,
+        );
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard hides the Dovah link line at a narrow window',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.dovah,
+          size: const Size(800, 560),
+        );
+
+        expect(
+          (surface.underlay! as DovahConnectionAccentPainter).showLinkLine,
+          isFalse,
+        );
+      },
+    );
+
+    testWidgets('DovahConnectionCard paints no drawn decoration for Hearth', (
+      WidgetTester tester,
+    ) async {
+      final DovahSurface surface = await pumpSurface(
+        tester,
+        preset: DovahThemePreset.hearth,
+      );
+
+      expect(surface.underlay, isNull);
+      expect(surface.overlay, isNull);
+    });
+
+    testWidgets('DovahConnectionCard pins the darker Hearth border at rest', (
+      WidgetTester tester,
+    ) async {
+      final DovahSurface surface = await pumpSurface(
+        tester,
+        preset: DovahThemePreset.hearth,
+      );
+
+      expect(surface.borderColor, const Color(0xFF79542F));
+    });
+
+    testWidgets(
+      'DovahConnectionCard keeps the raised border while Hearth is hovered',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahConnectionCard(
+            title: 'Gaming PC',
+            subtitle: 'Skyrim Special Edition',
+            detail: 'Level 43 · Whiterun',
+            state: DovahConnectionCardState.available,
+            onTap: () {},
+          ),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.last,
+        );
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await pointer.addPointer(location: const Offset(1200, 700));
+        await tester.pump();
+        await pointer.moveTo(
+          tester.getCenter(find.byType(DovahConnectionCard)),
+        );
+        await tester.pump();
+        await tester.pump(DovahControlMetrics.liftDuration);
+
+        final DovahSurface surface = tester.widget(
+          find.byWidgetPredicate(
+            (Widget widget) =>
+                widget is DovahSurface && widget.role != DovahMaterialRole.icon,
+          ),
+        );
+        expect(surface.role, DovahMaterialRole.raised);
+        expect(surface.borderColor, isNull);
+        await pointer.removePointer();
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard marks only an available card for the edge',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.frostbound,
+          state: DovahConnectionCardState.offline,
+        );
+
+        expect(
+          (surface.underlay! as DovahConnectionAccentPainter).available,
+          isFalse,
         );
       },
     );

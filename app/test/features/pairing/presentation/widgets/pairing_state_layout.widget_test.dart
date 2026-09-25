@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Pumps a [PairingStateLayout] with the given body parts under the Dovah preset.
@@ -34,6 +36,29 @@ Future<void> pumpLayout(
 
 /// Exercises [PairingStateLayout] structure, emphasis, and accessibility.
 void main() {
+  group('PairingStateLayout sets its heading in the display font', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'PairingStateLayout sets its heading in the $preset display stack',
+        (WidgetTester tester) async {
+          await pumpLayout(tester, preset: preset);
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final Text heading = tester.widget(
+            find.byKey(const Key('pairing-heading')),
+          );
+
+          expect(heading.style?.fontFamily, tokens.displayFontFamily);
+          expect(
+            heading.style?.fontFamilyFallback,
+            tokens.displayFontFamilyFallback,
+          );
+        },
+      );
+    }
+  });
+
   group('PairingStateLayout contains widgets', () {
     testWidgets(
       'PairingStateLayout contains the mark above the heading above the body above its children',
