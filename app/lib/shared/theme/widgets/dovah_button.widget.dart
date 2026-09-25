@@ -4,10 +4,14 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 /// A DovahLink themed button. Primary buttons use each preset's approved primary-action material
-/// and label color; secondary buttons use the theme's control material and primary text tone.
+/// and label color; secondary buttons use the theme's control material and primary text tone; quiet
+/// buttons have no surface and a muted label. Only a disabled primary button dims, as in the
+/// prototype's `.primary:disabled`.
 class DovahButton extends StatefulWidget {
   /// The button's visible text.
   final String label;
@@ -44,50 +48,78 @@ class _DovahButtonState extends State<DovahButton> {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
-    const EdgeInsets padding = EdgeInsets.symmetric(
-      vertical: DovahControlMetrics.buttonVerticalPadding,
-      horizontal: DovahControlMetrics.buttonHorizontalPadding,
-    );
     final bool enabled = widget.onPressed != null;
 
     final bool primary = widget.variant == DovahButtonVariant.primary;
-    final Color foreground = primary
-        ? tokens.primaryActionForeground
-        : tokens.textPrimary;
+    final bool quiet = widget.variant == DovahButtonVariant.quiet;
+    final EdgeInsets padding = switch (widget.variant) {
+      DovahButtonVariant.primary => const EdgeInsets.symmetric(
+        vertical: DovahControlMetrics.buttonVerticalPadding,
+        horizontal: DovahControlMetrics.buttonHorizontalPadding,
+      ),
+      DovahButtonVariant.secondary => const EdgeInsets.symmetric(
+        vertical: DovahControlMetrics.buttonVerticalPadding,
+        horizontal: DovahControlMetrics.secondaryButtonHorizontalPadding,
+      ),
+      DovahButtonVariant.quiet => const EdgeInsets.symmetric(
+        vertical: DovahControlMetrics.quietButtonVerticalPadding,
+        horizontal: DovahControlMetrics.quietButtonHorizontalPadding,
+      ),
+    };
+    final Color foreground = switch (widget.variant) {
+      DovahButtonVariant.primary => tokens.primaryActionForeground,
+      DovahButtonVariant.secondary => tokens.textPrimary,
+      DovahButtonVariant.quiet => tokens.textMuted,
+    };
     final Text label = Text(
       widget.label,
       style: TextStyle(
         color: foreground,
-        fontSize: DovahControlMetrics.buttonFontSize,
+        fontSize: quiet
+            ? DovahControlMetrics.quietButtonFontSize
+            : DovahControlMetrics.buttonFontSize,
         fontWeight: primary ? FontWeight.w800 : FontWeight.w700,
         height: DovahThemeTokens.bodyLineHeight,
       ),
     );
-    final Widget surface = DovahSurface(
-      role: primary
-          ? DovahMaterialRole.primaryAction
-          : DovahMaterialRole.control,
-      cornerRadius: primary ? tokens.primaryActionCornerRadius : null,
-      padding: padding,
-      child: Center(
-        widthFactor: 1,
-        heightFactor: 1,
-        child: widget.icon == null
-            ? label
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    widget.icon,
-                    size: DovahControlMetrics.buttonIconSize,
-                    color: foreground,
-                  ),
-                  const SizedBox(width: DovahControlMetrics.buttonIconGap),
-                  label,
-                ],
-              ),
-      ),
+    final Widget content = Center(
+      widthFactor: 1,
+      heightFactor: 1,
+      child: widget.icon == null
+          ? label
+          : Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
+                  widget.icon,
+                  size: DovahControlMetrics.buttonIconSize,
+                  color: foreground,
+                ),
+                const SizedBox(width: DovahControlMetrics.buttonIconGap),
+                label,
+              ],
+            ),
     );
+    final Widget surface = quiet
+        ? Padding(padding: padding, child: content)
+        : DovahSurface(
+            castsShadow: enabled || !primary,
+            role: primary
+                ? DovahMaterialRole.primaryAction
+                : DovahMaterialRole.control,
+            cornerRadius: primary ? tokens.primaryActionCornerRadius : null,
+            padding: padding,
+            child: content,
+          );
+
+    final Widget shownSurface = primary && !enabled
+        ? ColorFiltered(
+            colorFilter: const DovahColorFilter(
+              saturate: DovahControlMetrics.disabledPrimarySaturation,
+            ).toColorFilter(),
+            child: surface,
+          )
+        : surface;
 
     return MouseRegion(
       cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
@@ -147,7 +179,9 @@ class _DovahButtonState extends State<DovahButton> {
           );
         },
         child: Opacity(
-          opacity: enabled ? 1 : DovahControlMetrics.disabledControlOpacity,
+          opacity: enabled || !primary
+              ? 1
+              : DovahControlMetrics.disabledControlOpacity,
           child: Semantics(
             key: const Key('dovah-button-semantics'),
             excludeSemantics: true,
@@ -157,6 +191,8 @@ class _DovahButtonState extends State<DovahButton> {
             onTap: widget.onPressed,
             child: InkWell(
               onTap: widget.onPressed,
+              splashFactory: NoSplash.splashFactory,
+              overlayColor: const WidgetStatePropertyAll(Colors.transparent),
               mouseCursor: enabled
                   ? SystemMouseCursors.click
                   : SystemMouseCursors.basic,
@@ -164,36 +200,19 @@ class _DovahButtonState extends State<DovahButton> {
                 builder: (BuildContext context) {
                   final bool focused = Focus.of(context).hasPrimaryFocus;
 
-                  return Container(
-                    key: focused
-                        ? const Key('dovah-button-focus-outline')
-                        : null,
-                    foregroundDecoration: focused
-                        ? BoxDecoration(
-                            border: Border.all(
-                              color: tokens.signal,
-                              width: DovahControlMetrics.focusOutlineWidth,
-                            ),
-                            borderRadius: BorderRadius.circular(
-                              primary
-                                  ? tokens.primaryActionCornerRadius
-                                  : tokens.cornerRadius,
-                            ),
-                            boxShadow: <BoxShadow>[
-                              BoxShadow(
-                                color: tokens.soft,
-                                blurRadius:
-                                    DovahControlMetrics.focusGlowBlurRadius,
-                              ),
-                            ],
-                          )
-                        : null,
-                    child: ConstrainedBox(
-                      constraints: const BoxConstraints(
-                        minWidth: DovahControlMetrics.minimumTapTargetSize,
-                        minHeight: DovahControlMetrics.minimumTapTargetSize,
+                  return ConstrainedBox(
+                    constraints: const BoxConstraints(
+                      minWidth: DovahControlMetrics.minimumTapTargetSize,
+                      minHeight: DovahControlMetrics.minimumTapTargetSize,
+                    ),
+                    child: Center(
+                      child: DovahFocusRing(
+                        focused: focused,
+                        cornerRadius: primary
+                            ? tokens.primaryActionCornerRadius
+                            : tokens.cornerRadius,
+                        child: shownSurface,
                       ),
-                      child: Center(child: surface),
                     ),
                   );
                 },

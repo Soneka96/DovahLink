@@ -1,16 +1,16 @@
 import 'dart:math' as math;
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_backdrop_scrim.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 
 /// A DovahLink themed modal card: a title, a close affordance, and scrollable content, shown
-/// with a blurred backdrop (translating the approved prototype's `backdrop-filter: blur`).
+/// over the theme's modal backdrop (the approved prototype's `.modal-backdrop`: blurred, re-colored,
+/// and tinted).
 /// [show] wires this into Flutter's own dialog route, which already provides barrier dismissal,
 /// Escape-to-close, and focus containment -- this widget does not reimplement that behavior. The
 /// card supplies its own transparent [Material], which a dialog route does not, so ink-based
@@ -34,7 +34,7 @@ class DovahDialog extends StatelessWidget {
     super.key,
   });
 
-  /// Shows [child] as a [DovahDialog] with the given [title], behind a blurred backdrop.
+  /// Shows [child] as a [DovahDialog] with the given [title], over the theme's backdrop.
   static Future<T?> show<T>(
     BuildContext context, {
     required String title,
@@ -46,21 +46,16 @@ class DovahDialog extends StatelessWidget {
   );
 
   /// Shows the widget [builder] returns, normally a [DovahDialog] whose title depends on state,
-  /// behind the same blurred backdrop as [show].
+  /// over the same backdrop as [show].
   static Future<T?> showBuilder<T>(
     BuildContext context, {
     required WidgetBuilder builder,
   }) {
-    final DovahThemeTokens tokens = context.dovahTokens;
-
     return showDialog<T>(
       context: context,
-      barrierColor: tokens.backdropColor,
-      builder: (BuildContext dialogContext) => BackdropFilter(
-        filter: ImageFilter.blur(
-          sigmaX: tokens.backdropBlurSigma,
-          sigmaY: tokens.backdropBlurSigma,
-        ),
+      // The scrim tint is painted by the backdrop itself, above the treated page.
+      barrierColor: Colors.transparent,
+      builder: (BuildContext dialogContext) => DovahBackdropScrim(
         child: Padding(
           padding: const EdgeInsets.all(DovahDialogMetrics.backdropPadding),
           child: Center(child: builder(dialogContext)),
@@ -106,6 +101,7 @@ class DovahDialog extends StatelessWidget {
                         title,
                         style: TextStyle(
                           fontFamily: tokens.displayFontFamily,
+                          fontFamilyFallback: tokens.displayFontFamilyFallback,
                           fontSize: DovahDialogMetrics.titleFontSize,
                           fontWeight: FontWeight.w500,
                           color: tokens.textPrimary,

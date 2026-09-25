@@ -42,3 +42,21 @@ Future<void> pumpDovahThemedWidget(
   );
   await tester.pumpAndSettle();
 }
+
+/// Asserts that a custom control creates no Material overlay and keeps its mouse cursor.
+///
+/// [tester] supplies the mounted control widget tree.
+/// [mouseCursor] is the cursor expected for the control's current enabled or disabled state.
+void expectNoMaterialOverlay(
+  WidgetTester tester, {
+  required MouseCursor mouseCursor,
+}) {
+  final InkWell inkWell = tester.widget(find.byType(InkWell));
+  final WidgetStateProperty<Color?>? overlayColor = inkWell.overlayColor;
+
+  expect(inkWell.splashFactory, NoSplash.splashFactory);
+  expect(overlayColor?.resolve({WidgetState.pressed}), Colors.transparent);
+  expect(overlayColor?.resolve({WidgetState.hovered}), Colors.transparent);
+  expect(overlayColor?.resolve({WidgetState.focused}), Colors.transparent);
+  expect(inkWell.mouseCursor, mouseCursor);
+}

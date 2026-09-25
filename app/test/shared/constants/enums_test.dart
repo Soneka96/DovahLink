@@ -67,6 +67,64 @@ void main() {
     );
   });
 
+  group('Property followsThemeOutline in DovahMaterialRole behaves correctly', () {
+    test(
+      'Property followsThemeOutline in DovahMaterialRole is true for clipped roles',
+      () {
+        expect(DovahMaterialRole.surface.followsThemeOutline, isA<bool>());
+        expect(DovahMaterialRole.surface.followsThemeOutline, true);
+        expect(DovahMaterialRole.raised.followsThemeOutline, true);
+        expect(DovahMaterialRole.primaryAction.followsThemeOutline, true);
+      },
+    );
+
+    test(
+      'Property followsThemeOutline in DovahMaterialRole is false for plain boxes',
+      () {
+        expect(DovahMaterialRole.control.followsThemeOutline, isA<bool>());
+        expect(DovahMaterialRole.control.followsThemeOutline, false);
+        expect(DovahMaterialRole.icon.followsThemeOutline, false);
+      },
+    );
+  });
+
+  group(
+    'Property summary and materials in DovahThemePreset behave correctly',
+    () {
+      test('Property summary in DovahThemePreset returns the card summary', () {
+        expect(DovahThemePreset.frostbound.summary, isA<String>());
+        expect(DovahThemePreset.frostbound.summary, 'Cold, severe and compact');
+        expect(
+          DovahThemePreset.dovah.summary,
+          'The balanced DovahLink identity',
+        );
+        expect(
+          DovahThemePreset.hearth.summary,
+          'Warm, spacious and storybook-like',
+        );
+      });
+
+      test(
+        'Property materials in DovahThemePreset returns the card materials line',
+        () {
+          expect(DovahThemePreset.frostbound.materials, isA<String>());
+          expect(
+            DovahThemePreset.frostbound.materials,
+            'Frozen stone · iron · warning red',
+          );
+          expect(
+            DovahThemePreset.dovah.materials,
+            'Midnight steel · ember · ice',
+          );
+          expect(
+            DovahThemePreset.hearth.materials,
+            'Parchment · walnut · bronze',
+          );
+        },
+      );
+    },
+  );
+
   group('Property label in DovahPanelCornerStyle behaves correctly', () {
     test(
       'Property label in DovahPanelCornerStyle returns the concise label for every style',
@@ -89,6 +147,8 @@ void main() {
         expect(DovahButtonVariant.primary.label, 'Primary');
         expect(DovahButtonVariant.secondary.label, isA<String>());
         expect(DovahButtonVariant.secondary.label, 'Secondary');
+        expect(DovahButtonVariant.quiet.label, isA<String>());
+        expect(DovahButtonVariant.quiet.label, 'Quiet');
       },
     );
   });

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/painting.dart';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -49,6 +51,32 @@ void main() {
       expect(DovahConnectionCardMetrics.detailColumnFlex, isA<int>());
       expect(DovahConnectionCardMetrics.detailColumnFlex, 7);
     });
+
+    test(
+      'Property shared constants keep the prototype decoration geometry',
+      () {
+        expect(DovahConnectionCardMetrics.linkLineLeftInset, isA<double>());
+        expect(DovahConnectionCardMetrics.linkLineLeftInset, 55);
+        expect(DovahConnectionCardMetrics.linkLineRightInset, isA<double>());
+        expect(DovahConnectionCardMetrics.linkLineRightInset, 90);
+        expect(DovahConnectionCardMetrics.linkLineHeight, isA<double>());
+        expect(DovahConnectionCardMetrics.linkLineHeight, 1);
+        expect(DovahConnectionCardMetrics.cornerOutlineSize, isA<double>());
+        expect(DovahConnectionCardMetrics.cornerOutlineSize, 70);
+        expect(
+          DovahConnectionCardMetrics.cornerOutlineRightOffset,
+          isA<double>(),
+        );
+        expect(DovahConnectionCardMetrics.cornerOutlineRightOffset, 39);
+        expect(
+          DovahConnectionCardMetrics.cornerOutlineBottomOffset,
+          isA<double>(),
+        );
+        expect(DovahConnectionCardMetrics.cornerOutlineBottomOffset, 43);
+        expect(DovahConnectionCardMetrics.availableEdgeWidth, isA<double>());
+        expect(DovahConnectionCardMetrics.availableEdgeWidth, 2);
+      },
+    );
   });
 
   group('Method forWindow behaves correctly', () {
@@ -132,6 +160,74 @@ void main() {
         true,
       ),
     ];
+
+    for (final (DovahThemePreset preset, double rotation) in [
+      (DovahThemePreset.frostbound, 0.0),
+      (DovahThemePreset.dovah, math.pi / 4),
+      (DovahThemePreset.hearth, 0.0),
+    ]) {
+      for (final Size window in const [Size(1280, 720), Size(900, 560)]) {
+        test(
+          'Method forWindow resolves the ${preset.name} icon tile rotation at $window',
+          () {
+            final DovahConnectionCardMetrics metrics =
+                DovahConnectionCardMetrics.forWindow(
+                  themeMetrics: dovahThemeDataFor(
+                    preset,
+                  ).extension<DovahConnectionCardThemeMetrics>()!,
+                  window: window,
+                );
+
+            expect(metrics.iconTileRotation, isA<double>());
+            expect(metrics.iconTileRotation, rotation);
+          },
+        );
+      }
+    }
+
+    for (final (DovahThemePreset preset, Offset offset) in [
+      (DovahThemePreset.frostbound, const Offset(2, 0)),
+      (DovahThemePreset.dovah, const Offset(5, 0)),
+      (DovahThemePreset.hearth, const Offset(0, -2)),
+    ]) {
+      for (final Size window in const [Size(1280, 720), Size(900, 560)]) {
+        test(
+          'Method forWindow resolves the ${preset.name} hover offset at $window',
+          () {
+            final DovahConnectionCardMetrics metrics =
+                DovahConnectionCardMetrics.forWindow(
+                  themeMetrics: dovahThemeDataFor(
+                    preset,
+                  ).extension<DovahConnectionCardThemeMetrics>()!,
+                  window: window,
+                );
+
+            expect(metrics.hoverOffset, offset);
+          },
+        );
+      }
+    }
+
+    for (final (Size window, bool shown) in [
+      (const Size(1280, 720), true),
+      (const Size(901, 720), true),
+      (const Size(900, 720), false),
+      (const Size(800, 560), false),
+    ]) {
+      test(
+        'Method forWindow resolves the link line shown=$shown at $window',
+        () {
+          final DovahConnectionCardMetrics metrics =
+              DovahConnectionCardMetrics.forWindow(
+                themeMetrics: DovahConnectionCardThemeMetrics.dovah,
+                window: window,
+              );
+
+          expect(metrics.showLinkLine, isA<bool>());
+          expect(metrics.showLinkLine, shown);
+        },
+      );
+    }
 
     for (final _CardCase testCase in cases) {
       test(
@@ -288,5 +384,25 @@ void main() {
 
       expect(regular, isNot(compact));
     });
+
+    test(
+      'Behavior equality fails when only the icon tile rotation differs',
+      () {
+        final DovahConnectionCardMetrics turned =
+            DovahConnectionCardMetrics.forWindow(
+              themeMetrics: DovahConnectionCardThemeMetrics.dovah,
+              window: const Size(1280, 720),
+            );
+        final DovahConnectionCardMetrics upright =
+            DovahConnectionCardMetrics.forWindow(
+              themeMetrics: DovahConnectionCardThemeMetrics.dovah.copyWith(
+                iconTileRotation: 0,
+              ),
+              window: const Size(1280, 720),
+            );
+
+        expect(turned, isNot(upright));
+      },
+    );
   });
 }

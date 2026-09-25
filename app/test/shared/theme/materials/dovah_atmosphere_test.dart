@@ -14,6 +14,13 @@ void main() {
     stops: [0, 1],
   );
 
+  group('Property hazeFadeEnd behaves correctly', () {
+    test('Property hazeFadeEnd keeps the prototype body:after mask stop', () {
+      expect(DovahAtmosphere.hazeFadeEnd, isA<double>());
+      expect(DovahAtmosphere.hazeFadeEnd, 0.8);
+    });
+  });
+
   group('Behavior construction behaves correctly', () {
     test(
       'Behavior construction defaults to a plain, neutral, hazeless atmosphere',

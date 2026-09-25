@@ -4,7 +4,12 @@ import 'package:equatable/equatable.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_brand_mark_treatment.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preset_card_style.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
 
 /// The visual recipes each theme paints with, as a [ThemeExtension] installed by every preset: one
 /// material per [DovahMaterialRole] and the canvas [atmosphere], all transcribed from the approved
@@ -37,6 +42,21 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
   /// The canvas atmosphere behind the whole application.
   final DovahAtmosphere atmosphere;
 
+  /// How the header sigil is dressed.
+  final DovahBrandMarkTreatment brandMark;
+
+  /// The decoration a connection card wears over its surface material.
+  final DovahConnectionAccent connectionAccent;
+
+  /// The treatment behind a modal dialog.
+  final DovahBackdrop backdrop;
+
+  /// How the theme dresses its card in the appearance picker.
+  final DovahPresetCardStyle presetCard;
+
+  /// How the theme shows itself in the appearance picker.
+  final DovahPreviewScene previewScene;
+
   /// Creates a complete material set. Every role is required so no theme can be assembled with an
   /// accidentally missing material.
   const DovahThemeMaterials({
@@ -46,6 +66,11 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     required this.icon,
     required this.primaryAction,
     required this.atmosphere,
+    required this.brandMark,
+    required this.connectionAccent,
+    required this.backdrop,
+    required this.presetCard,
+    required this.previewScene,
   });
 
   /// Returns the material this theme paints [role] with.
@@ -57,7 +82,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahMaterialRole.primaryAction => primaryAction,
   };
 
-  /// Returns a copy with selected materials or the atmosphere replaced.
+  /// Returns a copy with selected visual recipes replaced.
   @override
   DovahThemeMaterials copyWith({
     DovahMaterial? surface,
@@ -66,6 +91,11 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahMaterial? icon,
     DovahMaterial? primaryAction,
     DovahAtmosphere? atmosphere,
+    DovahBrandMarkTreatment? brandMark,
+    DovahConnectionAccent? connectionAccent,
+    DovahBackdrop? backdrop,
+    DovahPresetCardStyle? presetCard,
+    DovahPreviewScene? previewScene,
   }) => DovahThemeMaterials(
     surface: surface ?? this.surface,
     raised: raised ?? this.raised,
@@ -73,6 +103,11 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     icon: icon ?? this.icon,
     primaryAction: primaryAction ?? this.primaryAction,
     atmosphere: atmosphere ?? this.atmosphere,
+    brandMark: brandMark ?? this.brandMark,
+    connectionAccent: connectionAccent ?? this.connectionAccent,
+    backdrop: backdrop ?? this.backdrop,
+    presetCard: presetCard ?? this.presetCard,
+    previewScene: previewScene ?? this.previewScene,
   );
 
   /// Switches to [other]'s materials once [t] passes the midpoint; a layered recipe has no
@@ -97,5 +132,10 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     icon,
     primaryAction,
     atmosphere,
+    brandMark,
+    connectionAccent,
+    backdrop,
+    presetCard,
+    previewScene,
   ];
 }

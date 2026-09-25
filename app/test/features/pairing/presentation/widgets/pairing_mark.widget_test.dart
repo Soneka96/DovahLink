@@ -6,6 +6,9 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_m
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Exercises [PairingMark] rendering and accessibility.
@@ -74,6 +77,50 @@ void main() {
           );
         },
       );
+    }
+  });
+
+  group('PairingMark paints the control material', () {
+    for (final (DovahThemePreset preset, double regular, double compact) in [
+      (DovahThemePreset.frostbound, 0.0, 0.0),
+      (DovahThemePreset.dovah, 0.0, 0.0),
+      (DovahThemePreset.hearth, 27.0, 21.0),
+    ]) {
+      for (final Size size in dovahResponsiveTestSizes) {
+        final double radius = size.height <= 620 ? compact : regular;
+        testWidgets(
+          'PairingMark paints the $preset control material with radius $radius at $size',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              const Center(child: PairingMark(icon: Icons.refresh)),
+              preset: preset,
+              size: size,
+            );
+            final DovahMaterialPainter painter =
+                tester
+                        .widget<CustomPaint>(
+                          find
+                              .descendant(
+                                of: find.byType(DovahSurface),
+                                matching: find.byType(CustomPaint),
+                              )
+                              .first,
+                        )
+                        .painter!
+                    as DovahMaterialPainter;
+
+            expect(
+              painter.material,
+              dovahThemeDataFor(
+                preset,
+              ).extension<DovahThemeMaterials>()!.control,
+            );
+            expect(painter.cornerStyle, DovahPanelCornerStyle.rounded);
+            expect(painter.cornerRadius, radius);
+          },
+        );
+      }
     }
   });
 

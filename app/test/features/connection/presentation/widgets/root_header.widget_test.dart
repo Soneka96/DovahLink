@@ -8,6 +8,7 @@ import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_brand_mark.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
@@ -41,6 +42,7 @@ void main() {
             );
             expect(find.text('DOVAHLINK'), findsOneWidget);
             expect(find.text('SKYRIM COMPANION'), findsOneWidget);
+            expect(find.byType(DovahBrandMark), findsOneWidget);
             expect(find.byType(DovahSigil), findsOneWidget);
           },
         );

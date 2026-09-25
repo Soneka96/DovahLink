@@ -37,6 +37,25 @@ class DovahMaterial extends Equatable {
     this.shadow = const [],
   });
 
+  /// Returns this material with no drop shadow, for a component whose prototype rule sets
+  /// `box-shadow:none` (a disabled primary button).
+  DovahMaterial withoutShadow() => DovahMaterial(
+    layers: layers,
+    topEdgeHighlight: topEdgeHighlight,
+    bottomEdgeShade: bottomEdgeShade,
+    borderColor: borderColor,
+  );
+
+  /// Returns this material with its border painted in [color], for a component whose prototype rule
+  /// pins a border the role's own does not (a Hearth connection card's `--line2` border).
+  DovahMaterial withBorderColor(Color color) => DovahMaterial(
+    layers: layers,
+    topEdgeHighlight: topEdgeHighlight,
+    bottomEdgeShade: bottomEdgeShade,
+    borderColor: color,
+    shadow: shadow,
+  );
+
   /// See [Equatable.props].
   @override
   List<Object?> get props => [

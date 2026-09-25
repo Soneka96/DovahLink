@@ -276,47 +276,30 @@ void main() {
     });
   });
 
-  group(
-    'Behavior prototype identity and backdrop token mappings behave correctly',
-    () {
-      for (final (
-            DovahThemePreset preset,
-            Color backdrop,
-            double blur,
-            double panelRadius,
-            double primaryRadius,
-          )
-          in [
-            (
-              DovahThemePreset.frostbound,
-              const Color(0xC7000204),
-              7.0,
-              0.0,
-              0.0,
-            ),
-            (DovahThemePreset.dovah, const Color(0xC2020407), 8.0, 0.0, 0.0),
-            (DovahThemePreset.hearth, const Color(0x8A2F1F12), 9.0, 14.0, 9.0),
-          ]) {
-        test(
-          'Behavior ${preset.name} tokens match the prototype backdrop and radii',
-          () {
-            final DovahThemeTokens tokens = dovahThemeDataFor(
-              preset,
-            ).extension<DovahThemeTokens>()!;
+  group('Behavior prototype identity token mappings behave correctly', () {
+    for (final (
+          DovahThemePreset preset,
+          double panelRadius,
+          double primaryRadius,
+        )
+        in [
+          (DovahThemePreset.frostbound, 0.0, 0.0),
+          (DovahThemePreset.dovah, 0.0, 0.0),
+          (DovahThemePreset.hearth, 14.0, 9.0),
+        ]) {
+      test('Behavior ${preset.name} tokens match the prototype radii', () {
+        final DovahThemeTokens tokens = dovahThemeDataFor(
+          preset,
+        ).extension<DovahThemeTokens>()!;
 
-            expect(tokens.preset, preset);
-            expect(tokens.backdropColor, backdrop);
-            expect(tokens.backdropBlurSigma, isA<double>());
-            expect(tokens.backdropBlurSigma, blur);
-            expect(tokens.panelCornerRadius, isA<double>());
-            expect(tokens.panelCornerRadius, panelRadius);
-            expect(tokens.primaryActionCornerRadius, isA<double>());
-            expect(tokens.primaryActionCornerRadius, primaryRadius);
-          },
-        );
-      }
-    },
-  );
+        expect(tokens.preset, preset);
+        expect(tokens.panelCornerRadius, isA<double>());
+        expect(tokens.panelCornerRadius, panelRadius);
+        expect(tokens.primaryActionCornerRadius, isA<double>());
+        expect(tokens.primaryActionCornerRadius, primaryRadius);
+      });
+    }
+  });
 
   group(
     'Behavior prototype brand and status color mappings behave correctly',
@@ -597,6 +580,33 @@ void main() {
 
       expect(actual, expected);
     });
+
+    test(
+      'Method dovahThemeDataFor reuses a distinct ThemeData for every preset',
+      () {
+        final ThemeData frostbound = dovahThemeDataFor(
+          DovahThemePreset.frostbound,
+        );
+        final ThemeData dovah = dovahThemeDataFor(DovahThemePreset.dovah);
+        final ThemeData hearth = dovahThemeDataFor(DovahThemePreset.hearth);
+
+        expect(identical(frostbound, dovah), isFalse);
+        expect(identical(frostbound, hearth), isFalse);
+        expect(identical(dovah, hearth), isFalse);
+        expect(
+          identical(frostbound, dovahThemeDataFor(DovahThemePreset.frostbound)),
+          isTrue,
+        );
+        expect(
+          identical(dovah, dovahThemeDataFor(DovahThemePreset.dovah)),
+          isTrue,
+        );
+        expect(
+          identical(hearth, dovahThemeDataFor(DovahThemePreset.hearth)),
+          isTrue,
+        );
+      },
+    );
   });
 
   group('Behavior distinct presets behaves correctly', () {
@@ -651,6 +661,55 @@ void main() {
         expect(frostbound.displayFontFamily, isNot(dovah.displayFontFamily));
       },
     );
+
+    for (final (DovahThemePreset preset, Color glyph) in [
+      (DovahThemePreset.frostbound, const Color(0xFFA9C7D1)),
+      (DovahThemePreset.dovah, const Color(0xFF8ED6FF)),
+      (DovahThemePreset.hearth, const Color(0xFF60462D)),
+    ]) {
+      test(
+        'Behavior ${preset.name} tokens match the prototype icon tile glyph color',
+        () {
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+
+          expect(tokens.iconTileForeground, glyph);
+        },
+      );
+    }
+
+    for (final (DovahThemePreset preset, String family, List<String> fallback)
+        in [
+          (DovahThemePreset.frostbound, 'Arial Narrow', const ['Impact']),
+          (DovahThemePreset.dovah, 'Georgia', const ['Times New Roman']),
+          (DovahThemePreset.hearth, 'Georgia', const ['Times New Roman']),
+        ]) {
+      test(
+        'Behavior ${preset.name} tokens carry the prototype display stack',
+        () {
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+
+          expect(tokens.displayFontFamily, family);
+          expect(tokens.displayFontFamilyFallback, fallback);
+        },
+      );
+
+      test(
+        'Behavior ${preset.name} sets the prototype body font on its theme',
+        () {
+          final ThemeData theme = dovahThemeDataFor(preset);
+
+          expect(theme.textTheme.bodyMedium?.fontFamily, 'Inter');
+          expect(theme.textTheme.bodyMedium?.fontFamilyFallback, const [
+            'Segoe UI',
+          ]);
+          expect(theme.textTheme.titleLarge?.fontFamily, 'Inter');
+        },
+      );
+    }
 
     test('Behavior distinct presets differ in background color per theme', () {
       final DovahThemeTokens frostbound = buildFrostboundTheme()

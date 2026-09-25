@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_brand_mark_treatment.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preset_card_style.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_sigil.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_radial_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
@@ -198,5 +205,107 @@ const DovahThemeMaterials frostboundMaterials = DovahThemeMaterials(
       ),
     ],
     hazeOpacity: 0.3,
+  ),
+  brandMark: DovahBrandMarkTreatment(
+    filter: DovahColorFilter(grayscale: 0.65, contrast: 1.25),
+    glowColor: Color.fromRGBO(154, 201, 220, 0.17),
+    glowBlurRadius: 8,
+  ),
+  connectionAccent: DovahConnectionAccent(
+    overlayLayers: [
+      DovahLinearLayer(
+        angleDegrees: 118,
+        colors: [
+          _clear,
+          _clear,
+          Color.fromRGBO(206, 229, 237, 0.07),
+          _clear,
+          _clear,
+          Color.fromRGBO(206, 229, 237, 0.05),
+          _clear,
+        ],
+        stops: [0, 0.17, 0.173, 0.177, 0.63, 0.632, 0.636],
+      ),
+    ],
+    overlayOpacity: 0.8,
+    cornerOutline: Color.fromRGBO(169, 201, 216, 0.08),
+    availableEdge: Color(0xFF86B4C7),
+    overContent: true,
+  ),
+  backdrop: DovahBackdrop(
+    tint: Color.fromRGBO(0, 2, 4, 0.78),
+    blurSigma: 7,
+    saturation: 0.72,
+  ),
+  presetCard: DovahPresetCardStyle(
+    material: DovahMaterial(
+      layers: [
+        DovahLinearLayer(
+          angleDegrees: 145,
+          colors: [Color(0xFF11181C), Color(0xFF040708)],
+          stops: [0, 1],
+        ),
+        DovahStripeLayer(
+          angleDegrees: 178,
+          colors: [
+            _clear,
+            _clear,
+            Color.fromRGBO(225, 235, 238, 0.016),
+            _clear,
+            _clear,
+          ],
+          stopsPx: [0, 8, 9, 10, 19],
+        ),
+        DovahLinearLayer(
+          angleDegrees: 116,
+          colors: [
+            _clear,
+            _clear,
+            Color.fromRGBO(207, 226, 232, 0.11),
+            Color.fromRGBO(2, 5, 7, 0.5),
+            _clear,
+          ],
+          stops: [0, 0.19, 0.1915, 0.1935, 0.197],
+        ),
+      ],
+      borderColor: Color(0xFF65747D),
+    ),
+    titleColor: Color(0xFFEDF3F6),
+    summaryColor: Color(0xFFC0C7CA),
+    detailColor: Color(0xFF929DA2),
+    badgeFill: Color(0xFFA9C7D1),
+    badgeForeground: Color(0xFF061014),
+  ),
+  previewScene: DovahPreviewScene(
+    imageAssetPath: frostboundEnvironmentAsset,
+    imageFilter: DovahColorFilter(
+      grayscale: 0.35,
+      saturate: 0.55,
+      contrast: 1.15,
+    ),
+    layers: [
+      DovahLinearLayer(
+        angleDegrees: 180,
+        colors: [Color.fromRGBO(1, 3, 4, 0.5), Color.fromRGBO(1, 3, 4, 0.78)],
+        stops: [0, 1],
+      ),
+      DovahLinearLayer(
+        angleDegrees: 180,
+        colors: [_clear, _clear, Color(0xFF06090A)],
+        stops: [0, 0.54, 1],
+      ),
+    ],
+    sigil: DovahPreviewSigil(
+      fill: Color(0xFF090E12),
+      border: Color(0xFF71808A),
+      shape: DovahPreviewSigilShape.square,
+      markFilter: DovahColorFilter(grayscale: 0.72),
+    ),
+    barFill: DovahLinearLayer(
+      angleDegrees: 90,
+      colors: [Color(0xFF303B41), Color(0xFF303B41)],
+      stops: [0, 1],
+    ),
+    barEdgeColor: Color(0xFFA43B40),
   ),
 );

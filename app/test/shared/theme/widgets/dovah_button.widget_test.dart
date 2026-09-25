@@ -11,9 +11,12 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
@@ -47,6 +50,34 @@ void main() {
     }
   });
 
+  group('DovahButton has no Material press overlay', () {
+    testWidgets('DovahButton keeps its surface free of splash effects', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(label: 'Confirm', onPressed: () {}),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.click);
+    });
+
+    testWidgets('DovahButton uses a basic mouse cursor while disabled', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(label: 'Confirm', onPressed: null),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expectNoMaterialOverlay(tester, mouseCursor: SystemMouseCursors.basic);
+    });
+  });
+
   group('DovahButton renders its label typography', () {
     for (final DovahButtonVariant variant in DovahButtonVariant.values) {
       testWidgets(
@@ -62,7 +93,12 @@ void main() {
           final Text text = tester.widget<Text>(find.text('Confirm'));
 
           expect(text.style?.fontSize, isA<double>());
-          expect(text.style?.fontSize, DovahControlMetrics.buttonFontSize);
+          expect(
+            text.style?.fontSize,
+            variant == DovahButtonVariant.quiet
+                ? DovahControlMetrics.quietButtonFontSize
+                : DovahControlMetrics.buttonFontSize,
+          );
           expect(text.style?.height, isA<double>());
           expect(text.style?.height, DovahThemeTokens.bodyLineHeight);
         },
@@ -151,6 +187,31 @@ void main() {
       expect(find.byIcon(Icons.zoom_in), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
+
+    for (final DovahButtonVariant variant in [
+      DovahButtonVariant.secondary,
+      DovahButtonVariant.quiet,
+    ]) {
+      testWidgets('DovahButton does not dim a disabled $variant button', (
+        WidgetTester tester,
+      ) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(label: 'Cancel', onPressed: null, variant: variant),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final Opacity opacity = tester.widget(
+          find.descendant(
+            of: find.byType(DovahButton),
+            matching: find.byType(Opacity),
+          ),
+        );
+        expect(opacity.opacity, isA<double>());
+        expect(opacity.opacity, 1);
+      });
+    }
 
     testWidgets('DovahButton dims its disabled appearance', (
       WidgetTester tester,
@@ -249,14 +310,11 @@ void main() {
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(
-        find.byKey(const Key('dovah-button-focus-outline')),
-        findsOneWidget,
-      );
+      expect(find.byKey(DovahFocusRing.ringKey), findsOneWidget);
 
       await tester.sendKeyEvent(LogicalKeyboardKey.tab);
       await tester.pump();
-      expect(find.byKey(const Key('dovah-button-focus-outline')), findsNothing);
+      expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
     });
   });
 
@@ -318,10 +376,7 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.sendKeyEvent(LogicalKeyboardKey.enter);
         await tester.sendKeyEvent(LogicalKeyboardKey.space);
-        expect(
-          find.byKey(const Key('dovah-button-focus-outline')),
-          findsNothing,
-        );
+        expect(find.byKey(DovahFocusRing.ringKey), findsNothing);
       } finally {
         semantics.dispose();
       }
@@ -416,7 +471,7 @@ void main() {
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
-            const DovahButton(label: 'Confirm', onPressed: null),
+            DovahButton(label: 'Confirm', onPressed: () {}),
             preset: preset,
             size: dovahTestSizes.first,
           );
@@ -720,14 +775,339 @@ void main() {
         find.byKey(const Key('dovah-button-hover-effect')),
       );
       expect(animation.tween.end, 1);
-      expect(
+      final ColorFiltered filtered = tester.widget(
         find.descendant(
           of: find.byKey(const Key('dovah-button-hover-effect')),
           matching: find.byType(ColorFiltered),
         ),
-        findsNothing,
+      );
+      expect(
+        filtered.colorFilter,
+        const DovahColorFilter(
+          saturate: DovahControlMetrics.disabledPrimarySaturation,
+        ).toColorFilter(),
       );
       await pointer.removePointer();
+    });
+  });
+
+  group('DovahButton follows the prototype geometry and disabled treatment', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahButton outlines a secondary button as a plain rounded box under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(
+              label: 'Cancel',
+              onPressed: () {},
+              variant: DovahButtonVariant.secondary,
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: find.byType(DovahSurface),
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+
+          expect(painter.cornerStyle, DovahPanelCornerStyle.rounded);
+          expect(painter.cornerRadius, tokens.cornerRadius);
+        },
+      );
+
+      testWidgets(
+        'DovahButton keeps the theme outline on a primary button under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(label: 'Confirm', onPressed: () {}),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: find.byType(DovahSurface),
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+
+          expect(painter.cornerStyle, tokens.cornerStyle);
+        },
+      );
+    }
+
+    testWidgets('DovahButton desaturates a disabled primary button', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(label: 'Confirm', onPressed: null),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(DovahButton),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('DovahButton does not desaturate an enabled primary button', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(label: 'Confirm', onPressed: () {}),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(DovahButton),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('DovahButton does not desaturate a disabled secondary button', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahButton(
+          label: 'Cancel',
+          onPressed: null,
+          variant: DovahButtonVariant.secondary,
+        ),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        find.descendant(
+          of: find.byType(DovahButton),
+          matching: find.byType(ColorFiltered),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('DovahButton drops the Hearth shadow of a disabled primary', (
+      WidgetTester tester,
+    ) async {
+      Future<DovahMaterialPainter> painterFor(VoidCallback? onPressed) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(label: 'Confirm', onPressed: onPressed),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+        return tester
+                .widget<CustomPaint>(
+                  find
+                      .descendant(
+                        of: find.byType(DovahSurface),
+                        matching: find.byType(CustomPaint),
+                      )
+                      .first,
+                )
+                .painter!
+            as DovahMaterialPainter;
+      }
+
+      expect((await painterFor(() {})).material.shadow, isNotEmpty);
+      expect((await painterFor(null)).material.shadow, isEmpty);
+    });
+  });
+
+  group('DovahButton follows the prototype padding per variant', () {
+    for (final (DovahButtonVariant variant, double vertical, double horizontal)
+        in [
+          (DovahButtonVariant.primary, 12.0, 17.0),
+          (DovahButtonVariant.secondary, 12.0, 16.0),
+          (DovahButtonVariant.quiet, 8.0, 11.0),
+        ]) {
+      testWidgets(
+        'DovahButton pads a $variant label by $vertical x $horizontal',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            Center(
+              child: DovahButton(
+                label: 'Confirm',
+                onPressed: () {},
+                variant: variant,
+              ),
+            ),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
+          final Size label = tester.getSize(find.text('Confirm'));
+          final Finder body = variant == DovahButtonVariant.quiet
+              ? find.descendant(
+                  of: find.byType(DovahButton),
+                  matching: find.byType(Padding),
+                )
+              : find.byType(DovahSurface);
+
+          expect(
+            tester.getSize(body.first),
+            Size(label.width + 2 * horizontal, label.height + 2 * vertical),
+          );
+        },
+      );
+    }
+  });
+
+  group('DovahButton draws a quiet button without a surface', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahButton draws a quiet button as a muted label with no surface under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(
+              label: 'Show code again',
+              onPressed: () {},
+              variant: DovahButtonVariant.quiet,
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final Text text = tester.widget<Text>(find.text('Show code again'));
+
+          expect(find.byType(DovahSurface), findsNothing);
+          expect(text.style?.color, tokens.textMuted);
+          expect(text.style?.fontWeight, FontWeight.w700);
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahButton outlines a focused quiet button by the theme radius',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(
+            label: 'Show code again',
+            onPressed: () {},
+            variant: DovahButtonVariant.quiet,
+          ),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+
+        final DovahFocusRingPainter painter =
+            tester
+                    .widget<CustomPaint>(find.byKey(DovahFocusRing.ringKey))
+                    .foregroundPainter!
+                as DovahFocusRingPainter;
+        expect(painter.cornerRadius, 13);
+      },
+    );
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahButton keeps a quiet label readable on the $preset surface',
+        (WidgetTester tester) async {
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final double lighter =
+              tokens.textMuted.computeLuminance() >
+                  tokens.surface.computeLuminance()
+              ? tokens.textMuted.computeLuminance()
+              : tokens.surface.computeLuminance();
+          final double darker =
+              tokens.textMuted.computeLuminance() >
+                  tokens.surface.computeLuminance()
+              ? tokens.surface.computeLuminance()
+              : tokens.textMuted.computeLuminance();
+
+          expect((lighter + 0.05) / (darker + 0.05), greaterThanOrEqualTo(4.5));
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahButton does not lift or brighten a hovered quiet button',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahButton(
+            label: 'Show code again',
+            onPressed: () {},
+            variant: DovahButtonVariant.quiet,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final TestGesture pointer = await tester.createGesture(
+          kind: PointerDeviceKind.mouse,
+        );
+        await pointer.addPointer(location: const Offset(899, 559));
+        await tester.pump();
+        await pointer.moveTo(tester.getCenter(find.byType(DovahButton)));
+        await tester.pump(DovahControlMetrics.buttonHoverDuration);
+
+        final TweenAnimationBuilder<double> animation = tester.widget(
+          find.byKey(const Key('dovah-button-hover-effect')),
+        );
+        expect(animation.tween.end, 1);
+        await pointer.removePointer();
+      },
+    );
+
+    testWidgets('DovahButton calls onPressed for a quiet button', (
+      WidgetTester tester,
+    ) async {
+      int presses = 0;
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(
+          label: 'Show code again',
+          onPressed: () => presses++,
+          variant: DovahButtonVariant.quiet,
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      await tester.tap(find.text('Show code again'));
+
+      expect(presses, 1);
     });
   });
 
@@ -749,12 +1129,46 @@ void main() {
           await tester.sendKeyEvent(LogicalKeyboardKey.tab);
           await tester.pump();
 
-          final Container outline = tester.widget<Container>(
-            find.byKey(const Key('dovah-button-focus-outline')),
+          final CustomPaint outline = tester.widget<CustomPaint>(
+            find.byKey(DovahFocusRing.ringKey),
           );
-          final BoxDecoration decoration =
-              outline.foregroundDecoration! as BoxDecoration;
-          expect(decoration.borderRadius, BorderRadius.circular(radius));
+          final DovahFocusRingPainter painter =
+              outline.foregroundPainter! as DovahFocusRingPainter;
+          expect(painter.cornerRadius, radius);
+        },
+      );
+    }
+
+    for (final (
+          DovahThemePreset preset,
+          DovahButtonVariant variant,
+          double radius,
+        )
+        in [
+          (DovahThemePreset.frostbound, DovahButtonVariant.primary, 0.0),
+          (DovahThemePreset.frostbound, DovahButtonVariant.secondary, 0.0),
+          (DovahThemePreset.dovah, DovahButtonVariant.primary, 0.0),
+          (DovahThemePreset.dovah, DovahButtonVariant.secondary, 3.0),
+        ]) {
+      testWidgets(
+        'DovahButton outlines a focused $preset $variant button with radius $radius',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahButton(label: 'Confirm', onPressed: () {}, variant: variant),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+
+          await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+          await tester.pump();
+
+          final DovahFocusRingPainter painter =
+              tester
+                      .widget<CustomPaint>(find.byKey(DovahFocusRing.ringKey))
+                      .foregroundPainter!
+                  as DovahFocusRingPainter;
+          expect(painter.cornerRadius, radius);
         },
       );
     }

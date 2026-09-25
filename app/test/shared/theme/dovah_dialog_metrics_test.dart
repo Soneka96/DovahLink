@@ -1,54 +1,99 @@
+import 'package:flutter/painting.dart' show Size;
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_theme_metrics.dart';
 
-/// Exercises [DovahDialogMetrics]'s window-height resolution, prototype values, and equality.
+/// Exercises [DovahDialogMetrics]'s window and theme resolution, prototype values, and equality.
 void main() {
-  group('Method forWindowHeight behaves correctly', () {
-    test('Method forWindowHeight returns compact at the 620 breakpoint', () {
-      expect(
-        DovahDialogMetrics.forWindowHeight(620),
-        DovahDialogMetrics.compact,
-      );
+  /// Resolves the metrics of a Dovah window [height] tall, whose marks and code boxes are square.
+  DovahDialogMetrics resolve(double height) => DovahDialogMetrics.forWindow(
+    themeMetrics: DovahDialogThemeMetrics.dovah,
+    window: Size(1280, height),
+  );
+
+  group('Method forWindow behaves correctly', () {
+    test('Method forWindow returns compact at the 620 breakpoint', () {
+      expect(resolve(620), DovahDialogMetrics.compact);
     });
 
-    test('Method forWindowHeight returns compact below the breakpoint', () {
-      expect(
-        DovahDialogMetrics.forWindowHeight(480),
-        DovahDialogMetrics.compact,
-      );
-      expect(
-        DovahDialogMetrics.forWindowHeight(560),
-        DovahDialogMetrics.compact,
-      );
+    test('Method forWindow returns compact below the breakpoint', () {
+      expect(resolve(480), DovahDialogMetrics.compact);
+      expect(resolve(560), DovahDialogMetrics.compact);
     });
+
+    test('Method forWindow returns regular just above the breakpoint', () {
+      expect(resolve(621), DovahDialogMetrics.regular);
+    });
+
+    test('Method forWindow returns regular for a fraction above 620', () {
+      expect(resolve(620.0001), DovahDialogMetrics.regular);
+    });
+
+    test('Method forWindow returns regular on tall windows', () {
+      expect(resolve(720), DovahDialogMetrics.regular);
+      expect(resolve(900), DovahDialogMetrics.regular);
+    });
+
+    for (final (
+          DovahDialogThemeMetrics theme,
+          String name,
+          double regular,
+          double compact,
+          double codeBox,
+        )
+        in [
+          (DovahDialogThemeMetrics.frostbound, 'frostbound', 0.0, 0.0, 0.0),
+          (DovahDialogThemeMetrics.dovah, 'dovah', 0.0, 0.0, 0.0),
+          (DovahDialogThemeMetrics.hearth, 'hearth', 27.0, 21.0, 9.0),
+        ]) {
+      test(
+        'Method forWindow resolves the $name corner radii per window mode',
+        () {
+          final DovahDialogMetrics tall = DovahDialogMetrics.forWindow(
+            themeMetrics: theme,
+            window: const Size(1280, 720),
+          );
+          final DovahDialogMetrics short = DovahDialogMetrics.forWindow(
+            themeMetrics: theme,
+            window: const Size(1280, 560),
+          );
+
+          expect(tall.markCornerRadius, isA<double>());
+          expect(tall.markCornerRadius, regular);
+          expect(short.markCornerRadius, compact);
+          expect(tall.codeBoxCornerRadius, isA<double>());
+          expect(tall.codeBoxCornerRadius, codeBox);
+          expect(short.codeBoxCornerRadius, codeBox);
+        },
+      );
+    }
 
     test(
-      'Method forWindowHeight returns regular just above the breakpoint',
+      'Method forWindow keeps the window measurements whatever the theme',
       () {
-        expect(
-          DovahDialogMetrics.forWindowHeight(621),
-          DovahDialogMetrics.regular,
+        final DovahDialogMetrics hearth = DovahDialogMetrics.forWindow(
+          themeMetrics: DovahDialogThemeMetrics.hearth,
+          window: const Size(1280, 720),
         );
+
+        expect(hearth.markSize, DovahDialogMetrics.regular.markSize);
+        expect(hearth.codeBoxWidth, DovahDialogMetrics.regular.codeBoxWidth);
       },
     );
+  });
 
-    test('Method forWindowHeight returns regular for a fraction above 620', () {
-      expect(
-        DovahDialogMetrics.forWindowHeight(620.0001),
-        DovahDialogMetrics.regular,
-      );
-    });
+  group('Method withCornerRadii behaves correctly', () {
+    test('Method withCornerRadii replaces only the two corner radii', () {
+      final DovahDialogMetrics changed = DovahDialogMetrics.regular
+          .withCornerRadii(markCornerRadius: 5, codeBoxCornerRadius: 6);
 
-    test('Method forWindowHeight returns regular on tall windows', () {
-      expect(
-        DovahDialogMetrics.forWindowHeight(720),
-        DovahDialogMetrics.regular,
-      );
-      expect(
-        DovahDialogMetrics.forWindowHeight(900),
-        DovahDialogMetrics.regular,
-      );
+      expect(changed.markCornerRadius, 5);
+      expect(changed.codeBoxCornerRadius, 6);
+      expect(changed.markSize, DovahDialogMetrics.regular.markSize);
+      expect(changed.headerVerticalPadding, 19);
+      expect(changed, isNot(DovahDialogMetrics.regular));
     });
   });
 
@@ -182,14 +227,8 @@ void main() {
 
   group('Behavior equality behaves correctly', () {
     test('Behavior equality holds for the same measurement set', () {
-      expect(
-        DovahDialogMetrics.forWindowHeight(500),
-        DovahDialogMetrics.compact,
-      );
-      expect(
-        DovahDialogMetrics.forWindowHeight(500).hashCode,
-        DovahDialogMetrics.compact.hashCode,
-      );
+      expect(resolve(500), DovahDialogMetrics.compact);
+      expect(resolve(500).hashCode, DovahDialogMetrics.compact.hashCode);
     });
 
     test('Behavior equality fails between regular and compact', () {

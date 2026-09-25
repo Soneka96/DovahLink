@@ -1,13 +1,16 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Size;
 
 import 'package:equatable/equatable.dart';
 
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_theme_metrics.dart';
 
 /// The measurements a themed dialog and the content it hosts change with the window height: the
 /// approved prototype has a regular layout and a tighter one for short landscape windows, and
 /// every measurement that differs between them lives here so no widget branches on the window
-/// size itself. Resolve the set for a window with [forWindowHeight].
+/// size itself. The corner radii a theme pins for its marks and code boxes come from
+/// [DovahDialogThemeMetrics]; resolve the set for a window with [forWindow].
 @immutable
 class DovahDialogMetrics extends Equatable {
   /// The tallest window, in logical pixels, that still gets the [compact] measurements.
@@ -82,7 +85,8 @@ class DovahDialogMetrics extends Equatable {
   /// `gap:10px`).
   static const double progressStatusGap = 10;
 
-  /// The measurements for windows taller than [compactMaxWindowHeight].
+  /// The measurements for windows taller than [compactMaxWindowHeight], before a theme's own corner
+  /// radii: square marks and code boxes.
   static const DovahDialogMetrics regular = DovahDialogMetrics(
     headerVerticalPadding: 19,
     headerHorizontalPadding: 22,
@@ -103,9 +107,12 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight: 18,
     actionsTopGap: 18,
     noteTopGap: 17,
+    markCornerRadius: 0,
+    codeBoxCornerRadius: 0,
   );
 
-  /// The measurements for windows no taller than [compactMaxWindowHeight].
+  /// The measurements for windows no taller than [compactMaxWindowHeight], before a theme's own
+  /// corner radii: square marks and code boxes.
   static const DovahDialogMetrics compact = DovahDialogMetrics(
     headerVerticalPadding: 12,
     headerHorizontalPadding: 19,
@@ -126,6 +133,8 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight: 14,
     actionsTopGap: 7,
     noteTopGap: 8,
+    markCornerRadius: 0,
+    codeBoxCornerRadius: 0,
   );
 
   /// Vertical padding of a dialog's header.
@@ -185,6 +194,12 @@ class DovahDialogMetrics extends Equatable {
   /// Gap above a pairing state's footnote.
   final double noteTopGap;
 
+  /// Corner radius of a pairing state's icon tile, which the theme pins.
+  final double markCornerRadius;
+
+  /// Corner radius of a pairing-code digit box, which the theme pins.
+  final double codeBoxCornerRadius;
+
   /// Creates a complete measurement set. Every value is required so a set cannot be assembled
   /// with an accidentally-inherited default.
   const DovahDialogMetrics({
@@ -207,16 +222,58 @@ class DovahDialogMetrics extends Equatable {
     required this.messageMinHeight,
     required this.actionsTopGap,
     required this.noteTopGap,
+    required this.markCornerRadius,
+    required this.codeBoxCornerRadius,
   });
 
   /// The total width of a row of [pairingCodeLength] digit boxes and the gaps between them.
   double get codeRowWidth =>
       pairingCodeLength * codeBoxWidth + (pairingCodeLength - 1) * codeBoxGap;
 
-  /// Returns [compact] when [windowHeight] is at most [compactMaxWindowHeight], and [regular] for
-  /// a taller window.
-  static DovahDialogMetrics forWindowHeight(double windowHeight) =>
-      windowHeight <= compactMaxWindowHeight ? compact : regular;
+  /// Resolves the measurements for a window of size [window] from [themeMetrics], the active
+  /// theme's (possibly mid-transition) corner radii: [compact] when the window is at most
+  /// [compactMaxWindowHeight] tall and [regular] above it, with the theme's radii for that mode.
+  factory DovahDialogMetrics.forWindow({
+    required DovahDialogThemeMetrics themeMetrics,
+    required Size window,
+  }) {
+    final bool isCompact = window.height <= compactMaxWindowHeight;
+
+    return (isCompact ? compact : regular).withCornerRadii(
+      markCornerRadius: isCompact
+          ? themeMetrics.compactMarkCornerRadius
+          : themeMetrics.regularMarkCornerRadius,
+      codeBoxCornerRadius: themeMetrics.codeBoxCornerRadius,
+    );
+  }
+
+  /// Returns these measurements with the theme-pinned corner radii replaced.
+  DovahDialogMetrics withCornerRadii({
+    required double markCornerRadius,
+    required double codeBoxCornerRadius,
+  }) => DovahDialogMetrics(
+    headerVerticalPadding: headerVerticalPadding,
+    headerHorizontalPadding: headerHorizontalPadding,
+    bodyVerticalPadding: bodyVerticalPadding,
+    bodyHorizontalPadding: bodyHorizontalPadding,
+    heightFraction: heightFraction,
+    markSize: markSize,
+    markIconSize: markIconSize,
+    markBottomGap: markBottomGap,
+    headingFontSize: headingFontSize,
+    headingBottomGap: headingBottomGap,
+    bodyLineHeight: bodyLineHeight,
+    bodyBottomGap: bodyBottomGap,
+    codeBoxWidth: codeBoxWidth,
+    codeBoxHeight: codeBoxHeight,
+    codeRowTopGap: codeRowTopGap,
+    codeRowBottomGap: codeRowBottomGap,
+    messageMinHeight: messageMinHeight,
+    actionsTopGap: actionsTopGap,
+    noteTopGap: noteTopGap,
+    markCornerRadius: markCornerRadius,
+    codeBoxCornerRadius: codeBoxCornerRadius,
+  );
 
   /// See [Equatable.props].
   @override
@@ -240,5 +297,7 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight,
     actionsTopGap,
     noteTopGap,
+    markCornerRadius,
+    codeBoxCornerRadius,
   ];
 }

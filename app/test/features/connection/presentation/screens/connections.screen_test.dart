@@ -33,6 +33,8 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 
 /// Mock ViewModel supplied to [ConnectionsScreen].
@@ -752,7 +754,10 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
         expect(
-          find.byKey(const Key('dovah-icon-button-focus-outline')),
+          find.descendant(
+            of: find.byType(DovahIconButton),
+            matching: find.byKey(DovahFocusRing.ringKey),
+          ),
           findsOneWidget,
         );
         await tester.sendKeyEvent(LogicalKeyboardKey.enter);
@@ -772,7 +777,10 @@ void main() {
         await tester.sendKeyEvent(LogicalKeyboardKey.tab);
         await tester.pump();
         expect(
-          find.byKey(const Key('dovah-icon-button-focus-outline')),
+          find.descendant(
+            of: find.byType(DovahIconButton),
+            matching: find.byKey(DovahFocusRing.ringKey),
+          ),
           findsOneWidget,
         );
 
@@ -780,11 +788,17 @@ void main() {
         await tester.pump();
 
         expect(
-          find.byKey(const Key('dovah-icon-button-focus-outline')),
+          find.descendant(
+            of: find.byType(DovahIconButton),
+            matching: find.byKey(DovahFocusRing.ringKey),
+          ),
           findsNothing,
         );
         expect(
-          find.byKey(const Key('dovah-connection-card-focus-outline')),
+          find.descendant(
+            of: find.byType(DovahConnectionCard),
+            matching: find.byKey(DovahFocusRing.ringKey),
+          ),
           findsOneWidget,
         );
       },

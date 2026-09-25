@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
-/// Draws a pairing code as one box per digit, the approved prototype's `.otp` row. Display only:
+/// Draws a pairing code as one box per digit, the approved prototype's `.otp` row, each on the
+/// theme's control material (`.otp input` uses `--material-raised`). The focused box keeps its
+/// border, gains a soft halo (`.otp input:focus`), and takes the shared focus ring. Display only:
 /// the entered [code] is owned and edited by the text field a caller lays over it, and this row
 /// is hidden from semantics because that field is the accessible control.
 class PairingCodeBoxes extends StatelessWidget {
@@ -37,35 +42,42 @@ class PairingCodeBoxes extends StatelessWidget {
         children: [
           for (int index = 0; index < pairingCodeLength; index++) ...[
             if (index > 0) const SizedBox(width: DovahDialogMetrics.codeBoxGap),
-            Container(
+            DovahFocusRing(
               key: Key('pairing-code-box-$index'),
-              width: metrics.codeBoxWidth,
-              height: metrics.codeBoxHeight,
-              alignment: Alignment.center,
-              decoration: BoxDecoration(
-                color: tokens.background,
-                borderRadius: BorderRadius.circular(tokens.cornerRadius),
-                border: Border.all(
-                  color: isFocused && index == activeIndex
-                      ? tokens.accentPrimary
-                      : tokens.lineStrong,
+              focused: isFocused && index == activeIndex,
+              cornerRadius: metrics.codeBoxCornerRadius,
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(
+                    metrics.codeBoxCornerRadius,
+                  ),
+                  boxShadow: isFocused && index == activeIndex
+                      ? [
+                          BoxShadow(
+                            color: tokens.soft,
+                            spreadRadius:
+                                DovahDialogMetrics.codeBoxFocusRingWidth,
+                          ),
+                        ]
+                      : null,
                 ),
-                boxShadow: isFocused && index == activeIndex
-                    ? [
-                        BoxShadow(
-                          color: tokens.soft,
-                          spreadRadius:
-                              DovahDialogMetrics.codeBoxFocusRingWidth,
+                child: SizedBox(
+                  width: metrics.codeBoxWidth,
+                  height: metrics.codeBoxHeight,
+                  child: DovahSurface(
+                    role: DovahMaterialRole.control,
+                    cornerRadius: metrics.codeBoxCornerRadius,
+                    child: Center(
+                      child: Text(
+                        index < code.length ? code[index] : '',
+                        style: TextStyle(
+                          color: tokens.textPrimary,
+                          fontSize: DovahDialogMetrics.codeBoxFontSize,
+                          fontWeight: FontWeight.w800,
                         ),
-                      ]
-                    : null,
-              ),
-              child: Text(
-                index < code.length ? code[index] : '',
-                style: TextStyle(
-                  color: tokens.textPrimary,
-                  fontSize: DovahDialogMetrics.codeBoxFontSize,
-                  fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
                 ),
               ),
             ),

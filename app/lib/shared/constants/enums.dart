@@ -102,6 +102,20 @@ enum DovahThemePreset {
     DovahThemePreset.dovah => 'Dovah',
     DovahThemePreset.hearth => 'Hearth',
   };
+
+  /// Returns the one-line description of this preset's character, shown on its appearance card.
+  String get summary => switch (this) {
+    DovahThemePreset.frostbound => 'Cold, severe and compact',
+    DovahThemePreset.dovah => 'The balanced DovahLink identity',
+    DovahThemePreset.hearth => 'Warm, spacious and storybook-like',
+  };
+
+  /// Returns the materials this preset is made of, shown on its appearance card.
+  String get materials => switch (this) {
+    DovahThemePreset.frostbound => 'Frozen stone · iron · warning red',
+    DovahThemePreset.dovah => 'Midnight steel · ember · ice',
+    DovahThemePreset.hearth => 'Parchment · walnut · bronze',
+  };
 }
 
 /// A presentation-only connection-card state supplied independently of the SDK's connection
@@ -133,7 +147,8 @@ enum DovahPanelCornerStyle {
   /// One bevelled corner (top-right), sharp elsewhere, no rounding. Frostbound.
   singleBevel,
 
-  /// Two bevelled corners on opposite edges, slight rounding. Dovah.
+  /// Two bevelled corners on opposite edges, sharp elsewhere, no rounding (the prototype's Dovah
+  /// `border-radius:0` with a six-point `clip-path`). Dovah.
   doubleBevel,
 
   /// No bevel; plain rounded corners. Hearth.
@@ -153,12 +168,17 @@ enum DovahButtonVariant {
   primary,
 
   /// A bordered, low-emphasis surface (the approved prototype's `.secondary`).
-  secondary;
+  secondary,
+
+  /// A text-only action with no surface and a muted label (the approved prototype's
+  /// `.pair-tools .secondary`, which strips `.secondary` of its background, border, and shadow).
+  quiet;
 
   /// Returns the concise label for this variant.
   String get label => switch (this) {
     DovahButtonVariant.primary => 'Primary',
     DovahButtonVariant.secondary => 'Secondary',
+    DovahButtonVariant.quiet => 'Quiet',
   };
 }
 
@@ -179,5 +199,27 @@ enum DovahMaterialRole {
   icon,
 
   /// A primary action button (the approved prototype's `.primary`).
-  primaryAction,
+  primaryAction;
+
+  /// Whether a surface of this role takes the theme's panel outline (bevel or panel radius). The
+  /// prototype clips panels, cards, dialogs, and primary buttons with a `clip-path`, but never a
+  /// [control] or [icon] tile: those are plain boxes rounded by the theme's `--radius`.
+  bool get followsThemeOutline => switch (this) {
+    DovahMaterialRole.control || DovahMaterialRole.icon => false,
+    DovahMaterialRole.surface ||
+    DovahMaterialRole.raised ||
+    DovahMaterialRole.primaryAction => true,
+  };
+}
+
+/// The outline of the sigil tile in an appearance-preset preview.
+enum DovahPreviewSigilShape {
+  /// An upright square (the approved prototype's Frostbound `.preset-sigil`).
+  square,
+
+  /// A square turned 45 degrees, with its mark turned back upright (Dovah).
+  diamond,
+
+  /// A full circle (Hearth).
+  circle,
 }

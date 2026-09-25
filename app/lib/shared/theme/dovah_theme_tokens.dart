@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:equatable/equatable.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 
-/// DovahLink's typed visual-theme contract: the complete material and atmosphere boundary a
-/// [DovahThemePreset] resolves to, beyond what a plain Material [ColorScheme] can express.
-/// Shared DovahLink surfaces and components read this extension rather than branching on which
-/// concrete preset is active.
+/// DovahLink's typed theme identity: the semantic colors, status tones, corner treatment, and
+/// typography a [DovahThemePreset] resolves to, beyond what a plain Material [ColorScheme] can
+/// express. Layered component textures, the canvas atmosphere, the dialog backdrop, and the
+/// appearance preview are recipes, not tokens, and live in [DovahThemeMaterials]. Shared DovahLink
+/// surfaces and components read these extensions rather than branching on which concrete preset is
+/// active.
 @immutable
 class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Font size for supporting text and compact labels.
@@ -24,11 +27,16 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Border width shared by themed surfaces.
   static const double surfaceBorderWidth = 1;
 
-  /// Opacity of the canvas scrim at its top edge before atmosphere integration.
-  static const double environmentTopScrimOpacity = 0.82;
+  /// The body font family of every theme, first in the prototype's `--body` stack
+  /// (`Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif`). The prototype ships no
+  /// font file, so no font is bundled: a machine without Inter falls through [bodyFontFamilyFallback]
+  /// and then Flutter's platform default, which is the system UI font the stack's `system-ui` names.
+  static const String bodyFontFamily = 'Inter';
 
-  /// Opacity of the canvas scrim at its bottom edge before atmosphere integration.
-  static const double environmentBottomScrimOpacity = 0.55;
+  /// The families of the body stack after [bodyFontFamily] that a Flutter font fallback can name;
+  /// the stack's generic keywords (`ui-sans-serif`, `system-ui`, `-apple-system`, `sans-serif`) have
+  /// no Flutter name and resolve to the platform default.
+  static const List<String> bodyFontFamilyFallback = ['Segoe UI'];
 
   /// The canvas behind every surface.
   final Color background;
@@ -102,14 +110,20 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   final double cornerRadius;
 
   /// The bevel cut size applied when [cornerStyle] is [DovahPanelCornerStyle.singleBevel] or
-  /// [DovahPanelCornerStyle.doubleBevel]. A single representative size shared by every bevelled
-  /// component in the theme; the approved prototype varies this slightly per component, which
-  /// this token intentionally simplifies to one value per theme.
+  /// [DovahPanelCornerStyle.doubleBevel]. The theme's general bevel; a component whose approved
+  /// bevel differs (for example a connection card) takes its own from its metrics.
   final double cornerCutSize;
 
-  /// The display/heading font family for this theme. The body font family does not vary by
-  /// theme in the approved prototype, so it is not part of this contract.
+  /// The display/heading font family for this theme, first in the prototype's `--display` stack.
+  /// The body font family does not vary by theme in the approved prototype, so it is the shared
+  /// [bodyFontFamily]. The prototype ships no font file, so no font is bundled.
   final String displayFontFamily;
+
+  /// The families of this theme's `--display` stack after [displayFontFamily] that a Flutter font
+  /// fallback can name (Frostbound `Impact`; Dovah and Hearth `"Times New Roman"`). The stack's
+  /// generic keywords (`ui-sans-serif`, `sans-serif`, `serif`) have no Flutter name and resolve to
+  /// the platform default.
+  final List<String> displayFontFamilyFallback;
 
   /// The tone of the eyebrow label above a page title (the prototype's `.eyebrow`), which differs
   /// per theme rather than following [accentSecondary].
@@ -129,15 +143,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// neither metrics classes nor widgets resolve visual values from it; theme-varying geometry
   /// lives in the `Dovah*ThemeMetrics` extensions.
   final DovahThemePreset preset;
-
-  /// The scrim color, alpha included, drawn behind a dialog (the prototype's per-theme
-  /// `.modal-backdrop` background). The prototype's `saturate`/`sepia` backdrop filters have no
-  /// direct Flutter equivalent and are not reproduced.
-  final Color backdropColor;
-
-  /// The blur strength behind a dialog (the prototype's per-theme `.modal-backdrop`
-  /// `backdrop-filter: blur`).
-  final double backdropBlurSigma;
 
   /// The corner radius of a panel, card group, or dialog when [cornerStyle] is
   /// [DovahPanelCornerStyle.rounded] (the prototype's `.panel`/`.modal` `border-radius`), which
@@ -163,6 +168,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// The tone of the icon inside a large icon tile (the prototype's `.large-mark`), which differs
   /// per theme rather than following [accentPrimary].
   final Color markIcon;
+
+  /// The tone of the glyph inside a leading icon tile (the prototype's `.pc-icon` `color`), which
+  /// follows [accentPrimary] in Frostbound and Dovah but not in Hearth.
+  final Color iconTileForeground;
 
   /// The empty track of a stat bar (the prototype's `.bar` background), which differs per theme.
   final Color barTrack;
@@ -207,19 +216,19 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.cornerRadius,
     required this.cornerCutSize,
     required this.displayFontFamily,
+    required this.displayFontFamilyFallback,
     required this.eyebrow,
     required this.uppercaseLabels,
     required this.rootHeaderRuleFraction,
     required this.pageTitleLineHeight,
     required this.preset,
-    required this.backdropColor,
-    required this.backdropBlurSigma,
     required this.panelCornerRadius,
     required this.primaryActionCornerRadius,
     required this.statusOffline,
     required this.brandTagline,
     required this.brandAccent,
     required this.markIcon,
+    required this.iconTileForeground,
     required this.barTrack,
     required this.panelNote,
     required this.heroScrim,
@@ -260,19 +269,19 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? cornerRadius,
     double? cornerCutSize,
     String? displayFontFamily,
+    List<String>? displayFontFamilyFallback,
     Color? eyebrow,
     bool? uppercaseLabels,
     double? rootHeaderRuleFraction,
     double? pageTitleLineHeight,
     DovahThemePreset? preset,
-    Color? backdropColor,
-    double? backdropBlurSigma,
     double? panelCornerRadius,
     double? primaryActionCornerRadius,
     Color? statusOffline,
     Color? brandTagline,
     Color? brandAccent,
     Color? markIcon,
+    Color? iconTileForeground,
     Color? barTrack,
     Color? panelNote,
     Gradient? heroScrim,
@@ -304,14 +313,14 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     cornerRadius: cornerRadius ?? this.cornerRadius,
     cornerCutSize: cornerCutSize ?? this.cornerCutSize,
     displayFontFamily: displayFontFamily ?? this.displayFontFamily,
+    displayFontFamilyFallback:
+        displayFontFamilyFallback ?? this.displayFontFamilyFallback,
     eyebrow: eyebrow ?? this.eyebrow,
     uppercaseLabels: uppercaseLabels ?? this.uppercaseLabels,
     rootHeaderRuleFraction:
         rootHeaderRuleFraction ?? this.rootHeaderRuleFraction,
     pageTitleLineHeight: pageTitleLineHeight ?? this.pageTitleLineHeight,
     preset: preset ?? this.preset,
-    backdropColor: backdropColor ?? this.backdropColor,
-    backdropBlurSigma: backdropBlurSigma ?? this.backdropBlurSigma,
     panelCornerRadius: panelCornerRadius ?? this.panelCornerRadius,
     primaryActionCornerRadius:
         primaryActionCornerRadius ?? this.primaryActionCornerRadius,
@@ -319,6 +328,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     brandTagline: brandTagline ?? this.brandTagline,
     brandAccent: brandAccent ?? this.brandAccent,
     markIcon: markIcon ?? this.markIcon,
+    iconTileForeground: iconTileForeground ?? this.iconTileForeground,
     barTrack: barTrack ?? this.barTrack,
     panelNote: panelNote ?? this.panelNote,
     heroScrim: heroScrim ?? this.heroScrim,
@@ -326,7 +336,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   );
 
   /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
-  /// family, gradients, and casing) snap to whichever side of [t] is closer
+  /// families, gradients, and casing) snap to whichever side of [t] is closer
   /// because they have no meaningful halfway point.
   @override
   DovahThemeTokens lerp(ThemeExtension<DovahThemeTokens>? other, double t) {
@@ -363,6 +373,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       cornerRadius: lerpDouble(cornerRadius, other.cornerRadius, t)!,
       cornerCutSize: lerpDouble(cornerCutSize, other.cornerCutSize, t)!,
       displayFontFamily: t < 0.5 ? displayFontFamily : other.displayFontFamily,
+      displayFontFamilyFallback: t < 0.5
+          ? displayFontFamilyFallback
+          : other.displayFontFamilyFallback,
       eyebrow: Color.lerp(eyebrow, other.eyebrow, t)!,
       uppercaseLabels: t < 0.5 ? uppercaseLabels : other.uppercaseLabels,
       rootHeaderRuleFraction: lerpDouble(
@@ -376,12 +389,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         t,
       )!,
       preset: t < 0.5 ? preset : other.preset,
-      backdropColor: Color.lerp(backdropColor, other.backdropColor, t)!,
-      backdropBlurSigma: lerpDouble(
-        backdropBlurSigma,
-        other.backdropBlurSigma,
-        t,
-      )!,
       panelCornerRadius: lerpDouble(
         panelCornerRadius,
         other.panelCornerRadius,
@@ -396,6 +403,11 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       brandTagline: Color.lerp(brandTagline, other.brandTagline, t)!,
       brandAccent: Color.lerp(brandAccent, other.brandAccent, t)!,
       markIcon: Color.lerp(markIcon, other.markIcon, t)!,
+      iconTileForeground: Color.lerp(
+        iconTileForeground,
+        other.iconTileForeground,
+        t,
+      )!,
       barTrack: Color.lerp(barTrack, other.barTrack, t)!,
       panelNote: Color.lerp(panelNote, other.panelNote, t)!,
       heroScrim: t < 0.5 ? heroScrim : other.heroScrim,
@@ -431,19 +443,19 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     cornerRadius,
     cornerCutSize,
     displayFontFamily,
+    displayFontFamilyFallback,
     eyebrow,
     uppercaseLabels,
     rootHeaderRuleFraction,
     pageTitleLineHeight,
     preset,
-    backdropColor,
-    backdropBlurSigma,
     panelCornerRadius,
     primaryActionCornerRadius,
     statusOffline,
     brandTagline,
     brandAccent,
     markIcon,
+    iconTileForeground,
     barTrack,
     panelNote,
     heroScrim,

@@ -21,19 +21,6 @@ void main() {
     });
   });
 
-  group('Property appearance picker constants behave correctly', () {
-    test('Property appearance picker constants keep their approved sizes', () {
-      expect(appearancePreviewHeight, isA<double>());
-      expect(appearancePreviewHeight, 48);
-      expect(appearancePresetCardMinimumWidth, isA<double>());
-      expect(appearancePresetCardMinimumWidth, 160);
-      expect(appearancePreviewAccentHeight, isA<double>());
-      expect(appearancePreviewAccentHeight, 6);
-      expect(appearanceSelectionIconSize, isA<double>());
-      expect(appearanceSelectionIconSize, 20);
-    });
-  });
-
   group('Property theme asset constants behave correctly', () {
     test(
       'Property theme asset constants point at the bundled theme images',

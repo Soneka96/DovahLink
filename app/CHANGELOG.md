@@ -14,9 +14,42 @@ Repository releases share root `VERSION`. When an app change is included in a re
 ### Added
 
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
+- Connection cards rise and take the raised material when hovered, and wear each theme's
+  decoration: Frostbound's fracture lines and available edge, Dovah's ember-to-ice link line, and
+  a faint corner outline on both.
+- Appearance picker cards show each theme's name, summary, and materials, and a badge on the
+  active theme, in a three-column grid that rises on hover.
+- The header sigil is dressed per theme: muted with a faint glow in Frostbound, a wider glow in
+  Dovah, and warmed onto a pale disc in Hearth.
+- The app names the design's fonts (Inter for text, and per theme Arial Narrow, Georgia, or their
+  fallbacks for headings). No font is bundled, so the typeface shown depends on the fonts
+  installed on the computer.
+
+### Changed
+
+- Custom Dovah controls suppress Material splash and state overlays.
+- Themed material textures reuse rasterized tile images across repaints.
+- Preset theme endpoints are built together at startup and reused during later rebuilds.
+- Panels, cards, buttons, and icon tiles use each theme's layered material texture: scratched
+  iron in Frostbound, forged steel in Dovah, and pressed parchment in Hearth.
+- The app background reproduces each theme's atmosphere, including its image treatment, glows, and
+  fine haze, and the haze now fades out toward the bottom.
+- Dialogs blur and re-color the page behind them for each theme.
+- Appearance picker previews show each theme's own scene, sigil, and accent bars at the approved
+  height.
+- Dovah's connection icon is a diamond with its computer glyph upright, and Hearth's icon glyph
+  takes its own brown.
+- Secondary buttons, icon buttons, the pairing mark, and pairing code boxes are plain boxes rounded
+  by the theme, as designed, and use the theme's control texture.
+- The focused control's outline is 2px in the theme's accent, 3px outside the control. Bevelled
+  cards and primary buttons keep it visible for keyboard users.
+- The focused pairing code box keeps its border and gains a soft halo.
+- Pairing's "Send Code Again" is a quiet text button, and only a disabled primary button dims.
 
 ### Fixed
 
+- An open dialog now updates its backdrop as the application theme changes.
+- Bevelled panels, cards, and buttons no longer draw a border line along the bevel.
 - Canvas backgrounds now render each theme's complete atmosphere recipe, including its image
   treatment and haze layers.
 - Pairing is clearly unavailable on platforms without secure client storage, and authentication is skipped there.

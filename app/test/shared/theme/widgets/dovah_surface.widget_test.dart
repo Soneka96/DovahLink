@@ -5,8 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_materials.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/materials/frostbound_materials.dart';
+import 'package:dovahlink_client/shared/theme/materials/hearth_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -121,6 +124,239 @@ void main() {
     }
   });
 
+  group('DovahSurface outlines each role as the prototype does', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      for (final DovahMaterialRole role in [
+        DovahMaterialRole.control,
+        DovahMaterialRole.icon,
+      ]) {
+        testWidgets(
+          'DovahSurface rounds a $role surface by the theme radius under $preset',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              DovahSurface(role: role, child: const Text('Plain box')),
+              preset: preset,
+              size: dovahTestSizes.first,
+            );
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(
+              findSurfacePainter(tester).cornerStyle,
+              DovahPanelCornerStyle.rounded,
+            );
+            expect(
+              findSurfacePainter(tester).cornerRadius,
+              tokens.cornerRadius,
+            );
+            expect(
+              findSurfaceClipper(tester).cornerStyle,
+              DovahPanelCornerStyle.rounded,
+            );
+          },
+        );
+      }
+
+      for (final DovahMaterialRole role in [
+        DovahMaterialRole.surface,
+        DovahMaterialRole.raised,
+        DovahMaterialRole.primaryAction,
+      ]) {
+        testWidgets(
+          'DovahSurface keeps the theme corner style on a $role surface under $preset',
+          (WidgetTester tester) async {
+            await pumpDovahThemedWidget(
+              tester,
+              DovahSurface(role: role, child: const Text('Clipped box')),
+              preset: preset,
+              size: dovahTestSizes.first,
+            );
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+
+            expect(findSurfacePainter(tester).cornerStyle, tokens.cornerStyle);
+          },
+        );
+      }
+    }
+
+    testWidgets(
+      'DovahSurface lets an explicit corner style override the role',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            role: DovahMaterialRole.icon,
+            cornerStyle: DovahPanelCornerStyle.singleBevel,
+            child: Text('Explicit'),
+          ),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.singleBevel,
+        );
+      },
+    );
+
+    testWidgets('DovahSurface paints the role shadow by default', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(child: Text('Shadow')),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(findSurfacePainter(tester).material.shadow, isNotEmpty);
+    });
+
+    testWidgets('DovahSurface drops the material shadow when it casts none', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(castsShadow: false, child: Text('No shadow')),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(findSurfacePainter(tester).material.shadow, isEmpty);
+    });
+  });
+
+  group('DovahSurface layers decoration and pins a border', () {
+    testWidgets(
+      'DovahSurface paints an underlay beneath and an overlay above its child',
+      (WidgetTester tester) async {
+        const _MarkerPainter underlay = _MarkerPainter();
+        const _MarkerPainter overlay = _MarkerPainter();
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            underlay: underlay,
+            overlay: overlay,
+            child: Text('Decorated'),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+        final CustomPaint decorated = tester.widget(
+          find
+              .descendant(
+                of: find.byType(ClipPath),
+                matching: find.byType(CustomPaint),
+              )
+              .first,
+        );
+
+        expect(decorated.painter, underlay);
+        expect(decorated.foregroundPainter, overlay);
+      },
+    );
+
+    testWidgets(
+      'DovahSurface adds no decoration painter without an underlay or overlay',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(child: Text('Plain')),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          find.descendant(
+            of: find.byType(ClipPath),
+            matching: find.byType(CustomPaint),
+          ),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'DovahSurface paints a given material instead of the role material',
+      (WidgetTester tester) async {
+        final DovahMaterial custom = frostboundMaterials.icon;
+        await pumpDovahThemedWidget(
+          tester,
+          DovahSurface(material: custom, child: const Text('Custom')),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        expect(findSurfacePainter(tester).material, custom);
+        expect(
+          findSurfacePainter(tester).material,
+          isNot(hearthMaterials.surface),
+        );
+      },
+    );
+
+    testWidgets(
+      'DovahSurface keeps the role outline when it paints a given material',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahSurface(
+            role: DovahMaterialRole.icon,
+            material: dovahMaterials.surface,
+            child: const Text('Custom'),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.rounded,
+        );
+      },
+    );
+
+    testWidgets('DovahSurface pins the border color over the role material', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(
+          borderColor: Color(0xFF79542F),
+          child: Text('Pinned'),
+        ),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        findSurfacePainter(tester).material,
+        hearthMaterials.surface.withBorderColor(const Color(0xFF79542F)),
+      );
+    });
+
+    testWidgets('DovahSurface keeps the role border without a pinned color', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(child: Text('Role border')),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        findSurfacePainter(tester).material.borderColor,
+        hearthMaterials.surface.borderColor,
+      );
+    });
+  });
+
   group('DovahSurface keeps the theme corner geometry', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
@@ -178,6 +414,71 @@ void main() {
     );
 
     testWidgets(
+      'DovahSurface uses the override corner style instead of the theme corner style',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            cornerStyle: DovahPanelCornerStyle.rounded,
+            cornerRadius: 6,
+            child: Text('Override'),
+          ),
+          preset: DovahThemePreset.frostbound,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.rounded,
+        );
+        expect(
+          findSurfaceClipper(tester).cornerStyle,
+          DovahPanelCornerStyle.rounded,
+        );
+        expect(findSurfacePainter(tester).cornerRadius, 6);
+      },
+    );
+
+    testWidgets(
+      'DovahSurface keeps the theme radius and bevel when only the corner style is overridden',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            cornerStyle: DovahPanelCornerStyle.rounded,
+            child: Text('Style only'),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.rounded,
+        );
+        expect(findSurfacePainter(tester).cornerRadius, 3);
+        expect(findSurfacePainter(tester).cutSize, 12);
+      },
+    );
+
+    testWidgets(
+      'DovahSurface keeps the theme corner style when no style override is given',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(child: Text('No override')),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.doubleBevel,
+        );
+      },
+    );
+
+    testWidgets(
       'DovahSurface uses the override bevel instead of the theme bevel under Frostbound',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
@@ -206,4 +507,18 @@ void main() {
       },
     );
   });
+}
+
+/// A painter that paints nothing, so a test can tell where a surface places it.
+class _MarkerPainter extends CustomPainter {
+  /// Creates a marker painter.
+  const _MarkerPainter();
+
+  /// See [CustomPainter.paint].
+  @override
+  void paint(Canvas canvas, Size size) {}
+
+  /// See [CustomPainter.shouldRepaint].
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
 }
