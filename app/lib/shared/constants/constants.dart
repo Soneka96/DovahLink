@@ -20,30 +20,6 @@ const DovahThemePreset defaultThemePreset = DovahThemePreset.dovah;
 /// Minimum width of an appearance-preset card before it wraps to another row.
 const double appearancePresetCardMinimumWidth = 160;
 
-/// Height of each accent bar in an appearance-preset preview (the prototype's `.preset-ui i`).
-const double appearancePreviewAccentHeight = 6;
-
-/// Width and height of the sigil tile in an appearance-preset preview, border and padding included
-/// (the prototype's `.preset-sigil`).
-const double appearancePreviewSigilSize = 45;
-
-/// Padding between the sigil tile's border and its mark (the prototype's `.preset-sigil`).
-const double appearancePreviewSigilPadding = 7;
-
-/// Distance of the accent bars from the preview's left and right edges (the prototype's
-/// `.preset-ui`).
-const double appearancePreviewBarsInset = 12;
-
-/// Distance of the accent bars from the preview's bottom edge (the prototype's `.preset-ui`).
-const double appearancePreviewBarsBottom = 10;
-
-/// Gap between adjacent accent bars (the prototype's `.preset-ui`).
-const double appearancePreviewBarsGap = 4;
-
-/// The relative widths of the three accent bars, in hundredths (the prototype's `.preset-ui`
-/// `grid-template-columns:1.4fr .8fr .45fr`).
-const List<int> appearancePreviewBarFlexes = [140, 80, 45];
-
 /// Size of the selected-preset indicator.
 const double appearanceSelectionIconSize = 20;
 

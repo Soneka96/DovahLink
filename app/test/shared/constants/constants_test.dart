@@ -25,19 +25,6 @@ void main() {
     test('Property appearance picker constants keep their approved sizes', () {
       expect(appearancePresetCardMinimumWidth, isA<double>());
       expect(appearancePresetCardMinimumWidth, 160);
-      expect(appearancePreviewAccentHeight, isA<double>());
-      expect(appearancePreviewAccentHeight, 6);
-      expect(appearancePreviewSigilSize, isA<double>());
-      expect(appearancePreviewSigilSize, 45);
-      expect(appearancePreviewSigilPadding, isA<double>());
-      expect(appearancePreviewSigilPadding, 7);
-      expect(appearancePreviewBarsInset, isA<double>());
-      expect(appearancePreviewBarsInset, 12);
-      expect(appearancePreviewBarsBottom, isA<double>());
-      expect(appearancePreviewBarsBottom, 10);
-      expect(appearancePreviewBarsGap, isA<double>());
-      expect(appearancePreviewBarsGap, 4);
-      expect(appearancePreviewBarFlexes, [140, 80, 45]);
       expect(appearanceSelectionIconSize, isA<double>());
       expect(appearanceSelectionIconSize, 20);
     });

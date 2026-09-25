@@ -80,7 +80,6 @@ void main() {
 
         expect(hearth.markSize, DovahDialogMetrics.regular.markSize);
         expect(hearth.codeBoxWidth, DovahDialogMetrics.regular.codeBoxWidth);
-        expect(hearth.appearancePreviewHeight, 112);
       },
     );
   });
@@ -94,7 +93,6 @@ void main() {
       expect(changed.codeBoxCornerRadius, 6);
       expect(changed.markSize, DovahDialogMetrics.regular.markSize);
       expect(changed.headerVerticalPadding, 19);
-      expect(changed.appearanceCopyPadding, 13);
       expect(changed, isNot(DovahDialogMetrics.regular));
     });
   });
@@ -129,10 +127,6 @@ void main() {
       expect(metrics.messageMinHeight, 18);
       expect(metrics.actionsTopGap, 18);
       expect(metrics.noteTopGap, 17);
-      expect(metrics.appearancePreviewHeight, isA<double>());
-      expect(metrics.appearancePreviewHeight, 112);
-      expect(metrics.appearanceCopyPadding, isA<double>());
-      expect(metrics.appearanceCopyPadding, 13);
     });
   });
 
@@ -159,10 +153,6 @@ void main() {
       expect(metrics.messageMinHeight, 14);
       expect(metrics.actionsTopGap, 7);
       expect(metrics.noteTopGap, 8);
-      expect(metrics.appearancePreviewHeight, isA<double>());
-      expect(metrics.appearancePreviewHeight, 78);
-      expect(metrics.appearanceCopyPadding, isA<double>());
-      expect(metrics.appearanceCopyPadding, 9);
     });
   });
 

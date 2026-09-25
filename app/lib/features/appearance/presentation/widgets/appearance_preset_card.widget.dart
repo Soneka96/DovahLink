@@ -78,7 +78,7 @@ class AppearancePresetCard extends StatelessWidget {
                       ),
                       Padding(
                         padding: EdgeInsets.all(
-                          context.dovahDialogMetrics.appearanceCopyPadding,
+                          context.dovahAppearanceMetrics.copyPadding,
                         ),
                         child: Row(
                           children: [

@@ -107,8 +107,6 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight: 18,
     actionsTopGap: 18,
     noteTopGap: 17,
-    appearancePreviewHeight: 112,
-    appearanceCopyPadding: 13,
     markCornerRadius: 0,
     codeBoxCornerRadius: 0,
   );
@@ -135,8 +133,6 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight: 14,
     actionsTopGap: 7,
     noteTopGap: 8,
-    appearancePreviewHeight: 78,
-    appearanceCopyPadding: 9,
     markCornerRadius: 0,
     codeBoxCornerRadius: 0,
   );
@@ -198,13 +194,6 @@ class DovahDialogMetrics extends Equatable {
   /// Gap above a pairing state's footnote.
   final double noteTopGap;
 
-  /// Height of an appearance-preset preview scene (the prototype's `.preset-card`
-  /// `grid-template-rows`, first row).
-  final double appearancePreviewHeight;
-
-  /// Padding around an appearance-preset card's label row (the prototype's `.preset-copy`).
-  final double appearanceCopyPadding;
-
   /// Corner radius of a pairing state's icon tile, which the theme pins.
   final double markCornerRadius;
 
@@ -233,8 +222,6 @@ class DovahDialogMetrics extends Equatable {
     required this.messageMinHeight,
     required this.actionsTopGap,
     required this.noteTopGap,
-    required this.appearancePreviewHeight,
-    required this.appearanceCopyPadding,
     required this.markCornerRadius,
     required this.codeBoxCornerRadius,
   });
@@ -284,8 +271,6 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight: messageMinHeight,
     actionsTopGap: actionsTopGap,
     noteTopGap: noteTopGap,
-    appearancePreviewHeight: appearancePreviewHeight,
-    appearanceCopyPadding: appearanceCopyPadding,
     markCornerRadius: markCornerRadius,
     codeBoxCornerRadius: codeBoxCornerRadius,
   );
@@ -312,8 +297,6 @@ class DovahDialogMetrics extends Equatable {
     messageMinHeight,
     actionsTopGap,
     noteTopGap,
-    appearancePreviewHeight,
-    appearanceCopyPadding,
     markCornerRadius,
     codeBoxCornerRadius,
   ];

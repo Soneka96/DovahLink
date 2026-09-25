@@ -12,6 +12,7 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preset_card_style.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_radial_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart';
@@ -359,6 +360,66 @@ void main() {
     });
   });
 
+  group('Property preset card recipes behave correctly', () {
+    test('Property frostbound keeps the prototype .preset-frostbound card', () {
+      final DovahPresetCardStyle card =
+          DovahThemeMaterials.frostbound.presetCard;
+      final DovahLinearLayer fracture =
+          card.material.layers.last as DovahLinearLayer;
+
+      expect(card.material.layers, hasLength(3));
+      expect(countLayers<DovahLinearLayer>(card.material), 2);
+      expect(countLayers<DovahStripeLayer>(card.material), 1);
+      expect(fracture.angleDegrees, 116);
+      expect(fracture.stops, [0, 0.19, 0.1915, 0.1935, 0.197]);
+      expect(card.material.borderColor, const Color(0xFF65747D));
+      expect(card.material.shadow, isEmpty);
+      expect(card.material.topEdgeHighlight, isNull);
+      expect(card.titleColor, const Color(0xFFEDF3F6));
+      expect(card.summaryColor, const Color(0xFFC0C7CA));
+      expect(card.detailColor, const Color(0xFF929DA2));
+      expect(card.badgeFill, const Color(0xFFA9C7D1));
+      expect(card.badgeForeground, const Color(0xFF061014));
+    });
+
+    test('Property dovah keeps the prototype .preset-dovah card', () {
+      final DovahPresetCardStyle card = DovahThemeMaterials.dovah.presetCard;
+
+      expect(card.material.layers, hasLength(2));
+      expect(countLayers<DovahStripeLayer>(card.material), 1);
+      expect(card.material.borderColor, const Color(0xFF45667E));
+      expect(card.material.shadow, isEmpty);
+      expect(card.titleColor, const Color(0xFFF1F6F9));
+      expect(card.summaryColor, const Color(0xFFB1C2CD));
+      expect(card.detailColor, const Color(0xFF7892A2));
+      expect(card.badgeFill, const Color(0xFF8ED6FF));
+      expect(card.badgeForeground, const Color(0xFF071015));
+    });
+
+    test('Property hearth keeps the prototype .preset-hearth card', () {
+      final DovahPresetCardStyle card = DovahThemeMaterials.hearth.presetCard;
+
+      expect(card.material.layers, hasLength(3));
+      expect(countLayers<DovahRadialLayer>(card.material), 1);
+      expect(card.material.borderColor, const Color(0xFF8D6336));
+      expect(card.material.shadow, isEmpty);
+      expect(card.titleColor, const Color(0xFF271B12));
+      expect(card.summaryColor, const Color(0xFF4F3A28));
+      expect(card.detailColor, const Color(0xFF6D5035));
+      expect(card.badgeFill, const Color(0xFF965923));
+      expect(card.badgeForeground, const Color(0xFFFFF9EE));
+    });
+
+    test(
+      'Property preset card materials differ from each theme panel material',
+      () {
+        for (final DovahThemeMaterials materials in presetMaterials) {
+          expect(materials.presetCard.material, isNot(materials.surface));
+        }
+      },
+    );
+  });
+
   group('Property brand mark recipes behave correctly', () {
     test('Property frostbound keeps the prototype brand mark treatment', () {
       final DovahBrandMarkTreatment mark =
@@ -602,6 +663,14 @@ void main() {
       expect(copy.surface, base.surface);
     });
 
+    test('Method copyWith replaces only the preset card', () {
+      final DovahPresetCardStyle other = DovahThemeMaterials.hearth.presetCard;
+      final DovahThemeMaterials copy = base.copyWith(presetCard: other);
+
+      expect(copy.presetCard, other);
+      expect(copy.surface, base.surface);
+    });
+
     test('Method copyWith replaces only the brand mark', () {
       const DovahBrandMarkTreatment plain = DovahBrandMarkTreatment();
       final DovahThemeMaterials copy = base.copyWith(brandMark: plain);
@@ -707,6 +776,11 @@ void main() {
       );
       expect(
         base == base.copyWith(brandMark: const DovahBrandMarkTreatment()),
+        isFalse,
+      );
+      expect(
+        base ==
+            base.copyWith(presetCard: DovahThemeMaterials.hearth.presetCard),
         isFalse,
       );
       expect(

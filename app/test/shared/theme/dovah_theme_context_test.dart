@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_appearance_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
@@ -356,6 +357,46 @@ void main() {
             resolved,
             dovahThemeDataFor(preset).extension<DovahThemeMaterials>(),
           );
+        },
+      );
+    }
+  });
+
+  group('Property dovahAppearanceMetrics behaves correctly', () {
+    for (final (
+          DovahThemePreset preset,
+          Size size,
+          double preview,
+          double cut,
+          double radius,
+        )
+        in [
+          (DovahThemePreset.frostbound, const Size(1280, 720), 112.0, 9.0, 0.0),
+          (DovahThemePreset.dovah, const Size(1280, 500), 78.0, 10.0, 0.0),
+          (DovahThemePreset.hearth, const Size(900, 560), 78.0, 0.0, 13.0),
+        ]) {
+      testWidgets(
+        'Property dovahAppearanceMetrics resolves the $preset set at $size',
+        (WidgetTester tester) async {
+          tester.view.physicalSize = size * tester.view.devicePixelRatio;
+          addTearDown(tester.view.reset);
+          late DovahAppearanceMetrics resolved;
+
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: dovahThemeDataFor(preset),
+              home: Builder(
+                builder: (BuildContext context) {
+                  resolved = context.dovahAppearanceMetrics;
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          );
+
+          expect(resolved.previewHeight, preview);
+          expect(resolved.cornerCutSize, cut);
+          expect(resolved.cornerRadius, radius);
         },
       );
     }

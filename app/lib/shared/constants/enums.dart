@@ -93,6 +93,20 @@ enum DovahThemePreset {
     DovahThemePreset.dovah => 'Dovah',
     DovahThemePreset.hearth => 'Hearth',
   };
+
+  /// Returns the one-line description of this preset's character, shown on its appearance card.
+  String get summary => switch (this) {
+    DovahThemePreset.frostbound => 'Cold, severe and compact',
+    DovahThemePreset.dovah => 'The balanced DovahLink identity',
+    DovahThemePreset.hearth => 'Warm, spacious and storybook-like',
+  };
+
+  /// Returns the materials this preset is made of, shown on its appearance card.
+  String get materials => switch (this) {
+    DovahThemePreset.frostbound => 'Frozen stone · iron · warning red',
+    DovahThemePreset.dovah => 'Midnight steel · ember · ice',
+    DovahThemePreset.hearth => 'Parchment · walnut · bronze',
+  };
 }
 
 /// A presentation-only connection-card state supplied independently of the SDK's connection

@@ -12,6 +12,7 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preset_card_style.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_preview_sigil.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_radial_layer.dart';
@@ -21,7 +22,7 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_tile_layer.dart';
 /// The visual recipes each theme paints with, as a [ThemeExtension] installed by every preset: one
 /// material per [DovahMaterialRole], the canvas [atmosphere], the [brandMark] treatment, the
 /// [connectionAccent] of a connection card, the dialog [backdrop], and the appearance-picker
-/// [previewScene], all transcribed from the approved prototype's `themes.css`. Widgets ask for a
+/// [presetCard] and [previewScene], all transcribed from the approved prototype's `themes.css`. Widgets ask for a
 /// role or the atmosphere and never inspect a recipe.
 ///
 /// Component texture, canvas atmosphere, and feature artwork are three separate things. A material
@@ -393,6 +394,45 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       blurSigma: 7,
       saturation: 0.72,
     ),
+    presetCard: DovahPresetCardStyle(
+      material: DovahMaterial(
+        layers: [
+          DovahLinearLayer(
+            angleDegrees: 145,
+            colors: [Color(0xFF11181C), Color(0xFF040708)],
+            stops: [0, 1],
+          ),
+          DovahStripeLayer(
+            angleDegrees: 178,
+            colors: [
+              _clear,
+              _clear,
+              Color.fromRGBO(225, 235, 238, 0.016),
+              _clear,
+              _clear,
+            ],
+            stopsPx: [0, 8, 9, 10, 19],
+          ),
+          DovahLinearLayer(
+            angleDegrees: 116,
+            colors: [
+              _clear,
+              _clear,
+              Color.fromRGBO(207, 226, 232, 0.11),
+              Color.fromRGBO(2, 5, 7, 0.5),
+              _clear,
+            ],
+            stops: [0, 0.19, 0.1915, 0.1935, 0.197],
+          ),
+        ],
+        borderColor: Color(0xFF65747D),
+      ),
+      titleColor: Color(0xFFEDF3F6),
+      summaryColor: Color(0xFFC0C7CA),
+      detailColor: Color(0xFF929DA2),
+      badgeFill: Color(0xFFA9C7D1),
+      badgeForeground: Color(0xFF061014),
+    ),
     previewScene: DovahPreviewScene(
       imageAssetPath: frostboundEnvironmentAsset,
       imageFilter: DovahColorFilter(
@@ -554,6 +594,33 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       cornerOutline: Color.fromRGBO(169, 201, 216, 0.08),
     ),
     backdrop: DovahBackdrop(tint: Color.fromRGBO(2, 4, 7, 0.76), blurSigma: 8),
+    presetCard: DovahPresetCardStyle(
+      material: DovahMaterial(
+        layers: [
+          DovahLinearLayer(
+            angleDegrees: 145,
+            colors: [Color(0xFF11212D), Color(0xFF071018)],
+            stops: [0, 1],
+          ),
+          DovahStripeLayer(
+            angleDegrees: 0,
+            colors: [
+              Color.fromRGBO(210, 232, 243, 0.025),
+              Color.fromRGBO(210, 232, 243, 0.025),
+              _clear,
+              _clear,
+            ],
+            stopsPx: [0, 1, 1, 4],
+          ),
+        ],
+        borderColor: Color(0xFF45667E),
+      ),
+      titleColor: Color(0xFFF1F6F9),
+      summaryColor: Color(0xFFB1C2CD),
+      detailColor: Color(0xFF7892A2),
+      badgeFill: Color(0xFF8ED6FF),
+      badgeForeground: Color(0xFF071015),
+    ),
     previewScene: DovahPreviewScene(
       imageAssetPath: dovahConnectionHeroAsset,
       layers: [
@@ -728,6 +795,45 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       blurSigma: 9,
       sepia: 0.12,
     ),
+    presetCard: DovahPresetCardStyle(
+      material: DovahMaterial(
+        layers: [
+          DovahLinearLayer(
+            angleDegrees: 145,
+            colors: [Color(0xFFF7E6C9), Color(0xFFD9B681)],
+            stops: [0, 1],
+          ),
+          DovahStripeLayer(
+            angleDegrees: 5,
+            colors: [
+              _clear,
+              _clear,
+              Color.fromRGBO(92, 57, 29, 0.055),
+              _clear,
+              _clear,
+            ],
+            stopsPx: [0, 4, 5, 6, 11],
+          ),
+          DovahRadialLayer(
+            center: Offset(0.18, 0.22),
+            colors: [
+              Color.fromRGBO(91, 55, 27, 0.11),
+              Color.fromRGBO(91, 55, 27, 0.11),
+              _clear,
+            ],
+            stops: [0, 1 / 1.5, 1],
+            radius: 1.5,
+            circular: true,
+          ),
+        ],
+        borderColor: Color(0xFF8D6336),
+      ),
+      titleColor: Color(0xFF271B12),
+      summaryColor: Color(0xFF4F3A28),
+      detailColor: Color(0xFF6D5035),
+      badgeFill: Color(0xFF965923),
+      badgeForeground: Color(0xFFFFF9EE),
+    ),
     previewScene: DovahPreviewScene(
       imageAssetPath: hearthEnvironmentAsset,
       imageFilter: DovahColorFilter(saturate: 0.92, contrast: 1.05),
@@ -792,6 +898,9 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
   /// The treatment behind a modal dialog.
   final DovahBackdrop backdrop;
 
+  /// How the theme dresses its own card in the appearance picker.
+  final DovahPresetCardStyle presetCard;
+
   /// How the theme shows itself in the appearance picker.
   final DovahPreviewScene previewScene;
 
@@ -807,6 +916,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     required this.brandMark,
     required this.connectionAccent,
     required this.backdrop,
+    required this.presetCard,
     required this.previewScene,
   });
 
@@ -831,6 +941,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahBrandMarkTreatment? brandMark,
     DovahConnectionAccent? connectionAccent,
     DovahBackdrop? backdrop,
+    DovahPresetCardStyle? presetCard,
     DovahPreviewScene? previewScene,
   }) => DovahThemeMaterials(
     surface: surface ?? this.surface,
@@ -842,6 +953,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     brandMark: brandMark ?? this.brandMark,
     connectionAccent: connectionAccent ?? this.connectionAccent,
     backdrop: backdrop ?? this.backdrop,
+    presetCard: presetCard ?? this.presetCard,
     previewScene: previewScene ?? this.previewScene,
   );
 
@@ -870,6 +982,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     brandMark,
     connectionAccent,
     backdrop,
+    presetCard,
     previewScene,
   ];
 }
