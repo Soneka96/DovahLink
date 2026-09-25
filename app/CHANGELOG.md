@@ -26,6 +26,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Themed material textures reuse rasterized tile images across repaints.
 - Preset theme endpoints are built together at startup and reused during later rebuilds.
 - Panels, cards, buttons, and icon tiles use each theme's layered material texture: scratched
   iron in Frostbound, forged steel in Dovah, and pressed parchment in Hearth.

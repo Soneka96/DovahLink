@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -18,6 +19,18 @@ const DovahTileLayer redBlueTile = DovahTileLayer(
       Color(0xFF0000FF),
     ],
     stops: [0, 0.5, 0.5, 1],
+  ),
+);
+
+/// Builds a one-pixel tile with a unique color for cache-order tests.
+///
+/// [index] identifies the tile's color.
+DovahTileLayer buildCacheProbeTile(int index) => DovahTileLayer(
+  tileSize: const Size(1, 1),
+  content: DovahLinearLayer(
+    angleDegrees: 0,
+    colors: [Color(0xFF800000 | index), const Color(0xFFFFFFFF)],
+    stops: const [0, 1],
   ),
 );
 
@@ -69,6 +82,144 @@ void main() {
 
     test('Method createShader returns normally for an empty size', () {
       expect(() => redBlueTile.createShader(Size.zero), returnsNormally);
+    });
+
+    test(
+      'Method createShader reuses equal recipes and keeps different recipes separate',
+      () {
+        const DovahTileLayer recipe = DovahTileLayer(
+          tileSize: Size(3, 2),
+          content: DovahLinearLayer(
+            angleDegrees: 90,
+            colors: [Color(0xFF124578), Color(0xFF90ABCD)],
+            stops: [0, 1],
+          ),
+        );
+        const DovahTileLayer equivalentRecipe = DovahTileLayer(
+          tileSize: Size(3, 2),
+          content: DovahLinearLayer(
+            angleDegrees: 90,
+            colors: [Color(0xFF124578), Color(0xFF90ABCD)],
+            stops: [0, 1],
+          ),
+        );
+        const DovahTileLayer differentRecipe = DovahTileLayer(
+          tileSize: Size(3, 2),
+          content: DovahLinearLayer(
+            angleDegrees: 90,
+            colors: [Color(0xFF124578), Color(0xFF90ABCE)],
+            stops: [0, 1],
+          ),
+        );
+        final int before = DovahTileLayer.tileRasterizationCount;
+
+        final Shader firstShader = recipe.createShader(const Size(30, 20));
+        final int afterFirst = DovahTileLayer.tileRasterizationCount;
+        final Shader equivalentShader = equivalentRecipe.createShader(
+          const Size(30, 20),
+        );
+
+        expect(afterFirst, before + 1);
+        expect(DovahTileLayer.tileRasterizationCount, afterFirst);
+        expect(identical(firstShader, equivalentShader), isFalse);
+        firstShader.dispose();
+        equivalentShader.dispose();
+
+        differentRecipe.createShader(const Size(30, 20)).dispose();
+
+        expect(DovahTileLayer.tileRasterizationCount, afterFirst + 1);
+      },
+    );
+
+    test(
+      'Method createShader keeps the raster cache within its fixed limit',
+      () {
+        for (int index = 0; index < 40; index++) {
+          DovahTileLayer(
+            tileSize: const Size(1, 1),
+            content: DovahLinearLayer(
+              angleDegrees: 0,
+              colors: [Color(0xFF000000 | index), const Color(0xFFFFFFFF)],
+              stops: const [0, 1],
+            ),
+          ).createShader(const Size(2, 2)).dispose();
+        }
+
+        expect(DovahTileLayer.cachedTileCount, 32);
+      },
+    );
+
+    testWidgets(
+      'Method createShader keeps a shader usable after its cached image is evicted',
+      (WidgetTester tester) async {
+        final List<Color> pixels = (await tester.runAsync(() async {
+          final Shader retainedShader = redBlueTile.createShader(
+            const Size(8, 1),
+          );
+          for (int index = 0; index < 40; index++) {
+            final Shader shader = DovahTileLayer(
+              tileSize: const Size(1, 1),
+              content: DovahLinearLayer(
+                angleDegrees: 0,
+                colors: [Color(0xFF010000 | index), const Color(0xFFFFFFFF)],
+                stops: const [0, 1],
+              ),
+            ).createShader(const Size(2, 2));
+            shader.dispose();
+          }
+
+          final PictureRecorder recorder = PictureRecorder();
+          Canvas(recorder).drawRect(
+            const Rect.fromLTWH(0, 0, 8, 1),
+            Paint()..shader = retainedShader,
+          );
+          final Picture picture = recorder.endRecording();
+          try {
+            final Image image = picture.toImageSync(8, 1);
+            try {
+              final ByteData bytes = (await image.toByteData(
+                format: ImageByteFormat.rawStraightRgba,
+              ))!;
+              return List<Color>.generate(
+                8,
+                (int index) => Color.fromARGB(
+                  bytes.getUint8(index * 4 + 3),
+                  bytes.getUint8(index * 4),
+                  bytes.getUint8(index * 4 + 1),
+                  bytes.getUint8(index * 4 + 2),
+                ),
+              );
+            } finally {
+              image.dispose();
+            }
+          } finally {
+            picture.dispose();
+            retainedShader.dispose();
+          }
+        }))!;
+
+        expect(redOf(pixels[0]), 255);
+        expect(blueOf(pixels[3]), 255);
+        expect(redOf(pixels[4]), 255);
+        expect(blueOf(pixels[7]), 255);
+      },
+    );
+
+    test('Method createShader promotes recent entries before eviction', () {
+      for (int index = 100; index < 132; index++) {
+        buildCacheProbeTile(index).createShader(const Size(2, 2)).dispose();
+      }
+      final int afterFill = DovahTileLayer.tileRasterizationCount;
+
+      buildCacheProbeTile(100).createShader(const Size(2, 2)).dispose();
+      buildCacheProbeTile(132).createShader(const Size(2, 2)).dispose();
+      expect(DovahTileLayer.tileRasterizationCount, afterFill + 1);
+
+      buildCacheProbeTile(100).createShader(const Size(2, 2)).dispose();
+      expect(DovahTileLayer.tileRasterizationCount, afterFill + 1);
+
+      buildCacheProbeTile(101).createShader(const Size(2, 2)).dispose();
+      expect(DovahTileLayer.tileRasterizationCount, afterFill + 2);
     });
   });
 
