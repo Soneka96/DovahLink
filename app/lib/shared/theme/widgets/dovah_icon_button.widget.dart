@@ -1,11 +1,12 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
-/// A DovahLink themed icon-only button on the theme's raised material (the approved prototype's
+/// A DovahLink themed icon-only button on the theme's control material (the approved prototype's
 /// `.icon-btn`). It takes a label, an icon, and a callback as props; the label is both its tooltip
 /// and its single screen-reader label.
 class DovahIconButton extends StatelessWidget {
@@ -84,7 +85,7 @@ class DovahIconButton extends StatelessWidget {
                         width: DovahControlMetrics.iconButtonSize,
                         height: DovahControlMetrics.iconButtonSize,
                         child: DovahSurface(
-                          raised: true,
+                          role: DovahMaterialRole.control,
                           child: Center(
                             child: Icon(
                               icon,
