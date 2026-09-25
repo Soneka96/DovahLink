@@ -12,6 +12,11 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart'
 /// One selectable theme preset card in the appearance picker: a picture of that preset drawn from
 /// its own theme (independent of the currently active theme), its label, and a selection
 /// indicator.
+///
+/// Known limitation: the prototype gives each card its own border and bevel (Dovah's 10px bevel,
+/// Hearth's 13px radius) and adds summary lines and a floating check badge. The card instead uses
+/// the theme's panel geometry, its raised material when selected, and a check icon beside the
+/// label, so the picker stays a single accessible control.
 class AppearancePresetCard extends StatelessWidget {
   /// Creates a preset card.
   const AppearancePresetCard({

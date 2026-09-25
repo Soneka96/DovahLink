@@ -297,13 +297,29 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 - Widgets receive data and callbacks through props; visual styling comes from the theme, not from
   constructor parameters or hidden DI lookups.
 - Visual values have one owner, chosen by what the value describes:
-  - `DovahThemeTokens` owns theme identity, material, and typography: colors, gradients, shadows,
-    corner style, radius and bevel, backdrop, font family, and casing.
+  - `DovahThemeTokens` owns theme identity and typography: semantic colors, status tones, corner
+    style, radius and bevel, font family, and casing.
+  - `DovahThemeMaterials` owns each theme's visual recipes: one layered material per component role
+    (surface, raised, control, icon, primary action), the canvas atmosphere, the dialog backdrop,
+    and the appearance preview scene. A recipe is a small typed value of layers, never a set of
+    per-texture scalar tokens, and every value is copied from the approved prototype with its
+    selector cited. Widgets ask `DovahSurface` for a role and never inspect a recipe; a component
+    whose shape its own metrics fix, such as an icon tile, overrides the corner treatment and keeps
+    the theme's material.
+  - Canvas atmosphere, component material texture, and feature-specific artwork are three
+    different things and never mix. The atmosphere (`DovahEnvironmentBackground`) fills the world
+    behind every component and belongs to the canvas. A material textures a component and never
+    paints an environment image. Feature artwork (a character hero, a map, quest or inventory art)
+    stays with its feature screen and never enters `DovahThemeMaterials`. Theme image paths are
+    named constants shared by the atmosphere and the preview, so a preview draws the real theme.
   - `Dovah*Metrics` classes own structural and component geometry and responsive layout. A metrics
     class is named for one screen family or component family, never a single catch-all. Widgets
     consume resolved metrics; they never branch on the window size or the active preset themselves.
   - A local literal owns a genuinely one-off layout detail with no semantic reuse; do not promote
     it to a constant.
+- Reproduce a prototype visual recipe with the closest Flutter primitive before accepting a
+  difference. Where Flutter has no equivalent, document at the implementation what the prototype
+  does, what Flutter does instead, and why the difference is acceptable.
 - A prototype value that differs by theme or by breakpoint belongs in a metrics class, never a new
   theme token or a scale multiplier applied to a base value. Copy each value exactly from the
   approved prototype and cite its selector in the doc comment; do not merge nearby values into one

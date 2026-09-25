@@ -11,6 +11,16 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ## [Unreleased]
 
+### Changed
+
+- Panels, cards, buttons, and icon tiles use each theme's layered material texture: scratched
+  iron in Frostbound, forged steel in Dovah, and pressed parchment in Hearth.
+- The app background reproduces each theme's atmosphere, including its image treatment, glows, and
+  fine haze.
+- Dialogs blur and re-color the page behind them for each theme.
+- Appearance picker previews show each theme's own scene, sigil, and accent bars at the approved
+  height.
+
 ## [0.5.0] - 2026-09-24
 
 ### Added

@@ -5,11 +5,14 @@ import 'package:flutter/material.dart';
 import 'package:equatable/equatable.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 
-/// DovahLink's typed visual-theme contract: the complete material and atmosphere boundary a
-/// [DovahThemePreset] resolves to, beyond what a plain Material [ColorScheme] can express.
-/// Shared DovahLink surfaces and components read this extension rather than branching on which
-/// concrete preset is active.
+/// DovahLink's typed theme identity: the semantic colors, status tones, corner treatment, and
+/// typography a [DovahThemePreset] resolves to, beyond what a plain Material [ColorScheme] can
+/// express. Layered component textures, the canvas atmosphere, the dialog backdrop, and the
+/// appearance preview are recipes, not tokens, and live in [DovahThemeMaterials]. Shared DovahLink
+/// surfaces and components read these extensions rather than branching on which concrete preset is
+/// active.
 @immutable
 class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Font size for supporting text and compact labels.
@@ -96,9 +99,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   final double cornerRadius;
 
   /// The bevel cut size applied when [cornerStyle] is [DovahPanelCornerStyle.singleBevel] or
-  /// [DovahPanelCornerStyle.doubleBevel]. A single representative size shared by every bevelled
-  /// component in the theme; the approved prototype varies this slightly per component, which
-  /// this token intentionally simplifies to one value per theme.
+  /// [DovahPanelCornerStyle.doubleBevel]. The theme's general bevel; a component whose approved
+  /// bevel differs (for example a connection card) takes its own from its metrics.
   final double cornerCutSize;
 
   /// The display/heading font family for this theme. The body font family does not vary by

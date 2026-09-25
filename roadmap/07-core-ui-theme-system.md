@@ -20,7 +20,10 @@ DovahLink establishes reusable Skyrim-inspired presentation before feature scree
 - Keep future adapters declarative and presentation-only.
 - Complete a visual-fidelity pass against the approved prototype, restoring component-specific
   textures, layered and inset shadows, geometry, and theme-specific atmosphere where the Flutter
-  foundation currently uses simplified treatments.
+  foundation currently uses simplified treatments. The reusable materials, atmosphere, dialog
+  backdrop, and appearance preview are in place; fidelity that belongs to a feature screen (for
+  example the connection cards' per-theme overlays, session and overview panels, and character or
+  map artwork) lands with that screen.
 
 ### Dependencies and boundaries
 

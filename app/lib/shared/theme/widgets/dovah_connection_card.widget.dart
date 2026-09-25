@@ -11,6 +11,11 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart'
 
 /// A DovahLink connection entry styled by [DovahConnectionCardState]. It takes display data and a
 /// callback as props without reading connection or host state.
+///
+/// Known limitation: the prototype adds per-theme overlays to this card (Frostbound's fracture
+/// lines, Dovah's engraved link line, whose offsets follow the card's layout), a slightly darker
+/// Hearth border, and a Hearth-specific icon color. The card paints the theme's surface and icon
+/// materials without them, and they remain to be added with the card's own layout.
 class DovahConnectionCard extends StatelessWidget {
   /// The connection's display name (for example a Host's name).
   final String title;
