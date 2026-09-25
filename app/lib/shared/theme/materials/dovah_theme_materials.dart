@@ -6,6 +6,7 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_brand_mark_treatment.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
@@ -18,10 +19,10 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart'
 import 'package:dovahlink_client/shared/theme/materials/dovah_tile_layer.dart';
 
 /// The visual recipes each theme paints with, as a [ThemeExtension] installed by every preset: one
-/// material per [DovahMaterialRole], the canvas [atmosphere], the [connectionAccent] of a
-/// connection card, the dialog [backdrop], and the appearance-picker [previewScene], all
-/// transcribed from the approved prototype's `themes.css`. Widgets ask for a role or the
-/// atmosphere and never inspect a recipe.
+/// material per [DovahMaterialRole], the canvas [atmosphere], the [brandMark] treatment, the
+/// [connectionAccent] of a connection card, the dialog [backdrop], and the appearance-picker
+/// [previewScene], all transcribed from the approved prototype's `themes.css`. Widgets ask for a
+/// role or the atmosphere and never inspect a recipe.
 ///
 /// Component texture, canvas atmosphere, and feature artwork are three separate things. A material
 /// textures a component and an atmosphere fills the world behind every component; this class holds
@@ -361,6 +362,11 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       ],
       hazeOpacity: 0.3,
     ),
+    brandMark: DovahBrandMarkTreatment(
+      filter: DovahColorFilter(grayscale: 0.65, contrast: 1.25),
+      glowColor: Color.fromRGBO(154, 201, 220, 0.17),
+      glowBlurRadius: 8,
+    ),
     connectionAccent: DovahConnectionAccent(
       overlayLayers: [
         DovahLinearLayer(
@@ -528,6 +534,10 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
         ),
       ],
       hazeOpacity: 0.32,
+    ),
+    brandMark: DovahBrandMarkTreatment(
+      glowColor: Color.fromRGBO(116, 189, 232, 0.22),
+      glowBlurRadius: 15,
     ),
     connectionAccent: DovahConnectionAccent(
       linkLayer: DovahLinearLayer(
@@ -704,6 +714,14 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       ],
       hazeOpacity: 0.34,
     ),
+    brandMark: DovahBrandMarkTreatment(
+      filter: DovahColorFilter(
+        sepia: 0.4,
+        hueRotateDegrees: 345,
+        saturate: 0.78,
+      ),
+      backingColor: Color.fromRGBO(255, 248, 230, 0.3),
+    ),
     connectionAccent: DovahConnectionAccent(restingBorder: Color(0xFF79542F)),
     backdrop: DovahBackdrop(
       tint: Color.fromRGBO(47, 31, 18, 0.54),
@@ -765,6 +783,9 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
   /// The canvas atmosphere behind the whole application.
   final DovahAtmosphere atmosphere;
 
+  /// How the header's DovahLink sigil is dressed.
+  final DovahBrandMarkTreatment brandMark;
+
   /// The decoration a connection card wears on top of its surface material.
   final DovahConnectionAccent connectionAccent;
 
@@ -783,6 +804,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     required this.icon,
     required this.primaryAction,
     required this.atmosphere,
+    required this.brandMark,
     required this.connectionAccent,
     required this.backdrop,
     required this.previewScene,
@@ -806,6 +828,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahMaterial? icon,
     DovahMaterial? primaryAction,
     DovahAtmosphere? atmosphere,
+    DovahBrandMarkTreatment? brandMark,
     DovahConnectionAccent? connectionAccent,
     DovahBackdrop? backdrop,
     DovahPreviewScene? previewScene,
@@ -816,6 +839,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     icon: icon ?? this.icon,
     primaryAction: primaryAction ?? this.primaryAction,
     atmosphere: atmosphere ?? this.atmosphere,
+    brandMark: brandMark ?? this.brandMark,
     connectionAccent: connectionAccent ?? this.connectionAccent,
     backdrop: backdrop ?? this.backdrop,
     previewScene: previewScene ?? this.previewScene,
@@ -843,6 +867,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     icon,
     primaryAction,
     atmosphere,
+    brandMark,
     connectionAccent,
     backdrop,
     previewScene,

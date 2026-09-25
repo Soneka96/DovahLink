@@ -6,6 +6,7 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_brand_mark_treatment.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
@@ -358,6 +359,38 @@ void main() {
     });
   });
 
+  group('Property brand mark recipes behave correctly', () {
+    test('Property frostbound keeps the prototype brand mark treatment', () {
+      final DovahBrandMarkTreatment mark =
+          DovahThemeMaterials.frostbound.brandMark;
+
+      expect(mark.filter.grayscale, 0.65);
+      expect(mark.filter.contrast, 1.25);
+      expect(mark.glowColor, const Color.fromRGBO(154, 201, 220, 0.17));
+      expect(mark.glowBlurRadius, 8);
+      expect(mark.backingColor, isNull);
+    });
+
+    test('Property dovah keeps the prototype brand mark treatment', () {
+      final DovahBrandMarkTreatment mark = DovahThemeMaterials.dovah.brandMark;
+
+      expect(mark.filter.isNeutral, isTrue);
+      expect(mark.glowColor, const Color.fromRGBO(116, 189, 232, 0.22));
+      expect(mark.glowBlurRadius, 15);
+      expect(mark.backingColor, isNull);
+    });
+
+    test('Property hearth keeps the prototype brand mark treatment', () {
+      final DovahBrandMarkTreatment mark = DovahThemeMaterials.hearth.brandMark;
+
+      expect(mark.filter.sepia, 0.4);
+      expect(mark.filter.hueRotateDegrees, 345);
+      expect(mark.filter.saturate, 0.78);
+      expect(mark.glowColor, isNull);
+      expect(mark.backingColor, const Color.fromRGBO(255, 248, 230, 0.3));
+    });
+  });
+
   group('Property connection accent recipes behave correctly', () {
     test('Property frostbound keeps the prototype connection decoration', () {
       final DovahConnectionAccent accent =
@@ -569,6 +602,14 @@ void main() {
       expect(copy.surface, base.surface);
     });
 
+    test('Method copyWith replaces only the brand mark', () {
+      const DovahBrandMarkTreatment plain = DovahBrandMarkTreatment();
+      final DovahThemeMaterials copy = base.copyWith(brandMark: plain);
+
+      expect(copy.brandMark, plain);
+      expect(copy.surface, base.surface);
+    });
+
     test('Method copyWith replaces only the connection accent', () {
       const DovahConnectionAccent plain = DovahConnectionAccent();
       final DovahThemeMaterials copy = base.copyWith(connectionAccent: plain);
@@ -662,6 +703,10 @@ void main() {
       );
       expect(
         base == base.copyWith(connectionAccent: DovahConnectionAccent.none),
+        isFalse,
+      );
+      expect(
+        base == base.copyWith(brandMark: const DovahBrandMarkTreatment()),
         isFalse,
       );
       expect(

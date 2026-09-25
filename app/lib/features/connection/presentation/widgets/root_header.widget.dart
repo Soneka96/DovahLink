@@ -6,10 +6,10 @@ import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_brand_mark.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
-import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
 
-/// The root screen's header bar: the DovahLink sigil and wordmark on the left and the appearance
+/// The root screen's header bar: the DovahLink brand mark and wordmark on the left and the appearance
 /// action on the right, over a translucent blurred surface with a gradient rule along its bottom
 /// edge. Takes its one callback as a prop.
 class RootHeader extends StatelessWidget {
@@ -44,7 +44,7 @@ class RootHeader extends StatelessWidget {
             children: [
               Row(
                 children: [
-                  const DovahSigil(size: DovahRootMetrics.brandMarkSize),
+                  const DovahBrandMark(size: DovahRootMetrics.brandMarkSize),
                   const SizedBox(width: DovahRootMetrics.brandGap),
                   Expanded(
                     child: Column(
