@@ -15,6 +15,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 - Explicit client disconnect cancels pending reconnect delays and stops in-flight recovery from
   starting another attempt.
+- Explicit client disconnect invalidates an ordinary-loss recovery handoff that has not started
+  yet.
 
 ## [0.5.0] - 2026-09-24
 

@@ -85,6 +85,9 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
   /// teardown from a duplicate one that should have been deduplicated.
   int closeCallCount = 0;
 
+  /// Optional gate that keeps transport teardown pending until a test releases it.
+  Completer<void>? closeGate;
+
   /// Makes the next [IDovahLinkTransport.connect] call throw [error] instead of succeeding.
   Object? failConnectWith;
 
@@ -164,6 +167,7 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
   Future<void> close() async {
     closeCalled = true;
     closeCallCount++;
+    await closeGate?.future;
     _incoming = null;
     final Object? failure = failCloseWith;
     if (failure != null) {
@@ -823,6 +827,91 @@ void main() {
   );
 
   group('Behavior subscription session lifecycle behaves correctly', () {
+    test(
+      'Behavior explicit disconnect invalidates an ordinary-loss handoff still tearing down',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          InMemoryClientStorage(),
+        );
+        final Completer<void> closeGate = Completer<void>();
+        addTearDown(() async {
+          if (!closeGate.isCompleted) {
+            closeGate.complete();
+          }
+          await reconnectClient.disconnect();
+        });
+        reconnectTransport.closeGate = closeGate;
+        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (
+          int attempt = 0;
+          attempt < 20 && !reconnectTransport.closeCalled;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(reconnectTransport.closeCalled, isTrue);
+
+        final Future<void> disconnect = reconnectClient.disconnect();
+        closeGate.complete();
+        await disconnect;
+        for (int attempt = 0; attempt < 10; attempt++) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(reconnectTransport.connectCalls, hasLength(1));
+      },
+    );
+
+    test(
+      'Behavior later ordinary transport loss recovers after a new connection',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          InMemoryClientStorage(),
+        );
+        addTearDown(reconnectClient.disconnect);
+        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await reconnectClient.disconnect();
+        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+        for (
+          int attempt = 0;
+          attempt < 30 &&
+              (reconnectTransport.connectCalls.length < 3 ||
+                  reconnectClient.connectionState !=
+                      DovahLinkConnectionState.connected);
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+
+        expect(reconnectTransport.connectCalls, hasLength(3));
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.connected,
+        );
+      },
+    );
+
     test(
       'Behavior successful pending-pairing recovery restores remembered subscriptions',
       () async {

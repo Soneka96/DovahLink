@@ -112,6 +112,9 @@ class SessionService implements ISessionService {
   /// can exercise timeout handling with millisecond-scale delays instead of real seconds.
   final Duration _connectTimeout;
 
+  /// Invalidates ordinary-loss recovery handoffs that have not yet reached admission.
+  int _recoveryHandoffGeneration = 0;
+
   /// Creates a session service over [transport] and [state], coordinating teardown through
   /// [teardownCoordinator], serializing lifecycle operations through [lifecycleQueue], and
   /// bounding each connect attempt by [connectTimeout].
@@ -203,10 +206,13 @@ class SessionService implements ISessionService {
   Future<void> disconnect({
     bool orphanRetrySafeOperations = false,
     Exception? reason,
-  }) => _teardownCoordinator.tearDown(
-    reason ?? const DovahLinkConnectionException('Disconnected.'),
-    orphanRetrySafeOperations: orphanRetrySafeOperations,
-  );
+  }) {
+    _recoveryHandoffGeneration++;
+    return _teardownCoordinator.tearDown(
+      reason ?? const DovahLinkConnectionException('Disconnected.'),
+      orphanRetrySafeOperations: orphanRetrySafeOperations,
+    );
+  }
 
   /// Implements [ISessionService.onUnhealthy]. Ordinary transport loss: tears down, then -- only if
   /// that teardown actually reached plain `disconnected` (not raced by a concurrent administrative
@@ -323,17 +329,18 @@ class SessionService implements ISessionService {
     );
   }
 
-  /// Runs the teardown [onUnhealthy] reports, then starts bounded recovery if the connection is
-  /// still eligible for it once that teardown completes. The eligibility check and the
-  /// `reconnecting` transition run as their own queued step, after teardown's, so a `connect()` or
-  /// `disconnect()` call already queued immediately behind the teardown is serialized against this
-  /// decision instead of racing it outside the queue.
+  /// Runs teardown after an ordinary loss, then starts bounded recovery if its handoff generation
+  /// is still current and the connection remains eligible. The admission check and
+  /// `reconnecting` transition run as a queued step after teardown, serialized with connect and
+  /// disconnect operations.
   Future<void> _beginRecoveryAfterOrdinaryTransportLoss(
     Exception reason,
   ) async {
+    final int handoffGeneration = _recoveryHandoffGeneration;
     await _teardownCoordinator.tearDown(reason);
     await _lifecycleQueue.run(() async {
-      if (_state.connectionState != DovahLinkConnectionState.disconnected) {
+      if (handoffGeneration != _recoveryHandoffGeneration ||
+          _state.connectionState != DovahLinkConnectionState.disconnected) {
         return;
       }
       final Uri? uri = _state.lastConnectedUri;
