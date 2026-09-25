@@ -124,15 +124,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// lives in the `Dovah*ThemeMetrics` extensions.
   final DovahThemePreset preset;
 
-  /// The scrim color, alpha included, drawn behind a dialog (the prototype's per-theme
-  /// `.modal-backdrop` background). The prototype's `saturate`/`sepia` backdrop filters have no
-  /// direct Flutter equivalent and are not reproduced.
-  final Color backdropColor;
-
-  /// The blur strength behind a dialog (the prototype's per-theme `.modal-backdrop`
-  /// `backdrop-filter: blur`).
-  final double backdropBlurSigma;
-
   /// The corner radius of a panel, card group, or dialog when [cornerStyle] is
   /// [DovahPanelCornerStyle.rounded] (the prototype's `.panel`/`.modal` `border-radius`), which
   /// differs from [cornerRadius] in Hearth.
@@ -206,8 +197,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.rootHeaderRuleFraction,
     required this.pageTitleLineHeight,
     required this.preset,
-    required this.backdropColor,
-    required this.backdropBlurSigma,
     required this.panelCornerRadius,
     required this.primaryActionCornerRadius,
     required this.statusOffline,
@@ -259,8 +248,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? rootHeaderRuleFraction,
     double? pageTitleLineHeight,
     DovahThemePreset? preset,
-    Color? backdropColor,
-    double? backdropBlurSigma,
     double? panelCornerRadius,
     double? primaryActionCornerRadius,
     Color? statusOffline,
@@ -304,8 +291,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         rootHeaderRuleFraction ?? this.rootHeaderRuleFraction,
     pageTitleLineHeight: pageTitleLineHeight ?? this.pageTitleLineHeight,
     preset: preset ?? this.preset,
-    backdropColor: backdropColor ?? this.backdropColor,
-    backdropBlurSigma: backdropBlurSigma ?? this.backdropBlurSigma,
     panelCornerRadius: panelCornerRadius ?? this.panelCornerRadius,
     primaryActionCornerRadius:
         primaryActionCornerRadius ?? this.primaryActionCornerRadius,
@@ -370,12 +355,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
         t,
       )!,
       preset: t < 0.5 ? preset : other.preset,
-      backdropColor: Color.lerp(backdropColor, other.backdropColor, t)!,
-      backdropBlurSigma: lerpDouble(
-        backdropBlurSigma,
-        other.backdropBlurSigma,
-        t,
-      )!,
       panelCornerRadius: lerpDouble(
         panelCornerRadius,
         other.panelCornerRadius,
@@ -430,8 +409,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     rootHeaderRuleFraction,
     pageTitleLineHeight,
     preset,
-    backdropColor,
-    backdropBlurSigma,
     panelCornerRadius,
     primaryActionCornerRadius,
     statusOffline,

@@ -77,22 +77,17 @@ void main() {
       expect(original.uppercaseLabels, isFalse);
     });
 
-    test('Method copyWith replaces the identity and backdrop tokens', () {
+    test('Method copyWith replaces the identity tokens', () {
       final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
 
       final DovahThemeTokens copy = original.copyWith(
         preset: DovahThemePreset.hearth,
-        backdropColor: const Color(0x8A2F1F12),
-        backdropBlurSigma: 9,
         panelCornerRadius: 14,
         primaryActionCornerRadius: 9,
       );
 
       expect(copy.preset, DovahThemePreset.hearth);
       expect(original.preset, DovahThemePreset.dovah);
-      expect(copy.backdropColor, const Color(0x8A2F1F12));
-      expect(copy.backdropBlurSigma, isA<double>());
-      expect(copy.backdropBlurSigma, 9);
       expect(copy.panelCornerRadius, isA<double>());
       expect(copy.panelCornerRadius, 14);
       expect(copy.primaryActionCornerRadius, isA<double>());
@@ -205,28 +200,18 @@ void main() {
       expect(result.pageTitleLineHeight, closeTo(1.2, 0.0001));
     });
 
-    test('Method lerp interpolates backdrop and radius tokens', () {
+    test('Method lerp interpolates radius tokens', () {
       final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
-        backdropColor: const Color(0x00000000),
-        backdropBlurSigma: 6,
         panelCornerRadius: 0,
         primaryActionCornerRadius: 0,
       );
       final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
-        backdropColor: const Color(0xFFFFFFFF),
-        backdropBlurSigma: 10,
         panelCornerRadius: 14,
         primaryActionCornerRadius: 10,
       );
 
       final DovahThemeTokens result = tokens.lerp(other, 0.5);
 
-      expect(
-        result.backdropColor,
-        Color.lerp(tokens.backdropColor, other.backdropColor, 0.5),
-      );
-      expect(result.backdropBlurSigma, isA<double>());
-      expect(result.backdropBlurSigma, 8);
       expect(result.panelCornerRadius, isA<double>());
       expect(result.panelCornerRadius, 7);
       expect(result.primaryActionCornerRadius, isA<double>());
@@ -410,39 +395,34 @@ void main() {
       }
     });
 
-    test(
-      'Behavior equality fails when an identity or backdrop token differs',
-      () {
-        final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
-        final List<DovahThemeTokens> others = <DovahThemeTokens>[
-          first.copyWith(preset: DovahThemePreset.hearth),
-          first.copyWith(backdropColor: const Color(0xFF000000)),
-          first.copyWith(backdropBlurSigma: 1),
-          first.copyWith(panelCornerRadius: 1),
-          first.copyWith(primaryActionCornerRadius: 1),
-          first.copyWith(statusOffline: const Color(0xFF000000)),
-          first.copyWith(brandTagline: const Color(0xFF000000)),
-          first.copyWith(brandAccent: const Color(0xFF000000)),
-          first.copyWith(markIcon: const Color(0xFF000000)),
-          first.copyWith(barTrack: const Color(0xFF000000)),
-          first.copyWith(panelNote: const Color(0xFF000000)),
-          first.copyWith(
-            heroScrim: const LinearGradient(
-              colors: [Color(0xFF000000), Color(0xFF111111)],
-            ),
+    test('Behavior equality fails when an identity token differs', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final List<DovahThemeTokens> others = <DovahThemeTokens>[
+        first.copyWith(preset: DovahThemePreset.hearth),
+        first.copyWith(panelCornerRadius: 1),
+        first.copyWith(primaryActionCornerRadius: 1),
+        first.copyWith(statusOffline: const Color(0xFF000000)),
+        first.copyWith(brandTagline: const Color(0xFF000000)),
+        first.copyWith(brandAccent: const Color(0xFF000000)),
+        first.copyWith(markIcon: const Color(0xFF000000)),
+        first.copyWith(barTrack: const Color(0xFF000000)),
+        first.copyWith(panelNote: const Color(0xFF000000)),
+        first.copyWith(
+          heroScrim: const LinearGradient(
+            colors: [Color(0xFF000000), Color(0xFF111111)],
           ),
-          first.copyWith(
-            heroFloorScrim: const LinearGradient(
-              colors: [Color(0xFF000000), Color(0xFF111111)],
-            ),
+        ),
+        first.copyWith(
+          heroFloorScrim: const LinearGradient(
+            colors: [Color(0xFF000000), Color(0xFF111111)],
           ),
-        ];
+        ),
+      ];
 
-        for (final DovahThemeTokens other in others) {
-          expect(first, isNot(other));
-        }
-      },
-    );
+      for (final DovahThemeTokens other in others) {
+        expect(first, isNot(other));
+      }
+    });
 
     test('Behavior equality fails when primaryActionForeground differs', () {
       final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();

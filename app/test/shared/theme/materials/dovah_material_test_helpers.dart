@@ -47,14 +47,22 @@ int blueOf(Color color) => (color.b * 255).round();
 /// Paints [painter] for a surface of [size] whose top-left corner sits [margin] logical pixels
 /// inside an otherwise transparent image, and returns the image's pixels in row-major order like
 /// [paintDovahLayer]. The margin lets a test see paint that falls outside the surface, such as its
-/// shadow. It must run inside `WidgetTester.runAsync`.
+/// shadow. A non-null [background] is filled first, so a painter that blends with what is beneath
+/// it has something to blend with. It must run inside `WidgetTester.runAsync`.
 Future<List<Color>> paintDovahPainter(
   CustomPainter painter,
   Size size, {
   double margin = 0,
+  Color? background,
 }) async {
   final PictureRecorder recorder = PictureRecorder();
   final Canvas canvas = Canvas(recorder);
+  if (background != null) {
+    canvas.drawRect(
+      Offset.zero & Size(size.width + margin * 2, size.height + margin * 2),
+      Paint()..color = background,
+    );
+  }
   canvas.translate(margin, margin);
   painter.paint(canvas, size);
   final int width = (size.width + margin * 2).toInt();
@@ -75,3 +83,6 @@ Future<List<Color>> paintDovahPainter(
       ),
   ];
 }
+
+/// Returns the 8-bit green channel of [color].
+int greenOf(Color color) => (color.g * 255).round();

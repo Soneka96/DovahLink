@@ -44,8 +44,6 @@ ThemeData buildDovahPresetTheme() {
     rootHeaderRuleFraction: 0.36,
     uppercaseLabels: false,
     preset: DovahThemePreset.dovah,
-    backdropColor: Color(0xC2020407),
-    backdropBlurSigma: 8,
     panelCornerRadius: 0,
     primaryActionCornerRadius: 0,
     statusOffline: Color(0xFF7C8993),

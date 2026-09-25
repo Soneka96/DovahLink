@@ -8,6 +8,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_backdrop_scrim.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'dovah_widget_test_helpers.dart';
 
@@ -348,13 +351,13 @@ void main() {
   });
 
   group('DovahDialog matches the prototype modal metrics', () {
-    for (final (DovahThemePreset preset, Color scrim, double blur) in [
-      (DovahThemePreset.frostbound, const Color(0xC7000204), 7.0),
-      (DovahThemePreset.dovah, const Color(0xC2020407), 8.0),
-      (DovahThemePreset.hearth, const Color(0x8A2F1F12), 9.0),
+    for (final (DovahThemePreset preset, Color tint, double blur) in [
+      (DovahThemePreset.frostbound, const Color.fromRGBO(0, 2, 4, 0.78), 7.0),
+      (DovahThemePreset.dovah, const Color.fromRGBO(2, 4, 7, 0.76), 8.0),
+      (DovahThemePreset.hearth, const Color.fromRGBO(47, 31, 18, 0.54), 9.0),
     ]) {
       testWidgets(
-        'DovahDialog.show scrims with the prototype ${preset.name} backdrop color and blur',
+        'DovahDialog.show applies the prototype ${preset.name} backdrop tint and blur',
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
@@ -378,11 +381,57 @@ void main() {
           final ModalBarrier barrier = tester.widget<ModalBarrier>(
             find.byType(ModalBarrier).last,
           );
+          final DovahBackdropScrim scrim = tester.widget(
+            find.byType(DovahBackdropScrim),
+          );
           final BackdropFilter backdrop = tester.widget<BackdropFilter>(
             find.byType(BackdropFilter).last,
           );
-          expect(barrier.color, scrim);
+          expect(barrier.color, anyOf(isNull, Colors.transparent));
+          expect(
+            scrim.backdrop,
+            dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeMaterials>()!.backdrop,
+          );
+          expect(scrim.backdrop.tint, tint);
           expect(backdrop.filter, ImageFilter.blur(sigmaX: blur, sigmaY: blur));
+        },
+      );
+    }
+
+    for (final (DovahThemePreset preset, double saturation, double sepia) in [
+      (DovahThemePreset.frostbound, 0.72, 0.0),
+      (DovahThemePreset.dovah, 1.0, 0.0),
+      (DovahThemePreset.hearth, 1.0, 0.12),
+    ]) {
+      testWidgets(
+        'DovahDialog.show applies the prototype ${preset.name} backdrop color treatment',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            Builder(
+              builder: (BuildContext context) => ElevatedButton(
+                onPressed: () => DovahDialog.show<void>(
+                  context,
+                  title: 'Appearance',
+                  child: const Text('Pick a theme'),
+                ),
+                child: const Text('Open'),
+              ),
+            ),
+            preset: preset,
+            size: const Size(900, 560),
+          );
+
+          await tester.tap(find.text('Open'));
+          await tester.pumpAndSettle();
+
+          final DovahBackdropScrim scrim = tester.widget(
+            find.byType(DovahBackdropScrim),
+          );
+          expect(scrim.backdrop.saturation, saturation);
+          expect(scrim.backdrop.sepia, sepia);
         },
       );
     }

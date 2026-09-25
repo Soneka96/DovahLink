@@ -43,8 +43,6 @@ ThemeData buildFrostboundTheme() {
     rootHeaderRuleFraction: 0.2,
     uppercaseLabels: true,
     preset: DovahThemePreset.frostbound,
-    backdropColor: Color(0xC7000204),
-    backdropBlurSigma: 7,
     panelCornerRadius: 0,
     primaryActionCornerRadius: 0,
     statusOffline: Color(0xFF7C8993),

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
@@ -233,6 +234,29 @@ void main() {
       }
     });
 
+    test('Property backdrop keeps the prototype modal backdrop per preset', () {
+      expect(
+        DovahThemeMaterials.frostbound.backdrop,
+        const DovahBackdrop(
+          tint: Color.fromRGBO(0, 2, 4, 0.78),
+          blurSigma: 7,
+          saturation: 0.72,
+        ),
+      );
+      expect(
+        DovahThemeMaterials.dovah.backdrop,
+        const DovahBackdrop(tint: Color.fromRGBO(2, 4, 7, 0.76), blurSigma: 8),
+      );
+      expect(
+        DovahThemeMaterials.hearth.backdrop,
+        const DovahBackdrop(
+          tint: Color.fromRGBO(47, 31, 18, 0.54),
+          blurSigma: 9,
+          sepia: 0.12,
+        ),
+      );
+    });
+
     test('Property every layer of every material builds a shader', () {
       for (final DovahThemeMaterials materials in presetMaterials) {
         for (final DovahMaterialRole role in DovahMaterialRole.values) {
@@ -250,6 +274,21 @@ void main() {
   });
 
   group('Behavior distinct presets behaves correctly', () {
+    test('Behavior distinct presets never share a backdrop', () {
+      expect(
+        DovahThemeMaterials.frostbound.backdrop,
+        isNot(DovahThemeMaterials.dovah.backdrop),
+      );
+      expect(
+        DovahThemeMaterials.dovah.backdrop,
+        isNot(DovahThemeMaterials.hearth.backdrop),
+      );
+      expect(
+        DovahThemeMaterials.frostbound.backdrop,
+        isNot(DovahThemeMaterials.hearth.backdrop),
+      );
+    });
+
     test('Behavior distinct presets never share an atmosphere', () {
       expect(
         DovahThemeMaterials.frostbound.atmosphere,
@@ -379,6 +418,17 @@ void main() {
       expect(copy.surface, base.surface);
     });
 
+    test('Method copyWith replaces only the backdrop', () {
+      const DovahBackdrop plain = DovahBackdrop(
+        tint: Color(0x00000000),
+        blurSigma: 1,
+      );
+      final DovahThemeMaterials copy = base.copyWith(backdrop: plain);
+
+      expect(copy.backdrop, plain);
+      expect(copy.surface, base.surface);
+    });
+
     test('Method copyWith keeps every material when nothing is passed', () {
       expect(base.copyWith(), base);
     });
@@ -433,6 +483,16 @@ void main() {
       expect(base == base.copyWith(primaryAction: replacement), isFalse);
       expect(
         base == base.copyWith(atmosphere: const DovahAtmosphere()),
+        isFalse,
+      );
+      expect(
+        base ==
+            base.copyWith(
+              backdrop: const DovahBackdrop(
+                tint: Color(0x00000000),
+                blurSigma: 1,
+              ),
+            ),
         isFalse,
       );
     });

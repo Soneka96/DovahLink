@@ -5,6 +5,7 @@ import 'package:equatable/equatable.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
@@ -14,7 +15,7 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart'
 import 'package:dovahlink_client/shared/theme/materials/dovah_tile_layer.dart';
 
 /// The visual recipes each theme paints with, as a [ThemeExtension] installed by every preset: one
-/// material per [DovahMaterialRole] and the canvas [atmosphere], all transcribed from the approved
+/// material per [DovahMaterialRole], the canvas [atmosphere], and the dialog [backdrop], all transcribed from the approved
 /// prototype's `themes.css`. Widgets ask for a role or the atmosphere and never inspect a recipe.
 ///
 /// Component texture, canvas atmosphere, and feature artwork are three separate things. A material
@@ -355,6 +356,11 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       ],
       hazeOpacity: 0.3,
     ),
+    backdrop: DovahBackdrop(
+      tint: Color.fromRGBO(0, 2, 4, 0.78),
+      blurSigma: 7,
+      saturation: 0.72,
+    ),
   );
 
   /// The Dovah preset's materials, from the prototype's `body.theme-dovah` `--material`,
@@ -465,6 +471,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       ],
       hazeOpacity: 0.32,
     ),
+    backdrop: DovahBackdrop(tint: Color.fromRGBO(2, 4, 7, 0.76), blurSigma: 8),
   );
 
   /// Hearth's materials, from the prototype's `body.theme-hearth` `--material`,
@@ -597,6 +604,11 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       ],
       hazeOpacity: 0.34,
     ),
+    backdrop: DovahBackdrop(
+      tint: Color.fromRGBO(47, 31, 18, 0.54),
+      blurSigma: 9,
+      sepia: 0.12,
+    ),
   );
 
   /// The resting panel, card, and dialog material.
@@ -617,6 +629,9 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
   /// The canvas atmosphere behind the whole application.
   final DovahAtmosphere atmosphere;
 
+  /// The treatment behind a modal dialog.
+  final DovahBackdrop backdrop;
+
   /// Creates a complete material set. Every role is required so no theme can be assembled with an
   /// accidentally missing material.
   const DovahThemeMaterials({
@@ -626,6 +641,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     required this.icon,
     required this.primaryAction,
     required this.atmosphere,
+    required this.backdrop,
   });
 
   /// Returns the material this theme paints [role] with.
@@ -637,7 +653,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahMaterialRole.primaryAction => primaryAction,
   };
 
-  /// Returns a copy with selected materials or the atmosphere replaced.
+  /// Returns a copy with selected recipes replaced.
   @override
   DovahThemeMaterials copyWith({
     DovahMaterial? surface,
@@ -646,6 +662,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahMaterial? icon,
     DovahMaterial? primaryAction,
     DovahAtmosphere? atmosphere,
+    DovahBackdrop? backdrop,
   }) => DovahThemeMaterials(
     surface: surface ?? this.surface,
     raised: raised ?? this.raised,
@@ -653,6 +670,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     icon: icon ?? this.icon,
     primaryAction: primaryAction ?? this.primaryAction,
     atmosphere: atmosphere ?? this.atmosphere,
+    backdrop: backdrop ?? this.backdrop,
   );
 
   /// Switches to [other]'s materials once [t] passes the midpoint; a layered recipe has no
@@ -677,5 +695,6 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     icon,
     primaryAction,
     atmosphere,
+    backdrop,
   ];
 }
