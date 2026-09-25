@@ -832,22 +832,26 @@ void main() {
 
   group('PairingMiddleware processes PairingRenotifyRequestedAction correctly', () {
     test(
-      'PairingRenotifyRequestedAction dispatches PairingRenotifySucceededAction when renotify succeeds',
+      'PairingRenotifyRequestedAction dispatches the Host retry cooldown after successful redisplay',
       () async {
         final mockRenotifyUseCase =
             sl<RequestPairingRenotifyUseCase>()
                 as MockRequestPairingRenotifyUseCase;
         when(
           () => mockRenotifyUseCase(any()),
-        ).thenAnswer((_) async => const Right(null));
+        ).thenAnswer((_) async => const Right(5));
 
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
 
         expect(actionLog, [
           isA<PairingRenotifyRequestedAction>(),
-          isA<PairingRenotifySucceededAction>(),
+          isA<PairingRenotifyCooldownAction>(),
         ]);
+        expect(
+          (actionLog[1] as PairingRenotifyCooldownAction).retryAfterSeconds,
+          5,
+        );
         verify(() => mockRenotifyUseCase(any())).called(1);
       },
     );
@@ -860,7 +864,7 @@ void main() {
                 as MockRequestPairingRenotifyUseCase;
         when(
           () => mockRenotifyUseCase(any()),
-        ).thenAnswer((_) async => const Right(5));
+        ).thenAnswer((_) async => const Right(3));
 
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
@@ -870,7 +874,7 @@ void main() {
         expect(actionLog[1], isA<PairingRenotifyCooldownAction>());
         expect(
           (actionLog[1] as PairingRenotifyCooldownAction).retryAfterSeconds,
-          5,
+          3,
         );
         verify(() => mockRenotifyUseCase(any())).called(1);
       },

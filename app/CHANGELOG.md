@@ -48,6 +48,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Pairing now shows the Host-reported cooldown after successfully showing the code again.
 - An open dialog now updates its backdrop as the application theme changes.
 - Bevelled panels, cards, and buttons no longer draw a border line along the bevel.
 - Canvas backgrounds now render each theme's complete atmosphere recipe, including its image
