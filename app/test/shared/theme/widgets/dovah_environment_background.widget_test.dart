@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
@@ -41,7 +42,11 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        expect(find.byType(Image), findsOneWidget);
+        final Image image = tester.widget(find.byType(Image));
+        expect(
+          (image.image as AssetImage).assetName,
+          frostboundEnvironmentAsset,
+        );
       },
     );
 
@@ -55,7 +60,8 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        expect(find.byType(Image), findsOneWidget);
+        final Image image = tester.widget(find.byType(Image));
+        expect((image.image as AssetImage).assetName, hearthEnvironmentAsset);
       },
     );
 

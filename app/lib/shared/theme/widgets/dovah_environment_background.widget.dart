@@ -22,7 +22,8 @@ class DovahEnvironmentBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
-    final String? environmentAssetPath = tokens.environmentAssetPath;
+    final String? environmentAssetPath =
+        context.dovahMaterials.atmosphere.imageAssetPath;
 
     return Stack(
       fit: StackFit.expand,
