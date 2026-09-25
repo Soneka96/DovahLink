@@ -71,26 +71,24 @@ double _titleFontSize(WidgetTester tester) =>
 DovahSurface _cardSurface(WidgetTester tester) => tester.widget<DovahSurface>(
   find.descendant(
     of: find.byType(DovahConnectionCard),
-    matching: find.byType(DovahSurface),
+    matching: find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is DovahSurface && widget.role == DovahMaterialRole.surface,
+    ),
   ),
 );
 
 double _iconTileSize(WidgetTester tester) => tester
-    .widget<Container>(
-      find
-          .descendant(
-            of: find.byType(DovahConnectionCard),
-            matching: find.byWidgetPredicate(
-              (Widget widget) =>
-                  widget is Container &&
-                  widget.decoration is BoxDecoration &&
-                  (widget.constraints?.maxWidth ?? 0) >= 30,
-            ),
-          )
-          .first,
+    .getSize(
+      find.descendant(
+        of: find.byType(DovahConnectionCard),
+        matching: find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is DovahSurface && widget.role == DovahMaterialRole.icon,
+        ),
+      ),
     )
-    .constraints!
-    .maxWidth;
+    .width;
 
 /// Switches the app's theme to [to], then returns with the animation not yet advanced.
 Future<void> _switchTheme(

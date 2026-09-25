@@ -180,6 +180,71 @@ void main() {
     );
 
     testWidgets(
+      'DovahSurface uses the override corner style instead of the theme corner style',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            cornerStyle: DovahPanelCornerStyle.rounded,
+            cornerRadius: 6,
+            child: Text('Override'),
+          ),
+          preset: DovahThemePreset.frostbound,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.rounded,
+        );
+        expect(
+          findSurfaceClipper(tester).cornerStyle,
+          DovahPanelCornerStyle.rounded,
+        );
+        expect(findSurfacePainter(tester).cornerRadius, 6);
+      },
+    );
+
+    testWidgets(
+      'DovahSurface keeps the theme radius and bevel when only the corner style is overridden',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            cornerStyle: DovahPanelCornerStyle.rounded,
+            child: Text('Style only'),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.rounded,
+        );
+        expect(findSurfacePainter(tester).cornerRadius, 3);
+        expect(findSurfacePainter(tester).cutSize, 12);
+      },
+    );
+
+    testWidgets(
+      'DovahSurface keeps the theme corner style when no style override is given',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(child: Text('No override')),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.doubleBevel,
+        );
+      },
+    );
+
+    testWidgets(
       'DovahSurface uses the override bevel instead of the theme bevel under Frostbound',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(

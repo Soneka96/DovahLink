@@ -20,14 +20,18 @@ class DovahSurface extends StatelessWidget {
   /// Padding applied inside the clipped surface, around [child].
   final EdgeInsetsGeometry? padding;
 
+  /// Overrides the theme's corner treatment for this surface, for a component whose shape its own
+  /// metrics fix regardless of the theme's panel geometry (for example a leading icon tile).
+  final DovahPanelCornerStyle? cornerStyle;
+
   /// Overrides the theme's corner radius for this surface, for a component whose approved radius
   /// differs from the theme's general one (for example a panel or primary button). Only used when
-  /// the theme's corner style is [DovahPanelCornerStyle.rounded].
+  /// the surface's corner style is [DovahPanelCornerStyle.rounded].
   final double? cornerRadius;
 
   /// Overrides the theme's bevel cut size for this surface, for a component whose approved bevel
   /// differs from the theme's general one (for example a connection card). Only used when the
-  /// theme's corner style is a bevel.
+  /// surface's corner style is a bevel.
   final double? cornerCutSize;
 
   /// Creates a themed surface around [child].
@@ -35,6 +39,7 @@ class DovahSurface extends StatelessWidget {
     required this.child,
     this.role = DovahMaterialRole.surface,
     this.padding,
+    this.cornerStyle,
     this.cornerRadius,
     this.cornerCutSize,
     super.key,
@@ -44,19 +49,20 @@ class DovahSurface extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
+    final DovahPanelCornerStyle style = cornerStyle ?? tokens.cornerStyle;
     final double radius = cornerRadius ?? tokens.cornerRadius;
     final double cut = cornerCutSize ?? tokens.cornerCutSize;
 
     return CustomPaint(
       painter: DovahMaterialPainter(
-        cornerStyle: tokens.cornerStyle,
+        cornerStyle: style,
         cornerRadius: radius,
         cutSize: cut,
         material: context.dovahMaterials.forRole(role),
       ),
       child: ClipPath(
         clipper: DovahPanelClipper(
-          cornerStyle: tokens.cornerStyle,
+          cornerStyle: style,
           cornerRadius: radius,
           cutSize: cut,
         ),

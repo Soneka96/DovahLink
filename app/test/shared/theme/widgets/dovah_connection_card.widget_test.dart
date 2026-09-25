@@ -11,7 +11,9 @@ import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import 'dovah_widget_test_helpers.dart';
 
@@ -551,26 +553,29 @@ void main() {
                   window: size,
                 );
             final DovahSurface surface = tester.widget(
-              find.byType(DovahSurface),
-            );
-            final Container tile = tester.widget<Container>(
               find.byWidgetPredicate(
                 (Widget widget) =>
-                    widget is Container &&
-                    widget.constraints?.maxWidth == metrics.iconTileSize &&
-                    widget.decoration is BoxDecoration,
+                    widget is DovahSurface &&
+                    widget.role == DovahMaterialRole.surface,
               ),
             );
-            final BoxDecoration tileDecoration =
-                tile.decoration! as BoxDecoration;
+            final Finder tileFinder = find.byWidgetPredicate(
+              (Widget widget) =>
+                  widget is DovahSurface &&
+                  widget.role == DovahMaterialRole.icon,
+            );
+            final DovahSurface tile = tester.widget(tileFinder);
 
             expect(tester.takeException(), isNull);
             expect(surface.padding, metrics.padding);
+            expect(surface.cornerStyle, isNull);
             expect(surface.cornerCutSize, metrics.cornerCutSize);
             expect(surface.cornerRadius, metrics.cornerRadius);
+            expect(tile.cornerStyle, DovahPanelCornerStyle.rounded);
+            expect(tile.cornerRadius, metrics.iconTileRadius);
             expect(
-              tileDecoration.borderRadius,
-              BorderRadius.circular(metrics.iconTileRadius),
+              tester.getSize(tileFinder),
+              Size.square(metrics.iconTileSize),
             );
             expect(
               tester.getSize(find.byType(DovahConnectionCard)).height,
@@ -653,5 +658,57 @@ void main() {
         );
       },
     );
+  });
+
+  group('DovahConnectionCard paints its icon tile with the icon material', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahConnectionCard paints its icon tile with the $preset icon material',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+          final Finder tileFinder = find.byWidgetPredicate(
+            (Widget widget) =>
+                widget is DovahSurface && widget.role == DovahMaterialRole.icon,
+          );
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: tileFinder,
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+          final Icon icon = tester.widget(
+            find.descendant(of: tileFinder, matching: find.byType(Icon)),
+          );
+
+          expect(
+            painter.material,
+            dovahThemeDataFor(preset).extension<DovahThemeMaterials>()!.icon,
+          );
+          expect(painter.cornerStyle, DovahPanelCornerStyle.rounded);
+          expect(
+            icon.color,
+            dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!.accentPrimary,
+          );
+        },
+      );
+    }
   });
 }

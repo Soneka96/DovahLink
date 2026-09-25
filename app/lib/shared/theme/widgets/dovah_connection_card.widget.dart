@@ -113,21 +113,20 @@ class DovahConnectionCard extends StatelessWidget {
                   ),
                   child: Row(
                     children: [
-                      Container(
+                      SizedBox(
                         width: metrics.iconTileSize,
                         height: metrics.iconTileSize,
-                        alignment: Alignment.center,
-                        decoration: BoxDecoration(
-                          color: tokens.surfaceRaised,
-                          border: Border.all(color: tokens.lineStrong),
-                          borderRadius: BorderRadius.circular(
-                            metrics.iconTileRadius,
+                        child: DovahSurface(
+                          role: DovahMaterialRole.icon,
+                          cornerStyle: DovahPanelCornerStyle.rounded,
+                          cornerRadius: metrics.iconTileRadius,
+                          child: Center(
+                            child: Icon(
+                              Icons.desktop_windows_outlined,
+                              color: tokens.accentPrimary,
+                              size: DovahConnectionCardMetrics.iconSize,
+                            ),
                           ),
-                        ),
-                        child: Icon(
-                          Icons.desktop_windows_outlined,
-                          color: tokens.accentPrimary,
-                          size: DovahConnectionCardMetrics.iconSize,
                         ),
                       ),
                       const SizedBox(
