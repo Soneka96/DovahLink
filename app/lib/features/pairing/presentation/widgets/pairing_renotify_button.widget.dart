@@ -64,7 +64,7 @@ class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
             label: widget.label,
             cooldownLabel: widget.cooldownLabel,
           ),
-          variant: DovahButtonVariant.secondary,
+          variant: DovahButtonVariant.quiet,
           onPressed: viewModel.onPressed,
         );
       },

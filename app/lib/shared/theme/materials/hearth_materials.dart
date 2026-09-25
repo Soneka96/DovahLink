@@ -1,11 +1,18 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_brand_mark_treatment.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preset_card_style.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_scene.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_preview_sigil.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_radial_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
@@ -205,5 +212,89 @@ const DovahThemeMaterials hearthMaterials = DovahThemeMaterials(
       ),
     ],
     hazeOpacity: 0.34,
+  ),
+  brandMark: DovahBrandMarkTreatment(
+    filter: DovahColorFilter(sepia: 0.4, hueRotateDegrees: 345, saturate: 0.78),
+    backingColor: Color.fromRGBO(255, 248, 230, 0.3),
+  ),
+  connectionAccent: DovahConnectionAccent(restingBorder: Color(0xFF79542F)),
+  backdrop: DovahBackdrop(
+    tint: Color.fromRGBO(47, 31, 18, 0.54),
+    blurSigma: 9,
+    sepia: 0.12,
+  ),
+  presetCard: DovahPresetCardStyle(
+    material: DovahMaterial(
+      layers: [
+        DovahLinearLayer(
+          angleDegrees: 145,
+          colors: [Color(0xFFF7E6C9), Color(0xFFD9B681)],
+          stops: [0, 1],
+        ),
+        DovahStripeLayer(
+          angleDegrees: 5,
+          colors: [
+            _clear,
+            _clear,
+            Color.fromRGBO(92, 57, 29, 0.055),
+            _clear,
+            _clear,
+          ],
+          stopsPx: [0, 4, 5, 6, 11],
+        ),
+        DovahRadialLayer(
+          center: Offset(0.18, 0.22),
+          colors: [
+            Color.fromRGBO(91, 55, 27, 0.11),
+            Color.fromRGBO(91, 55, 27, 0.11),
+            _clear,
+          ],
+          stops: [0, 1 / 1.5, 1],
+          radius: 1.5,
+          circular: true,
+        ),
+      ],
+      borderColor: Color(0xFF8D6336),
+    ),
+    titleColor: Color(0xFF271B12),
+    summaryColor: Color(0xFF4F3A28),
+    detailColor: Color(0xFF6D5035),
+    badgeFill: Color(0xFF965923),
+    badgeForeground: Color(0xFFFFF9EE),
+  ),
+  previewScene: DovahPreviewScene(
+    imageAssetPath: hearthEnvironmentAsset,
+    imageFilter: DovahColorFilter(saturate: 0.92, contrast: 1.05),
+    layers: [
+      DovahLinearLayer(
+        angleDegrees: 180,
+        colors: [
+          Color.fromRGBO(230, 209, 175, 0.12),
+          Color.fromRGBO(202, 160, 104, 0.48),
+        ],
+        stops: [0, 1],
+      ),
+      DovahLinearLayer(
+        angleDegrees: 180,
+        colors: [_clear, _clear, Color(0xFFD9B681)],
+        stops: [0, 0.54, 1],
+      ),
+    ],
+    sigil: DovahPreviewSigil(
+      fill: Color(0xFFDFBF8D),
+      border: Color(0xFF82592F),
+      shape: DovahPreviewSigilShape.circle,
+      markFilter: DovahColorFilter(
+        sepia: 0.38,
+        hueRotateDegrees: 345,
+        saturate: 0.75,
+      ),
+    ),
+    barFill: DovahLinearLayer(
+      angleDegrees: 90,
+      colors: [Color(0xFFA8652D), Color(0xFFA8652D)],
+      stops: [0, 1],
+    ),
+    barCornerRadius: 4,
   ),
 );

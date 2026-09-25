@@ -98,6 +98,7 @@ void main() {
           find.byType(DovahButton),
         );
         expect(button.onPressed, isNotNull);
+        expect(button.variant, DovahButtonVariant.quiet);
         expect(find.text('Send Code Again'), findsOneWidget);
       },
     );

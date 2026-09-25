@@ -1,6 +1,8 @@
 import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:flutter/rendering.dart' show CustomPainter;
+
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil_painter.dart';
@@ -73,7 +75,125 @@ void main() {
     });
   });
 
+  group('Method paint draws the glow constructor', () {
+    /// Renders the glow of [blurRadius] and [color] at [side] pixels square.
+    Future<ByteData> renderGlow(
+      WidgetTester tester,
+      int side, {
+      double blurRadius = 15,
+      Color color = const Color(0xFF74BDE8),
+    }) async {
+      final PictureRecorder recorder = PictureRecorder();
+      DovahSigilPainter.glow(
+        color: color,
+        blurRadius: blurRadius,
+      ).paint(Canvas(recorder), Size.square(side.toDouble()));
+      final Picture picture = recorder.endRecording();
+      final ByteData? bytes = await tester.runAsync(() async {
+        final Image image = await picture.toImage(side, side);
+        return (await image.toByteData())!;
+      });
+      return bytes!;
+    }
+
+    testWidgets('Method paint glows outside the silhouette in the glow color', (
+      WidgetTester tester,
+    ) async {
+      final ByteData bytes = await renderGlow(tester, 100);
+      final Color outside = pixelAt(bytes, 100, 4, 50);
+
+      expect(outside.a, greaterThan(0));
+      expect(outside.b, greaterThan(outside.r));
+    });
+
+    testWidgets('Method paint draws the glow instead of the sigil', (
+      WidgetTester tester,
+    ) async {
+      final ByteData bytes = await renderGlow(tester, 100);
+
+      expect(pixelAt(bytes, 100, 17, 50), isNot(DovahSigilPainter.upperColor));
+      expect(pixelAt(bytes, 100, 83, 50), isNot(DovahSigilPainter.lowerColor));
+    });
+
+    testWidgets('Method paint softens a wider glow further from the sigil', (
+      WidgetTester tester,
+    ) async {
+      final ByteData narrow = await renderGlow(tester, 100, blurRadius: 4);
+      final ByteData wide = await renderGlow(tester, 100, blurRadius: 24);
+
+      expect(
+        pixelAt(wide, 100, 1, 50).a,
+        greaterThan(pixelAt(narrow, 100, 1, 50).a),
+      );
+    });
+
+    testWidgets('Method paint keeps the glow radius when the canvas scales', (
+      WidgetTester tester,
+    ) async {
+      final ByteData small = await renderGlow(tester, 50, blurRadius: 8);
+      final ByteData large = await renderGlow(tester, 100, blurRadius: 8);
+
+      // A given distance from the silhouette glows equally at either scale: 3px left of the
+      // upper arrow's left edge (5px at 50, 10px at 100).
+      expect(
+        pixelAt(small, 50, 2, 25).a,
+        closeTo(pixelAt(large, 100, 7, 50).a, 30),
+      );
+    });
+  });
+
+  group('Method paint handles degenerate input', () {
+    test('Method paint draws nothing into an empty canvas', () {
+      for (final CustomPainter painter in const [
+        DovahSigilPainter(),
+        DovahSigilPainter.glow(color: Color(0xFF74BDE8), blurRadius: 8),
+      ]) {
+        expect(
+          () => painter.paint(Canvas(PictureRecorder()), Size.zero),
+          returnsNormally,
+        );
+      }
+    });
+
+    test('Method paint draws a glow of no blur without throwing', () {
+      expect(
+        () => const DovahSigilPainter.glow(
+          color: Color(0xFF74BDE8),
+          blurRadius: 0,
+        ).paint(Canvas(PictureRecorder()), const Size.square(44)),
+        returnsNormally,
+      );
+    });
+  });
+
   group('Method shouldRepaint behaves correctly', () {
+    test('Method shouldRepaint returns true when the glow differs', () {
+      const DovahSigilPainter glow = DovahSigilPainter.glow(
+        color: Color(0xFF74BDE8),
+        blurRadius: 8,
+      );
+
+      expect(glow.shouldRepaint(const DovahSigilPainter()), isTrue);
+      expect(
+        glow.shouldRepaint(
+          const DovahSigilPainter.glow(color: Color(0xFF000000), blurRadius: 8),
+        ),
+        isTrue,
+      );
+      expect(
+        glow.shouldRepaint(
+          const DovahSigilPainter.glow(color: Color(0xFF74BDE8), blurRadius: 9),
+        ),
+        isTrue,
+      );
+      expect(
+        glow.shouldRepaint(
+          const DovahSigilPainter.glow(color: Color(0xFF74BDE8), blurRadius: 8),
+        ),
+        isFalse,
+      );
+    });
+
     test('Method shouldRepaint returns false for another sigil painter', () {
       expect(
         const DovahSigilPainter().shouldRepaint(const DovahSigilPainter()),

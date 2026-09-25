@@ -298,24 +298,37 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
   constructor parameters or hidden DI lookups.
 - Visual values have one owner, chosen by what the value describes:
   - `DovahThemeTokens` owns theme identity and typography: semantic colors, status tones, corner
-    style, radius and bevel, font family, and casing.
-  - `DovahThemeMaterials` owns each theme's layered material per component role and its canvas
-    atmosphere. Widgets ask `DovahSurface` for a role and never inspect a material recipe.
-  - Canvas atmosphere, component material texture, and feature-specific artwork are separate. The
-    atmosphere fills the world behind every component; a material textures a component and never
-    paints an environment image; feature artwork stays with its feature screen.
+    style, radius and bevel, font families and their fallbacks, and casing. The prototype names its
+    fonts as CSS stacks (`Inter` for the body; `"Arial Narrow"` and `Impact` for Frostbound and
+    `Georgia` and `"Times New Roman"` for Dovah and Hearth as the display) but ships no font file,
+    so the client copies the stack names, resolves them through the installed fonts and the
+    platform default, and bundles no font. Bundling one needs a licensed font asset the maintainer
+    supplies; never substitute a different typeface.
+  - `DovahThemeMaterials` owns each theme's visual recipes: one layered material per component role
+    (surface, raised, control, icon, primary action), the canvas atmosphere, the dialog backdrop,
+    the connection card's decoration, and the appearance preview scene. A recipe is a small typed value of layers, never a set of
+    per-texture scalar tokens, and every value is copied from the approved prototype with its
+    selector cited. Widgets ask `DovahSurface` for a role and never inspect a recipe; a component
+    whose shape its own metrics fix, such as an icon tile, overrides the corner treatment and keeps
+    the theme's material.
+  - Canvas atmosphere, component material texture, and feature-specific artwork are three
+    different things and never mix. The atmosphere (`DovahEnvironmentBackground`) fills the world
+    behind every component and belongs to the canvas. A material textures a component and never
+    paints an environment image. Feature artwork (a character hero, a map, quest or inventory art)
+    stays with its feature screen and never enters `DovahThemeMaterials`. Theme image paths are
+    named constants shared by the atmosphere and the preview, so a preview draws the real theme.
   - `Dovah*Metrics` classes own structural and component geometry and responsive layout. A metrics
     class is named for one screen family or component family, never a single catch-all. Widgets
     consume resolved metrics; they never branch on the window size or the active preset themselves.
   - A local literal owns a genuinely one-off layout detail with no semantic reuse; do not promote
     it to a constant.
+- Reproduce a prototype visual recipe with the closest Flutter primitive before accepting a
+  difference. Where Flutter has no equivalent, document at the implementation what the prototype
+  does, what Flutter does instead, and why the difference is acceptable.
 - A prototype value that differs by theme or by breakpoint belongs in a metrics class, never a new
   theme token or a scale multiplier applied to a base value. Copy each value exactly from the
   approved prototype and cite its selector in the doc comment; do not merge nearby values into one
   shared constant.
-- Reproduce a prototype visual recipe with the closest Flutter primitive before accepting a
-  difference. Where Flutter has no equivalent, document at the implementation what the prototype
-  does, what Flutter does instead, and why the difference is acceptable.
 - A metrics value that differs by theme lives in that family's `Dovah<Family>ThemeMetrics`
   `ThemeExtension`, holding the theme's exact value for every window mode and installed by each
   preset's theme builder, so Flutter's `ThemeData` transition interpolates it with `lerpDouble`,
@@ -367,6 +380,12 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
 
 ## Visual rules
 
+- The canonical visual source of truth is the final approved prototype, `DovahLink-Prototype-final`
+  (`index.html`, `assets/themes.css`, `assets/branding.js`, and its image assets). Every "approved
+  prototype" in this repository, in code comments and in these conventions, means that prototype;
+  older prototype versions are stale and are never a reference. Cite the prototype's selector, not
+  a file path, in a doc comment, and never hardcode a location of the prototype in production code.
+  The prototype ships no font files, so the typography it names cannot be bundled from it.
 - Check approved DovahLink design references before making a new visual decision. If no local reference or design system exists, record the decision and do not import an external design system without approval.
 - Build the approved Skyrim-inspired presentation with native Flutter theming and components.
 - Keep fonts, colors, panels, icons, spacing, and animations behind shared theme tokens or themed components so the Core UI Theme System can support future adapters.

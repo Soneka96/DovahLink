@@ -54,6 +54,33 @@ class DovahConnectionCardMetrics extends Equatable {
   /// Flex share of the detail column (the prototype's `minmax(190px,.7fr)`).
   static const int detailColumnFlex = 7;
 
+  /// Distance from the card's inner left edge to the start of Dovah's link line (the prototype's
+  /// `.connection:before` `left:55px`).
+  static const double linkLineLeftInset = 55;
+
+  /// Distance from the card's inner right edge to the end of Dovah's link line (the prototype's
+  /// `.connection:before` `right:90px`).
+  static const double linkLineRightInset = 90;
+
+  /// Thickness of Dovah's link line (the prototype's `.connection:before` `height:1px`).
+  static const double linkLineHeight = 1;
+
+  /// Side of the faint square outline turned into a diamond at the card's bottom-right corner (the
+  /// prototype's `.connection:after` `width:70px;height:70px`).
+  static const double cornerOutlineSize = 70;
+
+  /// How far the outline's box lies beyond the card's inner right edge (the prototype's
+  /// `.connection:after` `right:-39px`).
+  static const double cornerOutlineRightOffset = 39;
+
+  /// How far the outline's box lies beyond the card's inner bottom edge (the prototype's
+  /// `.connection:after` `bottom:-43px`).
+  static const double cornerOutlineBottomOffset = 43;
+
+  /// Width of the edge along the right of an available Frostbound card (the prototype's
+  /// `.connection.available` `inset -2px 0`).
+  static const double availableEdgeWidth = 2;
+
   /// The card's padding.
   final EdgeInsets padding;
 
@@ -74,6 +101,15 @@ class DovahConnectionCardMetrics extends Equatable {
   /// from the theme's general radius; unused by the bevelled themes.
   final double cornerRadius;
 
+  /// How far the icon tile turns, in radians, with its glyph turned back upright.
+  final double iconTileRotation;
+
+  /// How far the card slides while hovered.
+  final Offset hoverOffset;
+
+  /// Whether Dovah's link line is shown (the prototype hides it at narrow widths).
+  final bool showLinkLine;
+
   /// Whether the detail column is shown (the prototype hides it at narrow widths).
   final bool showDetail;
 
@@ -86,6 +122,9 @@ class DovahConnectionCardMetrics extends Equatable {
     required this.iconTileRadius,
     required this.cornerCutSize,
     required this.cornerRadius,
+    required this.iconTileRotation,
+    required this.hoverOffset,
+    required this.showLinkLine,
     required this.showDetail,
   });
 
@@ -115,6 +154,9 @@ class DovahConnectionCardMetrics extends Equatable {
           : themeMetrics.regularIconTileRadius,
       cornerCutSize: themeMetrics.cornerCutSize,
       cornerRadius: themeMetrics.cornerRadius,
+      iconTileRotation: themeMetrics.iconTileRotation,
+      hoverOffset: themeMetrics.hoverOffset,
+      showLinkLine: window.width > DovahRootMetrics.narrowMaxWindowWidth,
       showDetail: window.width > DovahRootMetrics.narrowMaxWindowWidth,
     );
   }
@@ -128,6 +170,9 @@ class DovahConnectionCardMetrics extends Equatable {
     iconTileRadius,
     cornerCutSize,
     cornerRadius,
+    iconTileRotation,
+    hoverOffset,
+    showLinkLine,
     showDetail,
   ];
 }

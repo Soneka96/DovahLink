@@ -12,6 +12,17 @@ void main() {
       expect(DovahControlMetrics.buttonHorizontalPadding, 17);
       expect(DovahControlMetrics.buttonFontSize, isA<double>());
       expect(DovahControlMetrics.buttonFontSize, 16);
+      expect(
+        DovahControlMetrics.secondaryButtonHorizontalPadding,
+        isA<double>(),
+      );
+      expect(DovahControlMetrics.secondaryButtonHorizontalPadding, 16);
+      expect(DovahControlMetrics.quietButtonVerticalPadding, isA<double>());
+      expect(DovahControlMetrics.quietButtonVerticalPadding, 8);
+      expect(DovahControlMetrics.quietButtonHorizontalPadding, isA<double>());
+      expect(DovahControlMetrics.quietButtonHorizontalPadding, 11);
+      expect(DovahControlMetrics.quietButtonFontSize, isA<double>());
+      expect(DovahControlMetrics.quietButtonFontSize, 12);
       expect(DovahControlMetrics.buttonIconSize, isA<double>());
       expect(DovahControlMetrics.buttonIconSize, 17);
       expect(DovahControlMetrics.buttonIconGap, isA<double>());
@@ -48,10 +59,16 @@ void main() {
     test('Property disabled and focus constants keep the approved values', () {
       expect(DovahControlMetrics.disabledControlOpacity, isA<double>());
       expect(DovahControlMetrics.disabledControlOpacity, 0.46);
+      expect(DovahControlMetrics.disabledPrimarySaturation, isA<double>());
+      expect(DovahControlMetrics.disabledPrimarySaturation, 0.45);
+      expect(
+        DovahControlMetrics.liftDuration,
+        const Duration(milliseconds: 180),
+      );
       expect(DovahControlMetrics.focusOutlineWidth, isA<double>());
       expect(DovahControlMetrics.focusOutlineWidth, 2);
-      expect(DovahControlMetrics.focusGlowBlurRadius, isA<double>());
-      expect(DovahControlMetrics.focusGlowBlurRadius, 8);
+      expect(DovahControlMetrics.focusOutlineOffset, isA<double>());
+      expect(DovahControlMetrics.focusOutlineOffset, 3);
     });
 
     test('Property minimumTapTargetSize is the 48 logical-pixel floor', () {

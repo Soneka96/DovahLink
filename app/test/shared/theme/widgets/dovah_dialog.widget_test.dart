@@ -8,8 +8,26 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_backdrop.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_backdrop_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'dovah_widget_test_helpers.dart';
+
+/// Reads the backdrop used by the dialog's scrim painter.
+///
+/// [tester] supplies the mounted dialog widget tree.
+DovahBackdrop readDialogBackdrop(WidgetTester tester) {
+  final CustomPaint treatment = tester.widget(
+    find.byWidgetPredicate(
+      (Widget widget) =>
+          widget is CustomPaint && widget.painter is DovahBackdropPainter,
+    ),
+  );
+  return (treatment.painter! as DovahBackdropPainter).backdrop;
+}
 
 /// Exercises [DovahDialog] across every DovahLink theme and its show/close behavior.
 void main() {
@@ -34,6 +52,14 @@ void main() {
             expect(find.text('Dialog body content'), findsOneWidget);
             final Text title = tester.widget(find.text('Appearance'));
             expect(title.style?.fontSize, DovahDialogMetrics.titleFontSize);
+            final DovahThemeTokens tokens = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!;
+            expect(title.style?.fontFamily, tokens.displayFontFamily);
+            expect(
+              title.style?.fontFamilyFallback,
+              tokens.displayFontFamilyFallback,
+            );
           },
         );
       }
@@ -348,13 +374,13 @@ void main() {
   });
 
   group('DovahDialog matches the prototype modal metrics', () {
-    for (final (DovahThemePreset preset, Color scrim, double blur) in [
-      (DovahThemePreset.frostbound, const Color(0xC7000204), 7.0),
-      (DovahThemePreset.dovah, const Color(0xC2020407), 8.0),
-      (DovahThemePreset.hearth, const Color(0x8A2F1F12), 9.0),
+    for (final (DovahThemePreset preset, Color tint, double blur) in [
+      (DovahThemePreset.frostbound, const Color.fromRGBO(0, 2, 4, 0.78), 7.0),
+      (DovahThemePreset.dovah, const Color.fromRGBO(2, 4, 7, 0.76), 8.0),
+      (DovahThemePreset.hearth, const Color.fromRGBO(47, 31, 18, 0.54), 9.0),
     ]) {
       testWidgets(
-        'DovahDialog.show scrims with the prototype ${preset.name} backdrop color and blur',
+        'DovahDialog.show applies the prototype ${preset.name} backdrop tint and blur',
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
@@ -381,11 +407,124 @@ void main() {
           final BackdropFilter backdrop = tester.widget<BackdropFilter>(
             find.byType(BackdropFilter).last,
           );
-          expect(barrier.color, scrim);
+          expect(barrier.color, anyOf(isNull, Colors.transparent));
+          expect(
+            readDialogBackdrop(tester),
+            dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeMaterials>()!.backdrop,
+          );
+          expect(readDialogBackdrop(tester).tint, tint);
           expect(backdrop.filter, ImageFilter.blur(sigmaX: blur, sigmaY: blur));
         },
       );
     }
+
+    for (final (DovahThemePreset preset, double saturation, double sepia) in [
+      (DovahThemePreset.frostbound, 0.72, 0.0),
+      (DovahThemePreset.dovah, 1.0, 0.0),
+      (DovahThemePreset.hearth, 1.0, 0.12),
+    ]) {
+      testWidgets(
+        'DovahDialog.show applies the prototype ${preset.name} backdrop color treatment',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            Builder(
+              builder: (BuildContext context) => ElevatedButton(
+                onPressed: () => DovahDialog.show<void>(
+                  context,
+                  title: 'Appearance',
+                  child: const Text('Pick a theme'),
+                ),
+                child: const Text('Open'),
+              ),
+            ),
+            preset: preset,
+            size: const Size(900, 560),
+          );
+
+          await tester.tap(find.text('Open'));
+          await tester.pumpAndSettle();
+
+          expect(readDialogBackdrop(tester).saturation, saturation);
+          expect(readDialogBackdrop(tester).sepia, sepia);
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahDialog.showBuilder updates the open scrim when the app theme changes',
+      (WidgetTester tester) async {
+        final ValueNotifier<ThemeData> theme = ValueNotifier(
+          dovahThemeDataFor(DovahThemePreset.dovah),
+        );
+        addTearDown(theme.dispose);
+        setDovahTestWindow(tester, const Size(900, 560));
+
+        await tester.pumpWidget(
+          ValueListenableBuilder<ThemeData>(
+            valueListenable: theme,
+            builder: (BuildContext context, ThemeData currentTheme, _) =>
+                MaterialApp(
+                  theme: currentTheme,
+                  themeAnimationDuration: const Duration(milliseconds: 200),
+                  home: Scaffold(
+                    body: Builder(
+                      builder: (BuildContext context) => ElevatedButton(
+                        onPressed: () => DovahDialog.showBuilder<void>(
+                          context,
+                          builder: (BuildContext dialogContext) =>
+                              const DovahDialog(
+                                title: 'Appearance',
+                                child: Text('Pick a theme'),
+                              ),
+                        ),
+                        child: const Text('Open'),
+                      ),
+                    ),
+                  ),
+                ),
+          ),
+        );
+
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+
+        final DovahBackdrop dovahBackdrop = dovahThemeDataFor(
+          DovahThemePreset.dovah,
+        ).extension<DovahThemeMaterials>()!.backdrop;
+        final DovahBackdrop hearthBackdrop = dovahThemeDataFor(
+          DovahThemePreset.hearth,
+        ).extension<DovahThemeMaterials>()!.backdrop;
+        expect(readDialogBackdrop(tester), dovahBackdrop);
+
+        theme.value = dovahThemeDataFor(DovahThemePreset.hearth);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 100));
+
+        final DovahBackdrop animatedBackdrop = Theme.of(
+          tester.element(find.byType(BackdropFilter)),
+        ).extension<DovahThemeMaterials>()!.backdrop;
+        expect(find.text('Pick a theme'), findsOneWidget);
+        expect(readDialogBackdrop(tester), animatedBackdrop);
+        final BackdropFilter animatedFilter = tester.widget(
+          find.byType(BackdropFilter).last,
+        );
+        expect(
+          animatedFilter.filter,
+          ImageFilter.blur(
+            sigmaX: animatedBackdrop.blurSigma,
+            sigmaY: animatedBackdrop.blurSigma,
+          ),
+        );
+
+        await tester.pump(const Duration(milliseconds: 120));
+
+        expect(find.text('Pick a theme'), findsOneWidget);
+        expect(readDialogBackdrop(tester), hearthBackdrop);
+      },
+    );
 
     testWidgets(
       'DovahDialog separates its header from its content with a rule',
