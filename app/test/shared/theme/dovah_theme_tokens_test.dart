@@ -77,22 +77,17 @@ void main() {
       expect(original.uppercaseLabels, isFalse);
     });
 
-    test('Method copyWith replaces the identity and backdrop tokens', () {
+    test('Method copyWith replaces the identity tokens', () {
       final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
 
       final DovahThemeTokens copy = original.copyWith(
         preset: DovahThemePreset.hearth,
-        backdropColor: const Color(0x8A2F1F12),
-        backdropBlurSigma: 9,
         panelCornerRadius: 14,
         primaryActionCornerRadius: 9,
       );
 
       expect(copy.preset, DovahThemePreset.hearth);
       expect(original.preset, DovahThemePreset.dovah);
-      expect(copy.backdropColor, const Color(0x8A2F1F12));
-      expect(copy.backdropBlurSigma, isA<double>());
-      expect(copy.backdropBlurSigma, 9);
       expect(copy.panelCornerRadius, isA<double>());
       expect(copy.panelCornerRadius, 14);
       expect(copy.primaryActionCornerRadius, isA<double>());
@@ -107,6 +102,7 @@ void main() {
         brandTagline: const Color(0xFF040506),
         brandAccent: const Color(0xFF070809),
         markIcon: const Color(0xFF0A0B0C),
+        iconTileForeground: const Color(0xFF1A1B1C),
         barTrack: const Color(0xFF0D0E0F),
         panelNote: const Color(0xFF101112),
         heroScrim: const LinearGradient(
@@ -131,7 +127,30 @@ void main() {
       expect(copy.brandTagline, const Color(0xFF040506));
       expect(copy.brandAccent, const Color(0xFF070809));
       expect(copy.markIcon, const Color(0xFF0A0B0C));
+      expect(copy.iconTileForeground, const Color(0xFF1A1B1C));
       expect(original.statusOffline, const Color(0xFF7C8993));
+    });
+  });
+
+  group('Property body font behaves correctly', () {
+    test('Property body font keeps the prototype --body stack names', () {
+      expect(DovahThemeTokens.bodyFontFamily, isA<String>());
+      expect(DovahThemeTokens.bodyFontFamily, 'Inter');
+      expect(DovahThemeTokens.bodyFontFamilyFallback, const ['Segoe UI']);
+    });
+  });
+
+  group('Method copyWith replaces the font stack', () {
+    test('Method copyWith replaces only the display font fallback', () {
+      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
+
+      final DovahThemeTokens copy = original.copyWith(
+        displayFontFamilyFallback: const ['Impact'],
+      );
+
+      expect(copy.displayFontFamilyFallback, const ['Impact']);
+      expect(copy.displayFontFamily, original.displayFontFamily);
+      expect(original.displayFontFamilyFallback, const ['Times New Roman']);
     });
   });
 
@@ -149,6 +168,30 @@ void main() {
       final DovahThemeTokens result = tokens.lerp(other, 0);
 
       expect(result, tokens);
+    });
+
+    test('Method lerp snaps the display font family at the midpoint', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
+        displayFontFamily: 'Arial Narrow',
+      );
+
+      expect(tokens.lerp(other, 0.49).displayFontFamily, 'Georgia');
+      expect(tokens.lerp(other, 0.5).displayFontFamily, 'Arial Narrow');
+    });
+
+    test('Method lerp snaps the display font fallback at the midpoint', () {
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
+        displayFontFamilyFallback: const ['Impact'],
+      );
+
+      expect(tokens.lerp(other, 0.49).displayFontFamilyFallback, const [
+        'Times New Roman',
+      ]);
+      expect(tokens.lerp(other, 0.5).displayFontFamilyFallback, const [
+        'Impact',
+      ]);
     });
 
     test('Method lerp at t=1 returns values equal to the other extension', () {
@@ -205,28 +248,18 @@ void main() {
       expect(result.pageTitleLineHeight, closeTo(1.2, 0.0001));
     });
 
-    test('Method lerp interpolates backdrop and radius tokens', () {
+    test('Method lerp interpolates radius tokens', () {
       final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
-        backdropColor: const Color(0x00000000),
-        backdropBlurSigma: 6,
         panelCornerRadius: 0,
         primaryActionCornerRadius: 0,
       );
       final DovahThemeTokens other = Fixtures.buildDovahThemeTokens(
-        backdropColor: const Color(0xFFFFFFFF),
-        backdropBlurSigma: 10,
         panelCornerRadius: 14,
         primaryActionCornerRadius: 10,
       );
 
       final DovahThemeTokens result = tokens.lerp(other, 0.5);
 
-      expect(
-        result.backdropColor,
-        Color.lerp(tokens.backdropColor, other.backdropColor, 0.5),
-      );
-      expect(result.backdropBlurSigma, isA<double>());
-      expect(result.backdropBlurSigma, 8);
       expect(result.panelCornerRadius, isA<double>());
       expect(result.panelCornerRadius, 7);
       expect(result.primaryActionCornerRadius, isA<double>());
@@ -239,6 +272,7 @@ void main() {
         brandTagline: const Color(0xFF000000),
         brandAccent: const Color(0xFF000000),
         markIcon: const Color(0xFF000000),
+        iconTileForeground: const Color(0xFF000000),
         barTrack: const Color(0xFF000000),
         panelNote: const Color(0xFF000000),
       );
@@ -247,6 +281,7 @@ void main() {
         brandTagline: const Color(0xFFFFFFFF),
         brandAccent: const Color(0xFFFFFFFF),
         markIcon: const Color(0xFFFFFFFF),
+        iconTileForeground: const Color(0xFFFFFFFF),
         barTrack: const Color(0xFFFFFFFF),
         panelNote: const Color(0xFFFFFFFF),
       );
@@ -262,6 +297,7 @@ void main() {
       expect(result.brandTagline, halfway);
       expect(result.brandAccent, halfway);
       expect(result.markIcon, halfway);
+      expect(result.iconTileForeground, halfway);
       expect(result.barTrack, halfway);
       expect(result.panelNote, halfway);
     });
@@ -396,6 +432,15 @@ void main() {
       expect(first, isNot(second));
     });
 
+    test('Behavior equality fails when displayFontFamilyFallback differs', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
+        displayFontFamilyFallback: const ['Impact'],
+      );
+
+      expect(first, isNot(second));
+    });
+
     test('Behavior equality fails when a root-screen token differs', () {
       final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
       final List<DovahThemeTokens> others = <DovahThemeTokens>[
@@ -410,39 +455,35 @@ void main() {
       }
     });
 
-    test(
-      'Behavior equality fails when an identity or backdrop token differs',
-      () {
-        final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
-        final List<DovahThemeTokens> others = <DovahThemeTokens>[
-          first.copyWith(preset: DovahThemePreset.hearth),
-          first.copyWith(backdropColor: const Color(0xFF000000)),
-          first.copyWith(backdropBlurSigma: 1),
-          first.copyWith(panelCornerRadius: 1),
-          first.copyWith(primaryActionCornerRadius: 1),
-          first.copyWith(statusOffline: const Color(0xFF000000)),
-          first.copyWith(brandTagline: const Color(0xFF000000)),
-          first.copyWith(brandAccent: const Color(0xFF000000)),
-          first.copyWith(markIcon: const Color(0xFF000000)),
-          first.copyWith(barTrack: const Color(0xFF000000)),
-          first.copyWith(panelNote: const Color(0xFF000000)),
-          first.copyWith(
-            heroScrim: const LinearGradient(
-              colors: [Color(0xFF000000), Color(0xFF111111)],
-            ),
+    test('Behavior equality fails when an identity token differs', () {
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
+      final List<DovahThemeTokens> others = <DovahThemeTokens>[
+        first.copyWith(preset: DovahThemePreset.hearth),
+        first.copyWith(panelCornerRadius: 1),
+        first.copyWith(primaryActionCornerRadius: 1),
+        first.copyWith(statusOffline: const Color(0xFF000000)),
+        first.copyWith(brandTagline: const Color(0xFF000000)),
+        first.copyWith(brandAccent: const Color(0xFF000000)),
+        first.copyWith(markIcon: const Color(0xFF000000)),
+        first.copyWith(iconTileForeground: const Color(0xFF000000)),
+        first.copyWith(barTrack: const Color(0xFF000000)),
+        first.copyWith(panelNote: const Color(0xFF000000)),
+        first.copyWith(
+          heroScrim: const LinearGradient(
+            colors: [Color(0xFF000000), Color(0xFF111111)],
           ),
-          first.copyWith(
-            heroFloorScrim: const LinearGradient(
-              colors: [Color(0xFF000000), Color(0xFF111111)],
-            ),
+        ),
+        first.copyWith(
+          heroFloorScrim: const LinearGradient(
+            colors: [Color(0xFF000000), Color(0xFF111111)],
           ),
-        ];
+        ),
+      ];
 
-        for (final DovahThemeTokens other in others) {
-          expect(first, isNot(other));
-        }
-      },
-    );
+      for (final DovahThemeTokens other in others) {
+        expect(first, isNot(other));
+      }
+    });
 
     test('Behavior equality fails when primaryActionForeground differs', () {
       final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_appearance_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
@@ -38,13 +40,12 @@ ThemeData buildHearthTheme() {
     cornerRadius: 13,
     cornerCutSize: 0,
     displayFontFamily: 'Georgia',
+    displayFontFamilyFallback: ['Times New Roman'],
     eyebrow: Color(0xFF945720),
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.52,
     uppercaseLabels: false,
     preset: DovahThemePreset.hearth,
-    backdropColor: Color(0x8A2F1F12),
-    backdropBlurSigma: 9,
     panelCornerRadius: 14,
     primaryActionCornerRadius: 9,
     statusOffline: Color(0xFF7F725F),
@@ -52,6 +53,7 @@ ThemeData buildHearthTheme() {
     brandAccent: Color(0xFFA45F27),
     barTrack: Color(0xFFB89463),
     markIcon: Color(0xFF965923),
+    iconTileForeground: Color(0xFF60462D),
     panelNote: Color(0xFF765B3E),
     heroScrim: LinearGradient(
       begin: Alignment.centerLeft,
@@ -69,6 +71,8 @@ ThemeData buildHearthTheme() {
 
   return ThemeData(
     brightness: Brightness.light,
+    fontFamily: DovahThemeTokens.bodyFontFamily,
+    fontFamilyFallback: DovahThemeTokens.bodyFontFamilyFallback,
     scaffoldBackgroundColor: tokens.background,
     colorScheme: ColorScheme.light(
       surface: tokens.surface,
@@ -81,6 +85,8 @@ ThemeData buildHearthTheme() {
       tokens,
       DovahRootThemeMetrics.hearth,
       DovahConnectionCardThemeMetrics.hearth,
+      DovahDialogThemeMetrics.hearth,
+      DovahAppearanceThemeMetrics.hearth,
       DovahPageThemeMetrics.hearth,
       DovahSessionThemeMetrics.hearth,
       DovahOverviewThemeMetrics.hearth,

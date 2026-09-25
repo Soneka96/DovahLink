@@ -6,14 +6,17 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/presentation/widgets/appearance_preset_card.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
-import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/dovah_appearance_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
-/// The appearance picker's content: one card per [DovahThemePreset], shown inside a
-/// [DovahDialog][DovahThemeContext] by whatever screen offers theme selection.
+/// The appearance picker's content: an introduction and one card per [DovahThemePreset] in a
+/// three-column grid (the prototype's `.preset-intro` and `.preset-grid`), shown inside a
+/// [DovahDialog][DovahThemeContext] by whatever screen offers theme selection. The cards of a row
+/// share the tallest one's height, as grid items do. The grid drops to fewer columns only when a
+/// card would get narrower than [DovahAppearanceMetrics.cardMinimumWidth], which the prototype
+/// never meets because its screen is at least 720px wide.
 class AppearanceSection extends StatelessWidget {
   /// Creates the appearance picker section.
   const AppearanceSection({super.key});
@@ -27,6 +30,8 @@ class AppearanceSection extends StatelessWidget {
           sl<AppearanceSectionViewModel>(param1: store),
       builder: (BuildContext context, AppearanceSectionViewModel viewModel) {
         final tokens = context.dovahTokens;
+        final DovahAppearanceMetrics metrics = context.dovahAppearanceMetrics;
+
         return Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -35,47 +40,56 @@ class AppearanceSection extends StatelessWidget {
               'Choose your Skyrim atmosphere',
               style: TextStyle(
                 color: tokens.textPrimary,
+                fontSize: DovahAppearanceMetrics.introTitleFontSize,
                 fontWeight: FontWeight.w700,
               ),
             ),
-            const SizedBox(height: 4),
+            const SizedBox(height: DovahAppearanceMetrics.introGap),
             Text(
               'The interface stays familiar, but its material, shape, density and motion change.',
               style: TextStyle(
                 color: tokens.textMuted,
-                fontSize: DovahThemeTokens.compactFontSize,
+                fontSize: DovahAppearanceMetrics.introBodyFontSize,
+                height: DovahAppearanceMetrics.introBodyLineHeight,
               ),
             ),
-            const SizedBox(height: 16),
+            SizedBox(height: metrics.introBottomGap),
             LayoutBuilder(
               builder: (BuildContext context, BoxConstraints constraints) {
-                const double columnPadding = 6;
-                const double columnGap = columnPadding * 2;
-                final int columnCount =
-                    (constraints.maxWidth /
-                            (appearancePresetCardMinimumWidth + columnGap))
-                        .floor()
-                        .clamp(1, DovahThemePreset.values.length)
-                        .toInt();
-                final double columnWidth = constraints.maxWidth / columnCount;
+                final int columns = metrics.columnsFor(constraints.maxWidth);
+                const List<DovahThemePreset> presets = DovahThemePreset.values;
 
-                return Wrap(
-                  runSpacing: columnGap,
+                return Column(
+                  spacing: metrics.gridGap,
                   children: [
-                    for (final DovahThemePreset preset
-                        in DovahThemePreset.values)
-                      SizedBox(
-                        width: columnWidth,
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: columnPadding,
-                          ),
-                          child: AppearancePresetCard(
-                            key: Key('appearance-preset-card-${preset.name}'),
-                            preset: preset,
-                            selected: preset == viewModel.activePreset,
-                            onTap: () => viewModel.onSelectPreset(preset),
-                          ),
+                    for (
+                      int start = 0;
+                      start < presets.length;
+                      start += columns
+                    )
+                      IntrinsicHeight(
+                        child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          spacing: metrics.gridGap,
+                          children: [
+                            for (int slot = 0; slot < columns; slot++)
+                              Expanded(
+                                child: start + slot < presets.length
+                                    ? AppearancePresetCard(
+                                        key: Key(
+                                          'appearance-preset-card-${presets[start + slot].name}',
+                                        ),
+                                        preset: presets[start + slot],
+                                        selected:
+                                            presets[start + slot] ==
+                                            viewModel.activePreset,
+                                        onTap: () => viewModel.onSelectPreset(
+                                          presets[start + slot],
+                                        ),
+                                      )
+                                    : const SizedBox.shrink(),
+                              ),
+                          ],
                         ),
                       ),
                   ],

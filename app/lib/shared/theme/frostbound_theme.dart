@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_appearance_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
@@ -38,13 +40,12 @@ ThemeData buildFrostboundTheme() {
     cornerRadius: 0,
     cornerCutSize: 9,
     displayFontFamily: 'Arial Narrow',
+    displayFontFamilyFallback: ['Impact'],
     eyebrow: Color(0xFFBD5559),
     pageTitleLineHeight: 1.0,
     rootHeaderRuleFraction: 0.2,
     uppercaseLabels: true,
     preset: DovahThemePreset.frostbound,
-    backdropColor: Color(0xC7000204),
-    backdropBlurSigma: 7,
     panelCornerRadius: 0,
     primaryActionCornerRadius: 0,
     statusOffline: Color(0xFF7C8993),
@@ -52,6 +53,7 @@ ThemeData buildFrostboundTheme() {
     brandAccent: Color(0xFFA9C7D1),
     barTrack: Color(0xFF1B2931),
     markIcon: Color(0xFFBD5559),
+    iconTileForeground: Color(0xFFA9C7D1),
     panelNote: Color(0xFF929DA2),
     heroScrim: LinearGradient(
       begin: Alignment.centerLeft,
@@ -69,6 +71,8 @@ ThemeData buildFrostboundTheme() {
 
   return ThemeData(
     brightness: Brightness.dark,
+    fontFamily: DovahThemeTokens.bodyFontFamily,
+    fontFamilyFallback: DovahThemeTokens.bodyFontFamilyFallback,
     scaffoldBackgroundColor: tokens.background,
     colorScheme: ColorScheme.dark(
       surface: tokens.surface,
@@ -81,6 +85,8 @@ ThemeData buildFrostboundTheme() {
       tokens,
       DovahRootThemeMetrics.frostbound,
       DovahConnectionCardThemeMetrics.frostbound,
+      DovahDialogThemeMetrics.frostbound,
+      DovahAppearanceThemeMetrics.frostbound,
       DovahPageThemeMetrics.frostbound,
       DovahSessionThemeMetrics.frostbound,
       DovahOverviewThemeMetrics.frostbound,

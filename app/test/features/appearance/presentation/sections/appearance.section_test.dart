@@ -109,7 +109,7 @@ void main() {
     testWidgets(
       'AppearanceSection lays out preset cards at large text scale on a narrow surface',
       (WidgetTester tester) async {
-        await tester.binding.setSurfaceSize(const Size(320, 900));
+        await tester.binding.setSurfaceSize(const Size(320, 2400));
         addTearDown(() => tester.binding.setSurfaceSize(null));
         await tester.pumpWidget(
           buildWidget(textScaler: const TextScaler.linear(2)),
@@ -125,7 +125,7 @@ void main() {
           expect(cardRect.left, greaterThanOrEqualTo(0));
           expect(cardRect.top, greaterThanOrEqualTo(0));
           expect(cardRect.right, lessThanOrEqualTo(320));
-          expect(cardRect.bottom, lessThanOrEqualTo(900));
+          expect(cardRect.bottom, lessThanOrEqualTo(2400));
         }
       },
     );
@@ -190,6 +190,133 @@ void main() {
         await tester.tap(find.text(DovahThemePreset.hearth.label));
 
         expect(selectedPresets, [DovahThemePreset.hearth]);
+      },
+    );
+  });
+
+  group('AppearanceSection lays out the prototype grid', () {
+    Rect cardRect(WidgetTester tester, DovahThemePreset preset) => tester
+        .getRect(find.byKey(Key('appearance-preset-card-${preset.name}')));
+
+    for (final (Size size, double gap) in [
+      (const Size(1280, 720), 11.0),
+      (const Size(900, 621), 11.0),
+      (const Size(900, 620), 8.0),
+      (const Size(720, 480), 8.0),
+    ]) {
+      testWidgets(
+        'AppearanceSection puts the three cards in one row $gap apart at $size',
+        (WidgetTester tester) async {
+          tester.view.physicalSize = size * tester.view.devicePixelRatio;
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(buildWidget());
+          final Rect frostbound = cardRect(tester, DovahThemePreset.frostbound);
+          final Rect dovah = cardRect(tester, DovahThemePreset.dovah);
+          final Rect hearth = cardRect(tester, DovahThemePreset.hearth);
+
+          expect(frostbound.top, dovah.top);
+          expect(dovah.top, hearth.top);
+          expect(dovah.left - frostbound.right, closeTo(gap, 0.01));
+          expect(hearth.left - dovah.right, closeTo(gap, 0.01));
+          expect(frostbound.width, closeTo(dovah.width, 0.01));
+          expect(dovah.width, closeTo(hearth.width, 0.01));
+        },
+      );
+    }
+
+    testWidgets('AppearanceSection gives every card in a row the same height', (
+      WidgetTester tester,
+    ) async {
+      tester.view.physicalSize =
+          const Size(700, 900) * tester.view.devicePixelRatio;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(buildWidget());
+
+      expect(
+        cardRect(tester, DovahThemePreset.frostbound).height,
+        cardRect(tester, DovahThemePreset.hearth).height,
+      );
+      expect(
+        cardRect(tester, DovahThemePreset.dovah).height,
+        cardRect(tester, DovahThemePreset.hearth).height,
+      );
+    });
+
+    testWidgets('AppearanceSection sizes its introduction like the prototype', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildWidget());
+      final Text title = tester.widget(
+        find.text('Choose your Skyrim atmosphere'),
+      );
+      final Text body = tester.widget(
+        find.text(
+          'The interface stays familiar, but its material, shape, density and motion change.',
+        ),
+      );
+
+      expect(title.style?.fontSize, 16);
+      expect(title.style?.fontWeight, FontWeight.w700);
+      expect(body.style?.fontSize, 13);
+      expect(body.style?.height, 1.4);
+    });
+
+    for (final (Size size, double gap) in [
+      (const Size(1280, 720), 16.0),
+      (const Size(1280, 560), 10.0),
+    ]) {
+      testWidgets(
+        'AppearanceSection leaves $gap between its introduction and the cards at $size',
+        (WidgetTester tester) async {
+          tester.view.physicalSize = size * tester.view.devicePixelRatio;
+          addTearDown(tester.view.reset);
+          await tester.pumpWidget(buildWidget());
+
+          expect(
+            cardRect(tester, DovahThemePreset.frostbound).top -
+                tester
+                    .getRect(
+                      find.text(
+                        'The interface stays familiar, but its material, shape, density and motion change.',
+                      ),
+                    )
+                    .bottom,
+            closeTo(gap, 0.5),
+          );
+        },
+      );
+    }
+
+    testWidgets(
+      'AppearanceSection drops to two columns and a wrapped row when narrow',
+      (WidgetTester tester) async {
+        tester.view.physicalSize =
+            const Size(420, 1600) * tester.view.devicePixelRatio;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(buildWidget());
+
+        final Rect frostbound = cardRect(tester, DovahThemePreset.frostbound);
+        final Rect dovah = cardRect(tester, DovahThemePreset.dovah);
+        final Rect hearth = cardRect(tester, DovahThemePreset.hearth);
+        expect(frostbound.top, dovah.top);
+        expect(hearth.top, greaterThan(frostbound.bottom));
+        expect(hearth.left, frostbound.left);
+        expect(hearth.width, closeTo(frostbound.width, 0.01));
+      },
+    );
+
+    testWidgets(
+      'AppearanceSection stacks the cards in one column when very narrow',
+      (WidgetTester tester) async {
+        tester.view.physicalSize =
+            const Size(320, 2400) * tester.view.devicePixelRatio;
+        addTearDown(tester.view.reset);
+        await tester.pumpWidget(buildWidget());
+
+        final Rect frostbound = cardRect(tester, DovahThemePreset.frostbound);
+        final Rect dovah = cardRect(tester, DovahThemePreset.dovah);
+        expect(dovah.top, greaterThan(frostbound.bottom));
+        expect(dovah.left, frostbound.left);
       },
     );
   });
