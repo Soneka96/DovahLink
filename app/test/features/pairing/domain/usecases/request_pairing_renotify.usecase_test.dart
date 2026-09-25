@@ -21,29 +21,35 @@ void main() {
   });
 
   group('Usecase RequestPairingRenotifyUseCase returns the correct value', () {
-    test('returns Right with null when renotify succeeds', () async {
-      when(
-        () => mockRepository.requestPairingRenotify(),
-      ).thenAnswer((_) async => const Right(null));
+    test(
+      'RequestPairingRenotifyUseCase returns Host retry seconds after success',
+      () async {
+        when(
+          () => mockRepository.requestPairingRenotify(),
+        ).thenAnswer((_) async => const Right(5));
 
-      final Either<Failure, int?> result = await useCase(NoParams());
+        final Either<Failure, int?> result = await useCase(NoParams());
 
-      expect(result, const Right(null));
-      verify(() => mockRepository.requestPairingRenotify()).called(1);
-      verifyNoMoreInteractions(mockRepository);
-    });
+        expect(result, const Right(5));
+        verify(() => mockRepository.requestPairingRenotify()).called(1);
+        verifyNoMoreInteractions(mockRepository);
+      },
+    );
 
-    test('returns Right with cooldown seconds when in cooldown', () async {
-      when(
-        () => mockRepository.requestPairingRenotify(),
-      ).thenAnswer((_) async => const Right(5));
+    test(
+      'RequestPairingRenotifyUseCase returns cooldown seconds when retry is blocked',
+      () async {
+        when(
+          () => mockRepository.requestPairingRenotify(),
+        ).thenAnswer((_) async => const Right(3));
 
-      final Either<Failure, int?> result = await useCase(NoParams());
+        final Either<Failure, int?> result = await useCase(NoParams());
 
-      expect(result, const Right(5));
-      verify(() => mockRepository.requestPairingRenotify()).called(1);
-      verifyNoMoreInteractions(mockRepository);
-    });
+        expect(result, const Right(3));
+        verify(() => mockRepository.requestPairingRenotify()).called(1);
+        verifyNoMoreInteractions(mockRepository);
+      },
+    );
 
     test('returns Left with PairingFailure when repository fails', () async {
       const PairingFailure failure = PairingFailure('no challenge active');

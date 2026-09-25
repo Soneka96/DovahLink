@@ -29,7 +29,8 @@ abstract interface class IPairingRemoteDataSource {
   Future<Either<Failure, Unit>> disconnect();
 
   /// Requests redisplay of the active pairing code in Skyrim.
-  /// Returns cooldown seconds if in cooldown, null if succeeded.
+  /// Returns Host-reported retry seconds, including the cooldown that starts after
+  /// successful redisplay.
   Future<Either<Failure, int?>> requestPairingRenotify();
 
   /// Cancels the owned active pairing challenge or pending credential.
@@ -204,7 +205,9 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     try {
       final renotifyResult = await _client.requestPairingRenotify();
       return switch (renotifyResult.status) {
-        PairingRenotifyStatus.renotified => const Right(null),
+        PairingRenotifyStatus.renotified => Right(
+          renotifyResult.retryAfterSeconds,
+        ),
         PairingRenotifyStatus.cooldown => Right(
           renotifyResult.retryAfterSeconds,
         ),

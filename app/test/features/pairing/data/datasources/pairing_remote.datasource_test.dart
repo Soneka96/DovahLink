@@ -809,18 +809,19 @@ void main() {
 
   group('Method requestPairingRenotify behaves correctly', () {
     test(
-      'Method requestPairingRenotify returns Right with null when the code was redisplayed',
+      'Method requestPairingRenotify returns Host retry seconds after successful redisplay',
       () async {
         when(() => mockClient.requestPairingRenotify()).thenAnswer(
           (_) async => const PairingRenotifyResult(
             status: PairingRenotifyStatus.renotified,
+            retryAfterSeconds: 5,
           ),
         );
 
         final Either<Failure, int?> result = await dataSource
             .requestPairingRenotify();
 
-        expect(result, const Right<Failure, int?>(null));
+        expect(result, const Right<Failure, int?>(5));
       },
     );
 
