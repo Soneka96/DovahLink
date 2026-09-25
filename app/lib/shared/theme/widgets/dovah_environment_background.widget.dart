@@ -1,16 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
-import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_layers_painter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_scene.widget.dart';
 
-/// The DovahLink application canvas's atmospheric background: the theme's environment image
-/// (Frostbound, Hearth) or a pure gradient atmosphere (Dovah has no environment image), with a
-/// scrim toward the theme's background color so foreground content stays legible. Translates the
-/// approved prototype's `body::before`/`::after` atmosphere layers into an explicit background
-/// [Stack] layer rather than CSS pseudo-elements. This uses one representative scrim gradient per
-/// theme's background color rather than the prototype's bespoke per-theme radial-gradient
-/// recipe and `grayscale`/`saturate`/`contrast` image filters, which have no direct Flutter
-/// equivalent; a disclosed simplification, not a redesign.
+/// Paints the active theme's complete canvas atmosphere behind [child]. The optional environment
+/// image and main atmosphere layers share the recipe's color filter; haze layers and application
+/// content are painted afterward without that filter.
 class DovahEnvironmentBackground extends StatelessWidget {
   /// Creates the atmospheric background behind [child].
   const DovahEnvironmentBackground({required this.child, super.key});
@@ -22,35 +18,28 @@ class DovahEnvironmentBackground extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
-    final String? environmentAssetPath =
-        context.dovahMaterials.atmosphere.imageAssetPath;
+    final atmosphere = context.dovahMaterials.atmosphere;
 
     return Stack(
       fit: StackFit.expand,
       children: [
         ColoredBox(color: tokens.background),
-        if (environmentAssetPath != null)
-          Positioned.fill(
-            child: Image.asset(environmentAssetPath, fit: BoxFit.cover),
-          ),
         Positioned.fill(
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              gradient: LinearGradient(
-                begin: Alignment.topCenter,
-                end: Alignment.bottomCenter,
-                colors: [
-                  tokens.background.withValues(
-                    alpha: DovahThemeTokens.environmentTopScrimOpacity,
-                  ),
-                  tokens.background.withValues(
-                    alpha: DovahThemeTokens.environmentBottomScrimOpacity,
-                  ),
-                ],
+          child: DovahScene(
+            imageAssetPath: atmosphere.imageAssetPath,
+            imageFilter: atmosphere.imageFilter,
+            layers: atmosphere.layers,
+          ),
+        ),
+        if (atmosphere.hazeLayers.isNotEmpty)
+          Positioned.fill(
+            child: CustomPaint(
+              painter: DovahLayersPainter(
+                layers: atmosphere.hazeLayers,
+                opacity: atmosphere.hazeOpacity,
               ),
             ),
           ),
-        ),
         child,
       ],
     );
