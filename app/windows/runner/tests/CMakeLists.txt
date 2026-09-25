@@ -1,0 +1,13 @@
+add_executable(window_lifecycle_tests
+  "window_lifecycle_tests.cpp"
+  "../window_lifecycle_state.cpp"
+)
+
+target_compile_features(window_lifecycle_tests PRIVATE cxx_std_17)
+target_compile_definitions(window_lifecycle_tests PRIVATE "NOMINMAX")
+target_include_directories(window_lifecycle_tests PRIVATE "..")
+if(MSVC)
+  target_compile_options(window_lifecycle_tests PRIVATE /W4 /WX)
+endif()
+
+add_test(NAME window_lifecycle_tests COMMAND window_lifecycle_tests)
