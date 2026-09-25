@@ -17,12 +17,6 @@ final Uri defaultHostUri = Uri.parse('ws://127.0.0.1:58231/');
 /// || 'dovah'`).
 const DovahThemePreset defaultThemePreset = DovahThemePreset.dovah;
 
-/// Minimum width of an appearance-preset card before it wraps to another row.
-const double appearancePresetCardMinimumWidth = 160;
-
-/// Size of the selected-preset indicator.
-const double appearanceSelectionIconSize = 20;
-
 // ---- Theme assets ----
 
 /// The Frostbound preset's environment image, used by its canvas atmosphere and its appearance

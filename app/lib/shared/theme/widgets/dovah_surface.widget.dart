@@ -37,6 +37,11 @@ class DovahSurface extends StatelessWidget {
   /// surface's corner style is a bevel.
   final double? cornerCutSize;
 
+  /// Paints the surface with this material instead of the [role]'s, for a component whose recipe is
+  /// not one of the role materials (an appearance-preset card's own material). The [role] still
+  /// decides the default corner treatment.
+  final DovahMaterial? material;
+
   /// Paints beneath [child], inside the clipped surface and above the material, or `null` for
   /// nothing (a connection card's decoration).
   final CustomPainter? underlay;
@@ -64,6 +69,7 @@ class DovahSurface extends StatelessWidget {
     this.underlay,
     this.overlay,
     this.borderColor,
+    this.material,
     super.key,
   });
 
@@ -79,7 +85,8 @@ class DovahSurface extends StatelessWidget {
     final double radius = cornerRadius ?? tokens.cornerRadius;
     final double cut = cornerCutSize ?? tokens.cornerCutSize;
 
-    final DovahMaterial roleMaterial = context.dovahMaterials.forRole(role);
+    final DovahMaterial roleMaterial =
+        material ?? context.dovahMaterials.forRole(role);
     final DovahMaterial baseMaterial = castsShadow
         ? roleMaterial
         : roleMaterial.withoutShadow();

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
@@ -276,6 +277,46 @@ void main() {
             matching: find.byType(CustomPaint),
           ),
           findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'DovahSurface paints a given material instead of the role material',
+      (WidgetTester tester) async {
+        final DovahMaterial custom = DovahThemeMaterials.frostbound.icon;
+        await pumpDovahThemedWidget(
+          tester,
+          DovahSurface(material: custom, child: const Text('Custom')),
+          preset: DovahThemePreset.hearth,
+          size: dovahTestSizes.first,
+        );
+
+        expect(findSurfacePainter(tester).material, custom);
+        expect(
+          findSurfacePainter(tester).material,
+          isNot(DovahThemeMaterials.hearth.surface),
+        );
+      },
+    );
+
+    testWidgets(
+      'DovahSurface keeps the role outline when it paints a given material',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          DovahSurface(
+            role: DovahMaterialRole.icon,
+            material: DovahThemeMaterials.dovah.surface,
+            child: const Text('Custom'),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(
+          findSurfacePainter(tester).cornerStyle,
+          DovahPanelCornerStyle.rounded,
         );
       },
     );

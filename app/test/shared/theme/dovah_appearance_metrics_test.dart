@@ -113,6 +113,50 @@ void main() {
     });
   });
 
+  group('Method columnsFor behaves correctly', () {
+    DovahAppearanceMetrics metricsAt(double height) =>
+        DovahAppearanceMetrics.forWindow(
+          themeMetrics: DovahAppearanceThemeMetrics.dovah,
+          window: Size(1280, height),
+        );
+
+    test('Property cardMinimumWidth is the 160px readability floor', () {
+      expect(DovahAppearanceMetrics.cardMinimumWidth, isA<double>());
+      expect(DovahAppearanceMetrics.cardMinimumWidth, 160);
+    });
+
+    test('Method columnsFor gives three columns at desktop widths', () {
+      expect(metricsAt(720).columnsFor(589), 3);
+      expect(metricsAt(720).columnsFor(2000), 3);
+    });
+
+    test(
+      'Method columnsFor keeps three columns down to three minimum widths and gaps',
+      () {
+        // 3 * 160 + 2 * 11 = 502
+        expect(metricsAt(720).columnsFor(502), 3);
+        expect(metricsAt(720).columnsFor(501.9), 2);
+      },
+    );
+
+    test(
+      'Method columnsFor gives two columns and then one as the width narrows',
+      () {
+        // 2 * 160 + 11 = 331
+        expect(metricsAt(720).columnsFor(331), 2);
+        expect(metricsAt(720).columnsFor(330.9), 1);
+        expect(metricsAt(720).columnsFor(100), 1);
+        expect(metricsAt(720).columnsFor(0), 1);
+      },
+    );
+
+    test('Method columnsFor uses the compact gap at compact heights', () {
+      // 3 * 160 + 2 * 8 = 496
+      expect(metricsAt(560).columnsFor(496), 3);
+      expect(metricsAt(560).columnsFor(495.9), 2);
+    });
+  });
+
   group('Behavior equality behaves correctly', () {
     test('Behavior equality holds for the same resolved measurements', () {
       final DovahAppearanceMetrics first = DovahAppearanceMetrics.forWindow(

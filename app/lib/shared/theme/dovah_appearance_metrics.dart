@@ -17,6 +17,11 @@ class DovahAppearanceMetrics extends Equatable {
   /// Number of preset cards per row (the prototype's `.preset-grid` `repeat(3,1fr)`).
   static const int columnCount = 3;
 
+  /// The narrowest a card may get before the grid gives it fewer columns. An accessibility and
+  /// readability floor, not a prototype value: the prototype's screen never gets narrower than
+  /// 720px, so its grid always has [columnCount] columns.
+  static const double cardMinimumWidth = 160;
+
   /// Font size of a card's title (the prototype's `.preset-copy>b`).
   static const double titleFontSize = 15;
 
@@ -122,6 +127,15 @@ class DovahAppearanceMetrics extends Equatable {
     required this.cornerCutSize,
     required this.cornerRadius,
   });
+
+  /// Returns how many cards fit in a row of [width]: [columnCount] whenever each card keeps at
+  /// least [cardMinimumWidth], and fewer only in a very narrow or heavily scaled surface.
+  int columnsFor(double width) {
+    final int fitting = ((width + gridGap) / (cardMinimumWidth + gridGap))
+        .floor();
+
+    return fitting.clamp(1, columnCount);
+  }
 
   /// Resolves the measurements for a window of size [window] from [themeMetrics], the active
   /// theme's (possibly mid-transition) card outline. Only the compact height selects other
