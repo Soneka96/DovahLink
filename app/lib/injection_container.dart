@@ -1,3 +1,5 @@
+import 'package:flutter/services.dart';
+
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
 import 'package:redux/redux.dart';
@@ -10,6 +12,7 @@ import 'package:dovahlink_client/features/pairing/pairing.injection_container.da
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
 
 /// Global service locator used by registered application dependencies.
 final GetIt sl = GetIt.instance;
@@ -35,5 +38,13 @@ Future<void> initDependencies() async {
   });
   initConnectionDependencies();
   initPairingDependencies();
+  sl.registerLazySingleton<IAppShutdownService>(
+    () => AppShutdownService(
+      pairingMiddleware: sl(),
+      disconnectUseCase: sl(),
+      windowChannel: const MethodChannel('dovahlink/window_lifecycle'),
+    ),
+  );
   initAppearanceDependencies();
+  sl<IAppShutdownService>().registerWindowCloseHandler();
 }

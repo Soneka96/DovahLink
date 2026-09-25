@@ -11,6 +11,11 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ## [Unreleased]
 
+### Fixed
+
+- Closing the Windows app waits for app-owned retry cleanup and SDK client disconnect before the
+  Flutter engine is destroyed.
+
 ### Added
 
 - Connection cards rise and take the raised material when hovered, and wear each theme's

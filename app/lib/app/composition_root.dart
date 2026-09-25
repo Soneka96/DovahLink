@@ -35,7 +35,7 @@ class AppCompositionRoot {
       (DovahThemePreset preset) => preset,
     );
     return const CreateStore()(
-      middleware: [PairingMiddleware().call, AppearanceMiddleware().call],
+      middleware: [sl<IPairingMiddleware>().call, AppearanceMiddleware().call],
       initialState: AppState.initial(
         appearance: AppearanceState(activePreset: preset),
       ),
