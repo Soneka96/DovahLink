@@ -14,6 +14,10 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ## [Unreleased]
 
+### Changed
+
+- Pairing outcomes now expose Host-calculated attempts remaining and the committed renotify cooldown.
+
 ## [0.5.0] - 2026-09-24
 
 ### Changed

@@ -20,8 +20,15 @@ public sealed record PairingOutcomePayload
     public string? DisplayName { get; init; }
 
     /// <summary>
-    /// The minimum safe number of whole seconds to wait before retrying, rounded up. Present only for
-    /// <c>pacing_limited</c> and <c>renotify_cooldown</c>.
+    /// The Host-calculated remaining count after a counted <c>invalid</c> result; <see langword="null"/>
+    /// when no wrong attempt was counted or for another outcome.
+    /// </summary>
+    public int? AttemptsRemaining { get; init; }
+
+    /// <summary>
+    /// The Host-authoritative whole seconds until retry is safe, rounded up. Present for
+    /// <c>pacing_limited</c>, <c>renotify_cooldown</c>, and the newly committed cooldown on
+    /// <c>renotified</c>.
     /// </summary>
     public int? RetryAfterSeconds { get; init; }
 }

@@ -138,8 +138,9 @@ public interface IPairingCoordinator
     /// <paramref name="challengeId"/>.
     /// </param>
     /// <returns>
-    /// <see cref="PairingRenotifyOutcome.Renotified"/> once the cooldown is committed against this
-    /// exact reservation; <see cref="PairingRenotifyOutcome.AlreadyIdle"/> without any state change if
+    /// <see cref="PairingRenotifyOutcome.Renotified"/> with the newly committed cooldown duration
+    /// once the cooldown is applied against this exact reservation;
+    /// <see cref="PairingRenotifyOutcome.AlreadyIdle"/> without any state change if
     /// <paramref name="challengeId"/> or <paramref name="claimId"/> no longer matches the current
     /// outstanding reservation -- including when a replacement challenge for the same
     /// <paramref name="clientId"/> is now active.
@@ -468,7 +469,8 @@ public sealed class PairingCoordinator : IPairingCoordinator
                         null,
                         null,
                         ShouldAutoRenotify: shouldAutoRenotify,
-                        AutoRenotifyCode: shouldAutoRenotify ? challenge.Code : null);
+                        AutoRenotifyCode: shouldAutoRenotify ? challenge.Code : null,
+                        AttemptsRemaining: Constants.PairingMaxWrongAttempts - wrongAttempts);
                 }
 
                 if (challenge.SecurityFenceGeneration != trustStore.SecurityFenceGeneration)
@@ -884,6 +886,7 @@ public sealed class PairingCoordinator : IPairingCoordinator
                 if (evaluation.Outcome == PairingRenotifyOutcome.Renotified)
                 {
                     renotifyCooldownUntilUtc = now + Constants.PairingRenotifyCooldown;
+                    return evaluation with { RetryAfter = renotifyCooldownUntilUtc - now };
                 }
 
                 return evaluation;

@@ -434,6 +434,7 @@ Shared host reply to both `pairing_confirm` and `pairing_ack`, distinguished by 
   "credential": "redacted-in-documentation",
   "shortId": "12345",
   "displayName": "My PC",
+  "attemptsRemaining": null,
   "retryAfterSeconds": null
 }
 ```
@@ -461,13 +462,21 @@ Shared host reply to both `pairing_confirm` and `pairing_ack`, distinguished by 
 `credential` is present only for `"credential_issued"`, `"trusted"`, and `"already_trusted"`.
 `shortId` (an administration-only identifier, not a trust credential) is present only for `"trusted"`
 and `"already_trusted"`. `displayName` echoes the client-supplied label and is present only alongside
-`credential`/`shortId` when the client supplied one. `retryAfterSeconds` is the minimum safe number of
-whole seconds to wait before retrying, rounded upward whenever a positive fractional wait remains.
-It is present for `"pacing_limited"` (next evaluated `pairing_confirm` attempt) and
-`"renotify_cooldown"` (next manual `pairing_renotify`).
+`credential`/`shortId` when the client supplied one. `retryAfterSeconds` is the Host-authoritative
+number of whole seconds until the relevant operation may safely be retried, rounded upward whenever
+a positive fractional wait remains. It is present for `"pacing_limited"` (next evaluated
+`pairing_confirm` attempt), `"renotify_cooldown"` (next manual `pairing_renotify`), and
+`"renotified"` (the cooldown that just began after the Adapter accepted the redisplay and the Host
+committed it).
 
-Required payload field: `outcome`. `credential`, `shortId`, `displayName`, and `retryAfterSeconds`
-are always present in the payload as `null` unless the note above says otherwise.
+`attemptsRemaining` is the Host-authoritative number of wrong-code attempts remaining after an
+`"invalid"` result that counted a wrong code against the caller's active challenge. It is `null`
+when `"invalid"` did not count an attempt (for example, no owned challenge or an uncommitted initial
+display), and for every other outcome, including `"hard_limit_reached"`. Clients must not derive
+this value from a locally configured maximum.
+
+Required payload field: `outcome`. `credential`, `shortId`, `displayName`, `attemptsRemaining`, and
+`retryAfterSeconds` are always present in the payload as `null` unless the note above says otherwise.
 
 `pairing_outcome.correlationId` is the `messageId` of the `pairing_confirm`, `pairing_ack`,
 `pairing_renotify`, or `pairing_cancel` it answers.

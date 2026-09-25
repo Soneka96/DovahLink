@@ -8,7 +8,8 @@
     "credential": null,
     "shortId": null,
     "displayName": null,
-    "retryAfterSeconds": null
+    "attemptsRemaining": null,
+    "retryAfterSeconds": 5
   },
   "playContextId": null,
   "clientId": null

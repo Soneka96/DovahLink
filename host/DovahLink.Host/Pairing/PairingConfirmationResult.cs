@@ -19,6 +19,10 @@ namespace DovahLink.Host.Pairing;
 /// without a separate, later status read that could race a challenge replacement and redisplay a
 /// different challenge's code under this attempt's "wrong code" presentation.
 /// </param>
+/// <param name="AttemptsRemaining">
+/// The Host-calculated number of wrong-code attempts remaining after a counted invalid code, or
+/// <see langword="null"/> when the attempt was not counted or no active challenge remains.
+/// </param>
 public sealed record PairingConfirmationResult(
     PairingConfirmOutcome Outcome,
     ClientId? ClientId,
@@ -27,4 +31,5 @@ public sealed record PairingConfirmationResult(
     string? DisplayName = null,
     TimeSpan? RetryAfter = null,
     bool ShouldAutoRenotify = false,
-    string? AutoRenotifyCode = null);
+    string? AutoRenotifyCode = null,
+    int? AttemptsRemaining = null);
