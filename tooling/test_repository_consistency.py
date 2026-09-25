@@ -1943,13 +1943,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
         client_source = self._read(
             "sdk/dart/dovahlink_client/lib/src/dovahlink_client.dart"
         )
-        public_constructor = client_source.split("DovahLinkClient({", 1)[1].split(
-            "factory DovahLinkClient.windows()", 1
-        )[0]
+        constructor_parameters = client_source.split("DovahLinkClient({", 1)[
+            1
+        ].partition("})\n    : this._build(")
+        self.assertTrue(
+            constructor_parameters[1], "Public constructor boundary was not found"
+        )
+        public_constructor = constructor_parameters[0]
 
         self.assertNotIn("IDovahLinkTransport", public_api)
         self.assertNotIn("transport/websocket_transport.dart", public_api)
         self.assertNotIn("buildDovahLinkClientForTesting", public_api)
+        self.assertIn("required IClientStorage storage", public_constructor)
         self.assertNotIn("IDovahLinkTransport", public_constructor)
 
         sdk_root = REPOSITORY_ROOT / "sdk" / "dart" / "dovahlink_client"
