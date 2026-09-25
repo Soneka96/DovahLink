@@ -33,4 +33,27 @@ void main() {
       expect(appearanceSelectionIconSize, 20);
     });
   });
+
+  group('Property theme asset constants behave correctly', () {
+    test(
+      'Property theme asset constants point at the bundled theme images',
+      () {
+        expect(frostboundEnvironmentAsset, isA<String>());
+        expect(
+          frostboundEnvironmentAsset,
+          'assets/themes/frostbound/frostbound-environment.png',
+        );
+        expect(dovahConnectionHeroAsset, isA<String>());
+        expect(
+          dovahConnectionHeroAsset,
+          'assets/themes/dovah/dovahlink-connection-hero.png',
+        );
+        expect(hearthEnvironmentAsset, isA<String>());
+        expect(
+          hearthEnvironmentAsset,
+          'assets/themes/hearth/hearth-environment.png',
+        );
+      },
+    );
+  });
 }
