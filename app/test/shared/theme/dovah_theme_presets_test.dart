@@ -442,7 +442,6 @@ void main() {
         expect(tokens, isA<DovahThemeTokens>());
         expect(tokens!.cornerStyle, DovahPanelCornerStyle.doubleBevel);
         expect(tokens.primaryActionForeground, const Color(0xFF1A0E04));
-        expect(tokens.environmentAssetPath, isNull);
         expect(theme.brightness, Brightness.dark);
       },
     );
@@ -666,21 +665,5 @@ void main() {
 
       expect(backgrounds, hasLength(3));
     });
-
-    test(
-      'Behavior distinct presets only Frostbound and Hearth have an environment asset',
-      () {
-        final DovahThemeTokens frostbound = buildFrostboundTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens dovah = buildDovahPresetTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens hearth = buildHearthTheme()
-            .extension<DovahThemeTokens>()!;
-
-        expect(frostbound.environmentAssetPath, isA<String>());
-        expect(dovah.environmentAssetPath, isNull);
-        expect(hearth.environmentAssetPath, isA<String>());
-      },
-    );
   });
 }

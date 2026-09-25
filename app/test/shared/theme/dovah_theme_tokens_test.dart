@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -24,10 +23,6 @@ void main() {
       test('Behavior shared surface constants keep the approved values', () {
         expect(DovahThemeTokens.surfaceBorderWidth, isA<double>());
         expect(DovahThemeTokens.surfaceBorderWidth, 1);
-        expect(DovahThemeTokens.environmentTopScrimOpacity, isA<double>());
-        expect(DovahThemeTokens.environmentTopScrimOpacity, 0.82);
-        expect(DovahThemeTokens.environmentBottomScrimOpacity, isA<double>());
-        expect(DovahThemeTokens.environmentBottomScrimOpacity, 0.55);
       });
     },
   );
@@ -137,48 +132,6 @@ void main() {
       expect(copy.brandAccent, const Color(0xFF070809));
       expect(copy.markIcon, const Color(0xFF0A0B0C));
       expect(original.statusOffline, const Color(0xFF7C8993));
-    });
-
-    test('Method copyWith omits environmentAssetPath when not passed', () {
-      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens(
-        environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
-      );
-
-      final DovahThemeTokens copy = original.copyWith();
-
-      expect(copy.environmentAssetPath, isA<String>());
-      expect(
-        copy.environmentAssetPath,
-        'assets/themes/hearth/hearth-environment.png',
-      );
-    });
-
-    test('Method copyWith sets environmentAssetPath from Option.of', () {
-      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
-
-      final DovahThemeTokens copy = original.copyWith(
-        environmentAssetPath: const Option.of(
-          'assets/themes/frostbound/frostbound-environment.png',
-        ),
-      );
-
-      expect(copy.environmentAssetPath, isA<String>());
-      expect(
-        copy.environmentAssetPath,
-        'assets/themes/frostbound/frostbound-environment.png',
-      );
-    });
-
-    test('Method copyWith clears environmentAssetPath from Option.none', () {
-      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens(
-        environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
-      );
-
-      final DovahThemeTokens copy = original.copyWith(
-        environmentAssetPath: const Option.none(),
-      );
-
-      expect(copy.environmentAssetPath, isNull);
     });
   });
 
@@ -438,15 +391,6 @@ void main() {
       );
       final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
         displayFontFamily: 'Arial Narrow',
-      );
-
-      expect(first, isNot(second));
-    });
-
-    test('Behavior equality fails when environmentAssetPath differs', () {
-      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
-      final DovahThemeTokens second = Fixtures.buildDovahThemeTokens(
-        environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
       );
 
       expect(first, isNot(second));

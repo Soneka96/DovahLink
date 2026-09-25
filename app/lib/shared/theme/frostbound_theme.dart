@@ -38,7 +38,6 @@ ThemeData buildFrostboundTheme() {
     cornerRadius: 0,
     cornerCutSize: 9,
     displayFontFamily: 'Arial Narrow',
-    environmentAssetPath: 'assets/themes/frostbound/frostbound-environment.png',
     eyebrow: Color(0xFFBD5559),
     pageTitleLineHeight: 1.0,
     rootHeaderRuleFraction: 0.2,

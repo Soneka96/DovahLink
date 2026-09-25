@@ -39,7 +39,6 @@ ThemeData buildDovahPresetTheme() {
     cornerRadius: 3,
     cornerCutSize: 12,
     displayFontFamily: 'Georgia',
-    environmentAssetPath: null,
     eyebrow: Color(0xFFE2A55E),
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.36,

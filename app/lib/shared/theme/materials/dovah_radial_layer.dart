@@ -7,10 +7,10 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_gradient_colors.da
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
 
 /// A radial highlight, stain, speck, or ring pattern (the prototype's `radial-gradient(... at X% Y%,
-/// ...)`). With a [radius] it is a circle of that many logical pixels. Without one it reaches the
-/// surface's farthest corner, as an ellipse (CSS `ellipse farthest-corner`) or, when [circular], as
-/// a circle (CSS `circle farthest-corner`), so one recipe covers wide and tall surfaces alike;
-/// [stops] are fractions of that extent.
+/// ...)`). Its extent is either a [radius] in logical pixels or, without one, the surface's farthest
+/// corner, so one recipe covers wide and tall surfaces alike; [stops] are fractions of that extent.
+/// Its shape is a circle when [circular] and otherwise an ellipse with the proportions of the
+/// farthest sides, as in CSS.
 class DovahRadialLayer extends DovahMaterialLayer {
   /// The smallest radius the layer resolves to, so a zero-sized surface cannot collapse the
   /// gradient's transform.
@@ -25,11 +25,10 @@ class DovahRadialLayer extends DovahMaterialLayer {
   /// The position of each stop as a fraction of the radius, from `0` to `1`.
   final List<double> stops;
 
-  /// The circle's radius in logical pixels, or `null` to reach the farthest corner.
+  /// The horizontal radius in logical pixels, or `null` to reach the farthest corner.
   final double? radius;
 
-  /// Whether a gradient without a [radius] is a circle to the farthest corner instead of an
-  /// ellipse.
+  /// Whether the gradient is a circle instead of an ellipse.
   final bool circular;
 
   /// Whether the gradient repeats every [radius], as the prototype's `repeating-radial-gradient`
@@ -62,11 +61,9 @@ class DovahRadialLayer extends DovahMaterialLayer {
         (circular
             ? math.sqrt(farthestX * farthestX + farthestY * farthestY)
             : farthestX * math.sqrt2);
-    final double radiusY =
-        fixedRadius ??
-        (circular
-            ? math.sqrt(farthestX * farthestX + farthestY * farthestY)
-            : farthestY * math.sqrt2);
+    final double radiusY = circular
+        ? radiusX
+        : radiusX * (farthestX == 0 ? 1 : farthestY / farthestX);
 
     return Gradient.radial(
       Offset.zero,

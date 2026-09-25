@@ -38,7 +38,6 @@ ThemeData buildHearthTheme() {
     cornerRadius: 13,
     cornerCutSize: 0,
     displayFontFamily: 'Georgia',
-    environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
     eyebrow: Color(0xFF945720),
     pageTitleLineHeight: 1.14,
     rootHeaderRuleFraction: 0.52,

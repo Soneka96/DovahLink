@@ -2,19 +2,24 @@ import 'package:flutter/material.dart';
 
 import 'package:equatable/equatable.dart';
 
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_radial_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_tile_layer.dart';
 
-/// The component materials each theme paints its surfaces with, as a [ThemeExtension] installed by
-/// every preset. Each material is one [DovahMaterialRole]'s complete recipe, transcribed from the
-/// approved prototype's `themes.css`; widgets ask for a role and never inspect a recipe.
+/// The visual recipes each theme paints with, as a [ThemeExtension] installed by every preset: one
+/// material per [DovahMaterialRole] and the canvas [atmosphere], all transcribed from the approved
+/// prototype's `themes.css`. Widgets ask for a role or the atmosphere and never inspect a recipe.
 ///
-/// Component texture is separate from canvas atmosphere and from feature artwork: this class owns
-/// only the first. A material's outer shadow is empty wherever the prototype clips the component
+/// Component texture, canvas atmosphere, and feature artwork are three separate things. A material
+/// textures a component and an atmosphere fills the world behind every component; this class holds
+/// those two as distinct recipes and never holds feature artwork, which stays with its feature. A material's outer shadow is empty wherever the prototype clips the component
 /// with `clip-path` (Frostbound and Dovah panels, cards, dialogs, and primary buttons), because CSS
 /// clips `box-shadow` along with the element. Discrete recipes cannot be interpolated, so a theme
 /// transition switches to the next preset's materials at its midpoint.
@@ -207,6 +212,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       ],
       stops: [0, 1 / 1.6, 1],
       radius: 1.6,
+      circular: true,
     ),
     DovahRadialLayer(
       center: Offset(0.16, 0.2),
@@ -217,6 +223,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       ],
       stops: [0, 1 / 1.5, 1],
       radius: 1.5,
+      circular: true,
     ),
   ];
 
@@ -307,6 +314,47 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
       topEdgeHighlight: Color.fromRGBO(255, 255, 255, 0.14),
       borderColor: Color(0xFF7C9099),
     ),
+    atmosphere: DovahAtmosphere(
+      imageAssetPath: frostboundEnvironmentAsset,
+      imageFilter: DovahColorFilter(
+        grayscale: 0.34,
+        saturate: 0.48,
+        contrast: 1.16,
+      ),
+      layers: [
+        DovahLinearLayer(
+          angleDegrees: 180,
+          colors: [Color.fromRGBO(1, 3, 4, 0.7), Color.fromRGBO(1, 3, 4, 0.84)],
+          stops: [0, 1],
+        ),
+      ],
+      hazeLayers: [
+        DovahLinearLayer(
+          angleDegrees: 24,
+          colors: [
+            _clear,
+            _clear,
+            Color.fromRGBO(214, 230, 235, 0.032),
+            _clear,
+          ],
+          stops: [0, 0.72, 0.721, 0.7235],
+        ),
+        DovahLinearLayer(
+          angleDegrees: 112,
+          colors: [
+            _clear,
+            _clear,
+            Color.fromRGBO(214, 230, 235, 0.055),
+            _clear,
+            _clear,
+            Color.fromRGBO(214, 230, 235, 0.038),
+            _clear,
+          ],
+          stops: [0, 0.19, 0.1915, 0.194, 0.64, 0.641, 0.6435],
+        ),
+      ],
+      hazeOpacity: 0.3,
+    ),
   );
 
   /// The Dovah preset's materials, from the prototype's `body.theme-dovah` `--material`,
@@ -368,6 +416,55 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
         ),
       ],
     ),
+    atmosphere: DovahAtmosphere(
+      layers: [
+        DovahLinearLayer(
+          angleDegrees: 120,
+          colors: [Color(0xFF05090E), Color(0xFF09131D), Color(0xFF05090E)],
+          stops: [0, 0.52, 1],
+        ),
+        DovahRadialLayer(
+          center: Offset(0.06, 1.05),
+          colors: [Color.fromRGBO(202, 121, 48, 0.14), _clear],
+          stops: [0, 0.34],
+        ),
+        DovahRadialLayer(
+          center: Offset(0.88, 0),
+          colors: [Color.fromRGBO(39, 114, 157, 0.3), _clear],
+          stops: [0, 0.36],
+        ),
+      ],
+      hazeLayers: [
+        DovahTileLayer(
+          tileSize: Size(90, 90),
+          content: DovahRadialLayer(
+            center: Offset(0.5, 0.5),
+            colors: [
+              Color.fromRGBO(226, 165, 94, 0.18),
+              Color.fromRGBO(226, 165, 94, 0.18),
+              _clear,
+            ],
+            stops: [0, 1 / 1.5, 1],
+            radius: 1.5,
+            circular: true,
+          ),
+        ),
+        DovahTileLayer(
+          tileSize: Size(68, 118),
+          content: DovahLinearLayer(
+            angleDegrees: 120,
+            colors: [
+              _clear,
+              Color.fromRGBO(116, 189, 232, 0.035),
+              Color.fromRGBO(116, 189, 232, 0.035),
+              _clear,
+            ],
+            stops: [0.46, 0.47, 0.48, 0.49],
+          ),
+        ),
+      ],
+      hazeOpacity: 0.32,
+    ),
   );
 
   /// Hearth's materials, from the prototype's `body.theme-hearth` `--material`,
@@ -422,6 +519,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
           ],
           stops: [0, 0.2, 0.2, 1],
           radius: 5,
+          circular: true,
           repeating: true,
         ),
       ],
@@ -463,6 +561,42 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
         ),
       ],
     ),
+    atmosphere: DovahAtmosphere(
+      imageAssetPath: hearthEnvironmentAsset,
+      imageFilter: DovahColorFilter(
+        brightness: 0.92,
+        saturate: 0.92,
+        contrast: 1.06,
+      ),
+      layers: [
+        DovahLinearLayer(
+          angleDegrees: 90,
+          colors: [
+            Color.fromRGBO(208, 183, 146, 0.58),
+            Color.fromRGBO(192, 153, 104, 0.5),
+          ],
+          stops: [0, 1],
+        ),
+      ],
+      hazeLayers: [
+        DovahTileLayer(
+          tileSize: Size(17, 13),
+          content: DovahRadialLayer(
+            center: Offset(0.18, 0.2),
+            colors: [
+              Color.fromRGBO(91, 56, 27, 0.1),
+              Color.fromRGBO(91, 56, 27, 0.1),
+              _clear,
+              _clear,
+            ],
+            stops: [0, 0.2, 0.2, 1],
+            radius: 5,
+            repeating: true,
+          ),
+        ),
+      ],
+      hazeOpacity: 0.34,
+    ),
   );
 
   /// The resting panel, card, and dialog material.
@@ -480,6 +614,9 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
   /// The primary action button material.
   final DovahMaterial primaryAction;
 
+  /// The canvas atmosphere behind the whole application.
+  final DovahAtmosphere atmosphere;
+
   /// Creates a complete material set. Every role is required so no theme can be assembled with an
   /// accidentally missing material.
   const DovahThemeMaterials({
@@ -488,6 +625,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     required this.control,
     required this.icon,
     required this.primaryAction,
+    required this.atmosphere,
   });
 
   /// Returns the material this theme paints [role] with.
@@ -499,7 +637,7 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahMaterialRole.primaryAction => primaryAction,
   };
 
-  /// Returns a copy with selected materials replaced.
+  /// Returns a copy with selected materials or the atmosphere replaced.
   @override
   DovahThemeMaterials copyWith({
     DovahMaterial? surface,
@@ -507,12 +645,14 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
     DovahMaterial? control,
     DovahMaterial? icon,
     DovahMaterial? primaryAction,
+    DovahAtmosphere? atmosphere,
   }) => DovahThemeMaterials(
     surface: surface ?? this.surface,
     raised: raised ?? this.raised,
     control: control ?? this.control,
     icon: icon ?? this.icon,
     primaryAction: primaryAction ?? this.primaryAction,
+    atmosphere: atmosphere ?? this.atmosphere,
   );
 
   /// Switches to [other]'s materials once [t] passes the midpoint; a layered recipe has no
@@ -530,5 +670,12 @@ class DovahThemeMaterials extends ThemeExtension<DovahThemeMaterials>
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [surface, raised, control, icon, primaryAction];
+  List<Object?> get props => [
+    surface,
+    raised,
+    control,
+    icon,
+    primaryAction,
+    atmosphere,
+  ];
 }

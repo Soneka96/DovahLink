@@ -3,7 +3,6 @@ import 'dart:ui' show lerpDouble;
 import 'package:flutter/material.dart';
 
 import 'package:equatable/equatable.dart';
-import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
@@ -24,12 +23,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
 
   /// Border width shared by themed surfaces.
   static const double surfaceBorderWidth = 1;
-
-  /// Opacity of the environment-background scrim at the top edge.
-  static const double environmentTopScrimOpacity = 0.82;
-
-  /// Opacity of the environment-background scrim at the bottom edge.
-  static const double environmentBottomScrimOpacity = 0.55;
 
   /// The canvas behind every surface.
   final Color background;
@@ -111,10 +104,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// The display/heading font family for this theme. The body font family does not vary by
   /// theme in the approved prototype, so it is not part of this contract.
   final String displayFontFamily;
-
-  /// The asset path for this theme's atmospheric background image, or `null` when the theme
-  /// uses a pure gradient atmosphere with no image (Dovah).
-  final String? environmentAssetPath;
 
   /// The tone of the eyebrow label above a page title (the prototype's `.eyebrow`), which differs
   /// per theme rather than following [accentSecondary].
@@ -212,7 +201,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.cornerRadius,
     required this.cornerCutSize,
     required this.displayFontFamily,
-    required this.environmentAssetPath,
     required this.eyebrow,
     required this.uppercaseLabels,
     required this.rootHeaderRuleFraction,
@@ -232,8 +220,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.heroFloorScrim,
   });
 
-  /// Returns a copy with selected values replaced. [environmentAssetPath] is nullable, so it is
-  /// threaded through [Option] to keep "omitted", "cleared to null", and "set" distinct.
+  /// Returns a copy with selected values replaced.
   @override
   DovahThemeTokens copyWith({
     Color? background,
@@ -267,7 +254,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     double? cornerRadius,
     double? cornerCutSize,
     String? displayFontFamily,
-    Option<String>? environmentAssetPath,
     Color? eyebrow,
     bool? uppercaseLabels,
     double? rootHeaderRuleFraction,
@@ -312,9 +298,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     cornerRadius: cornerRadius ?? this.cornerRadius,
     cornerCutSize: cornerCutSize ?? this.cornerCutSize,
     displayFontFamily: displayFontFamily ?? this.displayFontFamily,
-    environmentAssetPath: environmentAssetPath == null
-        ? this.environmentAssetPath
-        : environmentAssetPath.toNullable(),
     eyebrow: eyebrow ?? this.eyebrow,
     uppercaseLabels: uppercaseLabels ?? this.uppercaseLabels,
     rootHeaderRuleFraction:
@@ -337,7 +320,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   );
 
   /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
-  /// family, asset path, gradients, and casing) snap to whichever side of [t] is closer
+  /// family, gradients, and casing) snap to whichever side of [t] is closer
   /// because they have no meaningful halfway point.
   @override
   DovahThemeTokens lerp(ThemeExtension<DovahThemeTokens>? other, double t) {
@@ -374,9 +357,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       cornerRadius: lerpDouble(cornerRadius, other.cornerRadius, t)!,
       cornerCutSize: lerpDouble(cornerCutSize, other.cornerCutSize, t)!,
       displayFontFamily: t < 0.5 ? displayFontFamily : other.displayFontFamily,
-      environmentAssetPath: t < 0.5
-          ? environmentAssetPath
-          : other.environmentAssetPath,
       eyebrow: Color.lerp(eyebrow, other.eyebrow, t)!,
       uppercaseLabels: t < 0.5 ? uppercaseLabels : other.uppercaseLabels,
       rootHeaderRuleFraction: lerpDouble(
@@ -445,7 +425,6 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     cornerRadius,
     cornerCutSize,
     displayFontFamily,
-    environmentAssetPath,
     eyebrow,
     uppercaseLabels,
     rootHeaderRuleFraction,

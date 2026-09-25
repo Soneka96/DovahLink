@@ -2,13 +2,17 @@ import 'dart:ui';
 
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_color_filter.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_radial_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_stripe_layer.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_tile_layer.dart';
 
 /// The three presets' materials, in [DovahThemePreset] order.
 const List<DovahThemeMaterials> presetMaterials = [
@@ -168,6 +172,67 @@ void main() {
       },
     );
 
+    test('Property frostbound keeps the prototype atmosphere', () {
+      final DovahAtmosphere atmosphere =
+          DovahThemeMaterials.frostbound.atmosphere;
+
+      expect(atmosphere.imageAssetPath, frostboundEnvironmentAsset);
+      expect(
+        atmosphere.imageFilter,
+        const DovahColorFilter(grayscale: 0.34, saturate: 0.48, contrast: 1.16),
+      );
+      expect(atmosphere.layers, hasLength(1));
+      expect(atmosphere.hazeLayers, hasLength(2));
+      expect(atmosphere.hazeOpacity, isA<double>());
+      expect(atmosphere.hazeOpacity, 0.3);
+    });
+
+    test('Property dovah keeps the prototype atmosphere without an image', () {
+      final DovahAtmosphere atmosphere = DovahThemeMaterials.dovah.atmosphere;
+
+      expect(atmosphere.imageAssetPath, isNull);
+      expect(atmosphere.imageFilter.isNeutral, isTrue);
+      expect(atmosphere.layers, hasLength(3));
+      expect(atmosphere.hazeLayers, hasLength(2));
+      expect(atmosphere.hazeLayers.every((l) => l is DovahTileLayer), isTrue);
+      expect(atmosphere.hazeOpacity, isA<double>());
+      expect(atmosphere.hazeOpacity, 0.32);
+    });
+
+    test('Property hearth keeps the prototype atmosphere', () {
+      final DovahAtmosphere atmosphere = DovahThemeMaterials.hearth.atmosphere;
+
+      expect(atmosphere.imageAssetPath, hearthEnvironmentAsset);
+      expect(
+        atmosphere.imageFilter,
+        const DovahColorFilter(
+          brightness: 0.92,
+          saturate: 0.92,
+          contrast: 1.06,
+        ),
+      );
+      expect(atmosphere.layers, hasLength(1));
+      expect(atmosphere.hazeLayers, hasLength(1));
+      expect(atmosphere.hazeLayers.single, isA<DovahTileLayer>());
+      expect(atmosphere.hazeOpacity, isA<double>());
+      expect(atmosphere.hazeOpacity, 0.34);
+    });
+
+    test('Property every atmosphere layer of every preset builds a shader', () {
+      for (final DovahThemeMaterials materials in presetMaterials) {
+        for (final DovahMaterialLayer layer in [
+          ...materials.atmosphere.layers,
+          ...materials.atmosphere.hazeLayers,
+        ]) {
+          expect(
+            () => layer.createShader(const Size(320, 200)),
+            returnsNormally,
+            reason: 'atmosphere layer $layer',
+          );
+        }
+      }
+    });
+
     test('Property every layer of every material builds a shader', () {
       for (final DovahThemeMaterials materials in presetMaterials) {
         for (final DovahMaterialRole role in DovahMaterialRole.values) {
@@ -185,6 +250,21 @@ void main() {
   });
 
   group('Behavior distinct presets behaves correctly', () {
+    test('Behavior distinct presets never share an atmosphere', () {
+      expect(
+        DovahThemeMaterials.frostbound.atmosphere,
+        isNot(DovahThemeMaterials.dovah.atmosphere),
+      );
+      expect(
+        DovahThemeMaterials.dovah.atmosphere,
+        isNot(DovahThemeMaterials.hearth.atmosphere),
+      );
+      expect(
+        DovahThemeMaterials.frostbound.atmosphere,
+        isNot(DovahThemeMaterials.hearth.atmosphere),
+      );
+    });
+
     test(
       'Behavior distinct presets never share a material for the same role',
       () {
@@ -291,6 +371,14 @@ void main() {
       expect(copy.surface, base.surface);
     });
 
+    test('Method copyWith replaces only the atmosphere', () {
+      const DovahAtmosphere plain = DovahAtmosphere();
+      final DovahThemeMaterials copy = base.copyWith(atmosphere: plain);
+
+      expect(copy.atmosphere, plain);
+      expect(copy.surface, base.surface);
+    });
+
     test('Method copyWith keeps every material when nothing is passed', () {
       expect(base.copyWith(), base);
     });
@@ -343,6 +431,10 @@ void main() {
       expect(base == base.copyWith(control: replacement), isFalse);
       expect(base == base.copyWith(icon: replacement), isFalse);
       expect(base == base.copyWith(primaryAction: replacement), isFalse);
+      expect(
+        base == base.copyWith(atmosphere: const DovahAtmosphere()),
+        isFalse,
+      );
     });
   });
 }

@@ -19,6 +19,7 @@ void main() {
           colors: whiteToClear,
           stops: [0, 1],
           radius: 10,
+          circular: true,
         );
         final List<Color> pixels = (await tester.runAsync(
           () => paintDovahLayer(speck, const Size(40, 40)),
@@ -100,6 +101,7 @@ void main() {
           ],
           stops: [0, 0.2, 0.2, 1],
           radius: 10,
+          circular: true,
           repeating: true,
         );
         final List<Color> pixels = (await tester.runAsync(
@@ -114,6 +116,27 @@ void main() {
     );
 
     testWidgets(
+      'Method createShader gives a fixed-radius ellipse the proportions of the farthest sides',
+      (WidgetTester tester) async {
+        const DovahRadialLayer ellipse = DovahRadialLayer(
+          center: Offset(0.5, 0.5),
+          colors: whiteToClear,
+          stops: [0, 1],
+          radius: 20,
+        );
+        final List<Color> pixels = (await tester.runAsync(
+          () => paintDovahLayer(ellipse, const Size(100, 50)),
+        ))!;
+        final int alongWidth = alphaOf(pixels[25 * 100 + 60]);
+        final int alongHeight = alphaOf(pixels[30 * 100 + 50]);
+
+        expect(alongWidth, inInclusiveRange(120, 135));
+        expect((alongWidth - alongHeight).abs(), lessThan(8));
+        expect(alphaOf(pixels[25 * 100 + 75]), 0);
+      },
+    );
+
+    testWidgets(
       'Method createShader anchors the gradient at the fractional center',
       (WidgetTester tester) async {
         const DovahRadialLayer corner = DovahRadialLayer(
@@ -121,6 +144,7 @@ void main() {
           colors: whiteToClear,
           stops: [0, 1],
           radius: 12,
+          circular: true,
         );
         final List<Color> pixels = (await tester.runAsync(
           () => paintDovahLayer(corner, const Size(40, 40)),
