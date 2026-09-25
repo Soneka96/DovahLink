@@ -50,10 +50,6 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 - An open dialog now updates its backdrop as the application theme changes.
 - Bevelled panels, cards, and buttons no longer draw a border line along the bevel.
-
-
-### Fixed
-
 - Canvas backgrounds now render each theme's complete atmosphere recipe, including its image
   treatment and haze layers.
 
