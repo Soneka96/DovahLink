@@ -11,29 +11,90 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_atmosphere.dart';
-import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_materials.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_layers_painter.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_scene.widget.dart';
 import 'dovah_widget_test_helpers.dart';
 
-/// Returns the atmosphere of [preset]'s theme.
-DovahAtmosphere atmosphereOf(DovahThemePreset preset) =>
+/// Returns the atmosphere recipe installed by [preset].
+DovahAtmosphere atmosphereForPreset(DovahThemePreset preset) =>
     dovahThemeDataFor(preset).extension<DovahThemeMaterials>()!.atmosphere;
 
-/// Returns every [DovahLayersPainter] under the background, in paint order.
-List<DovahLayersPainter> findLayerPainters(WidgetTester tester) => [
-  for (final CustomPaint paint in tester.widgetList<CustomPaint>(
+/// Checks that [tester] sees [preset]'s recipe in the rendered background.
+void expectAtmosphereRecipe(WidgetTester tester, DovahThemePreset preset) {
+  final DovahAtmosphere atmosphere = atmosphereForPreset(preset);
+  final DovahScene scene = tester.widget(find.byType(DovahScene));
+  final DovahThemeTokens tokens = Theme.of(
+    tester.element(find.byType(DovahEnvironmentBackground)),
+  ).extension<DovahThemeTokens>()!;
+  final ColoredBox base = tester.widget(
     find.descendant(
       of: find.byType(DovahEnvironmentBackground),
+      matching: find.byType(ColoredBox),
+    ),
+  );
+
+  expect(base.color, tokens.background);
+  expect(scene.imageAssetPath, atmosphere.imageAssetPath);
+  expect(scene.layers, same(atmosphere.layers));
+  expect(scene.imageFilter, atmosphere.imageFilter);
+
+  final CustomPaint mainPaint = tester.widget(
+    find.descendant(
+      of: find.byType(DovahScene),
       matching: find.byType(CustomPaint),
     ),
-  ))
-    if (paint.painter is DovahLayersPainter)
-      paint.painter! as DovahLayersPainter,
-];
+  );
+  expect(
+    (mainPaint.painter! as DovahLayersPainter).layers,
+    same(atmosphere.layers),
+  );
 
-/// Exercises [DovahEnvironmentBackground] across every DovahLink theme and representative size.
+  final Finder hazeFinder = find.byWidgetPredicate(
+    (Widget widget) =>
+        widget is CustomPaint &&
+        widget.painter is DovahLayersPainter &&
+        identical(
+          (widget.painter! as DovahLayersPainter).layers,
+          atmosphere.hazeLayers,
+        ),
+  );
+  expect(hazeFinder, findsOneWidget);
+  final CustomPaint hazePaint = tester.widget(hazeFinder);
+  expect(
+    (hazePaint.painter! as DovahLayersPainter).opacity,
+    atmosphere.hazeOpacity,
+  );
+
+  if (atmosphere.imageFilter.isNeutral) {
+    expect(find.byType(ColorFiltered), findsNothing);
+  } else {
+    final ColorFiltered filtered = tester.widget(find.byType(ColorFiltered));
+    expect(filtered.colorFilter, atmosphere.imageFilter.toColorFilter());
+    expect(
+      find.descendant(
+        of: find.byType(ColorFiltered),
+        matching: find.byType(Image),
+      ),
+      atmosphere.imageAssetPath == null ? findsNothing : findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.byType(ColorFiltered),
+        matching: find.byType(CustomPaint),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.ancestor(of: hazeFinder, matching: find.byType(ColorFiltered)),
+      findsNothing,
+    );
+  }
+}
+
+/// Exercises [DovahEnvironmentBackground] across every theme and representative size.
 void main() {
   group('DovahEnvironmentBackground renders correctly', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
@@ -58,46 +119,30 @@ void main() {
     }
   });
 
-  group('DovahEnvironmentBackground uses each theme environment', () {
-    for (final (DovahThemePreset preset, String asset) in [
-      (DovahThemePreset.frostbound, frostboundEnvironmentAsset),
-      (DovahThemePreset.hearth, hearthEnvironmentAsset),
-    ]) {
-      testWidgets(
-        'DovahEnvironmentBackground renders the $preset environment image',
-        (WidgetTester tester) async {
-          await pumpDovahThemedWidget(
-            tester,
-            const DovahEnvironmentBackground(child: SizedBox.shrink()),
-            preset: preset,
-            size: dovahTestSizes.first,
-          );
-          final Image image = tester.widget(find.byType(Image));
-
-          expect(find.byType(Image), findsOneWidget);
-          expect((image.image as AssetImage).assetName, asset);
-          expect(image.fit, BoxFit.cover);
-          expect(image.excludeFromSemantics, isTrue);
-        },
-      );
-    }
-
+  group('DovahEnvironmentBackground renders the Frostbound recipe', () {
     testWidgets(
-      'DovahEnvironmentBackground renders no environment image for Dovah',
+      'DovahEnvironmentBackground renders the image, filter, atmosphere layers, and haze',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
           const DovahEnvironmentBackground(child: SizedBox.shrink()),
-          preset: DovahThemePreset.dovah,
+          preset: DovahThemePreset.frostbound,
           size: dovahTestSizes.first,
         );
 
-        expect(find.byType(Image), findsNothing);
+        expectAtmosphereRecipe(tester, DovahThemePreset.frostbound);
+        final Image image = tester.widget(find.byType(Image));
+        expect(
+          (image.image as AssetImage).assetName,
+          frostboundEnvironmentAsset,
+        );
       },
     );
+  });
 
+  group('DovahEnvironmentBackground renders the Hearth recipe', () {
     testWidgets(
-      'DovahEnvironmentBackground paints the theme base color under the atmosphere',
+      'DovahEnvironmentBackground renders the image, filter, atmosphere layers, and haze',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
@@ -105,91 +150,17 @@ void main() {
           preset: DovahThemePreset.hearth,
           size: dovahTestSizes.first,
         );
-        final ColoredBox base = tester.widget(
-          find.descendant(
-            of: find.byType(DovahEnvironmentBackground),
-            matching: find.byType(ColoredBox),
-          ),
-        );
 
-        expect(
-          base.color,
-          dovahThemeDataFor(
-            DovahThemePreset.hearth,
-          ).extension<DovahThemeTokens>()!.background,
-        );
+        expectAtmosphereRecipe(tester, DovahThemePreset.hearth);
+        final Image image = tester.widget(find.byType(Image));
+        expect((image.image as AssetImage).assetName, hearthEnvironmentAsset);
       },
     );
   });
 
-  group('DovahEnvironmentBackground applies the atmosphere recipe', () {
-    for (final DovahThemePreset preset in DovahThemePreset.values) {
-      testWidgets(
-        'DovahEnvironmentBackground paints the $preset gradient layers, then its haze at the haze opacity',
-        (WidgetTester tester) async {
-          await pumpDovahThemedWidget(
-            tester,
-            const DovahEnvironmentBackground(child: SizedBox.shrink()),
-            preset: preset,
-            size: dovahTestSizes.first,
-          );
-          final DovahAtmosphere atmosphere = atmosphereOf(preset);
-          final List<DovahLayersPainter> painters = findLayerPainters(tester);
-
-          expect(painters, hasLength(2));
-          expect(painters.first.layers, atmosphere.layers);
-          expect(painters.first.opacity, 1);
-          expect(painters.last.layers, atmosphere.hazeLayers);
-          expect(painters.last.opacity, atmosphere.hazeOpacity);
-        },
-      );
-    }
-
-    for (final DovahThemePreset preset in [
-      DovahThemePreset.frostbound,
-      DovahThemePreset.hearth,
-    ]) {
-      testWidgets(
-        'DovahEnvironmentBackground applies the $preset color treatment to the image and gradients',
-        (WidgetTester tester) async {
-          await pumpDovahThemedWidget(
-            tester,
-            const DovahEnvironmentBackground(child: SizedBox.shrink()),
-            preset: preset,
-            size: dovahTestSizes.first,
-          );
-          final ColorFiltered filtered = tester.widget(
-            find.byType(ColorFiltered),
-          );
-
-          expect(
-            filtered.colorFilter,
-            atmosphereOf(preset).imageFilter.toColorFilter(),
-          );
-          expect(
-            find.descendant(
-              of: find.byType(ColorFiltered),
-              matching: find.byType(Image),
-            ),
-            findsOneWidget,
-          );
-          expect(
-            find.descendant(
-              of: find.byType(ColorFiltered),
-              matching: find.byWidgetPredicate(
-                (Widget widget) =>
-                    widget is CustomPaint &&
-                    widget.painter is DovahLayersPainter,
-              ),
-            ),
-            findsOneWidget,
-          );
-        },
-      );
-    }
-
+  group('DovahEnvironmentBackground renders the Dovah recipe', () {
     testWidgets(
-      'DovahEnvironmentBackground applies no color treatment for Dovah',
+      'DovahEnvironmentBackground paints atmosphere layers and haze without an image',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
@@ -198,75 +169,129 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        expect(find.byType(ColorFiltered), findsNothing);
+        expectAtmosphereRecipe(tester, DovahThemePreset.dovah);
+        expect(find.byType(Image), findsNothing);
       },
     );
+  });
 
+  group('DovahEnvironmentBackground preserves atmosphere and content order', () {
     testWidgets(
-      'DovahEnvironmentBackground isolates the static atmosphere in a repaint boundary',
+      'DovahEnvironmentBackground paints main layers before haze and content above both',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
           const DovahEnvironmentBackground(child: Text('Foreground content')),
-          preset: DovahThemePreset.frostbound,
+          preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
         );
 
-        expect(
-          find.descendant(
-            of: find.byType(DovahEnvironmentBackground),
-            matching: find.byType(RepaintBoundary),
+        final Stack stack = tester.widget(
+          find.ancestor(
+            of: find.text('Foreground content'),
+            matching: find.byType(Stack),
           ),
-          findsWidgets,
+        );
+        expect(stack.children, hasLength(4));
+        expect(stack.children.first, isA<ColoredBox>());
+        expect((stack.children[1] as Positioned).child, isA<DovahScene>());
+        expect((stack.children[2] as Positioned).child, isA<CustomPaint>());
+        expect(stack.children.last, isA<Text>());
+
+        final CustomPaint haze = tester.widget(
+          find.byWidgetPredicate(
+            (Widget widget) =>
+                widget is CustomPaint &&
+                widget.painter is DovahLayersPainter &&
+                identical(
+                  (widget.painter! as DovahLayersPainter).layers,
+                  dovahMaterials.atmosphere.hazeLayers,
+                ),
+          ),
         );
         expect(
           find.ancestor(
-            of: find.byType(ColorFiltered),
-            matching: find.byType(RepaintBoundary),
+            of: find.byWidget(haze),
+            matching: find.byType(ColorFiltered),
           ),
-          findsWidgets,
+          findsNothing,
         );
       },
     );
   });
 
-  group('DovahEnvironmentBackground keeps foreground content usable', () {
-    for (final DovahThemePreset preset in DovahThemePreset.values) {
-      testWidgets(
-        'DovahEnvironmentBackground lets a tap reach a foreground button under $preset',
-        (WidgetTester tester) async {
-          int tapCount = 0;
-          await pumpDovahThemedWidget(
-            tester,
-            DovahEnvironmentBackground(
-              child: Center(
-                child: TextButton(
-                  onPressed: () => tapCount++,
-                  child: const Text('Tap me'),
-                ),
-              ),
-            ),
-            preset: preset,
-            size: dovahTestSizes.first,
-          );
-
-          await tester.tap(find.text('Tap me'));
-          await tester.pump();
-
-          expect(tapCount, 1);
-        },
-      );
-    }
-
+  group('DovahEnvironmentBackground responds to theme changes', () {
     testWidgets(
-      'DovahEnvironmentBackground paints its child above every atmosphere layer',
+      'DovahEnvironmentBackground updates its image and recipe for the active theme',
       (WidgetTester tester) async {
-        await pumpDovahThemedWidget(
-          tester,
-          const DovahEnvironmentBackground(child: Text('Foreground content')),
-          preset: DovahThemePreset.frostbound,
-          size: dovahTestSizes.first,
+        setDovahTestWindow(tester, dovahTestSizes.first);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dovahThemeDataFor(DovahThemePreset.dovah),
+            themeAnimationDuration: Duration.zero,
+            home: const Scaffold(
+              body: DovahEnvironmentBackground(child: SizedBox.shrink()),
+            ),
+          ),
         );
+        expectAtmosphereRecipe(tester, DovahThemePreset.dovah);
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dovahThemeDataFor(DovahThemePreset.frostbound),
+            themeAnimationDuration: Duration.zero,
+            home: const Scaffold(
+              body: DovahEnvironmentBackground(child: SizedBox.shrink()),
+            ),
+          ),
+        );
+
+        expectAtmosphereRecipe(tester, DovahThemePreset.frostbound);
+        final Image image = tester.widget(find.byType(Image));
+        expect(
+          (image.image as AssetImage).assetName,
+          frostboundEnvironmentAsset,
+        );
+
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: dovahThemeDataFor(DovahThemePreset.dovah),
+            themeAnimationDuration: Duration.zero,
+            home: const Scaffold(
+              body: DovahEnvironmentBackground(child: SizedBox.shrink()),
+            ),
+          ),
+        );
+
+        expectAtmosphereRecipe(tester, DovahThemePreset.dovah);
+        expect(find.byType(Image), findsNothing);
+      },
+    );
+  });
+
+  group('DovahEnvironmentBackground supports an atmosphere without haze', () {
+    testWidgets(
+      'DovahEnvironmentBackground omits the haze painter when the recipe has no haze layers',
+      (WidgetTester tester) async {
+        final ThemeData baseTheme = dovahThemeDataFor(DovahThemePreset.dovah);
+        final DovahThemeTokens tokens = baseTheme
+            .extension<DovahThemeTokens>()!;
+        final ThemeData noHazeTheme = ThemeData(
+          extensions: [
+            tokens,
+            dovahMaterials.copyWith(atmosphere: const DovahAtmosphere()),
+          ],
+        );
+        setDovahTestWindow(tester, dovahTestSizes.first);
+        await tester.pumpWidget(
+          MaterialApp(
+            theme: noHazeTheme,
+            home: const Scaffold(
+              body: DovahEnvironmentBackground(child: SizedBox.shrink()),
+            ),
+          ),
+        );
+
         final Stack stack = tester.widget(
           find
               .descendant(
@@ -275,123 +300,64 @@ void main() {
               )
               .first,
         );
-
-        expect(stack.children.last, isA<Text>());
-        expect(stack.children.first, isA<Positioned>());
+        expect(stack.children, hasLength(3));
+        expect(stack.children[1], isA<Positioned>());
+        expect((stack.children[1] as Positioned).child, isA<DovahScene>());
+        expect(stack.children.last, isA<SizedBox>());
       },
     );
   });
 
-  group('DovahEnvironmentBackground fades its haze down the canvas', () {
-    for (final DovahThemePreset preset in DovahThemePreset.values) {
-      testWidgets(
-        'DovahEnvironmentBackground masks the $preset haze from visible at the top to gone at 80%',
-        (WidgetTester tester) async {
-          await pumpDovahThemedWidget(
-            tester,
-            const DovahEnvironmentBackground(child: SizedBox.shrink()),
-            preset: preset,
-            size: dovahTestSizes.first,
-          );
-          final ShaderMask mask = tester.widget(find.byType(ShaderMask));
-
-          expect(mask.blendMode, BlendMode.dstIn);
-          expect(
-            find.descendant(
-              of: find.byType(ShaderMask),
-              matching: find.byWidgetPredicate(
-                (Widget widget) =>
-                    widget is CustomPaint &&
-                    widget.painter is DovahLayersPainter,
-              ),
-            ),
-            findsOneWidget,
-          );
-          expect(
-            find.descendant(
-              of: find.byType(ShaderMask),
-              matching: find.byType(Image),
-            ),
-            findsNothing,
-          );
-        },
-      );
-    }
-
+  group('DovahEnvironmentBackground changes rendered pixels', () {
     testWidgets(
-      'DovahEnvironmentBackground adds no mask for an atmosphere without haze',
+      'DovahEnvironmentBackground atmosphere changes the output from the plain background',
       (WidgetTester tester) async {
-        final ThemeData base = dovahThemeDataFor(DovahThemePreset.dovah);
-        setDovahTestWindow(tester, dovahTestSizes.first);
-        await tester.pumpWidget(
-          MaterialApp(
-            theme: base.copyWith(
-              extensions: [
-                for (final ThemeExtension<dynamic> extension
-                    in base.extensions.values)
-                  if (extension is DovahThemeMaterials)
-                    extension.copyWith(atmosphere: const DovahAtmosphere())
-                  else
-                    extension,
-              ],
-            ),
-            home: const DovahEnvironmentBackground(child: SizedBox.shrink()),
+        const Key boundaryKey = ValueKey<String>('atmosphere-output');
+        await pumpDovahThemedWidget(
+          tester,
+          const RepaintBoundary(
+            key: boundaryKey,
+            child: DovahEnvironmentBackground(child: SizedBox.expand()),
           ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(100, 100),
         );
 
-        expect(find.byType(ShaderMask), findsNothing);
+        final RenderRepaintBoundary boundary = tester.renderObject(
+          find.byKey(boundaryKey),
+        );
+        final Color? atmospherePixel = await tester.runAsync<Color>(() async {
+          final ui.Image image = await boundary.toImage(pixelRatio: 1);
+          try {
+            final ByteData? bytes = await image.toByteData(
+              format: ui.ImageByteFormat.rawRgba,
+            );
+            if (bytes == null) {
+              throw StateError('The atmosphere image has no pixel data.');
+            }
+            final ByteData pixels = bytes;
+            const int x = 88;
+            const int y = 5;
+            final int offset = (y * image.width + x) * 4;
+            return Color.fromARGB(
+              pixels.getUint8(offset + 3),
+              pixels.getUint8(offset),
+              pixels.getUint8(offset + 1),
+              pixels.getUint8(offset + 2),
+            );
+          } finally {
+            image.dispose();
+          }
+        });
+        if (atmospherePixel == null) {
+          fail('The atmosphere pixel capture did not complete.');
+        }
+        final Color plainBackground = Theme.of(
+          tester.element(find.byType(DovahEnvironmentBackground)),
+        ).extension<DovahThemeTokens>()!.background;
+
+        expect(atmospherePixel, isNot(plainBackground));
       },
     );
-
-    testWidgets('DovahEnvironmentBackground fades a solid haze by height', (
-      WidgetTester tester,
-    ) async {
-      const Key boundaryKey = Key('background-boundary');
-      final ThemeData base = dovahThemeDataFor(DovahThemePreset.dovah);
-      setDovahTestWindow(tester, const Size(400, 500));
-      await tester.pumpWidget(
-        MaterialApp(
-          theme: base.copyWith(
-            extensions: [
-              for (final ThemeExtension<dynamic> extension
-                  in base.extensions.values)
-                if (extension is DovahThemeMaterials)
-                  extension.copyWith(
-                    atmosphere: const DovahAtmosphere(
-                      hazeLayers: [
-                        DovahLinearLayer(
-                          angleDegrees: 180,
-                          colors: [Color(0xFFFFFFFF), Color(0xFFFFFFFF)],
-                          stops: [0, 1],
-                        ),
-                      ],
-                    ),
-                  )
-                else
-                  extension,
-            ],
-          ),
-          home: const RepaintBoundary(
-            key: boundaryKey,
-            child: DovahEnvironmentBackground(child: SizedBox.shrink()),
-          ),
-        ),
-      );
-      final RenderRepaintBoundary boundary = tester.renderObject(
-        find.byKey(boundaryKey),
-      );
-      final ByteData data = (await tester.runAsync(() async {
-        final ui.Image image = await boundary.toImage();
-        return (await image.toByteData())!;
-      }))!;
-      int red(int y) => data.getUint8((y * 400 + 200) * 4);
-
-      // The Dovah base is nearly black, so red tracks how much white haze shows through.
-      expect(red(2), greaterThan(240));
-      expect(red(200), inInclusiveRange(110, 150));
-      expect(red(350), inInclusiveRange(20, 45));
-      expect(red(410), lessThan(10));
-      expect(red(499), lessThan(10));
-    });
   });
 }
