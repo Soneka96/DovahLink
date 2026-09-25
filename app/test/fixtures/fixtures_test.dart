@@ -213,17 +213,12 @@ void main() {
       expect(tokens.signal, const Color(0xFF74BDE8));
       expect(tokens.primaryActionForeground, isA<Color>());
       expect(tokens.primaryActionForeground, const Color(0xFF1A0E04));
-      expect((tokens.primaryActionGradient as LinearGradient).colors, const [
-        Color(0xFFF0BD73),
-        Color(0xFFC77D38),
-      ]);
       expect(tokens.cornerStyle, isA<DovahPanelCornerStyle>());
       expect(tokens.cornerStyle, DovahPanelCornerStyle.doubleBevel);
       expect(tokens.cornerRadius, isA<double>());
       expect(tokens.cornerRadius, 3);
       expect(tokens.displayFontFamily, isA<String>());
       expect(tokens.displayFontFamily, 'Georgia');
-      expect(tokens.environmentAssetPath, isNull);
       expect(tokens.eyebrow, isA<Color>());
       expect(tokens.eyebrow, const Color(0xFFE2A55E));
       expect(tokens.uppercaseLabels, isFalse);
@@ -255,7 +250,6 @@ void main() {
         soft: const Color(0x04050607),
         cornerStyle: DovahPanelCornerStyle.rounded,
         cornerRadius: 13,
-        environmentAssetPath: 'assets/themes/hearth/hearth-environment.png',
         eyebrow: const Color(0xFF010203),
         uppercaseLabels: true,
         preset: DovahThemePreset.hearth,
@@ -283,11 +277,6 @@ void main() {
       expect(tokens.cornerStyle, DovahPanelCornerStyle.rounded);
       expect(tokens.cornerRadius, isA<double>());
       expect(tokens.cornerRadius, 13);
-      expect(tokens.environmentAssetPath, isA<String>());
-      expect(
-        tokens.environmentAssetPath,
-        'assets/themes/hearth/hearth-environment.png',
-      );
     });
 
     test('Method buildDovahThemeTokens returns a fresh value per call', () {

@@ -7,6 +7,7 @@ import 'package:dovahlink_client/shared/theme/dovah_page_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/frostbound_materials.dart';
 
 /// Builds the Frostbound preset: cold, severe, and compact -- fractured stone, scratched iron,
 /// and a single sharp bevel with no rounding.
@@ -28,11 +29,6 @@ ThemeData buildFrostboundTheme() {
     success: Color(0xFF9AC9DC),
     warning: Color(0xFFC0575B),
     danger: Color(0xFFD36A6E),
-    primaryActionGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF263239), Color(0xFF11191D)],
-    ),
     primaryActionForeground: Color(0xFFE9F0F2),
     soft: Color(0x1F9AC9DC),
     health: Color(0xFFB65256),
@@ -41,25 +37,7 @@ ThemeData buildFrostboundTheme() {
     cornerStyle: DovahPanelCornerStyle.singleBevel,
     cornerRadius: 0,
     cornerCutSize: 9,
-    panelShadow: [
-      BoxShadow(
-        color: Color(0x80000000),
-        blurRadius: 32,
-        offset: Offset(0, 15),
-      ),
-    ],
-    materialGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF11181C), Color(0xFF040708)],
-    ),
-    materialRaisedGradient: LinearGradient(
-      begin: Alignment.topLeft,
-      end: Alignment.bottomRight,
-      colors: [Color(0xFF151E23), Color(0xFF070B0D)],
-    ),
     displayFontFamily: 'Arial Narrow',
-    environmentAssetPath: 'assets/themes/frostbound/frostbound-environment.png',
     eyebrow: Color(0xFFBD5559),
     pageTitleLineHeight: 1.0,
     rootHeaderRuleFraction: 0.2,
@@ -106,6 +84,7 @@ ThemeData buildFrostboundTheme() {
       DovahPageThemeMetrics.frostbound,
       DovahSessionThemeMetrics.frostbound,
       DovahOverviewThemeMetrics.frostbound,
+      frostboundMaterials,
     ],
   );
 }

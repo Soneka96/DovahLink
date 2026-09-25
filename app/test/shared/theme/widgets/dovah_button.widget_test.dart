@@ -11,6 +11,8 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_material_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -410,7 +412,7 @@ void main() {
   group('DovahButton uses approved primary action colors', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
-        'DovahButton preserves the approved gradient and label color under $preset',
+        'DovahButton preserves the approved primary-action material and label color under $preset',
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
@@ -428,7 +430,23 @@ void main() {
                 )
                 .first,
           );
-          final LinearGradient gradient = surface.gradient! as LinearGradient;
+          final DovahThemeMaterials materials = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeMaterials>()!;
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: find.byType(DovahSurface),
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
+          final DovahLinearLayer fill =
+              materials.primaryAction.layers.first as DovahLinearLayer;
           final Color foreground = text.style!.color!;
           final List<Color> expectedStops = switch (preset) {
             DovahThemePreset.frostbound => const [
@@ -444,27 +462,24 @@ void main() {
               Color(0xFF82491E),
             ],
           };
-          final Alignment expectedBegin = preset == DovahThemePreset.hearth
-              ? Alignment.topCenter
-              : Alignment.topLeft;
-          final Alignment expectedEnd = preset == DovahThemePreset.hearth
-              ? Alignment.bottomCenter
-              : Alignment.bottomRight;
+          final double expectedAngle = preset == DovahThemePreset.hearth
+              ? 180
+              : 135;
           final Color expectedForeground = switch (preset) {
             DovahThemePreset.frostbound => const Color(0xFFE9F0F2),
             DovahThemePreset.dovah => const Color(0xFF1A0E04),
             DovahThemePreset.hearth => const Color(0xFFFFF9EE),
           };
 
-          expect(gradient.colors, expectedStops);
-          expect(gradient.stops, isNull);
-          expect(gradient.begin, expectedBegin);
-          expect(gradient.end, expectedEnd);
+          expect(surface.role, DovahMaterialRole.primaryAction);
+          expect(painter.material, materials.primaryAction);
+          expect(fill.colors, expectedStops);
+          expect(fill.angleDegrees, expectedAngle);
           expect(foreground, expectedForeground);
 
           final double foregroundLuminance = foreground.computeLuminance();
-          for (int index = 0; index < gradient.colors.length; index++) {
-            final double backgroundLuminance = gradient.colors[index]
+          for (int index = 0; index < fill.colors.length; index++) {
+            final double backgroundLuminance = fill.colors[index]
                 .computeLuminance();
             final double lighterLuminance =
                 foregroundLuminance > backgroundLuminance
@@ -490,10 +505,10 @@ void main() {
     }
   });
 
-  group('DovahButton uses raised material for secondary actions', () {
+  group('DovahButton uses control material for secondary actions', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
-        'DovahButton uses $preset raised material for the secondary variant',
+        'DovahButton uses $preset control material for the secondary variant',
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
@@ -518,47 +533,29 @@ void main() {
           final DovahThemeTokens tokens = dovahThemeDataFor(
             preset,
           ).extension<DovahThemeTokens>()!;
-          final Finder surfaceFinder = find
-              .descendant(
-                of: find.byType(DovahButton),
-                matching: find.byType(DovahSurface),
-              )
-              .first;
+          final DovahMaterialPainter painter =
+              tester
+                      .widget<CustomPaint>(
+                        find
+                            .descendant(
+                              of: find
+                                  .descendant(
+                                    of: find.byType(DovahButton),
+                                    matching: find.byType(DovahSurface),
+                                  )
+                                  .first,
+                              matching: find.byType(CustomPaint),
+                            )
+                            .first,
+                      )
+                      .painter!
+                  as DovahMaterialPainter;
 
-          expect(surface.raised, isTrue);
-          if (preset == DovahThemePreset.hearth) {
-            final Container material = tester.widget(
-              find
-                  .descendant(
-                    of: surfaceFinder,
-                    matching: find.byType(Container),
-                  )
-                  .first,
-            );
-
-            expect(
-              (material.decoration! as BoxDecoration).gradient,
-              tokens.materialRaisedGradient,
-            );
-            expect(
-              (material.decoration! as BoxDecoration).border?.top.color,
-              tokens.lineStrong,
-            );
-          } else {
-            final CustomPaint material = tester.widget(
-              find
-                  .descendant(
-                    of: surfaceFinder,
-                    matching: find.byType(CustomPaint),
-                  )
-                  .first,
-            );
-            final DovahMaterialPainter painter =
-                material.painter! as DovahMaterialPainter;
-
-            expect(painter.gradient, tokens.materialRaisedGradient);
-            expect(painter.borderColor, tokens.lineStrong);
-          }
+          expect(surface.role, DovahMaterialRole.control);
+          expect(
+            painter.material,
+            dovahThemeDataFor(preset).extension<DovahThemeMaterials>()!.control,
+          );
           expect(text.style?.color, tokens.textPrimary);
         },
       );
@@ -776,16 +773,15 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        final Container container = tester.widget<Container>(
+        final CustomPaint paint = tester.widget<CustomPaint>(
           find
               .descendant(
                 of: find.byType(DovahSurface),
-                matching: find.byType(Container),
+                matching: find.byType(CustomPaint),
               )
               .first,
         );
-        final BoxDecoration decoration = container.decoration! as BoxDecoration;
-        expect(decoration.borderRadius, BorderRadius.circular(radius));
+        expect((paint.painter! as DovahMaterialPainter).cornerRadius, radius);
       });
     }
 

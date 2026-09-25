@@ -13,6 +13,10 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/frostbound_theme.dart';
 import 'package:dovahlink_client/shared/theme/hearth_theme.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_materials.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
+import 'package:dovahlink_client/shared/theme/materials/frostbound_materials.dart';
+import 'package:dovahlink_client/shared/theme/materials/hearth_materials.dart';
 
 /// Exercises the three DovahLink theme-preset builders and the [dovahThemeDataFor] mapping.
 void main() {
@@ -26,10 +30,6 @@ void main() {
         expect(tokens, isA<DovahThemeTokens>());
         expect(tokens!.cornerStyle, DovahPanelCornerStyle.singleBevel);
         expect(tokens.primaryActionForeground, const Color(0xFFE9F0F2));
-        expect((tokens.primaryActionGradient as LinearGradient).colors, const [
-          Color(0xFF263239),
-          Color(0xFF11191D),
-        ]);
         expect(theme.brightness, Brightness.dark);
       },
     );
@@ -77,6 +77,13 @@ void main() {
         );
       },
     );
+
+    test('Method buildFrostboundTheme attaches its DovahThemeMaterials', () {
+      expect(
+        buildFrostboundTheme().extension<DovahThemeMaterials>(),
+        frostboundMaterials,
+      );
+    });
   });
 
   group('Behavior prototype color token mappings behave correctly', () {
@@ -438,11 +445,6 @@ void main() {
         expect(tokens, isA<DovahThemeTokens>());
         expect(tokens!.cornerStyle, DovahPanelCornerStyle.doubleBevel);
         expect(tokens.primaryActionForeground, const Color(0xFF1A0E04));
-        expect((tokens.primaryActionGradient as LinearGradient).colors, const [
-          Color(0xFFF0BD73),
-          Color(0xFFC77D38),
-        ]);
-        expect(tokens.environmentAssetPath, isNull);
         expect(theme.brightness, Brightness.dark);
       },
     );
@@ -490,6 +492,13 @@ void main() {
         );
       },
     );
+
+    test('Method buildDovahPresetTheme attaches its DovahThemeMaterials', () {
+      expect(
+        buildDovahPresetTheme().extension<DovahThemeMaterials>(),
+        dovahMaterials,
+      );
+    });
   });
 
   group('Method buildHearthTheme behaves correctly', () {
@@ -502,10 +511,6 @@ void main() {
         expect(tokens, isA<DovahThemeTokens>());
         expect(tokens!.cornerStyle, DovahPanelCornerStyle.rounded);
         expect(tokens.primaryActionForeground, const Color(0xFFFFF9EE));
-        expect((tokens.primaryActionGradient as LinearGradient).colors, const [
-          Color(0xFFA96932),
-          Color(0xFF82491E),
-        ]);
         expect(theme.brightness, Brightness.light);
       },
     );
@@ -545,6 +550,13 @@ void main() {
       expect(
         buildHearthTheme().extension<DovahOverviewThemeMetrics>(),
         DovahOverviewThemeMetrics.hearth,
+      );
+    });
+
+    test('Method buildHearthTheme attaches its DovahThemeMaterials', () {
+      expect(
+        buildHearthTheme().extension<DovahThemeMaterials>(),
+        hearthMaterials,
       );
     });
   });
@@ -640,57 +652,6 @@ void main() {
       },
     );
 
-    test(
-      'Behavior distinct presets use a different material gradient per theme',
-      () {
-        final DovahThemeTokens frostbound = buildFrostboundTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens dovah = buildDovahPresetTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens hearth = buildHearthTheme()
-            .extension<DovahThemeTokens>()!;
-
-        expect(frostbound.materialGradient, isNot(dovah.materialGradient));
-        expect(dovah.materialGradient, isNot(hearth.materialGradient));
-      },
-    );
-
-    test(
-      'Behavior distinct presets use a different material-raised gradient per theme',
-      () {
-        final DovahThemeTokens frostbound = buildFrostboundTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens dovah = buildDovahPresetTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens hearth = buildHearthTheme()
-            .extension<DovahThemeTokens>()!;
-
-        expect(
-          frostbound.materialRaisedGradient,
-          isNot(dovah.materialRaisedGradient),
-        );
-        expect(
-          dovah.materialRaisedGradient,
-          isNot(hearth.materialRaisedGradient),
-        );
-      },
-    );
-
-    test(
-      'Behavior distinct presets use a different panel shadow per theme',
-      () {
-        final DovahThemeTokens frostbound = buildFrostboundTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens dovah = buildDovahPresetTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens hearth = buildHearthTheme()
-            .extension<DovahThemeTokens>()!;
-
-        expect(frostbound.panelShadow, isNot(dovah.panelShadow));
-        expect(dovah.panelShadow, isNot(hearth.panelShadow));
-      },
-    );
-
     test('Behavior distinct presets differ in background color per theme', () {
       final DovahThemeTokens frostbound = buildFrostboundTheme()
           .extension<DovahThemeTokens>()!;
@@ -707,21 +668,5 @@ void main() {
 
       expect(backgrounds, hasLength(3));
     });
-
-    test(
-      'Behavior distinct presets only Frostbound and Hearth have an environment asset',
-      () {
-        final DovahThemeTokens frostbound = buildFrostboundTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens dovah = buildDovahPresetTheme()
-            .extension<DovahThemeTokens>()!;
-        final DovahThemeTokens hearth = buildHearthTheme()
-            .extension<DovahThemeTokens>()!;
-
-        expect(frostbound.environmentAssetPath, isA<String>());
-        expect(dovah.environmentAssetPath, isNull);
-        expect(hearth.environmentAssetPath, isA<String>());
-      },
-    );
   });
 }

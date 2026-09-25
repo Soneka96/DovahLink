@@ -152,3 +152,23 @@ enum DovahButtonVariant {
     DovahButtonVariant.secondary => 'Secondary',
   };
 }
+
+/// The component role a themed surface asks its theme's materials to paint.
+enum DovahMaterialRole {
+  /// A resting panel, connection card, or dialog (the approved prototype's `--material`).
+  surface,
+
+  /// A hovered or emphasized panel or card (the approved prototype's `--material-raised` with its
+  /// hover border).
+  raised,
+
+  /// An interactive control such as a secondary button, icon button, or input (the approved
+  /// prototype's `--material-raised` without the surface's edges or shadow).
+  control,
+
+  /// A leading icon tile (the approved prototype's `.pc-icon`).
+  icon,
+
+  /// A primary action button (the approved prototype's `.primary`).
+  primaryAction,
+}

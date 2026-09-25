@@ -17,6 +17,7 @@ import 'package:dovahlink_client/shared/theme/dovah_session_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 
 /// Exercises [DovahThemeContext.dovahTokens] and the metrics accessors that resolve from the active
 /// theme and window.
@@ -324,6 +325,34 @@ void main() {
               ).extension<DovahOverviewThemeMetrics>()!,
               window: size,
             ),
+          );
+        },
+      );
+    }
+  });
+
+  group('Property dovahMaterials behaves correctly', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'Property dovahMaterials returns the ${preset.name} preset DovahThemeMaterials',
+        (WidgetTester tester) async {
+          late DovahThemeMaterials resolved;
+
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: dovahThemeDataFor(preset),
+              home: Builder(
+                builder: (BuildContext context) {
+                  resolved = context.dovahMaterials;
+                  return const SizedBox.shrink();
+                },
+              ),
+            ),
+          );
+
+          expect(
+            resolved,
+            dovahThemeDataFor(preset).extension<DovahThemeMaterials>(),
           );
         },
       );

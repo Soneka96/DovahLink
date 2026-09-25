@@ -11,6 +11,15 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ## [Unreleased]
 
+### Added
+
+- Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
+
+### Fixed
+
+- Canvas backgrounds now render each theme's complete atmosphere recipe, including its image
+  treatment and haze layers.
+
 ## [0.5.0] - 2026-09-24
 
 ### Added

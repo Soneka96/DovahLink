@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
@@ -30,7 +31,7 @@ class DovahPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
     return DovahSurface(
-      raised: raised,
+      role: raised ? DovahMaterialRole.raised : DovahMaterialRole.surface,
       cornerRadius: tokens.panelCornerRadius,
       padding: padding ?? context.dovahPageMetrics.panelPadding,
       child: child,

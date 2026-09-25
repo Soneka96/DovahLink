@@ -359,7 +359,7 @@ void main() {
             preset,
           ).extension<DovahThemeTokens>()!;
 
-          expect(surface.raised, isTrue);
+          expect(surface.role, DovahMaterialRole.control);
           expect(icon.color, tokens.textPrimary);
         },
       );

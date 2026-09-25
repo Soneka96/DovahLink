@@ -44,6 +44,26 @@ void main() {
     );
 
     test(
+      'Method buildDovahPanelPath keeps bevelled styles sharp whatever the radius',
+      () {
+        for (final DovahPanelCornerStyle style in const [
+          DovahPanelCornerStyle.singleBevel,
+          DovahPanelCornerStyle.doubleBevel,
+        ]) {
+          final Path path = buildDovahPanelPath(
+            const Size(100, 100),
+            cornerStyle: style,
+            cornerRadius: 20,
+            cutSize: 10,
+          );
+
+          expect(path.contains(const Offset(0.5, 0.5)), isTrue);
+          expect(path.contains(const Offset(99.5, 99.5)), isTrue);
+        }
+      },
+    );
+
+    test(
       'Method buildDovahPanelPath excludes near-corner points for rounded',
       () {
         final Path path = buildDovahPanelPath(

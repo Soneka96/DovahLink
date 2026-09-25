@@ -29,6 +29,23 @@ const double appearancePreviewAccentHeight = 6;
 /// Size of the selected-preset indicator.
 const double appearanceSelectionIconSize = 20;
 
+// ---- Theme assets ----
+
+/// The Frostbound preset's environment image, used by its canvas atmosphere and its appearance
+/// preview.
+const String frostboundEnvironmentAsset =
+    'assets/themes/frostbound/frostbound-environment.png';
+
+/// The Dovah preset's scene artwork. Dovah's canvas has no environment image; this art is used by
+/// its appearance preview.
+const String dovahConnectionHeroAsset =
+    'assets/themes/dovah/dovahlink-connection-hero.png';
+
+/// The Hearth preset's environment image, used by its canvas atmosphere and its appearance
+/// preview.
+const String hearthEnvironmentAsset =
+    'assets/themes/hearth/hearth-environment.png';
+
 // ---- Pairing ----
 
 /// The number of digits in a pairing code. Matches the Host's own
