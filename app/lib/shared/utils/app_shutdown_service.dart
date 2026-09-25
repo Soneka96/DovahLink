@@ -1,58 +1,37 @@
-import 'package:flutter/services.dart';
-
-import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
-import 'package:dovahlink_client/shared/usecase/no_params.dart';
+import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
 
-/// Defines app cleanup and the Windows window-close request handler.
+/// Defines the platform-neutral cleanup path for app-owned Dart resources.
 abstract interface class IAppShutdownService {
-  /// Registers the native Windows close request method handler.
-  void registerWindowCloseHandler();
-
-  /// Stops app-owned recovery and disconnects the SDK client once.
-  /// @return A future completing after cleanup or the bounded shutdown wait.
+  /// Stops pairing work and disconnects an SDK client that already exists.
+  ///
+  /// Concurrent calls share one bounded cleanup operation. Cleanup failures do not escape.
+  /// @return A future completing when cleanup finishes or the shutdown budget expires.
   Future<void> shutdown();
 }
 
-/// Coordinates app-owned cleanup and the existing pairing disconnect use case.
+/// Coordinates pairing cleanup and disconnect of an existing SDK client.
 class AppShutdownService implements IAppShutdownService {
   /// Pairing middleware whose retry timer and connection subscription belong to the app.
   final IPairingMiddleware _pairingMiddleware;
 
-  /// Existing use case that delegates session teardown to the SDK client.
-  final DisconnectUseCase _disconnectUseCase;
-
-  /// Native close-request channel whose reply lets the Windows runner continue closing.
-  final MethodChannel _windowChannel;
+  /// Accesses only an SDK client already created by pairing composition.
+  final IExistingDovahLinkClient _existingClient;
 
   /// The shared cleanup operation returned to every shutdown caller.
   Future<void>? _shutdownFuture;
 
-  /// Maximum time allowed for SDK disconnect before the close request continues.
+  /// Maximum time allowed for app-owned cleanup before shutdown proceeds.
   static const Duration _shutdownTimeout = Duration(seconds: 3);
 
-  /// Creates the shutdown owner from app resources and the Windows lifecycle channel.
+  /// Creates the shared shutdown owner from app-owned resource contracts.
   /// @param pairingMiddleware The middleware owning app-level retry and status observation.
-  /// @param disconnectUseCase The application use case delegating to SDK disconnect.
-  /// @param windowChannel The method channel used by the Windows runner close handshake.
+  /// @param existingClient The holder that disconnects only an SDK client already constructed.
   AppShutdownService({
     required IPairingMiddleware pairingMiddleware,
-    required DisconnectUseCase disconnectUseCase,
-    required MethodChannel windowChannel,
+    required IExistingDovahLinkClient existingClient,
   }) : _pairingMiddleware = pairingMiddleware,
-       _disconnectUseCase = disconnectUseCase,
-       _windowChannel = windowChannel;
-
-  /// Implements [IAppShutdownService.registerWindowCloseHandler].
-  @override
-  void registerWindowCloseHandler() {
-    _windowChannel.setMethodCallHandler((MethodCall call) async {
-      if (call.method != 'requestClose') {
-        throw MissingPluginException('Unsupported Windows lifecycle method.');
-      }
-      await shutdown();
-    });
-  }
+       _existingClient = existingClient;
 
   /// Implements [IAppShutdownService.shutdown].
   @override
@@ -61,25 +40,23 @@ class AppShutdownService implements IAppShutdownService {
     onTimeout: () {},
   );
 
-  /// Stops app-owned recovery first, then awaits SDK disconnect within [_shutdownTimeout].
-  /// Cleanup failures are contained so the native close request can still finish.
-  /// @return A future that completes after both cleanup attempts settle.
+  /// Stops pairing work, attempts client disconnect, and contains both cleanup failures.
   Future<void> _performShutdown() async {
-    Future<void>? pairingCleanup;
+    final Future<void> pairingCleanup = _stopPairing();
     try {
-      pairingCleanup = _pairingMiddleware.shutdown();
+      await _existingClient.disconnectIfCreated();
     } on Object {
-      // SDK disconnect must still run when app-owned cleanup cannot start.
+      // A failed transport must not keep application close pending.
     }
+    await pairingCleanup;
+  }
+
+  /// Stops pairing middleware and contains synchronous or asynchronous cancellation failures.
+  Future<void> _stopPairing() async {
     try {
-      await _disconnectUseCase(NoParams()).timeout(_shutdownTimeout);
+      await _pairingMiddleware.shutdown();
     } on Object {
-      // A failed or stalled transport must not keep the native window open.
-    }
-    try {
-      await pairingCleanup;
-    } on Object {
-      // Stream cancellation is best-effort after SDK recovery and transport have stopped.
+      // Client disconnect must still run when app-owned cleanup cannot complete.
     }
   }
 }

@@ -19,13 +19,18 @@ import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
 
 /// Registers pairing dependencies.
 void initPairingDependencies() {
   sl.registerLazySingleton<IPairingMiddleware>(PairingMiddleware.new);
-  sl.registerLazySingleton<DovahLinkClient>(
-    () => DovahLinkClient(storage: sl<IClientStorage>()),
-  );
+  sl.registerLazySingleton<DovahLinkClient>(() {
+    final DovahLinkClient client = DovahLinkClient(
+      storage: sl<IClientStorage>(),
+    );
+    sl<ExistingDovahLinkClient>().clientCreated(client);
+    return client;
+  });
   sl.registerLazySingleton<IPairingRemoteDataSource>(
     () => PairingRemoteDataSource(sl<DovahLinkClient>()),
   );

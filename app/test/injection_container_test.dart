@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
@@ -35,10 +36,15 @@ import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_renotify_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/platform/windows/windows_lifecycle_bridge.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
+import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
+
+import 'package:dovahlink_client_sdk/dovahlink_client_windows.dart'
+    show DpapiClientStorage;
 
 /// Mocks the asynchronous preference API without requiring a registered plugin.
 class MockSharedPreferencesAsync extends Mock
@@ -175,6 +181,64 @@ void main() {
       expect(sl.isRegistered<DovahLinkClient>(), isTrue);
     });
 
+    for (final TargetPlatform platform in <TargetPlatform>[
+      TargetPlatform.android,
+      TargetPlatform.iOS,
+    ]) {
+      test(
+        'initDependencies selects unsupported storage on $platform without constructing DPAPI',
+        () async {
+          debugDefaultTargetPlatformOverride = platform;
+
+          await initDependencies();
+
+          expect(sl<IClientStorage>(), isA<UnsupportedClientStorage>());
+          expect(sl<DovahLinkClient>(), isA<DovahLinkClient>());
+          expect(sl.isRegistered<IWindowsLifecycleBridge>(), isFalse);
+        },
+      );
+    }
+
+    test('initDependencies selects DPAPI storage on Windows', () async {
+      debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+
+      await initDependencies();
+
+      expect(sl<IClientStorage>(), isA<DpapiClientStorage>());
+    });
+
+    test(
+      'initDependencies registers Windows lifecycle without constructing the SDK client',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+
+        await initDependencies();
+        final ExistingDovahLinkClient existingClient =
+            sl<ExistingDovahLinkClient>();
+
+        expect(sl.isRegistered<IWindowsLifecycleBridge>(), isTrue);
+        expect(existingClient.hasClient, isFalse);
+        await sl<IAppShutdownService>().shutdown();
+        expect(existingClient.hasClient, isFalse);
+      },
+    );
+
+    test(
+      'initDependencies tracks a client created for pairing so shutdown can disconnect it',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.windows;
+
+        await initDependencies();
+        final ExistingDovahLinkClient existingClient =
+            sl<ExistingDovahLinkClient>();
+        final DovahLinkClient client = sl<DovahLinkClient>();
+
+        expect(existingClient.hasClient, isTrue);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        await sl<IAppShutdownService>().shutdown();
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+      },
+    );
     test('initDependencies registers the pairing remote data source', () async {
       await initDependencies();
 
