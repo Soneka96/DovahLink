@@ -27,6 +27,7 @@ import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connec
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_cancel_button.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_countdown.viewmodel.dart';
@@ -37,6 +38,7 @@ import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
 
 /// Mocks the asynchronous preference API without requiring a registered plugin.
 class MockSharedPreferencesAsync extends Mock
@@ -61,6 +63,9 @@ void main() {
   });
 
   tearDown(() async {
+    const MethodChannel(
+      'dovahlink/window_lifecycle',
+    ).setMethodCallHandler(null);
     await sl.reset();
   });
 
@@ -154,6 +159,16 @@ void main() {
   });
 
   group('injection_container — pairing registrations', () {
+    test(
+      'initDependencies registers app shutdown and pairing middleware',
+      () async {
+        await initDependencies();
+
+        expect(sl.isRegistered<IAppShutdownService>(), isTrue);
+        expect(sl.isRegistered<IPairingMiddleware>(), isTrue);
+      },
+    );
+
     test('initDependencies registers the SDK client', () async {
       await initDependencies();
 
