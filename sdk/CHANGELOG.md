@@ -18,7 +18,10 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
-- Explicit disconnect cancels pending automatic reconnect retries and ignores recovery outcomes that arrive afterward.
+- Explicit disconnect cancels pending automatic reconnect retries and ignores recovery outcomes
+  that arrive afterward.
+- Explicit disconnect invalidates an ordinary-loss recovery handoff while teardown is still in
+  progress.
 
 ## [0.5.0] - 2026-09-24
 

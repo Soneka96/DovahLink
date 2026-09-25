@@ -395,6 +395,35 @@ void main() {
       expect(reconnectUris, isEmpty);
       verifyNever(() => state.markReconnecting());
     });
+
+    test(
+      'Method onUnhealthy skips recovery when explicit disconnect begins during teardown',
+      () async {
+        final Completer<void> ordinaryTeardown = Completer<void>();
+        int teardownCount = 0;
+        when(
+          () => teardownCoordinator.tearDown(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        ).thenAnswer((_) {
+          teardownCount++;
+          return teardownCount == 1
+              ? ordinaryTeardown.future
+              : Future<void>.value();
+        });
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+
+        service.onUnhealthy(const DovahLinkConnectionException('timed out'));
+        await pumpEventQueue();
+        await service.disconnect();
+        ordinaryTeardown.complete();
+        await pumpEventQueue();
+
+        expect(reconnectUris, isEmpty);
+        verifyNever(() => state.markReconnecting());
+      },
+    );
   });
 
   group('Method onProtocolViolation behaves correctly', () {
