@@ -17,6 +17,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
   Flutter engine is destroyed.
 - Mobile startup selects an explicit unsupported-storage boundary instead of constructing Windows
   DPAPI storage; pairing persistence remains unavailable until secure mobile storage is implemented.
+- Shared shutdown no longer constructs an unused SDK client, and only Windows registers the native
+  lifecycle bridge.
 
 ### Added
 

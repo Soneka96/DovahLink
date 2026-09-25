@@ -288,6 +288,16 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
   avoid choosing a feature boundary.
 - One-off I/O belongs in the owning feature datasource.
 
+## Application shutdown
+
+`AppShutdownService` is platform-neutral and owns one idempotent, bounded cleanup path: stop
+`PairingMiddleware`, then disconnect the SDK client only if pairing has already created it. The
+pairing client registration records its instance in the app lifecycle holder; shutdown must not
+resolve the lazy client registration just to disconnect an unused client. Windows registers
+`WindowsLifecycleBridge`, which forwards native close and session-ending requests to the shared
+service. Android and iOS do not register that bridge, and ordinary background/pause lifecycle events
+do not invoke application shutdown.
+
 ## Theming and layout
 
 - Colors and text styles come from `Theme.of(context)` and the approved app theme.
