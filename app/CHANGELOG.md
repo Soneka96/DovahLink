@@ -11,16 +11,6 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ## [Unreleased]
 
-### Fixed
-
-- Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its
-  three-second cleanup budget, then returns the close message through Flutter's engine and plugin
-  pipeline; the native runner resumes close processing after five seconds if cleanup stalls.
-- Mobile startup selects an explicit unsupported-storage boundary instead of constructing Windows
-  DPAPI storage; pairing persistence remains unavailable until secure mobile storage is implemented.
-- Shared shutdown no longer constructs an unused SDK client, and only Windows registers the native
-  lifecycle bridge.
-
 ### Added
 
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
@@ -60,13 +50,19 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its
+  three-second cleanup budget, then returns the close message through Flutter's engine and plugin
+  pipeline; the native runner resumes close processing after five seconds if cleanup stalls.
+- Shared shutdown no longer constructs an unused SDK client, and only Windows registers the native
+  lifecycle bridge.
+- On platforms without secure client storage, mobile startup uses the explicit unsupported-storage
+  boundary instead of Windows DPAPI; pairing remains unavailable and authentication is skipped.
 - A retained pairing redisplay callback no longer sends another request while one is pending.
 - Pairing now shows the Host-reported cooldown after successfully showing the code again.
 - An open dialog now updates its backdrop as the application theme changes.
 - Bevelled panels, cards, and buttons no longer draw a border line along the bevel.
 - Canvas backgrounds now render each theme's complete atmosphere recipe, including its image
   treatment and haze layers.
-- Pairing is clearly unavailable on platforms without secure client storage, and authentication is skipped there.
 
 ## [0.5.0] - 2026-09-24
 
