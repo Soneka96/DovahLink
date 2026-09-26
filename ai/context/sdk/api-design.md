@@ -19,12 +19,17 @@ the simple API when those phases land instead.
 ## Expert capabilities
 
 Advanced developers may inspect lifecycle and diagnostic information: connection state, connected
-Host version, SDK/Host compatibility result, current `stateAuthorityId`/`playContextId`/
+Host version, SDK/Host compatibility result, Host `hostId`, OS-derived `hostName`, current
+`stateAuthorityId`/`playContextId`/
 `sessionId`, capabilities, revision/recovery diagnostics, subscription diagnostics, structured
 connection/recovery events, and supported administration operations. "Advanced" must not mean
 "bypass invariants": an expert API still preserves contract validation, session safety, lifecycle
 correctness, security rules, state ownership, and compatibility rules. Do not expose the raw socket
 merely because an expert API exists, unless a later explicit low-level API decision approves it.
+
+`HelloResult.hostId` and `HelloResult.hostName` come from the connected Host's authoritative
+handshake. The ID identifies the DovahLink Host installation; the name is mutable computer-name
+display metadata. Neither represents the endpoint.
 
 ## No duplicate stacks, no speculative surface
 

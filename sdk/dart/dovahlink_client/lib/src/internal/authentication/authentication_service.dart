@@ -100,10 +100,8 @@ class AuthenticationService implements IAuthenticationService {
        _clientIdResolver = clientIdResolver,
        _clientIdCache = clientIdCache;
 
-  /// The Host release version from the last successful [IAuthenticationService.hello], or `null`
-  /// before it succeeds. Cached so [IAuthenticationService.authenticate] can report it without
-  /// re-sending `hello` on an admitted session.
-  String? _hostVersion;
+  /// The complete result from the last successful Host handshake, cached for an admitted session.
+  HelloResult? _lastHelloResult;
 
   /// Generation invalidating authentication work when the client disconnects.
   int _authenticationGeneration = 0;
@@ -176,14 +174,20 @@ class AuthenticationService implements IAuthenticationService {
         sessionId: sessionId,
         trustState: trustState,
       );
-      _hostVersion = ack.hostVersion;
+      final HelloResult result = HelloResult(
+        hostId: ack.hostId,
+        hostName: ack.hostName,
+        hostVersion: ack.hostVersion,
+        trustState: trustState,
+      );
+      _lastHelloResult = result;
 
       // The Host always sends an unprompted `capabilities` message right after `hello_ack`; it
       // arrives as an unsolicited (null-correlationId) message and is discarded by
       // MessageRouter -- exposing it is out of this client's current scope. hello() does not
       // wait for it.
 
-      return HelloResult(hostVersion: ack.hostVersion, trustState: trustState);
+      return result;
     } on Object {
       _ensureAuthenticationCurrent(generation);
       if (!disconnectAfterFailure) {
@@ -208,12 +212,14 @@ class AuthenticationService implements IAuthenticationService {
   @override
   Future<HelloResult> authenticate(Uri uri) async {
     final int generation = _authenticationGeneration;
-    final String? cachedHostVersion = _hostVersion;
+    final HelloResult? cachedHelloResult = _lastHelloResult;
     if (_sessionService.connectionState == DovahLinkConnectionState.connected &&
         _sessionService.currentTrustState == DovahLinkTrustState.trusted &&
-        cachedHostVersion != null) {
+        cachedHelloResult != null) {
       return HelloResult(
-        hostVersion: cachedHostVersion,
+        hostId: cachedHelloResult.hostId,
+        hostName: cachedHelloResult.hostName,
+        hostVersion: cachedHelloResult.hostVersion,
         trustState: DovahLinkTrustState.trusted,
       );
     }
@@ -245,6 +251,8 @@ class AuthenticationService implements IAuthenticationService {
       final HelloResult result = await _hello(generation);
       _ensureAuthenticationCurrent(generation);
       return HelloResult(
+        hostId: result.hostId,
+        hostName: result.hostName,
         hostVersion: result.hostVersion,
         trustState: result.trustState,
         recoveredFromRejectedCredential: reason,

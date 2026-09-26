@@ -278,9 +278,18 @@ compatibility information a client needs before trusting the rest of the exchang
 ```json
 {
   "hostVersion": "0.5.0",
+  "hostId": "81869993-955c-4ba3-a7d0-d35ca86078ea",
+  "hostName": "Soneka-Desktop",
   "clientIdentityKind": "paired"
 }
 ```
+
+`hostId` is the stable, DovahLink-generated UUID of this Host installation. It is exactly one
+non-empty UUID string and is independent of all machine, process, client, session, and transport
+values. `hostName` is the current operating-system computer name, or the Host's safe fallback; it is
+required, non-empty, free of control characters, and at most 64 UTF-8 bytes. The name is display
+metadata and may change without changing `hostId`. `endpoint` is a mutable connection location and
+is not part of this payload or Host identity.
 
 `hostVersion` is a required, non-empty string containing the Host's own release version, the
 compatibility authority per `ai/context/protocol/compatibility.md`. The host
@@ -294,7 +303,7 @@ or `unpaired` (trust-restricted until pairing succeeds), or `"paired"` for a ses
 `pairing_ack` — the upgrade happens on the same connection with no reconnect and no `sessionId`
 change, so a client only learns of it from that `pairing_outcome`, not from a fresh `hello_ack`.
 
-Required payload fields: `hostVersion`, `clientIdentityKind`.
+Required payload fields: `hostVersion`, `hostId`, `hostName`, `clientIdentityKind`.
 
 `hello_ack.correlationId` is the `messageId` of the `hello` it answers.
 

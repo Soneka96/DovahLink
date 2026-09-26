@@ -87,6 +87,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// </summary>
     private readonly IPublicSessionConnectionRegistry connectionRegistry;
 
+    /// <summary>The persistent Host ID and current computer name reported in <c>hello_ack</c>.</summary>
+    private readonly HostIdentity hostIdentity;
+
     /// <summary>
     /// This connection's own state-area subscription and event-forwarding gate, or
     /// <see langword="null"/> when no subscription capability is available -- <c>subscribe</c> and
@@ -160,6 +163,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <param name="dispatcher">Routes every authorized <c>ping</c>, pairing_*, and <c>rename_request</c> message to its owning service.</param>
     /// <param name="pairingCoordinator">Records this connection's disconnect and reconnect for pairing reconnect-grace tracking.</param>
     /// <param name="connectionRegistry">Registers this connection's exact live context under its admitted session identity.</param>
+    /// <param name="hostIdentity">The validated persistent Host ID and current computer name reported during admission.</param>
     /// <param name="admissionDeadline">How long this connection may remain unadmitted before it is closed. Defaults to <see cref="Constants.PublicHelloAdmissionDeadline"/>.</param>
     /// <param name="subscription">This connection's own state-area subscription and event-forwarding gate. Defaults to <see langword="null"/>, under which <c>subscribe</c> and <c>snapshot_request</c> reject every request.</param>
     public PublicHelloAdmissionHandler(
@@ -173,6 +177,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         IClientMessageDispatcher dispatcher,
         IPairingCoordinator pairingCoordinator,
         IPublicSessionConnectionRegistry connectionRegistry,
+        HostIdentity hostIdentity,
         TimeSpan? admissionDeadline = null,
         IPublicStateSubscription? subscription = null)
     {
@@ -186,6 +191,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         this.dispatcher = dispatcher;
         this.pairingCoordinator = pairingCoordinator;
         this.connectionRegistry = connectionRegistry;
+        this.hostIdentity = hostIdentity;
         this.admissionDeadline = admissionDeadline ?? Constants.PublicHelloAdmissionDeadline;
         this.subscription = subscription;
     }
@@ -902,6 +908,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         var ackPayload = new HelloAckPayload
         {
+            HostId = hostIdentity.HostId.ToString(),
+            HostName = hostIdentity.HostName,
             HostVersion = Constants.PublicProtocolHostVersion,
             ClientIdentityKind = identityKind,
         };

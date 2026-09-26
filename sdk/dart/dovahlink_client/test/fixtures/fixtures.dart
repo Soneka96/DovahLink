@@ -1,3 +1,4 @@
+import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -58,6 +59,23 @@ abstract final class Fixtures {
     stateAuthorityId: stateAuthorityId,
     playContextId: playContextId,
     clientId: clientId,
+  );
+
+  // ---- Authentication ----
+
+  /// Builds a successful Host handshake result with stable identity defaults.
+  static HelloResult buildHelloResult({
+    String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
+    String hostName = 'Soneka-Desktop',
+    String hostVersion = '0.5.0',
+    DovahLinkTrustState trustState = DovahLinkTrustState.trusted,
+    CredentialRejectionReason? recoveredFromRejectedCredential,
+  }) => HelloResult(
+    hostId: hostId,
+    hostName: hostName,
+    hostVersion: hostVersion,
+    trustState: trustState,
+    recoveredFromRejectedCredential: recoveredFromRejectedCredential,
   );
 
   // ---- Pairing ----

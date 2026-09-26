@@ -59,6 +59,13 @@ Before changing a message:
 3. Update both adapters and their contract tests in the same feature branch.
 4. If the change stays compatible, record that the existing supported range remains valid. If it does not, update the client/SDK's declared range, its implementation, fixtures, tests, and documentation together, and confirm an old unsupported client/SDK rejects the new Host release cleanly.
 
+The current pre-release `0.5.x` contract adds required `hostId` and `hostName` fields to
+`hello_ack`. The Host and Dart SDK sources are updated together in the same feature branch, so the
+current supported range remains `0.5.x`. Earlier unreleased `0.5.x` builds are not compatibility
+targets under `ai/context/common.md`'s pre-release policy; do not add nullable legacy fields or a
+compatibility fallback for them. The repository version remains release-managed and is not bumped
+in this feature change.
+
 The Phase 5.3 meaning of `subscribe.stateAreas` is complete-set replacement. Released Host `0.4.0`
 treated successive requests additively, so it cannot satisfy the Phase 5.3 public SDK subscription
 API. The next compatible Host line is `0.5.x`; do not use capability negotiation or a second wire

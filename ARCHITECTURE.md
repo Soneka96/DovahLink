@@ -125,6 +125,19 @@ is added further below):
 the transport `ConnectionId` and authenticated `sessionId` share the per-socket
 lifetime.
 
+The public Host identity has three independent values:
+
+- `hostId` is a DovahLink-generated UUID persisted for the Host installation. It survives Host,
+  Adapter, Skyrim, and Windows restarts, machine renames, and endpoint changes. Trust reset,
+  revocation, blocking, and Factory Reset do not rotate it; deleting or recreating the dedicated
+  Host identity storage deliberately creates a new ID.
+- `hostName` is mutable display metadata read from the current operating-system computer name.
+- `endpoint` is the current connection location and may change independently of both identity and name.
+
+`hostId` is not `hostName`, an endpoint, `stateAuthorityId`, `adapterInstanceId`, `sessionId`,
+`clientId`, a Steam ID, or an OS hardware/device identifier. Only the connected Host handshake
+authoritatively confirms Host identity; a future discovery result can only propose a candidate.
+
 - `adapterInstanceId` identifies one running adapter/plugin lifetime. Under the process-lifetime
   adapter policy, an adapter restart means a new Skyrim process and creates a new identity; live
   plugin unload/reload is not a supported lifecycle boundary. The host's OS process lifetime is

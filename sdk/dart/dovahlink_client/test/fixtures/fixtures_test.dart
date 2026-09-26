@@ -1,5 +1,6 @@
 import 'package:test/test.dart';
 
+import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -124,6 +125,37 @@ void main() {
       final Envelope second = Fixtures.buildEnvelope();
 
       expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildHelloResult behaves correctly', () {
+    test(
+      'Method buildHelloResult builds representative Host identity defaults',
+      () {
+        final HelloResult result = Fixtures.buildHelloResult();
+
+        expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
+        expect(result.hostName, 'Soneka-Desktop');
+        expect(result.hostVersion, '0.5.0');
+        expect(result.trustState, DovahLinkTrustState.trusted);
+      },
+    );
+
+    test('Method buildHelloResult applies named overrides', () {
+      final HelloResult result = Fixtures.buildHelloResult(
+        hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        hostName: 'LIVINGROOM-PC',
+        trustState: DovahLinkTrustState.unpaired,
+        recoveredFromRejectedCredential: CredentialRejectionReason.revoked,
+      );
+
+      expect(result.hostId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+      expect(result.hostName, 'LIVINGROOM-PC');
+      expect(result.trustState, DovahLinkTrustState.unpaired);
+      expect(
+        result.recoveredFromRejectedCredential,
+        CredentialRejectionReason.revoked,
+      );
     });
   });
 

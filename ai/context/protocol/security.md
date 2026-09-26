@@ -312,6 +312,14 @@ message shape. This phase is that phase; this section is the filled-in decision.
   not touch this one). There is no partially-trusted state beyond "restricted" and "full": a session
   is never allowed a third, intermediate message-type set.
 
+After successful loopback admission with `auth.method: unpaired`, the Host intentionally returns
+`hostId` and `hostName` in `hello_ack`. `hostName` is non-secret, human-readable OS metadata;
+`hostId` is the stable DovahLink installation identity, not an authentication secret or proof of
+trust. This exposure supports local bootstrap and pairing. Discovery may display a Host candidate,
+but only the connected Host's `hello_ack` confirms its authoritative identity. Any future
+non-loopback/LAN discovery must re-evaluate which identity metadata it advertises before a
+connection exists.
+
 ## Connection liveness
 
 - Once the WebSocket session is established, WebSocket-level Ping/Pong and a bounded idle timeout own

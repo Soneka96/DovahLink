@@ -125,7 +125,13 @@ public class TrustServiceExtensionsTests
 
         byte[] encoded = envelopeCodec.Encode(
             PublicMessageType.HelloAck, "message-1", "session-1", null, null, null,
-            new HelloAckPayload { HostVersion = Constants.PublicProtocolHostVersion, ClientIdentityKind = ClientIdentityKind.Unpaired });
+            new HelloAckPayload
+            {
+                HostId = "81869993-955c-4ba3-a7d0-d35ca86078ea",
+                HostName = "Soneka-Desktop",
+                HostVersion = Constants.PublicProtocolHostVersion,
+                ClientIdentityKind = ClientIdentityKind.Unpaired,
+            });
         Assert.True(envelopeCodec.TryDecode(encoded, out PublicEnvelope? envelope));
         Assert.Equal(provider.GetRequiredService<IStateAuthorityLifecycle>().Current.ToString(), envelope!.StateAuthorityId);
     }

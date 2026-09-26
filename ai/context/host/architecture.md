@@ -55,6 +55,19 @@ host-observed `adapterInstanceId`; and the adapter reports play-context
 transitions through the private channel. None of those identities is derived
 from a port, path, hostname, or OS process id.
 
+The Host also owns a persistent public `hostId`: a DovahLink-generated UUID stored at
+`%LOCALAPPDATA%/DovahLink/host/host-id.dat`, separately from the trust store. It survives Host,
+Adapter, Skyrim, and Windows restarts, computer renames, and endpoint changes. Trust reset, client
+revocation, blocking, and Factory Reset leave it unchanged. Removing or recreating this dedicated
+identity file is the deliberate identity reset and causes a new ID to be generated. Corrupt identity
+storage fails startup rather than silently changing the Host's identity.
+
+On each Host startup, `hostName` is read from the operating-system computer name (`Environment.MachineName`).
+It is mutable display metadata, bounded to the existing 64-byte display-name limit; if it cannot be
+read or is invalid, the Host uses `Skyrim PC` and continues starting. `endpoint` remains the current
+network location. None of these values substitutes for `stateAuthorityId`, `adapterInstanceId`,
+`sessionId`, `clientId`, Steam ID, or a hardware/device ID.
+
 ## Ownership
 
 The host is the sole new owner of:

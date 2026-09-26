@@ -10,6 +10,24 @@ namespace DovahLink.Host.Tests.Trust;
 /// <summary>Tests for <see cref="TrustResetService"/>.</summary>
 public class TrustResetServiceTests
 {
+    /// <summary>Verifies a full trust reset preserves the independent Host installation identity.</summary>
+    [Fact]
+    public async Task ConfirmResetAsync_HostIdStoreRemainsSeparateFromTrustStore()
+    {
+        string identityDirectory = Path.Combine(Path.GetTempPath(), $"dovahlink-reset-host-id-{Guid.NewGuid():N}");
+        string identityPath = Path.Combine(identityDirectory, "host-id.dat");
+        var identityStore = new FileHostIdentityStore(identityPath);
+        HostId beforeReset = identityStore.LoadOrCreate();
+        var persistence = new FakeTrustStorePersistence();
+        (_, _, _, TrustResetService service) = await ComposeRealCollaboratorsAsync(persistence);
+        FactoryResetChallenge challenge = service.BeginReset().Challenge!;
+
+        Assert.True(await service.ConfirmResetAsync(challenge.Code));
+        Assert.Equal(beforeReset, identityStore.LoadOrCreate());
+
+        Directory.Delete(identityDirectory, recursive: true);
+    }
+
     /// <summary>Verifies that confirming the correct, unexpired code deletes every known device and invalidates every session.</summary>
     [Fact]
     public async Task ConfirmResetAsync_CorrectCode_ResetsAllDevicesAndInvalidatesAllSessions()
