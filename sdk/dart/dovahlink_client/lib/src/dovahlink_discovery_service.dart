@@ -14,15 +14,17 @@ final Uri _localHostEndpoint = Uri.parse('ws://127.0.0.1:58231/');
 
 /// Defines the SDK's local Host discovery capability.
 abstract interface class IDovahLinkDiscoveryService {
-  /// Probes the local endpoint and returns a handshake-confirmed Host, or `null` when no listener
-  /// can be reached.
+  /// Probes the local endpoint and returns the responding peer's Host claim after protocol and
+  /// compatibility validation, or `null` when WebSocket setup fails without an HTTP status code.
+  /// @throws [DovahLinkConnectionException] if an HTTP response rejects the WebSocket upgrade, or a
+  ///     connected peer drops the connection or does not answer `hello` before the request timeout.
   /// @throws [DovahLinkProtocolException] if a reachable peer violates the DovahLink protocol.
   /// @throws [DovahLinkCompatibilityException] if a reachable Host version is unsupported.
   Future<DovahLinkHost?> discoverLocalHost();
 }
 
-/// Discovers the local Host by opening an isolated, unpaired SDK session and validating its
-/// authoritative `hello_ack` response.
+/// Finds a local Host candidate by validating an unpaired `hello_ack` with the normal SDK stack.
+/// Discovery validates a peer's Host claim; it does not authenticate Host identity.
 class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
   /// The candidate location this service probes.
   final Uri _endpoint;
@@ -44,14 +46,21 @@ class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
   }) : _endpoint = endpoint,
        _timeoutDurations = timeoutDurations;
 
-  /// Probes the local endpoint, returning `null` when no listener can be reached.
+  /// Probes the local endpoint and returns the Host values asserted by the peer's validated
+  /// `hello_ack`. Protocol and compatibility validation do not authenticate that peer as an
+  /// installation previously known under [DovahLinkHost.hostId].
   ///
-  /// The returned [DovahLinkHost.hostId] and [DovahLinkHost.hostName] are taken from the
-  /// connected Host's validated `hello_ack`; the endpoint is only its current location. The probe
-  /// uses transient storage and never presents consumer credentials, pairs, or reconnects.
-  /// @return The confirmed Host, or `null` when the candidate cannot be connected.
+  /// The endpoint is the current location, not part of identity. This probe uses transient storage,
+  /// sends an unpaired `hello`, and never presents consumer credentials, pairs, or reconnects. A
+  /// discovered `hostId` alone must not authorize trust, credential disclosure, pairing bypass, or
+  /// another security-sensitive decision.
+  /// @return The peer-asserted Host values, or `null` when WebSocket setup fails without an HTTP
+  ///     status code.
+  /// @throws [DovahLinkConnectionException] if an HTTP response rejects the WebSocket upgrade, or a
+  ///     connected peer drops the connection or does not answer `hello` before the request timeout.
   /// @throws [DovahLinkProtocolException] if a reachable peer violates the DovahLink protocol.
-  /// @throws [DovahLinkCompatibilityException] if a reachable Host version is unsupported.
+  /// @throws [DovahLinkCompatibilityException] if a reachable peer reports an unsupported Host
+  ///     version.
   @override
   Future<DovahLinkHost?> discoverLocalHost() async {
     final DovahLinkClient client = buildDovahLinkClientForDiscovery(
@@ -60,7 +69,10 @@ class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
     try {
       try {
         await client.connect(_endpoint);
-      } on DovahLinkConnectionException {
+      } on DovahLinkConnectionException catch (error) {
+        if (error.httpStatusCode != null) {
+          rethrow;
+        }
         return null;
       }
       final HelloResult hello = await client.hello();

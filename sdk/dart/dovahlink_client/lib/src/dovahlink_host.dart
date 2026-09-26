@@ -1,5 +1,6 @@
-/// A Host identity confirmed by its `hello_ack` response, paired with the location used to reach
-/// it for this discovery operation.
+/// Host values asserted by a peer's protocol-validated `hello_ack`, paired with the location used
+/// to reach it. This value does not authenticate the peer or prove it owns a previously known Host
+/// identity.
 final class DovahLinkHost {
   /// Creates a discovered Host value.
   /// @param hostId The stable identity reported by the Host.
@@ -11,7 +12,8 @@ final class DovahLinkHost {
     required this.endpoint,
   });
 
-  /// The stable DovahLink-generated identity of the Host installation.
+  /// The stable DovahLink Host installation identity asserted by the responding peer. This claim
+  /// is not cryptographic proof that the peer owns a previously known Host identity.
   final String hostId;
 
   /// The current OS computer name reported by the Host; mutable display metadata.

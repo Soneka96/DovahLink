@@ -27,15 +27,24 @@ connection/recovery events, and supported administration operations. "Advanced" 
 correctness, security rules, state ownership, and compatibility rules. Do not expose the raw socket
 merely because an expert API exists, unless a later explicit low-level API decision approves it.
 
-`HelloResult.hostId` and `HelloResult.hostName` come from the connected Host's authoritative
-handshake. The ID identifies the DovahLink Host installation; the name is mutable computer-name
-display metadata. Neither represents the endpoint.
+`HelloResult.hostId` and `HelloResult.hostName` are values reported by the connected peer. The
+`hostId` represents the stable DovahLink Host installation identity the peer asserts; the name is
+mutable computer-name display metadata. Neither represents the endpoint. A peer's assertion of
+`hostId` is not cryptographic proof that it owns a previously trusted identity.
 
-`DovahLinkDiscoveryService.discoverLocalHost()` proposes the local endpoint, then the connected
-Host's validated `hello_ack` confirms `hostId` and `hostName`. In [DovahLinkHost], `hostId` is
-identity, `hostName` is mutable display metadata, and `endpoint` is the current location. A refused
-connection returns `null`; a reachable malformed peer or incompatible Host remains a typed SDK
-failure. The probe uses an isolated, unpaired client and disconnects after the handshake.
+`DovahLinkDiscoveryService.discoverLocalHost()` proposes the local endpoint. The responding peer's
+`hello_ack` asserts `hostId` and `hostName`, which the SDK validates for protocol shape and Host
+version compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the peer
+claims, `hostName` is mutable display metadata, and `endpoint` is the current location. Discovery
+identifies a candidate; it does not authenticate Host identity or prove the peer owns an identity
+previously trusted under that ID. A discovered `hostId` alone must never authorize trust, credential
+disclosure, pairing bypass, or another security-sensitive decision. Connection refusal or WebSocket
+setup failure without an HTTP status code returns `null`; an HTTP response rejecting the WebSocket
+upgrade, malformed DovahLink response, incompatible Host, and a silent or disconnected peer during
+`hello` remain typed failures. The probe uses an isolated, unpaired client and disconnects after the
+handshake. Without an HTTP status, the current transport cannot distinguish connection refusal
+from a peer that accepts TCP and closes before replying; a typed transport connection outcome would
+be needed if that distinction becomes necessary.
 
 ## No duplicate stacks, no speculative surface
 

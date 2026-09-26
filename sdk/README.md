@@ -51,8 +51,10 @@ DPAPI-backed implementation ships today through the Windows-specific
 `dovahlink_client_windows.dart` entry point) -- see `ai/context/sdk/persistence.md`. The official
 Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
 client for pairing and authentication through `PairingRemoteDataSource`. The public SDK also probes
-the local loopback Host endpoint with an isolated unpaired handshake and returns the confirmed Host
-identity and current endpoint; it does not discover Hosts over LAN or mDNS.
+the local loopback endpoint with an isolated unpaired handshake and returns the responding peer's
+protocol-validated `hostId`/`hostName` claims and current endpoint. Discovery does not authenticate
+Host identity, prove the peer owns a previously trusted identity, or discover Hosts over LAN or
+mDNS.
 
 The app selects storage at its composition boundary. Windows uses DPAPI; other platforms currently
 use an explicit unsupported-storage boundary, and pairing stays unavailable until secure storage is

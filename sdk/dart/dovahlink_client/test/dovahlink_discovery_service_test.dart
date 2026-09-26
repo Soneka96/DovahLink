@@ -28,6 +28,7 @@ startDiscoveryExchange({
   JsonMap? helloAckPayload,
   String? rawReply,
   bool reply = true,
+  bool dropConnection = false,
   Map<TimeoutClass, Duration> timeoutDurations = kTimeoutClassDurations,
 }) async {
   final Future<WebSocket> acceptedConnection = server.connections.first;
@@ -82,6 +83,8 @@ startDiscoveryExchange({
         ),
       );
     }
+  } else if (dropConnection) {
+    await socket.close();
   }
   return (discovery, request, socketClosed.future, peerMessages.future);
 }
@@ -226,6 +229,41 @@ void main() {
             );
 
         expect(await service.discoverLocalHost(), isNull);
+      },
+    );
+
+    test(
+      'Method discoverLocalHost throws with the HTTP status from a reachable non-WebSocket service',
+      () async {
+        final HttpServer server = await HttpServer.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        addTearDown(() => server.close(force: true));
+        final Completer<void> requestReceived = Completer<void>();
+        server.listen((HttpRequest request) async {
+          if (!requestReceived.isCompleted) {
+            requestReceived.complete();
+          }
+          request.response.statusCode = HttpStatus.ok;
+          await request.response.close();
+        });
+        final DovahLinkDiscoveryService service =
+            buildDovahLinkDiscoveryServiceForTesting(
+              endpoint: Uri.parse('ws://127.0.0.1:${server.port}/'),
+            );
+
+        await expectLater(
+          service.discoverLocalHost(),
+          throwsA(
+            isA<DovahLinkConnectionException>().having(
+              (DovahLinkConnectionException error) => error.httpStatusCode,
+              'httpStatusCode',
+              HttpStatus.ok,
+            ),
+          ),
+        );
+        await requestReceived.future.timeout(_socketTimeout);
       },
     );
 
@@ -402,6 +440,32 @@ void main() {
             TimeoutClass.normal: const Duration(milliseconds: 25),
             TimeoutClass.heavy: const Duration(milliseconds: 25),
           },
+        );
+
+        await expectLater(
+          discovery,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await request;
+        await socketClosed.timeout(_socketTimeout);
+      },
+    );
+
+    test(
+      'Method discoverLocalHost preserves a peer drop during hello and closes the probe',
+      () async {
+        final FakeWebSocketServer server = await FakeWebSocketServer.start();
+        addTearDown(server.close);
+        final (
+          Future<DovahLinkHost?> discovery,
+          Future<JsonMap> request,
+          Future<void> socketClosed,
+          _,
+        ) = await startDiscoveryExchange(
+          server: server,
+          endpoint: server.uri,
+          reply: false,
+          dropConnection: true,
         );
 
         await expectLater(

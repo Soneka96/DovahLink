@@ -86,11 +86,18 @@ sends an unpaired `hello`, relies on the ordinary decoder and compatibility chec
 in all outcomes. It does not read or mutate consumer storage, use a saved credential, pair, or
 restore subscriptions.
 
-The candidate endpoint locates a responder; only its `hello_ack` confirms Host identity. `hostId`
-is the stable DovahLink installation identity, `hostName` is mutable OS display metadata, and
-`endpoint` is the current connection location. The current probe is loopback-only and does not
-implement LAN, mDNS, or other network discovery. Connection refusal returns no discovered Host;
-malformed protocol and compatibility failures retain their typed SDK exceptions.
+The candidate endpoint locates a responder. Its protocol-validated `hello_ack` asserts `hostId` and
+`hostName`; this does not cryptographically prove the peer owns a previously known Host identity.
+`hostId` remains the stable DovahLink installation identity, `hostName` is mutable OS display
+metadata, and `endpoint` is the current connection location. The current probe is loopback-only and
+does not implement LAN, mDNS, or other network discovery. A connection failure without an HTTP
+status code returns no candidate. An HTTP response rejecting the WebSocket upgrade includes its
+typed status in `DovahLinkConnectionException`. Without a status, the current transport cannot
+distinguish a refused connection from a peer that accepts TCP and closes before replying; if this
+case needs a different outcome, the transport boundary must provide a typed connect-stage result.
+Malformed protocol, compatibility failures, and a silent or disconnected peer during `hello` also
+remain typed failures. A discovered `hostId` alone must not authorize trust, credential disclosure,
+pairing bypass, or another security-sensitive decision.
 
 ## Feature and capability organization
 

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
@@ -197,7 +198,12 @@ class SessionService implements ISessionService {
         unawaited(_transport.close());
       }
       _state.markConnectFailed();
-      throw DovahLinkConnectionException('Failed to connect to $uri: $error');
+      throw DovahLinkConnectionException(
+        'Failed to connect to $uri: $error',
+        httpStatusCode: error is WebSocketException
+            ? error.httpStatusCode
+            : null,
+      );
     }
   });
 
