@@ -3,7 +3,9 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
@@ -44,9 +46,8 @@ import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
-/// disconnect. Owns its local [DovahLinkClient.clientId], pairing credential, and
-/// [PairingRecoveryState.confirming] recovery state through [IClientStorage], so a consumer never
-/// threads identity or credential material through this API by hand.
+/// disconnect. Owns its local [DovahLinkClient.clientId], credential, pairing recovery state, and
+/// Known Host through [IClientStorage], so a consumer never threads credentials through this API.
 ///
 /// Never exposes raw JSON or transport details: every method takes and returns typed values.
 class DovahLinkClient {
@@ -265,6 +266,7 @@ class DovahLinkClient {
       }
     };
     _pairingService = PairingService(
+      sessionService: _sessionService,
       sessionTrustService: sessionTrustService,
       requestService: _requestService,
       storage: _storage,
@@ -345,6 +347,12 @@ class DovahLinkClient {
   /// This installation's stable client ID, or `null` before [DovahLinkClient.hello] has resolved
   /// it.
   String? get clientId => _authenticationService.clientId;
+
+  /// Loads this client's persisted Known Host without exposing credentials or storage details.
+  /// @return The Host this client previously associated with, or `null` when none is stored.
+  /// @throws [DovahLinkStorageException] if persisted state cannot be read safely.
+  Future<DovahLinkHost?> loadKnownHost() async =>
+      (await _storage.load()).knownHost;
 
   /// The reason [DovahLinkClient.connectionState] is
   /// [DovahLinkConnectionState.administrativelyInvalidated], or
@@ -450,9 +458,9 @@ class DovahLinkClient {
   Future<PairingCancelOutcome> cancelPairing() =>
       _pairingService.cancelPairing();
 
-  /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential
-  /// and a [PairingRecoveryState.confirming] recovery state before returning it, so an interrupted
-  /// final confirmation can be resumed safely.
+  /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential,
+  /// current Host, and a [PairingRecoveryState.confirming] recovery state together before
+  /// returning it, so an interrupted final confirmation can be resumed safely.
   /// @return The issued credential, already persisted.
   /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, or
   ///     hit the hard wrong-attempt limit.
@@ -483,8 +491,8 @@ class DovahLinkClient {
   /// `pairing_invalidated` outcome (an administrative mutation rejected the pending credential)
   /// discards the local credential and resets to [DovahLinkTrustState.unpaired] rather than
   /// treating that as a fatal error; any other failure leaves [PairingRecoveryState.confirming]
-  /// untouched so a later relaunch can retry. A recovered trusted session starts restoring desired
-  /// state subscriptions.
+  /// untouched so a later relaunch can retry. Invalidated confirmation preserves Known Host
+  /// metadata. A recovered trusted session starts restoring desired state subscriptions.
   Future<DovahLinkTrustState> recoverPendingPairing() async {
     final DovahLinkTrustState trustState = await _pairingService
         .recoverPendingPairing();

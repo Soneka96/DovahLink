@@ -197,6 +197,9 @@ class TrackingClientStorage implements IClientStorage {
   /// Optional error thrown by [IClientStorage.save].
   Object? saveError;
 
+  /// Optional error thrown by [IClientStorage.load].
+  Object? loadError;
+
   /// Optional gate held until a test releases an [IClientStorage.save] call.
   Completer<void>? saveGate;
 
@@ -208,7 +211,13 @@ class TrackingClientStorage implements IClientStorage {
 
   /// See [IClientStorage.load].
   @override
-  Future<PersistedClientState> load() async => _state;
+  Future<PersistedClientState> load() async {
+    final Object? error = loadError;
+    if (error != null) {
+      throw error;
+    }
+    return _state;
+  }
 
   /// See [IClientStorage.save].
   @override
@@ -422,6 +431,50 @@ void main() {
       transport: transport,
       storage: storage,
     );
+  });
+
+  group('Method loadKnownHost behaves correctly', () {
+    test(
+      'Method loadKnownHost returns the persisted Host without credentials',
+      () async {
+        final DovahLinkHost knownHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'LOCAL-HOST',
+          endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await storage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'private-credential',
+            knownHost: knownHost,
+          ),
+        );
+
+        expect(await client.loadKnownHost(), knownHost);
+      },
+    );
+
+    test(
+      'Method loadKnownHost returns null when no Host is persisted',
+      () async {
+        expect(await client.loadKnownHost(), isNull);
+      },
+    );
+
+    test('Method loadKnownHost propagates corrupt storage errors', () async {
+      final TrackingClientStorage failingStorage = TrackingClientStorage(
+        Fixtures.buildPersistedClientState(clientId: 'client-1'),
+      )..loadError = const DovahLinkStorageException('corrupt state');
+      final DovahLinkClient failingClient = buildDovahLinkClientForTesting(
+        transport: FakeDovahLinkTransport(),
+        storage: failingStorage,
+      );
+
+      await expectLater(
+        failingClient.loadKnownHost(),
+        throwsA(isA<DovahLinkStorageException>()),
+      );
+    });
   });
 
   group('Property character state streams behave correctly', () {
@@ -1862,6 +1915,15 @@ void main() {
         expect(stored.clientId, 'client-1');
         expect(stored.credential, 'a1b2c3d4e5f6');
         expect(stored.recoveryState, PairingRecoveryState.confirming);
+        expect(
+          stored.knownHost,
+          DovahLinkHost(
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            hostName: 'Soneka-Desktop',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        expect(await client.loadKnownHost(), stored.knownHost);
       },
     );
 

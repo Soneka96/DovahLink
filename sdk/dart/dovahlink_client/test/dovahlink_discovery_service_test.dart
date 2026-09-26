@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
@@ -16,6 +17,9 @@ import 'support/fake_websocket_server.dart';
 
 /// Bounds local socket acceptance, protocol replies, and teardown in discovery tests.
 const Duration _socketTimeout = Duration(seconds: 5);
+
+/// Mocks consumer persistence to detect any access from isolated discovery.
+class MockConsumerStorage extends Mock implements IClientStorage {}
 
 /// Starts a discovery probe, reads its hello and optionally sends a synthetic `hello_ack`.
 /// Returns futures for the probe result, captured request, and peer-observed socket closure.
@@ -148,9 +152,13 @@ Future<(DovahLinkHost?, Future<void>)> discoverHostWithName({
 }
 
 void main() {
+  setUpAll(() {
+    registerFallbackValue(const PersistedClientState());
+  });
+
   group('Method discoverLocalHost behaves correctly', () {
     test(
-      'Method discoverLocalHost returns hello_ack identity and the probed endpoint',
+      'Method discoverLocalHost uses an unpaired one-shot probe and returns the Host claim',
       () async {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
@@ -177,8 +185,86 @@ void main() {
         expect((hello['payload'] as JsonMap)['auth'], <String, Object?>{
           'method': 'unpaired',
         });
+        expect(
+          ((hello['payload'] as JsonMap)['auth'] as JsonMap).containsKey(
+            'token',
+          ),
+          isFalse,
+        );
         expect(messages, hasLength(1));
         expect(messages.single['messageType'], 'hello');
+      },
+    );
+
+    test(
+      'Method discoverLocalHost leaves consumer credential and Known Host storage untouched',
+      () async {
+        final DovahLinkHost knownHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'KNOWN-HOST',
+          endpoint: Uri.parse('ws://127.0.0.1:58230/'),
+        );
+        final PersistedClientState consumerState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'private-credential',
+          recoveryState: PairingRecoveryState.confirming,
+          knownHost: knownHost,
+        );
+        final MockConsumerStorage consumerStorage = MockConsumerStorage();
+        int loadCount = 0;
+        int saveCount = 0;
+        int clearCount = 0;
+        when(() => consumerStorage.load()).thenAnswer((_) async {
+          loadCount++;
+          return consumerState;
+        });
+        when(() => consumerStorage.save(any())).thenAnswer((_) async {
+          saveCount++;
+        });
+        when(() => consumerStorage.clear()).thenAnswer((_) async {
+          clearCount++;
+        });
+        final DovahLinkClient consumer = DovahLinkClient(
+          storage: consumerStorage,
+        );
+        expect(await consumer.loadKnownHost(), knownHost);
+        final int loadsBeforeDiscovery = loadCount;
+
+        final FakeWebSocketServer server = await FakeWebSocketServer.start();
+        addTearDown(server.close);
+        final (
+          Future<DovahLinkHost?> discovery,
+          Future<JsonMap> request,
+          Future<void> socketClosed,
+          Future<List<JsonMap>> peerMessages,
+        ) = await startDiscoveryExchange(
+          server: server,
+          endpoint: server.uri,
+          helloAckPayload: helloAckPayloadWith(
+            'hostId',
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          ),
+        );
+        final DovahLinkHost? candidate = await discovery;
+        final JsonMap hello = await request;
+        await socketClosed.timeout(_socketTimeout);
+        final List<JsonMap> messages = await peerMessages.timeout(
+          _socketTimeout,
+        );
+
+        expect(candidate?.hostId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+        expect(
+          ((hello['payload'] as JsonMap)['auth'] as JsonMap),
+          <String, Object?>{'method': 'unpaired'},
+        );
+        expect(messages, hasLength(1));
+        expect(loadCount, loadsBeforeDiscovery);
+        expect(saveCount, 0);
+        expect(clearCount, 0);
+        expect(await consumer.loadKnownHost(), knownHost);
+        expect(loadCount, loadsBeforeDiscovery + 1);
+        expect(consumerState.credential, 'private-credential');
+        expect(consumerState.recoveryState, PairingRecoveryState.confirming);
       },
     );
 
@@ -452,10 +538,15 @@ void main() {
     );
 
     test(
-      'Method discoverLocalHost preserves a peer drop during hello and closes the probe',
+      'Method discoverLocalHost closes a dropped probe without reconnecting',
       () async {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
+        int acceptedConnectionCount = 0;
+        final StreamSubscription<WebSocket> connectionObserver = server
+            .connections
+            .listen((WebSocket _) => acceptedConnectionCount++);
+        addTearDown(connectionObserver.cancel);
         final (
           Future<DovahLinkHost?> discovery,
           Future<JsonMap> request,
@@ -474,6 +565,9 @@ void main() {
         );
         await request;
         await socketClosed.timeout(_socketTimeout);
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+
+        expect(acceptedConnectionCount, 1);
       },
     );
   });
