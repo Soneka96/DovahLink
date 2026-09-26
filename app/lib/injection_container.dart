@@ -1,4 +1,5 @@
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 
 import 'package:get_it/get_it.dart';
 import 'package:go_router/go_router.dart';
@@ -9,9 +10,12 @@ import 'package:dovahlink_client/app/app.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/appearance.injection_container.dart';
 import 'package:dovahlink_client/features/connection/connection.injection_container.dart';
 import 'package:dovahlink_client/features/pairing/pairing.injection_container.dart';
+import 'package:dovahlink_client/platform/windows/windows_lifecycle_bridge.dart';
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
+import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show IClientStorage, UnsupportedClientStorage;
@@ -34,6 +38,9 @@ Future<void> initDependencies() async {
   sl.registerLazySingleton<SharedPreferencesAsync>(
     () => SharedPreferencesAsync(),
   );
+  final ExistingDovahLinkClient existingClient = ExistingDovahLinkClient();
+  sl.registerSingleton<ExistingDovahLinkClient>(existingClient);
+  sl.registerSingleton<IExistingDovahLinkClient>(existingClient);
   sl.registerFactoryParam<DovahLinkAppViewModel, Store<AppState>, void>((
     Store<AppState> store,
     void _,
@@ -48,5 +55,17 @@ Future<void> initDependencies() async {
   });
   initConnectionDependencies();
   initPairingDependencies();
+  sl.registerLazySingleton<IAppShutdownService>(
+    () => AppShutdownService(pairingMiddleware: sl(), existingClient: sl()),
+  );
   initAppearanceDependencies();
+  if (defaultTargetPlatform == TargetPlatform.windows) {
+    sl.registerLazySingleton<IWindowsLifecycleBridge>(
+      () => WindowsLifecycleBridge(
+        channel: const MethodChannel('dovahlink/window_lifecycle'),
+        shutdownService: sl(),
+      ),
+    );
+    sl<IWindowsLifecycleBridge>().register();
+  }
 }

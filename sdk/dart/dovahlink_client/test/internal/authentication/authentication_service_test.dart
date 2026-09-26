@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
@@ -133,6 +135,283 @@ void main() {
   });
 
   group('Method hello behaves correctly', () {
+    test(
+      'Method hello reports cancellation when storage fails after disconnect',
+      () async {
+        final Completer<PersistedClientState> storageLoad =
+            Completer<PersistedClientState>();
+        when(() => storage.load()).thenAnswer((_) => storageLoad.future);
+
+        final Future<HelloResult> authentication = service.hello();
+        service.cancelPendingAuthentication();
+        storageLoad.completeError(StateError('storage failed'));
+
+        await expectLater(
+          authentication,
+          throwsA(
+            isA<DovahLinkConnectionException>().having(
+              (DovahLinkConnectionException error) => error.message,
+              'message',
+              'Authentication was cancelled by disconnect.',
+            ),
+          ),
+        );
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method hello preserves a current-generation storage failure',
+      () async {
+        when(() => storage.load()).thenThrow(StateError('storage failed'));
+
+        await expectLater(
+          service.hello(),
+          throwsA(
+            isA<StateError>().having(
+              (StateError error) => error.message,
+              'message',
+              'storage failed',
+            ),
+          ),
+        );
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method hello reports cancellation when client ID resolution finishes after disconnect',
+      () async {
+        final Completer<String> idResolution = Completer<String>();
+        final Completer<void> resolutionStarted = Completer<void>();
+        when(() => clientIdResolver.resolve(any())).thenAnswer((_) {
+          resolutionStarted.complete();
+          return idResolution.future;
+        });
+
+        final Future<HelloResult> authentication = service.hello();
+        await resolutionStarted.future;
+        service.cancelPendingAuthentication();
+        idResolution.complete('generated-client');
+
+        await expectLater(
+          authentication,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(() => clientIdCache.set(any()));
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+          ),
+        );
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method hello preserves a current-generation client ID resolution failure',
+      () async {
+        when(
+          () => clientIdResolver.resolve(any()),
+        ).thenThrow(StateError('client ID resolution failed'));
+
+        await expectLater(
+          service.hello(),
+          throwsA(
+            isA<StateError>().having(
+              (StateError error) => error.message,
+              'message',
+              'client ID resolution failed',
+            ),
+          ),
+        );
+        verifyNever(() => clientIdCache.set(any()));
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method hello reports cancellation when Host I/O fails after disconnect',
+      () async {
+        final Completer<Envelope> hostReply = Completer<Envelope>();
+        final Completer<void> requestStarted = Completer<void>();
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((_) {
+          requestStarted.complete();
+          return hostReply.future;
+        });
+
+        final Future<HelloResult> authentication = service.hello();
+        await requestStarted.future;
+        service.cancelPendingAuthentication();
+        hostReply.completeError(StateError('Host request failed'));
+
+        await expectLater(
+          authentication,
+          throwsA(
+            isA<DovahLinkConnectionException>().having(
+              (DovahLinkConnectionException error) => error.message,
+              'message',
+              'Authentication was cancelled by disconnect.',
+            ),
+          ),
+        );
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method hello does not admit a late Host reply after disconnect',
+      () async {
+        final Completer<Envelope> hostReply = Completer<Envelope>();
+        final Completer<void> requestStarted = Completer<void>();
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((_) {
+          requestStarted.complete();
+          return hostReply.future;
+        });
+
+        final Future<HelloResult> authentication = service.hello();
+        await requestStarted.future;
+        service.cancelPendingAuthentication();
+        hostReply.complete(buildHelloAckEnvelope());
+
+        await expectLater(
+          authentication,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+          ),
+        );
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method hello reports cancellation if disconnect overlaps failed-request cleanup',
+      () async {
+        final Completer<void> disconnectStarted = Completer<void>();
+        final Completer<void> disconnectCompleted = Completer<void>();
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenThrow(StateError('Host request failed'));
+        when(
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
+        ).thenAnswer((_) {
+          disconnectStarted.complete();
+          return disconnectCompleted.future;
+        });
+
+        final Future<HelloResult> authentication = service.hello();
+        await disconnectStarted.future;
+        service.cancelPendingAuthentication();
+        disconnectCompleted.complete();
+
+        await expectLater(
+          authentication,
+          throwsA(
+            isA<DovahLinkConnectionException>().having(
+              (DovahLinkConnectionException error) => error.message,
+              'message',
+              'Authentication was cancelled by disconnect.',
+            ),
+          ),
+        );
+        verify(
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
+      },
+    );
+
     test('Method hello sends hello and admits the decoded session', () async {
       stubSendAndAwait(
         requestService,

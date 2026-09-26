@@ -197,6 +197,12 @@ class TrackingClientStorage implements IClientStorage {
   /// Optional error thrown by [IClientStorage.save].
   Object? saveError;
 
+  /// Optional gate held until a test releases an [IClientStorage.save] call.
+  Completer<void>? saveGate;
+
+  /// Optional signal completed when [IClientStorage.save] begins.
+  Completer<void>? saveStarted;
+
   /// Number of attempted [IClientStorage.save] calls.
   int saveCount = 0;
 
@@ -208,6 +214,10 @@ class TrackingClientStorage implements IClientStorage {
   @override
   Future<void> save(PersistedClientState state) async {
     saveCount++;
+    if (!(saveStarted?.isCompleted ?? true)) {
+      saveStarted!.complete();
+    }
+    await saveGate?.future;
     final Object? error = saveError;
     if (error != null) {
       throw error;
@@ -1626,6 +1636,47 @@ void main() {
         expect(result.trustState, DovahLinkTrustState.unpaired);
         expect(result.recoveredFromRejectedCredential, isNull);
         expect(transport.connectedUri, Uri.parse('ws://127.0.0.1:58231/'));
+      },
+    );
+
+    test(
+      'Method authenticate does not reconnect when disconnect overlaps credential recovery',
+      () async {
+        final Completer<void> saveStarted = Completer<void>();
+        final Completer<void> saveGate = Completer<void>();
+        final TrackingClientStorage gatedStorage =
+            TrackingClientStorage(
+                Fixtures.buildPersistedClientState(
+                  clientId: 'client-1',
+                  credential: 'stale-credential',
+                ),
+              )
+              ..saveStarted = saveStarted
+              ..saveGate = saveGate;
+        client = buildDovahLinkClientForTesting(
+          transport: transport,
+          storage: gatedStorage,
+        );
+        addTearDown(() async {
+          if (!saveGate.isCompleted) {
+            saveGate.complete();
+          }
+          await client.disconnect();
+        });
+        transport.queueResponse(_rawFixture('errors/error-revoked.json'));
+
+        final Future<HelloResult> authentication = client.authenticate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await saveStarted.future;
+        await client.disconnect();
+        saveGate.complete();
+
+        await expectLater(
+          authentication,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        expect(transport.connectCalls, hasLength(1));
       },
     );
 

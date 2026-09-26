@@ -1,4 +1,5 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
@@ -31,7 +32,11 @@ abstract interface class IAuthenticationService {
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
+  /// @throws [DovahLinkConnectionException] if disconnect cancels an in-flight authentication.
   Future<HelloResult> hello();
+
+  /// Invalidates any authentication continuation waiting on storage or Host I/O.
+  void cancelPendingAuthentication();
 
   /// Connects to [uri] and authenticates. If the Host rejects a saved credential as
   /// [CredentialRejectionReason.revoked] or [CredentialRejectionReason.unrecognized], discards it
@@ -100,28 +105,39 @@ class AuthenticationService implements IAuthenticationService {
   /// re-sending `hello` on an admitted session.
   String? _hostVersion;
 
+  /// Generation invalidating authentication work when the client disconnects.
+  int _authenticationGeneration = 0;
+
   /// Implements [IAuthenticationService.clientId].
   @override
   String? get clientId => _clientIdCache.clientId;
 
   /// Implements [IAuthenticationService.hello].
   @override
-  Future<HelloResult> hello() async {
-    final PersistedClientState state = await _storage.load();
-    final String clientId = await _clientIdResolver.resolve(state);
-    final String? credential = state.recoveryState == PairingRecoveryState.none
-        ? state.credential
-        : null;
-    _clientIdCache.set(clientId);
+  Future<HelloResult> hello() => _hello(_authenticationGeneration);
 
-    final HelloPayload payload = HelloPayload(
-      clientId: clientId,
-      authMethod: credential == null
-          ? AuthMethod.unpaired
-          : AuthMethod.trustedDeviceCredential,
-      authToken: credential,
-    );
+  /// Sends hello while [generation] remains the active authentication generation.
+  Future<HelloResult> _hello(int generation) async {
+    bool disconnectAfterFailure = false;
     try {
+      final PersistedClientState state = await _storage.load();
+      _ensureAuthenticationCurrent(generation);
+      final String clientId = await _clientIdResolver.resolve(state);
+      _ensureAuthenticationCurrent(generation);
+      final String? credential =
+          state.recoveryState == PairingRecoveryState.none
+          ? state.credential
+          : null;
+      _clientIdCache.set(clientId);
+
+      final HelloPayload payload = HelloPayload(
+        clientId: clientId,
+        authMethod: credential == null
+            ? AuthMethod.unpaired
+            : AuthMethod.trustedDeviceCredential,
+        authToken: credential,
+      );
+      disconnectAfterFailure = true;
       final Envelope response = await _requestService.sendAndAwait(
         messageType: ProtocolMessageType.hello,
         payload: payload.toJson(),
@@ -132,6 +148,7 @@ class AuthenticationService implements IAuthenticationService {
           timeoutClass: TimeoutClass.normal,
         ),
       );
+      _ensureAuthenticationCurrent(generation);
       final HelloAckPayload ack = ProtocolPayloadDecoder.decode(
         HelloAckPayload.fromJson,
         response.payload,
@@ -168,6 +185,10 @@ class AuthenticationService implements IAuthenticationService {
 
       return HelloResult(hostVersion: ack.hostVersion, trustState: trustState);
     } on Object {
+      _ensureAuthenticationCurrent(generation);
+      if (!disconnectAfterFailure) {
+        rethrow;
+      }
       // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()
       // always sets closeConnection), and a genuine transport failure leaves the socket equally
       // unusable either way -- reset so the next connect() attempt does not find a stale socket
@@ -178,6 +199,7 @@ class AuthenticationService implements IAuthenticationService {
       // not that cycle's own final give-up -- only the cycle's own last disconnect() call (default
       // orphanRetrySafeOperations: false) should finalize/fail what this preserved.
       await _sessionService.disconnect(orphanRetrySafeOperations: true);
+      _ensureAuthenticationCurrent(generation);
       rethrow;
     }
   }
@@ -185,6 +207,7 @@ class AuthenticationService implements IAuthenticationService {
   /// Implements [IAuthenticationService.authenticate].
   @override
   Future<HelloResult> authenticate(Uri uri) async {
+    final int generation = _authenticationGeneration;
     final String? cachedHostVersion = _hostVersion;
     if (_sessionService.connectionState == DovahLinkConnectionState.connected &&
         _sessionService.currentTrustState == DovahLinkTrustState.trusted &&
@@ -200,19 +223,27 @@ class AuthenticationService implements IAuthenticationService {
     if (_sessionService.connectionState !=
         DovahLinkConnectionState.disconnected) {
       await _sessionService.disconnect(orphanRetrySafeOperations: false);
+      _ensureAuthenticationCurrent(generation);
     }
     await _sessionService.connect(uri);
+    _ensureAuthenticationCurrent(generation);
     try {
-      return await hello();
+      final HelloResult result = await _hello(generation);
+      _ensureAuthenticationCurrent(generation);
+      return result;
     } on DovahLinkProtocolException catch (error) {
+      _ensureAuthenticationCurrent(generation);
       final CredentialRejectionReason? reason =
           CredentialRejectionReason.fromProtocolErrorCode(error.code);
       if (reason == null) {
         rethrow;
       }
-      await forgetCredential();
+      await _forgetCredential(generation);
+      _ensureAuthenticationCurrent(generation);
       await _sessionService.connect(uri);
-      final HelloResult result = await hello();
+      _ensureAuthenticationCurrent(generation);
+      final HelloResult result = await _hello(generation);
+      _ensureAuthenticationCurrent(generation);
       return HelloResult(
         hostVersion: result.hostVersion,
         trustState: result.trustState,
@@ -221,10 +252,31 @@ class AuthenticationService implements IAuthenticationService {
     }
   }
 
+  /// Implements [IAuthenticationService.cancelPendingAuthentication].
+  @override
+  void cancelPendingAuthentication() {
+    _authenticationGeneration++;
+  }
+
+  /// Throws when explicit disconnect invalidated [generation] during authentication.
+  void _ensureAuthenticationCurrent(int generation) {
+    if (generation != _authenticationGeneration) {
+      throw const DovahLinkConnectionException(
+        'Authentication was cancelled by disconnect.',
+      );
+    }
+  }
+
   /// Implements [IAuthenticationService.forgetCredential].
   @override
-  Future<void> forgetCredential() async {
+  Future<void> forgetCredential() => _forgetCredential(null);
+
+  /// Clears persisted trust only while [generation] remains current.
+  Future<void> _forgetCredential(int? generation) async {
     final PersistedClientState state = await _storage.load();
+    if (generation != null) {
+      _ensureAuthenticationCurrent(generation);
+    }
     await _storage.save(PersistedClientState(clientId: state.clientId));
   }
 }

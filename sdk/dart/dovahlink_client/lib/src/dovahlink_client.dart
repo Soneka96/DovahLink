@@ -409,6 +409,7 @@ class DovahLinkClient {
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
+  /// @throws [DovahLinkConnectionException] if disconnect interrupts authentication.
   Future<HelloResult> hello() => _authenticationService.hello();
 
   /// Connects and authenticates. Returns the cached result when
@@ -498,14 +499,15 @@ class DovahLinkClient {
   /// untouched -- trust survives a disconnect. Clears local desired subscription intent, then
   /// fails any operation still awaiting a reply and any operation an earlier transport loss
   /// orphaned for retry, instead of leaving it to hang
-  /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. Also
-  /// cancels bounded automatic recovery already in progress from an earlier transport loss --
+  /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. It also
+  /// cancels in-flight authentication recovery and bounded automatic recovery from an earlier loss --
   /// [DovahLinkClient.connectionState] moves directly to
   /// [DovahLinkConnectionState.disconnected] rather than
   /// letting that recovery keep running. Repeated calls remain safe because transport close and
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
   /// preserved, not reset to generic disconnect.
   Future<void> disconnect() {
+    _authenticationService.cancelPendingAuthentication();
     _reconnectService.stopRecovery();
     _subscriptionService.clearDesiredStateAreas();
     return _sessionService.disconnect();

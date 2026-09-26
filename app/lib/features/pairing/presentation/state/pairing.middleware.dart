@@ -22,9 +22,22 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 
-/// Handles pairing actions, resolving its use cases through the shared [sl]
-/// container.
-class PairingMiddleware extends MiddlewareClass<AppState> {
+/// Defines the pairing Redux middleware contract and its shutdown cleanup.
+abstract interface class IPairingMiddleware {
+  /// Handles one Redux [action] with the supplied [store] and [next] dispatcher.
+  /// @param store The application store receiving the action.
+  /// @param action The action being processed.
+  /// @param next The next middleware or reducer in the chain.
+  void call(Store<AppState> store, dynamic action, NextDispatcher next);
+
+  /// Cancels retry work and connection observation owned by the middleware.
+  /// @return A future that completes after its stream subscription is cancelled.
+  Future<void> shutdown();
+}
+
+/// Handles pairing actions, resolving use cases through [sl] and releasing owned resources.
+class PairingMiddleware extends MiddlewareClass<AppState>
+    implements IPairingMiddleware {
   /// Delay before automatically retrying after [PairingDisconnectedAction].
   final Duration reconnectDelay;
 
@@ -37,6 +50,12 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   /// reusing one still delivering events for the session that is now gone.
   StreamSubscription<PairingConnectionStatus>? _connectionStatusSubscription;
 
+  /// Retry timer scheduled after a failed initial pairing connection.
+  Timer? _reconnectTimer;
+
+  /// Whether shutdown has started and no new pairing work should be started.
+  bool _isShuttingDown = false;
+
   /// Creates pairing middleware. [reconnectDelay] is the wait before
   /// silently retrying after the host is found unreachable; injectable so
   /// tests don't wait in real time.
@@ -46,6 +65,9 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   @override
   void call(Store<AppState> store, dynamic action, NextDispatcher next) {
     next(action);
+    if (_isShuttingDown) {
+      return;
+    }
 
     if (store.state.pairing.support ==
         PairingSupport.secureStorageUnavailable) {
@@ -70,6 +92,18 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     }
   }
 
+  /// Implements [IPairingMiddleware.shutdown].
+  @override
+  Future<void> shutdown() async {
+    _isShuttingDown = true;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
+    final StreamSubscription<PairingConnectionStatus>? subscription =
+        _connectionStatusSubscription;
+    _connectionStatusSubscription = null;
+    await subscription?.cancel();
+  }
+
   /// Handles [PairingStartedAction] by authenticating with the Host the user selected through
   /// [AuthenticateUseCase]. With no Host selected there is nothing to connect to, so it
   /// dispatches [PairingFailedAction] rather than falling back to some default Host. The silent
@@ -88,9 +122,13 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
       store.dispatch(const PairingFailedAction('Select a Host to pair with.'));
       return;
     }
-    (await sl<AuthenticateUseCase>()(
+    final result = await sl<AuthenticateUseCase>()(
       AuthenticateParams(hostUri: host.uri),
-    )).fold(
+    );
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         if (failure is NetworkFailure) {
           store.dispatch(const PairingDisconnectedAction());
@@ -124,7 +162,11 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     Store<AppState> store,
     PairingRenotifyRequestedAction action,
   ) async {
-    (await sl<RequestPairingRenotifyUseCase>()(NoParams())).fold(
+    final result = await sl<RequestPairingRenotifyUseCase>()(NoParams());
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         store.dispatch(PairingFailedAction(failure.message));
       },
@@ -146,7 +188,11 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     Store<AppState> store,
     PairingCancelRequestedAction action,
   ) async {
-    (await sl<CancelPairingUseCase>()(NoParams())).fold(
+    final result = await sl<CancelPairingUseCase>()(NoParams());
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         store.dispatch(PairingFailedAction(failure.message));
       },
@@ -156,15 +202,19 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     );
   }
 
-  /// Silently retries [PairingStartedAction] after [reconnectDelay] if the
-  /// pairing state is still [PairingPhase.disconnected] -- that check is the
-  /// active-generation guard: a dispose or a real reconnect in the meantime
-  /// changes the phase, so a stale retry naturally no-ops instead of needing
-  /// a separate cancellation token.
+  /// Silently retries [PairingStartedAction] after [reconnectDelay] while the app is open and the
+  /// pairing state is still [PairingPhase.disconnected].
+  /// @param store The application store used to check the current pairing phase and dispatch retry.
   void _scheduleReconnect(Store<AppState> store) {
-    Future<void>.delayed(reconnectDelay, () {
-      if (PairingSelectors.phaseSelector(store.state) ==
-          PairingPhase.disconnected) {
+    if (_isShuttingDown) {
+      return;
+    }
+    _reconnectTimer?.cancel();
+    _reconnectTimer = Timer(reconnectDelay, () {
+      _reconnectTimer = null;
+      if (!_isShuttingDown &&
+          PairingSelectors.phaseSelector(store.state) ==
+              PairingPhase.disconnected) {
         store.dispatch(const PairingStartedAction());
       }
     });
@@ -181,7 +231,11 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     Store<AppState> store,
     PairingCodeRequestedAction action,
   ) async {
-    (await sl<RequestPairingUseCase>()(NoParams())).fold(
+    final result = await sl<RequestPairingUseCase>()(NoParams());
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         store.dispatch(PairingFailedAction(failure.message));
       },
@@ -199,12 +253,16 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
     Store<AppState> store,
     PairingCodeSubmittedAction action,
   ) async {
-    (await sl<ConfirmPairingCodeUseCase>()(
+    final result = await sl<ConfirmPairingCodeUseCase>()(
       ConfirmPairingCodeParams(
         code: action.code,
         displayName: action.displayName,
       ),
-    )).fold(
+    );
+    if (_isShuttingDown) {
+      return;
+    }
+    result.fold(
       (Failure failure) {
         // A wrong code or a too-soon retry stays on the same still-active challenge with an
         // inline mistake message; everything else (expired, hard_limit_reached, other transport
@@ -255,17 +313,22 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   /// subscription would keep delivering [PairingConnectionStatus.lost]/`restored` events raised by
   /// an unrelated later pairing attempt's own connect/reconnect cycle, and a stray `restored` would
   /// have the reducer falsely report the new attempt as trusted.
+  /// @param store The application store receiving pairing-state actions.
+  /// @param action The trusted-session action that starts observation.
   void _pairingSessionTrusted(
     Store<AppState> store,
     PairingSessionTrustedAction action,
   ) {
-    if (_connectionStatusSubscription != null) {
+    if (_isShuttingDown || _connectionStatusSubscription != null) {
       return;
     }
     _connectionStatusSubscription =
         sl<ObserveConnectionStatusUseCase>()(NoParams()).listen((
           PairingConnectionStatus status,
         ) {
+          if (_isShuttingDown) {
+            return;
+          }
           switch (status) {
             case PairingConnectionStatus.lost:
               store.dispatch(const PairingDisconnectedAction());

@@ -32,3 +32,15 @@ flutter test
 
 Generated `.g.dart` files are committed beside their source data Models and are regenerated rather than
 edited by hand.
+
+## Windows shutdown check
+
+Start DovahLink, connect to a Host, and close the window with X or Alt+F4. The client stops pairing
+retry work and immediately starts disconnecting an SDK client that was already created. The app
+waits up to three seconds for cleanup; if that budget expires, the Windows runner resumes close
+processing after its five-second native timeout. After cleanup, Flutter and its plugins receive the
+close message before native window destruction. No reconnect attempts or shutdown errors should
+follow, no WebSocket/use-after-close errors should appear, and no DovahLink-owned Dart process
+should remain.
+The DovahLink Host may remain running while Skyrim is open because the Host belongs to the
+Skyrim/adapter lifecycle.

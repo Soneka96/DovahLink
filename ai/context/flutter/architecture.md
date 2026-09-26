@@ -288,6 +288,33 @@ One-off I/O belongs to the owning feature datasource, not a generic service.
   avoid choosing a feature boundary.
 - One-off I/O belongs in the owning feature datasource.
 
+## Application shutdown
+
+`AppShutdownService` is platform-neutral and owns one idempotent, three-second cleanup budget. It
+starts `PairingMiddleware.shutdown()` first and then starts SDK disconnect before awaiting either
+operation. Pairing shutdown immediately blocks new pairing work; SDK disconnect immediately
+invalidates pending authentication and reconnect work. The pairing client registration records its
+instance in the app lifecycle holder; shutdown must not resolve the lazy client registration just to
+disconnect an unused client. Late authentication, code-request, or confirmation results cannot
+dispatch follow-up pairing work after shutdown begins. The SDK disconnect is the final cleanup step,
+so late completions start no further application work. Windows registers `WindowsLifecycleBridge`,
+which forwards native close and session-ending requests to the shared service. Android and iOS do not
+register that bridge, and
+ordinary background/pause lifecycle events do not invoke application shutdown.
+
+For a normal Windows close, the runner holds `WM_CLOSE` until Dart replies or a five-second native
+timer expires; repeated close requests share that pending attempt, and only its current generation
+can continue closing the window. After the handshake completes, the runner offers the close message
+to Flutter's top-level window pipeline before falling back to native window destruction. Later close
+messages for that window continue through Flutter without starting cleanup again, including the
+engine's own close message. Dart returns when cleanup finishes or its three-second budget expires;
+the deadline stops waiting but does not cancel cleanup already in progress. This leaves the native
+timeout margin before the runner resumes close processing. `WM_QUERYENDSESSION`
+returns success immediately without cleanup, since another application may cancel the system
+request. When `WM_ENDSESSION` reports a committed session ending, the runner requests best-effort
+Dart cleanup once and returns immediately; Windows may terminate the process before that cleanup
+finishes. Neither path shuts down the separate Host.
+
 ## Theming and layout
 
 - Colors and text styles come from `Theme.of(context)` and the approved app theme.
