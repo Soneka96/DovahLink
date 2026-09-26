@@ -251,13 +251,13 @@ class PairingService implements IPairingService {
       );
     }
 
-    final PersistedClientState state = await _storage.load();
     final DovahLinkHost? currentHost = _sessionService.currentHost;
     if (currentHost == null) {
       throw const DovahLinkConnectionException(
         'The current Host context is unavailable.',
       );
     }
+    final PersistedClientState state = await _storage.load();
     await _storage.save(
       state.copyWith(
         credential: credential,

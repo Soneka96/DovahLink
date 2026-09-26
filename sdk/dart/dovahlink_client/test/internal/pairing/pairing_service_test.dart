@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
@@ -35,6 +37,45 @@ class MockSessionService extends Mock implements ISessionService {}
 /// test file; this file only proves [PairingService] reads and writes the right state, and
 /// never touches it on a rejected outcome.
 class MockClientStorage extends Mock implements IClientStorage {}
+
+/// Holds a storage read until a pairing test releases it to control lifecycle timing.
+class GatedClientStorage implements IClientStorage {
+  /// Creates storage that returns [loadedState] after [loadGate] completes.
+  GatedClientStorage({
+    required PersistedClientState loadedState,
+    required this.loadGate,
+  }) : _loadedState = loadedState;
+
+  /// Signals that [load] has started.
+  final Completer<void> loadStarted = Completer<void>();
+
+  /// Controls when [load] returns.
+  final Completer<void> loadGate;
+
+  /// State returned when the gate opens.
+  final PersistedClientState _loadedState;
+
+  /// State captured by [save].
+  PersistedClientState? savedState;
+
+  /// Returns the configured state only after the test opens [loadGate].
+  @override
+  Future<PersistedClientState> load() async {
+    loadStarted.complete();
+    await loadGate.future;
+    return _loadedState;
+  }
+
+  /// Captures the state written by the pairing operation.
+  @override
+  Future<void> save(PersistedClientState state) async {
+    savedState = state;
+  }
+
+  /// Implements [IClientStorage.clear].
+  @override
+  Future<void> clear() async {}
+}
 
 /// Builds the Host associated with the session used by pairing tests.
 DovahLinkHost _currentHost() => DovahLinkHost(
@@ -654,6 +695,56 @@ void main() {
             ),
           ),
         ).called(1);
+      },
+    );
+
+    test(
+      'Method confirmPairingCode persists the Host that issued the credential while storage is pending',
+      () async {
+        final DovahLinkHost hostA = _currentHost();
+        final DovahLinkHost hostB = DovahLinkHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          hostName: 'OTHER-HOST',
+          endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        DovahLinkHost currentHost = hostA;
+        when(() => sessionService.currentHost).thenAnswer((_) => currentHost);
+        final Completer<void> loadGate = Completer<void>();
+        final GatedClientStorage gatedStorage = GatedClientStorage(
+          loadedState: PersistedClientState(clientId: 'client-1'),
+          loadGate: loadGate,
+        );
+        service = PairingService(
+          sessionService: sessionService,
+          sessionTrustService: sessionTrustService,
+          requestService: requestService,
+          storage: gatedStorage,
+        );
+        stubSendAndAwait(
+          requestService,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
+            credential: 'new-cred',
+          ),
+        );
+
+        final Future<String> confirmation = service.confirmPairingCode(
+          code: '123456',
+        );
+        await gatedStorage.loadStarted.future;
+        currentHost = hostB;
+        loadGate.complete();
+
+        expect(await confirmation, 'new-cred');
+        expect(
+          gatedStorage.savedState,
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'new-cred',
+            recoveryState: PairingRecoveryState.confirming,
+            knownHost: hostA,
+          ),
+        );
       },
     );
 
