@@ -2,7 +2,6 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/unsupported_client_storage.dart';
-
 import '../fixtures/fixtures.dart';
 
 /// Runs unsupported-storage behavior tests.

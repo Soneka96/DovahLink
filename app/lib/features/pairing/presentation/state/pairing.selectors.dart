@@ -60,4 +60,8 @@ abstract final class PairingSelectors {
     final remaining = availableAt.difference(DateTime.now()).inSeconds;
     return remaining < 0 ? 0 : remaining;
   }
+
+  /// Returns whether the Host is waiting for Skyrim to acknowledge a code redisplay.
+  static bool renotifyPendingSelector(AppState state) =>
+      state.pairing.isRenotifyPending;
 }

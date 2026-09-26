@@ -9,18 +9,22 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Redux-backed presentation values for requesting pairing code redisplay.
 class PairingRenotifyButtonViewModel extends Equatable {
-  /// Whether the pairing code may be redisplayed now.
+  /// Whether the pairing code may be redisplayed now, with no request pending.
   final bool isAvailable;
+
+  /// Whether the Host is waiting for Skyrim to acknowledge a redisplay request.
+  final bool isPending;
 
   /// Remaining cooldown seconds, or null when the host did not report a cooldown.
   final int? cooldownSeconds;
 
-  /// Dispatches a redisplay request, or is null during cooldown.
+  /// Dispatches a redisplay request, or is null during cooldown or while one is pending.
   final VoidCallback? onPressed;
 
   /// Creates a pairing code redisplay button ViewModel.
   const PairingRenotifyButtonViewModel({
     required this.isAvailable,
+    required this.isPending,
     required this.cooldownSeconds,
     required this.onPressed,
   });
@@ -29,21 +33,40 @@ class PairingRenotifyButtonViewModel extends Equatable {
   factory PairingRenotifyButtonViewModel.fromStore(Store<AppState> store) {
     final int? cooldownSeconds =
         PairingSelectors.renotifyCooldownSecondsSelector(store.state);
-    final bool isAvailable = cooldownSeconds == null || cooldownSeconds == 0;
+    final bool isPending = PairingSelectors.renotifyPendingSelector(
+      store.state,
+    );
+    final bool isAvailable =
+        !isPending && (cooldownSeconds == null || cooldownSeconds == 0);
     return PairingRenotifyButtonViewModel(
       isAvailable: isAvailable,
+      isPending: isPending,
       cooldownSeconds: cooldownSeconds,
       onPressed: isAvailable
-          ? () => store.dispatch(const PairingRenotifyRequestedAction())
+          ? () {
+              final AppState currentState = store.state;
+              final int? currentCooldownSeconds =
+                  PairingSelectors.renotifyCooldownSecondsSelector(
+                    currentState,
+                  );
+              if (!PairingSelectors.renotifyPendingSelector(currentState) &&
+                  (currentCooldownSeconds == null ||
+                      currentCooldownSeconds == 0)) {
+                store.dispatch(const PairingRenotifyRequestedAction());
+              }
+            }
           : null,
     );
   }
 
-  /// Builds the button label from its configured labels and cooldown state.
+  /// Builds the button label from its pending, cooldown, and available state.
   ///
   /// [label] is shown when redisplay is available.
   /// [cooldownLabel] overrides the generated label during cooldown.
   String displayLabel({required String label, String? cooldownLabel}) {
+    if (isPending) {
+      return 'Sending to Skyrim…';
+    }
     if (isAvailable) {
       return label;
     }
@@ -55,5 +78,5 @@ class PairingRenotifyButtonViewModel extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [isAvailable, cooldownSeconds];
+  List<Object?> get props => [isAvailable, isPending, cooldownSeconds];
 }
