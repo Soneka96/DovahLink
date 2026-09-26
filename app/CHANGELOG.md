@@ -14,7 +14,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 ### Fixed
 
 - Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its
-  three-second cleanup budget; the native runner closes after five seconds if cleanup stalls.
+  three-second cleanup budget, then returns the close message through Flutter's engine and plugin
+  pipeline; the native runner resumes close processing after five seconds if cleanup stalls.
 - Mobile startup selects an explicit unsupported-storage boundary instead of constructing Windows
   DPAPI storage; pairing persistence remains unavailable until secure mobile storage is implemented.
 - Shared shutdown no longer constructs an unused SDK client, and only Windows registers the native

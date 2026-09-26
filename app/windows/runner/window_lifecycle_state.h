@@ -24,6 +24,10 @@ class IWindowLifecycleState {
     ///  @return `true` while a close request is pending.
     virtual bool HasPendingClose() const noexcept = 0;
 
+    ///  Whether cleanup has completed and later close messages should use Flutter's pipeline.
+    ///  @return `true` after one close handshake completes for this window.
+    virtual bool CloseCleanupCompleted() const noexcept = 0;
+
     ///  The active close token, or no value when no close request is pending.
     ///  @return The active generation, or `std::nullopt` when idle.
     virtual std::optional<std::uint64_t> PendingCloseGeneration() const noexcept = 0;
@@ -49,6 +53,9 @@ class WindowLifecycleState final : public IWindowLifecycleState {
     ///  @copydoc IWindowLifecycleState::HasPendingClose
     bool HasPendingClose() const noexcept override;
 
+    ///  @copydoc IWindowLifecycleState::CloseCleanupCompleted
+    bool CloseCleanupCompleted() const noexcept override;
+
     ///  @copydoc IWindowLifecycleState::PendingCloseGeneration
     std::optional<std::uint64_t> PendingCloseGeneration() const noexcept override;
 
@@ -64,6 +71,9 @@ class WindowLifecycleState final : public IWindowLifecycleState {
 
     ///  Whether committed session ending already requested shared cleanup.
     bool session_end_cleanup_requested_ = false;
+
+    ///  Whether later close messages may continue through Flutter after app cleanup.
+    bool close_cleanup_completed_ = false;
 };
 
 #endif //  RUNNER_WINDOW_LIFECYCLE_STATE_H_

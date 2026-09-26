@@ -6,7 +6,9 @@
 #include <flutter/method_channel.h>
 #include <flutter/standard_method_codec.h>
 
+#include <functional>
 #include <memory>
+#include <optional>
 
 #include "window_lifecycle_state.h"
 
@@ -34,6 +36,24 @@ class FlutterWindow : public Win32Window {
     ///  @copydoc Win32Window::MessageHandler
     LRESULT MessageHandler(HWND window, UINT const message, WPARAM const wparam,
                            LPARAM const lparam) noexcept override;
+
+    ///  Starts app-owned cleanup and posts [completion] when Dart replies.
+    ///  @param completion Posts the matching native close-completion message.
+    ///  @return `true` when the lifecycle channel accepted the request.
+    virtual bool RequestDartClose(std::function<void()> completion) noexcept;
+
+    ///  Starts best-effort Dart cleanup after Windows commits to ending the session.
+    ///  @return `true` when the lifecycle channel accepted the request.
+    virtual bool RequestDartSessionEndCleanup() noexcept;
+
+    ///  Gives Flutter's engine and plugins an opportunity to handle a top-level window message.
+    ///  @param window The native top-level window receiving the message.
+    ///  @param message The Win32 message to offer to Flutter.
+    ///  @param wparam The message's first native parameter.
+    ///  @param lparam The message's second native parameter.
+    ///  @return The handled result, or `std::nullopt` when Flutter declines the message.
+    virtual std::optional<LRESULT> HandleFlutterWindowProc(
+        HWND window, UINT message, WPARAM wparam, LPARAM lparam) noexcept;
 
   private:
     ///  The Flutter project executed by this window.

@@ -120,23 +120,18 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         return TRUE;
 
     case WM_ENDSESSION:
-        if (window_lifecycle_channel_ &&
-            lifecycle_state_->BeginSessionEndCleanup(wparam != FALSE)) {
-            window_lifecycle_channel_->InvokeMethod(
-                kRequestSessionEndMethod,
-                std::make_unique<flutter::EncodableValue>(),
-                std::make_unique<flutter::MethodResultFunctions<
-                    flutter::EncodableValue>>(
-                    [](const flutter::EncodableValue*) {},
-                    [](const std::string&, const std::string&,
-                       const flutter::EncodableValue*) {},
-                    []() {}));
+        if (lifecycle_state_->BeginSessionEndCleanup(wparam != FALSE)) {
+            RequestDartSessionEndCleanup();
         }
         return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
 
     case WM_CLOSE: {
-        if (!window_lifecycle_channel_) {
-            return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+        if (lifecycle_state_->CloseCleanupCompleted()) {
+            const std::optional<LRESULT> result =
+                HandleFlutterWindowProc(hwnd, message, wparam, lparam);
+            return result ? *result
+                          : Win32Window::MessageHandler(hwnd, message, wparam,
+                                                        lparam);
         }
         if (lifecycle_state_->HasPendingClose()) {
             return 0;
@@ -151,21 +146,18 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         const auto postCloseCompletion = [hwnd, generation]() {
             PostCloseCompletion(hwnd, generation);
         };
-        window_lifecycle_channel_->InvokeMethod(
-            kRequestCloseMethod, std::make_unique<flutter::EncodableValue>(),
-            std::make_unique<flutter::MethodResultFunctions<
-                flutter::EncodableValue>>(
-                [postCloseCompletion](const flutter::EncodableValue*) {
-                    postCloseCompletion();
-                },
-                [postCloseCompletion](const std::string&, const std::string&,
-                                      const flutter::EncodableValue*) {
-                    postCloseCompletion();
-                },
-                [postCloseCompletion]() { postCloseCompletion(); }));
+        if (!RequestDartClose(postCloseCompletion)) {
+            if (lifecycle_state_->CompleteClose(generation)) {
+                if (timerId != 0) {
+                    ::KillTimer(hwnd, static_cast<UINT_PTR>(generation));
+                }
+                return MessageHandler(hwnd, WM_CLOSE, 0, 0);
+            }
+            return 0;
+        }
         if (timerId == 0) {
             if (lifecycle_state_->CompleteClose(generation)) {
-                return Win32Window::MessageHandler(hwnd, WM_CLOSE, 0, 0);
+                return MessageHandler(hwnd, WM_CLOSE, 0, 0);
             }
         }
         return 0;
@@ -178,7 +170,7 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
             generation.value() == static_cast<std::uint64_t>(wparam)) {
             if (lifecycle_state_->CompleteClose(generation.value())) {
                 ::KillTimer(hwnd, static_cast<UINT_PTR>(generation.value()));
-                return Win32Window::MessageHandler(hwnd, WM_CLOSE, 0, 0);
+                return MessageHandler(hwnd, WM_CLOSE, 0, 0);
             }
             return 0;
         }
@@ -191,18 +183,15 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
             return 0;
         }
         ::KillTimer(hwnd, static_cast<UINT_PTR>(generation));
-        return Win32Window::MessageHandler(hwnd, WM_CLOSE, 0, 0);
+        return MessageHandler(hwnd, WM_CLOSE, 0, 0);
     }
     }
 
     //  Give Flutter, including plugins, an opportunity to handle window messages.
-    if (flutter_controller_) {
-        std::optional<LRESULT> result =
-            flutter_controller_->HandleTopLevelWindowProc(hwnd, message, wparam,
-                                                          lparam);
-        if (result) {
-            return *result;
-        }
+    const std::optional<LRESULT> result =
+        HandleFlutterWindowProc(hwnd, message, wparam, lparam);
+    if (result) {
+        return *result;
     }
 
     switch (message) {
@@ -212,4 +201,45 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
     }
 
     return Win32Window::MessageHandler(hwnd, message, wparam, lparam);
+}
+
+std::optional<LRESULT>
+FlutterWindow::HandleFlutterWindowProc(HWND window, UINT message, WPARAM wparam,
+                                       LPARAM lparam) noexcept {
+    if (!flutter_controller_) {
+        return std::nullopt;
+    }
+    return flutter_controller_->HandleTopLevelWindowProc(window, message, wparam,
+                                                         lparam);
+}
+
+bool FlutterWindow::RequestDartClose(
+    std::function<void()> completion) noexcept {
+    if (!window_lifecycle_channel_) {
+        return false;
+    }
+    window_lifecycle_channel_->InvokeMethod(
+        kRequestCloseMethod, std::make_unique<flutter::EncodableValue>(),
+        std::make_unique<flutter::MethodResultFunctions<
+            flutter::EncodableValue>>(
+            [completion](const flutter::EncodableValue*) { completion(); },
+            [completion](const std::string&, const std::string&,
+                         const flutter::EncodableValue*) { completion(); },
+            [completion]() { completion(); }));
+    return true;
+}
+
+bool FlutterWindow::RequestDartSessionEndCleanup() noexcept {
+    if (!window_lifecycle_channel_) {
+        return false;
+    }
+    window_lifecycle_channel_->InvokeMethod(
+        kRequestSessionEndMethod, std::make_unique<flutter::EncodableValue>(),
+        std::make_unique<flutter::MethodResultFunctions<
+            flutter::EncodableValue>>(
+            [](const flutter::EncodableValue*) {},
+            [](const std::string&, const std::string&,
+               const flutter::EncodableValue*) {},
+            []() {}));
+    return true;
 }
