@@ -118,23 +118,26 @@ class AuthenticationService implements IAuthenticationService {
 
   /// Sends hello while [generation] remains the active authentication generation.
   Future<HelloResult> _hello(int generation) async {
-    final PersistedClientState state = await _storage.load();
-    _ensureAuthenticationCurrent(generation);
-    final String clientId = await _clientIdResolver.resolve(state);
-    _ensureAuthenticationCurrent(generation);
-    final String? credential = state.recoveryState == PairingRecoveryState.none
-        ? state.credential
-        : null;
-    _clientIdCache.set(clientId);
-
-    final HelloPayload payload = HelloPayload(
-      clientId: clientId,
-      authMethod: credential == null
-          ? AuthMethod.unpaired
-          : AuthMethod.trustedDeviceCredential,
-      authToken: credential,
-    );
+    bool disconnectAfterFailure = false;
     try {
+      final PersistedClientState state = await _storage.load();
+      _ensureAuthenticationCurrent(generation);
+      final String clientId = await _clientIdResolver.resolve(state);
+      _ensureAuthenticationCurrent(generation);
+      final String? credential =
+          state.recoveryState == PairingRecoveryState.none
+          ? state.credential
+          : null;
+      _clientIdCache.set(clientId);
+
+      final HelloPayload payload = HelloPayload(
+        clientId: clientId,
+        authMethod: credential == null
+            ? AuthMethod.unpaired
+            : AuthMethod.trustedDeviceCredential,
+        authToken: credential,
+      );
+      disconnectAfterFailure = true;
       final Envelope response = await _requestService.sendAndAwait(
         messageType: ProtocolMessageType.hello,
         payload: payload.toJson(),
@@ -182,7 +185,8 @@ class AuthenticationService implements IAuthenticationService {
 
       return HelloResult(hostVersion: ack.hostVersion, trustState: trustState);
     } on Object {
-      if (generation != _authenticationGeneration) {
+      _ensureAuthenticationCurrent(generation);
+      if (!disconnectAfterFailure) {
         rethrow;
       }
       // Every HandleHello failure path closes the connection (handshake_handler.cpp's Fail()
@@ -195,6 +199,7 @@ class AuthenticationService implements IAuthenticationService {
       // not that cycle's own final give-up -- only the cycle's own last disconnect() call (default
       // orphanRetrySafeOperations: false) should finalize/fail what this preserved.
       await _sessionService.disconnect(orphanRetrySafeOperations: true);
+      _ensureAuthenticationCurrent(generation);
       rethrow;
     }
   }
