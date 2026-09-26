@@ -100,6 +100,32 @@ The same Client identity and key may pair independently with Hosts AAA, BBB, and
 
 A KnownHost means “this Client previously established a relationship with this Host identity.” It does not mean that Host currently trusts the Client. Do not persist `trusted`, `connected`, `offline`, `blocked`, or `revoked` as authoritative facts. Only the Host supplies current trust status.
 
+### Transitional bearer ownership in S5
+
+S5 may introduce the `knownHosts` collection before bearer credentials are removed, but it does not activate multi-Host trusted authentication. Until S9 cutover, the existing bearer trust relationship remains associated with exactly one Host. Migration from the singleton state is conceptually:
+
+```text
+OLD:
+  knownHost = AAA
+  credential = credential-A
+
+TRANSITIONAL:
+  knownHosts:
+    AAA
+  legacy bearer binding:
+    hostId = AAA
+    credential = credential-A
+
+FINAL:
+  knownHosts:
+    AAA
+    BBB
+    CCC
+  bearer credentials: none
+```
+
+The transitional binding may use another repository-consistent representation, but it must explicitly associate the old credential with AAA. A multi-Host store must never contain one global bearer credential with an unknown owner. Other KnownHost entries cannot authenticate through that legacy credential. S9 handles existing development trust data by an approved migration or deliberate invalidation and re-pairing policy; S10 removes the transitional binding with the bearer path.
+
 There may be at most one active/persisted pairing recovery operation per Client installation. It must record its owning `hostId`; a pairing operation or recovery for AAA must never resume against BBB. Multiple concurrent pairing operations are not required.
 
 `lastUsedHostId`, if introduced, is product selection preference state owned by the app, not SDK trust or authentication persistence. The SDK owns KnownHosts and connection/authentication semantics; the app owns which Host it presents as selected.
@@ -207,19 +233,39 @@ The SDK owns reusable security behavior; Flutter calls the SDK and never impleme
 
 Each slice is one focused implementation PR and must remain comfortably below the repository's 100-file hard limit. If planning shows a slice approaching 70 changed files, split it before implementation.
 
+Every security migration PR must leave the merged baseline internally coherent. New authentication paths are introduced before activation; activation occurs atomically at cutover; obsolete paths are deleted only after cutover.
+
 | Slice | Scope |
 | --- | --- |
 | **S1** | Security + identity architecture contract — this document. |
-| **S2** | Cryptographic primitive and library feasibility/selection. Verify maintained/reviewed balanced-PAKE implementations; C# Host, Dart/Flutter or safe shared native boundary, Windows and future Android/iOS support; deterministic vectors; license; mutual key confirmation; and authenticated binding of identities/context. Re-check CPace maturity and compare appropriate balanced PAKE alternatives. No custom cryptography. |
+| **S2** | Cryptographic stack feasibility and primitive selection. Prove the full target is implementable with acceptable standard/platform APIs and maintained libraries before S3 creates production keys. S2 may stop the sequence if it cannot establish a safe implementation path. |
 | **S3** | Persistent Host cryptographic identity and protected Host private-key storage. |
 | **S4** | Persistent Client cryptographic identity abstraction and platform key storage. |
-| **S5** | Multi-Host persistence: `knownHosts` keyed by `hostId`, each pinned Host identity, endpoint and name metadata, Host-scoped pairing recovery, and migration from singleton `knownHost`. |
-| **S6** | WSS/TLS 1.3 transport, normal Host-key verification, provisional initial-pair transport, and disabled early-data/resumption paths that would bypass fresh proof. |
+| **S5** | Multi-Host persistence: `knownHosts` keyed by `hostId`, each pinned Host identity, endpoint and name metadata, Host-scoped pairing recovery, and migration from singleton `knownHost`. Keep legacy bearer trust bound to exactly one `hostId`; multi-Host bearer authentication is not active. |
+| **S6** | WSS/TLS 1.3 transport, normal Host-key verification, and provisional initial-pair plumbing. Provisional unknown-certificate acceptance remains unreachable or feature-gated from production pairing until PAKE exists and S9 activates it. Disable early-data/resumption paths that would bypass fresh proof. |
 | **S7** | Client certificate proof-of-possession and Host mapping of public identity plus `clientId` to KnownDevice. |
-| **S8** | Pairing binds public identities through the selected balanced PAKE; retain short-lived, single-use, attempt-limited code policy; commit only after mutual confirmation; remove credential issuance from pairing. |
-| **S9** | SDK KnownHost, reconnect, discovery-candidate, and typed identity/trust integration. |
-| **S10** | Remove bearer-credential authentication and obsolete protocol pieces; update the canonical schema and implementations together. |
+| **S8** | Implement the balanced-PAKE/public-key pairing path alongside the old production path. Retain short-lived, single-use, attempt-limited code policy and commit only after mutual confirmation. Do not remove or deactivate bearer credential issuance/reconnect behavior from the active product path in this slice. |
+| **S9** | Atomic production cutover and full integration: activate PAKE pairing/key binding, pinned Host verification, Client proof-of-possession, and SDK KnownHost/reconnect/discovery integration. Migrate existing development trust data or intentionally invalidate it for re-pairing according to the approved migration policy. After S9, the product operates on the new cryptographic identity model; the old path is no longer active. |
+| **S10** | Delete obsolete bearer machinery after cutover: pairing credential issuance/ack semantics, `trusted_device_credential` reconnect, obsolete auth token fields/messages, storage fields, tests/docs/fixtures, and canonical protocol pieces. |
 | **S11** | Security/adversarial regression audit across Host, SDK, transport, persistence, pairing, recovery, and protocol boundaries. |
+
+### S2 feasibility gate
+
+S2 evaluates the whole cryptographic stack, not only the PAKE:
+
+- **Transport:** TLS 1.3 and WSS support; self-generated Host certificates; SPKI/public-key pinning; custom certificate verification; client-certificate authentication/mTLS or the selected equivalent; restricted handling of unknown Client certificates during bootstrap; session resumption; disabling 0-RTT; ensuring tickets cannot become bearer substitutes; and fresh proof requirements.
+- **Host and Windows:** C#/.NET TLS and WSS capabilities; certificate/key generation; private-key storage integration; and DPAPI, Windows CNG, or appropriate Windows cryptographic APIs.
+- **Dart/Flutter Client:** Dart TLS/WebSocket capabilities; custom Host-pin verification; Client certificate/private-key integration; and whether non-exportable platform keys can be used directly.
+- **Android and iOS:** Android Keystore and non-exportable key support; Keychain/Secure Enclave where appropriate; and compatibility of those keys with TLS client authentication.
+- **Balanced PAKE:** maintained/reviewed implementation; mutual key confirmation; authenticated transcript/application-context binding; deterministic cross-language vectors; offline-dictionary resistance appropriate to the selected PAKE; licensing; maintenance status; and implementation maturity.
+- **Cross-language/native boundary:** C# Host interoperability with Dart/Flutter, vector compatibility, Windows plus future Android/iOS support, and whether one shared native crypto/FFI boundary is safer than separate stacks.
+- **Security and supply chain:** no custom cryptography; maintained libraries; vulnerability/update process; licensing; platform coverage; and a version-pinning strategy.
+
+S2 must confirm a safe end-to-end implementation path before S3 creates production keys. It may stop S3–S11 if required platform APIs or acceptable maintained libraries cannot satisfy the approved architecture. S2 does not preselect SPAKE2, CPace, or a library.
+
+### S6 provisional-TLS activation guard
+
+Provisional TLS certificate acceptance is implementation plumbing only until the balanced-PAKE bootstrap is available. It must remain unreachable or feature-gated from normal production pairing. TLS encryption without PAKE does not establish first trust. A user must never reach “accept unknown Host certificate → pair/trust” before PAKE binding is implemented; production activation happens only at S9 cutover.
 
 After S11, resume UI convergence milestone 3.4, Companion Device Identity. This security sequence is a prerequisite gate, not permission to implement that UI in these PRs.
 

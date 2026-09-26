@@ -16,6 +16,8 @@ Approved LAN clients securely discover and connect to the intended Host without 
 ### Scope and behavior
 
 - Complete the threat model and pairing design required by `ai/context/protocol/security.md`.
+- Follow `ai/context/security/identity-and-transport.md` for the target Host/Client identity,
+  transport, and first-pair trust architecture.
 - Use established authenticated encryption; do not invent cryptography.
 - Discover multiple machines and DovahLink instances without treating address as identity.
 - Authenticate endpoints before trusting advertised metadata.
