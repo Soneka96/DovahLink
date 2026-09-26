@@ -1288,6 +1288,8 @@ void main() {
           DovahLinkConnectionState.connected,
         );
         expect(result.hostVersion, '0.5.0');
+        expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
+        expect(result.hostName, 'GONCALO-DESKTOP');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
@@ -1437,6 +1439,8 @@ void main() {
         final HelloResult result = await client.hello();
 
         expect(result.hostVersion, helloAckPayload['hostVersion'] as String);
+        expect(result.hostId, helloAckPayload['hostId'] as String);
+        expect(result.hostName, helloAckPayload['hostName'] as String);
         expect(result.trustState, DovahLinkTrustState.unpaired);
         expect(client.trustState, DovahLinkTrustState.unpaired);
         expect(client.sessionId, 'session-1');
@@ -1501,6 +1505,8 @@ void main() {
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
               'hostVersion': '0.4.0',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'GONCALO-DESKTOP',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1691,6 +1697,8 @@ void main() {
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
               'hostVersion': '0.5.0',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'GONCALO-DESKTOP',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1713,6 +1721,8 @@ void main() {
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
               'hostVersion': '0.5.0',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'GONCALO-DESKTOP',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -2140,6 +2150,8 @@ void main() {
             'correlationId': 'no-such-pending-operation',
             'payload': <String, dynamic>{
               'hostVersion': '0.3.2',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'GONCALO-DESKTOP',
               'clientIdentityKind': 'unpaired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -2575,6 +2587,8 @@ void main() {
           'correlationId': 'irrelevant',
           'payload': <String, dynamic>{
             'hostVersion': '0.5.0',
+            'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            'hostName': 'GONCALO-DESKTOP',
             'clientIdentityKind': 'paired',
           },
           'stateAuthorityId': 'state-authority-1',

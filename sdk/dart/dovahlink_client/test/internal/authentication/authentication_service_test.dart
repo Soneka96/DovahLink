@@ -44,6 +44,8 @@ class MockClientIdCache extends Mock implements ClientIdCache {}
 Envelope buildHelloAckEnvelope({
   String? sessionId = 'session-1',
   String hostVersion = '0.5.0',
+  String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
+  String hostName = 'GONCALO-DESKTOP',
   ClientIdentityKind kind = ClientIdentityKind.unpaired,
   String? clientId = 'client-1',
 }) => Fixtures.buildEnvelope(
@@ -52,6 +54,8 @@ Envelope buildHelloAckEnvelope({
   clientId: clientId,
   payload: <String, dynamic>{
     'hostVersion': hostVersion,
+    'hostId': hostId,
+    'hostName': hostName,
     'clientIdentityKind': kind == ClientIdentityKind.paired
         ? 'paired'
         : 'unpaired',
@@ -418,6 +422,8 @@ void main() {
         buildHelloAckEnvelope(
           sessionId: 'session-1',
           hostVersion: '0.5.0',
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          hostName: 'LIVINGROOM-PC',
           kind: ClientIdentityKind.paired,
         ),
       );
@@ -441,6 +447,8 @@ void main() {
           orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
         ),
       );
+      expect(result.hostId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+      expect(result.hostName, 'LIVINGROOM-PC');
       expect(result.hostVersion, '0.5.0');
       expect(result.trustState, DovahLinkTrustState.trusted);
     });
@@ -674,6 +682,8 @@ void main() {
             sessionId: null,
             payload: <String, dynamic>{
               'hostVersion': '0.5.0',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'GONCALO-DESKTOP',
               'clientIdentityKind': 'unpaired',
             },
             clientId: 'client-1',
@@ -744,6 +754,8 @@ void main() {
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
               'hostVersion': '',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'GONCALO-DESKTOP',
               'clientIdentityKind': 'unpaired',
             },
           ),
@@ -780,6 +792,8 @@ void main() {
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
               'hostVersion': '0.5.0',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'GONCALO-DESKTOP',
               'clientIdentityKind': 'not-a-real-kind',
             },
           ),
@@ -862,6 +876,8 @@ void main() {
         );
 
         expect(result.hostVersion, '0.5.0');
+        expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
+        expect(result.hostName, 'GONCALO-DESKTOP');
         expect(result.trustState, DovahLinkTrustState.trusted);
         verifyNever(() => sessionService.connect(any()));
         verify(
@@ -1197,6 +1213,8 @@ void main() {
           result.recoveredFromRejectedCredential,
           CredentialRejectionReason.revoked,
         );
+        expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
+        expect(result.hostName, 'GONCALO-DESKTOP');
         expect(result.trustState, DovahLinkTrustState.unpaired);
         verify(
           () => storage.save(

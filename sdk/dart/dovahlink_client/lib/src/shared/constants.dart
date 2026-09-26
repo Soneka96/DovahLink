@@ -1,5 +1,10 @@
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
+// ---- Host identity ----
+
+/// The maximum UTF-8 byte length of the Host computer name in `hello_ack`.
+const int kMaxHostNameLengthBytes = 64;
+
 // ---- Request policy ----
 
 /// The bounded wait this SDK allows a request of each [TimeoutClass] before treating its

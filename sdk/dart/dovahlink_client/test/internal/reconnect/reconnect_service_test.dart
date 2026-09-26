@@ -12,6 +12,7 @@ import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Mocks session lifecycle to control connection state and count recovery attempts.
 class MockSessionService extends Mock implements ISessionService {}
@@ -80,7 +81,7 @@ void main() {
       'Method onOrdinaryTransportLoss succeeds on the first attempt without disconnecting',
       () async {
         when(() => authenticationService.hello()).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),
@@ -190,7 +191,7 @@ void main() {
       'Method onOrdinaryTransportLoss starts a later recovery after stopRecovery',
       () async {
         when(() => authenticationService.hello()).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),
@@ -218,7 +219,7 @@ void main() {
           }
         });
         when(() => authenticationService.hello()).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),
@@ -505,7 +506,7 @@ void main() {
               retryable: true,
             );
           }
-          return const HelloResult(
+          return Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           );
@@ -534,7 +535,7 @@ void main() {
           () => sessionService.connect(any()),
         ).thenThrow(const DovahLinkConnectionException('unreachable'));
         when(() => authenticationService.hello()).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),
@@ -567,7 +568,7 @@ void main() {
         () => sessionService.connect(any()),
       ).thenThrow(const DovahLinkConnectionException('unreachable'));
       when(() => authenticationService.hello()).thenAnswer(
-        (_) async => const HelloResult(
+        (_) async => Fixtures.buildHelloResult(
           hostVersion: '1.0',
           trustState: DovahLinkTrustState.trusted,
         ),
@@ -615,7 +616,7 @@ void main() {
         if (helloCallCount == 1) {
           throw const DovahLinkConnectionException('unreachable');
         }
-        return const HelloResult(
+        return Fixtures.buildHelloResult(
           hostVersion: '1.0',
           trustState: DovahLinkTrustState.trusted,
         );
@@ -664,7 +665,7 @@ void main() {
           () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.disconnected);
         when(() => authenticationService.hello()).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
           ),

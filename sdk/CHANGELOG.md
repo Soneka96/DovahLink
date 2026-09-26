@@ -11,6 +11,10 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ## [Unreleased]
 
+### Added
+
+- The SDK handshake result exposes the stable Host installation ID and current OS computer name.
+
 ### Changed
 
 - The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
