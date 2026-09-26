@@ -1,4 +1,4 @@
-add_executable(window_lifecycle_tests
+add_executable(window_lifecycle_tests EXCLUDE_FROM_ALL
   "window_lifecycle_tests.cpp"
   "../flutter_window.cpp"
   "../window_lifecycle_state.cpp"
