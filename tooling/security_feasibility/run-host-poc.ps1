@@ -37,7 +37,7 @@ try {
     $pin = $pinLine.Substring('SPKI_SHA256_BASE64URL='.Length)
     Push-Location $clientDirectory
     try {
-        & dart run bin/client.dart "--url=$url" "--pin=$pin"
+        & dart run lib/client.dart "--url=$url" "--pin=$pin"
         if ($LASTEXITCODE -ne 0) { throw "Dart POC exited with code $LASTEXITCODE." }
     }
     finally {

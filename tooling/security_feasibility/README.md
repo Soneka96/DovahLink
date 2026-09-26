@@ -23,7 +23,8 @@ empty trust store, pins
 fails before a WebSocket message is exchanged, regardless of system CA trust. The Host also renews
 the certificate around the same key in memory and checks that the SPKI stays unchanged while the
 certificate thumbprint changes. The runner removes only its randomly named POC CNG key after the
-Host process exits.
+Host process exits. The committed client source is `client_poc/lib/client.dart`; the runner invokes
+that path so the repository-wide `**/bin/` ignore rule does not hide it.
 
 This is a feasibility test, not a production implementation. The Dart spike uses `asn1lib` only to
 extract SPKI from the DER certificate that `dart:io` supplies. The package parses general ASN.1 and
