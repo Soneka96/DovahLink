@@ -1,8 +1,19 @@
 import 'package:test/test.dart';
 
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../fixtures/fixtures.dart';
+
+/// Builds a representative Host association for persisted-state tests.
+DovahLinkHost _knownHost({
+  String hostName = 'GONCALO-DESKTOP',
+  String endpoint = 'ws://127.0.0.1:58231/',
+}) => DovahLinkHost(
+  hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+  hostName: hostName,
+  endpoint: Uri.parse(endpoint),
+);
 
 /// Runs persisted-client-state behavior tests.
 void main() {
@@ -13,12 +24,13 @@ void main() {
       expect(state.clientId, isNull);
       expect(state.credential, isNull);
       expect(state.recoveryState, PairingRecoveryState.none);
+      expect(state.knownHost, isNull);
     });
   });
 
   group('Property currentFormatVersion behaves correctly', () {
-    test('Property currentFormatVersion reports version 1', () {
-      expect(PersistedClientState.currentFormatVersion, 1);
+    test('Property currentFormatVersion reports version 2', () {
+      expect(PersistedClientState.currentFormatVersion, 2);
     });
   });
 
@@ -76,6 +88,46 @@ void main() {
 
       expect(original.copyWith(), original);
     });
+
+    test('Method copyWith preserves Known Host when other fields change', () {
+      final DovahLinkHost knownHost = _knownHost();
+      final PersistedClientState original = PersistedClientState(
+        clientId: 'client-1',
+        credential: 'a1b2c3',
+        knownHost: knownHost,
+      );
+
+      final PersistedClientState updated = original.copyWith(
+        recoveryState: PairingRecoveryState.confirming,
+      );
+
+      expect(updated.knownHost, knownHost);
+    });
+
+    test('Method copyWith sets Known Host when supplied', () {
+      final DovahLinkHost knownHost = _knownHost();
+
+      final PersistedClientState updated = const PersistedClientState()
+          .copyWith(knownHost: knownHost);
+
+      expect(updated.knownHost, knownHost);
+    });
+
+    test('Method constructor explicitly clears nullable fields', () {
+      final PersistedClientState original = PersistedClientState(
+        clientId: 'client-1',
+        credential: 'a1b2c3',
+        knownHost: _knownHost(),
+      );
+
+      final PersistedClientState cleared = PersistedClientState(
+        clientId: original.clientId,
+        recoveryState: PairingRecoveryState.none,
+      );
+
+      expect(cleared.credential, isNull);
+      expect(cleared.knownHost, isNull);
+    });
   });
 
   group('Behavior equality behaves correctly', () {
@@ -86,12 +138,12 @@ void main() {
           clientId: 'client-1',
           credential: 'a1b2c3',
           recoveryState: PairingRecoveryState.confirming,
-        );
+        ).copyWith(knownHost: _knownHost());
         final PersistedClientState b = Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'a1b2c3',
           recoveryState: PairingRecoveryState.confirming,
-        );
+        ).copyWith(knownHost: _knownHost());
 
         expect(a, b);
         expect(a.hashCode, b.hashCode);
@@ -142,6 +194,28 @@ void main() {
       const Object other = 'client-1';
 
       expect(state == other, isFalse);
+    });
+
+    test('Behavior equality detects differing Known Host metadata', () {
+      final PersistedClientState first = PersistedClientState(
+        knownHost: _knownHost(),
+      );
+      final PersistedClientState second = PersistedClientState(
+        knownHost: _knownHost(hostName: 'RENAMED-DESKTOP'),
+      );
+
+      expect(first, isNot(second));
+    });
+
+    test('Behavior equality detects a differing Known Host endpoint', () {
+      final PersistedClientState first = PersistedClientState(
+        knownHost: _knownHost(),
+      );
+      final PersistedClientState second = PersistedClientState(
+        knownHost: _knownHost(endpoint: 'ws://127.0.0.1:58232/'),
+      );
+
+      expect(first, isNot(second));
     });
   });
 }
