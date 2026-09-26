@@ -5,6 +5,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
@@ -171,6 +172,26 @@ void main() {
         await expectation;
       },
     );
+  });
+
+  group('Properties currentHost and currentEndpoint behave correctly', () {
+    test('Property currentHost delegates to SessionState', () {
+      final DovahLinkHost host = DovahLinkHost(
+        hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        hostName: 'LOCAL-HOST',
+        endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      when(() => state.currentHost).thenReturn(host);
+
+      expect(service.currentHost, host);
+    });
+
+    test('Property currentEndpoint delegates to SessionState', () {
+      final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+      when(() => state.currentEndpoint).thenReturn(endpoint);
+
+      expect(service.currentEndpoint, endpoint);
+    });
   });
 
   group('Method connect behaves correctly', () {

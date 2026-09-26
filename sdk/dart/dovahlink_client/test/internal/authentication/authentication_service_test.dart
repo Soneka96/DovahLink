@@ -5,6 +5,8 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
@@ -95,6 +97,13 @@ void main() {
     );
     registerFallbackValue(Uri.parse('ws://127.0.0.1:0/'));
     registerFallbackValue(DovahLinkTrustState.unpaired);
+    registerFallbackValue(
+      DovahLinkHost(
+        hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        hostName: 'LOCAL-HOST',
+        endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+      ),
+    );
     registerFallbackValue(Fixtures.buildPersistedClientState());
   });
 
@@ -116,9 +125,13 @@ void main() {
     ).thenReturn(DovahLinkConnectionState.disconnected);
     when(() => sessionService.currentTrustState).thenReturn(null);
     when(
+      () => sessionService.currentEndpoint,
+    ).thenReturn(Uri.parse('ws://127.0.0.1:58231/'));
+    when(
       () => sessionAdmissionService.admitSession(
         sessionId: any(named: 'sessionId'),
         trustState: any(named: 'trustState'),
+        currentHost: any(named: 'currentHost'),
       ),
     ).thenAnswer((_) {});
     when(() => storage.load()).thenAnswer(
@@ -208,6 +221,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
       },
@@ -245,6 +259,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verifyNever(
@@ -330,6 +345,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
       },
@@ -365,6 +381,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verifyNever(
@@ -440,6 +457,11 @@ void main() {
         () => sessionAdmissionService.admitSession(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
+          currentHost: DovahLinkHost(
+            hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            hostName: 'LIVINGROOM-PC',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
         ),
       ]);
       verifyNever(
@@ -452,6 +474,229 @@ void main() {
       expect(result.hostVersion, '0.5.0');
       expect(result.trustState, DovahLinkTrustState.trusted);
     });
+
+    test(
+      'Method hello binds a legacy credential to the trusted Host',
+      () async {
+        const PersistedClientState legacyState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'legacy-credential',
+        );
+        when(() => storage.load()).thenAnswer((_) async => legacyState);
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(kind: ClientIdentityKind.paired),
+        );
+
+        await service.hello();
+
+        verify(
+          () => storage.save(
+            PersistedClientState(
+              clientId: 'client-1',
+              credential: 'legacy-credential',
+              knownHost: DovahLinkHost(
+                hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+                hostName: 'Soneka-Desktop',
+                endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+              ),
+            ),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method hello refreshes mutable metadata for the same trusted Host',
+      () async {
+        final PersistedClientState knownState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+          knownHost: DovahLinkHost(
+            hostId: '81869993-955C-4BA3-A7D0-D35CA86078EA',
+            hostName: 'OLD-NAME',
+            endpoint: Uri.parse('ws://127.0.0.1:58230/'),
+          ),
+        );
+        when(() => storage.load()).thenAnswer((_) async => knownState);
+        when(
+          () => sessionService.currentEndpoint,
+        ).thenReturn(Uri.parse('ws://127.0.0.1:58231/'));
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostName: 'NEW-NAME',
+            kind: ClientIdentityKind.paired,
+          ),
+        );
+
+        await service.hello();
+
+        verify(
+          () => storage.save(
+            PersistedClientState(
+              clientId: 'client-1',
+              credential: 'credential-1',
+              knownHost: DovahLinkHost(
+                hostId: '81869993-955C-4BA3-A7D0-D35CA86078EA',
+                hostName: 'NEW-NAME',
+                endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+              ),
+            ),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method hello fails closed when a trusted session reports another Host ID',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String reportedHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        when(() => storage.load()).thenAnswer(
+          (_) async => PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+            knownHost: DovahLinkHost(
+              hostId: knownHostId,
+              hostName: 'KNOWN-HOST',
+              endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+            ),
+          ),
+        );
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: reportedHostId,
+            kind: ClientIdentityKind.paired,
+          ),
+        );
+
+        await expectLater(
+          service.hello(),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  knownHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  reportedHostId,
+                ),
+          ),
+        );
+
+        verifyNever(() => storage.save(any()));
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+          ),
+        );
+        verify(
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
+      },
+    );
+
+    test('Method hello does not persist an unpaired Host claim', () async {
+      when(() => storage.load()).thenAnswer(
+        (_) async => PersistedClientState(
+          clientId: 'client-1',
+          knownHost: DovahLinkHost(
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            hostName: 'KNOWN-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58230/'),
+          ),
+        ),
+      );
+      stubSendAndAwait(
+        requestService,
+        buildHelloAckEnvelope(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          hostName: 'UNPAIRED-CANDIDATE',
+          kind: ClientIdentityKind.unpaired,
+        ),
+      );
+
+      await service.hello();
+
+      verifyNever(() => storage.save(any()));
+      verify(
+        () => sessionAdmissionService.admitSession(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.unpaired,
+          currentHost: DovahLinkHost(
+            hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            hostName: 'UNPAIRED-CANDIDATE',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        ),
+      ).called(1);
+    });
+
+    test(
+      'Method hello disconnects without admission when Host reconciliation load fails',
+      () async {
+        int loadCount = 0;
+        when(() => storage.load()).thenAnswer((_) async {
+          loadCount++;
+          if (loadCount == 1) {
+            return Fixtures.buildPersistedClientState(clientId: 'client-1');
+          }
+          throw StateError('reconciliation load failed');
+        });
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(kind: ClientIdentityKind.paired),
+        );
+
+        await expectLater(service.hello(), throwsA(isA<StateError>()));
+
+        verifyNever(() => storage.save(any()));
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+          ),
+        );
+        verify(
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method hello disconnects without admission when Host reconciliation save fails',
+      () async {
+        when(
+          () => storage.save(any()),
+        ).thenThrow(StateError('reconciliation save failed'));
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(kind: ClientIdentityKind.paired),
+        );
+
+        await expectLater(service.hello(), throwsA(isA<StateError>()));
+
+        verify(() => storage.save(any())).called(1);
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+          ),
+        );
+        verify(
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
+      },
+    );
 
     test(
       'Method hello closes and rejects a newer Host before session admission',
@@ -479,6 +724,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verify(
@@ -525,6 +771,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verify(
@@ -661,6 +908,11 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: 'session-1',
             trustState: DovahLinkTrustState.unpaired,
+            currentHost: DovahLinkHost(
+              hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              hostName: 'Soneka-Desktop',
+              endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+            ),
           ),
         ).called(1);
         verifyNever(
@@ -704,6 +956,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verify(
@@ -737,6 +990,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verify(
@@ -775,6 +1029,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verify(
@@ -813,6 +1068,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verify(
@@ -841,6 +1097,7 @@ void main() {
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
           ),
         );
         verify(
@@ -1381,13 +1638,19 @@ void main() {
 
   group('Method forgetCredential behaves correctly', () {
     test(
-      'Method forgetCredential clears credential and recovery state while preserving clientId',
+      'Method forgetCredential clears credential and recovery state while preserving identity',
       () async {
+        final DovahLinkHost knownHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'KNOWN-HOST',
+          endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+        );
         when(() => storage.load()).thenAnswer(
-          (_) async => Fixtures.buildPersistedClientState(
+          (_) async => PersistedClientState(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
+            knownHost: knownHost,
           ),
         );
 
@@ -1395,7 +1658,7 @@ void main() {
 
         verify(
           () => storage.save(
-            Fixtures.buildPersistedClientState(clientId: 'client-1'),
+            PersistedClientState(clientId: 'client-1', knownHost: knownHost),
           ),
         ).called(1);
       },

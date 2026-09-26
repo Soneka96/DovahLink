@@ -2344,7 +2344,7 @@ void main() {
         );
         await pumpEventQueue();
 
-        expect(trackingStorage.saveCount, 1);
+        expect(trackingStorage.saveCount, 2);
         expect((await trackingStorage.load()).credential, isNull);
       },
     );
@@ -2357,7 +2357,7 @@ void main() {
             clientId: 'client-1',
             credential: 'credential-1',
           ),
-        )..saveError = StateError('storage unavailable');
+        );
         final FakeDovahLinkTransport failingTransport =
             FakeDovahLinkTransport();
         final DovahLinkClient failingClient = buildDovahLinkClientForTesting(
@@ -2374,6 +2374,7 @@ void main() {
           _rawFixture('capabilities/capabilities-host.json'),
         );
         await failingClient.hello();
+        failingStorage.saveError = StateError('storage unavailable');
 
         final List<Object> uncaughtErrors = <Object>[];
         final Completer<void> done = Completer<void>();
@@ -2385,7 +2386,7 @@ void main() {
         await done.future;
 
         expect(uncaughtErrors, isEmpty);
-        expect(failingStorage.saveCount, 1);
+        expect(failingStorage.saveCount, 2);
         expect((await failingStorage.load()).credential, 'credential-1');
       },
     );

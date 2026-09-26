@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
@@ -34,6 +35,14 @@ abstract interface class ISessionService {
 
   /// The current trust standing, or `null` before one is admitted.
   DovahLinkTrustState? get currentTrustState;
+
+  /// The Host context for the admitted session, or `null` before admission or after teardown.
+  /// @return The current session's Host identity and metadata, or `null` when no session is admitted.
+  DovahLinkHost? get currentHost;
+
+  /// The active connection endpoint while connected or reauthenticating.
+  /// @return The endpoint for the active transport, or `null` while disconnected or connecting.
+  Uri? get currentEndpoint;
 
   /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
@@ -167,6 +176,14 @@ class SessionService implements ISessionService {
   /// Implements [ISessionService.currentTrustState].
   @override
   DovahLinkTrustState? get currentTrustState => _state.trustState;
+
+  /// Implements [ISessionService.currentHost].
+  @override
+  DovahLinkHost? get currentHost => _state.currentHost;
+
+  /// Implements [ISessionService.currentEndpoint].
+  @override
+  Uri? get currentEndpoint => _state.currentEndpoint;
 
   /// Implements [ISessionService.invalidationReason].
   @override

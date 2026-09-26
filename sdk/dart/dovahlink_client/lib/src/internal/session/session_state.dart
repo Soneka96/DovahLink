@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -35,6 +36,9 @@ class SessionState {
   /// The current trust standing, or `null` before [admit] is called.
   DovahLinkTrustState? _trustState;
 
+  /// The Host context for the admitted session, or `null` when no session is admitted.
+  DovahLinkHost? _currentHost;
+
   /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
   AdministrativeInvalidationReason? _invalidationReason;
@@ -67,6 +71,18 @@ class SessionState {
   /// The current trust standing, or `null` before one is admitted.
   DovahLinkTrustState? get trustState => _trustState;
 
+  /// The Host context for the admitted session, or `null` before admission or after teardown.
+  /// @return The current session's Host identity and metadata, or `null` when no session is admitted.
+  DovahLinkHost? get currentHost => _currentHost;
+
+  /// The active connection endpoint while connected or reauthenticating.
+  /// @return The endpoint for the active transport, or `null` while disconnected or connecting.
+  Uri? get currentEndpoint =>
+      _connectionState == DovahLinkConnectionState.connected ||
+          _connectionState == DovahLinkConnectionState.reauthenticating
+      ? _lastConnectedUri
+      : null;
+
   /// The reason [connectionState] is [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason =>
@@ -83,9 +99,9 @@ class SessionState {
       _connectionState == DovahLinkConnectionState.administrativelyInvalidated;
 
   /// Begins a connect attempt to [uri]: advances the generation, clears any prior
-  /// [invalidationReason], and records [uri] as [lastConnectedUri]. Leaves [connectionState] at
-  /// [DovahLinkConnectionState.reconnecting] when a bounded-recovery attempt is already in
-  /// progress, so recovery stays outwardly visible as one continuous `reconnecting` phase instead
+  /// [invalidationReason] and [currentHost], and records [uri] as [lastConnectedUri]. Leaves
+  /// [connectionState] at [DovahLinkConnectionState.reconnecting] when a bounded-recovery attempt is
+  /// underway, so recovery stays outwardly visible as one continuous `reconnecting` phase instead
   /// of flickering through `connecting`; otherwise transitions to
   /// [DovahLinkConnectionState.connecting].
   void beginConnectAttempt(Uri uri) {
@@ -93,6 +109,7 @@ class SessionState {
         _connectionState == DovahLinkConnectionState.reconnecting;
     _connectionGeneration++;
     _invalidationReason = null;
+    _currentHost = null;
     if (!isRecoveryAttempt) {
       _connectionState = DovahLinkConnectionState.connecting;
     }
@@ -135,12 +152,17 @@ class SessionState {
   /// bounded-recovery attempt's [DovahLinkConnectionState.reauthenticating] phase resolves to a
   /// trusted, usable session. A no-op transition when [connectionState] is already `connected` (the
   /// ordinary, non-recovery `connect` then `hello` flow).
+  /// @param sessionId The server-issued identity for this connection's session.
+  /// @param trustState The trust tier admitted by the Host.
+  /// @param currentHost The Host identity and endpoint reported for this session.
   void admit({
     required String sessionId,
     required DovahLinkTrustState trustState,
+    required DovahLinkHost currentHost,
   }) {
     _sessionId = sessionId;
     _trustState = trustState;
+    _currentHost = currentHost;
     _connectionState = DovahLinkConnectionState.connected;
     _connectionStateStream.update(_connectionState);
   }
@@ -152,12 +174,14 @@ class SessionState {
 
   /// Records an authoritative `session_invalidated` push: sets [invalidationReason], transitions
   /// [connectionState] to [DovahLinkConnectionState.administrativelyInvalidated], clears
-  /// [sessionId] and [trustState], and advances the generation. Terminal for the current session.
+  /// [sessionId], [trustState], and [currentHost], and advances the generation. Terminal for the
+  /// current session.
   void invalidate(AdministrativeInvalidationReason reason) {
     _invalidationReason = reason;
     _connectionState = DovahLinkConnectionState.administrativelyInvalidated;
     _sessionId = null;
     _trustState = null;
+    _currentHost = null;
     _connectionGeneration++;
     _connectionStateStream.update(_connectionState);
   }
@@ -172,7 +196,7 @@ class SessionState {
   /// [preserveReconnecting] is `true` and the session was already `reconnecting` or
   /// [DovahLinkConnectionState.reauthenticating] -- an intermediate teardown mid-recovery (including
   /// a failed re-authentication attempt), not recovery's own final give-up. Always clears
-  /// [sessionId] and [trustState], regardless of which connection phase results.
+  /// [sessionId], [trustState], and [currentHost], regardless of which connection phase results.
   void resetAfterTeardown({required bool preserveReconnecting}) {
     final bool wasRecovering =
         _connectionState == DovahLinkConnectionState.reconnecting ||
@@ -182,6 +206,7 @@ class SessionState {
         : DovahLinkConnectionState.disconnected;
     _trustState = null;
     _sessionId = null;
+    _currentHost = null;
     _connectionStateStream.update(_connectionState);
   }
 
