@@ -50,7 +50,13 @@ public class PublicEnvelopeCodecTests
     [Fact]
     public void EncodeThenDecode_HelloAckPayload_RoundTrips()
     {
-        var payload = new HelloAckPayload { HostVersion = "0.3.3", ClientIdentityKind = ClientIdentityKind.Paired };
+        var payload = new HelloAckPayload
+        {
+            HostId = "81869993-955c-4ba3-a7d0-d35ca86078ea",
+            HostName = "GONCALO-DESKTOP",
+            HostVersion = "0.5.0",
+            ClientIdentityKind = ClientIdentityKind.Paired,
+        };
         byte[] encoded = Codec.Encode(PublicMessageType.HelloAck, "msg-2", "session-1", "msg-1", null, "client-1", payload);
 
         Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
@@ -162,12 +168,43 @@ public class PublicEnvelopeCodecTests
     [Fact]
     public void EncodeThenDecode_HelloAckPayloadUnpairedKind_RoundTrips()
     {
-        var payload = new HelloAckPayload { HostVersion = "0.3.3", ClientIdentityKind = ClientIdentityKind.Unpaired };
+        var payload = new HelloAckPayload
+        {
+            HostId = "81869993-955c-4ba3-a7d0-d35ca86078ea",
+            HostName = "GONCALO-DESKTOP",
+            HostVersion = "0.5.0",
+            ClientIdentityKind = ClientIdentityKind.Unpaired,
+        };
         byte[] encoded = Codec.Encode(PublicMessageType.HelloAck, "msg-1", "session-1", "msg-0", null, null, payload);
 
         Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
         Assert.True(Codec.TryDecodePayload(envelope!, out HelloAckPayload? decoded));
+        Assert.Equal(payload.HostId, decoded!.HostId);
+        Assert.Equal(payload.HostName, decoded.HostName);
         Assert.Equal(ClientIdentityKind.Unpaired, decoded!.ClientIdentityKind);
+    }
+
+    /// <summary>Verifies the Host codec consumes each canonical shared hello acknowledgement fixture.</summary>
+    /// <param name="fileName">The canonical fixture file to decode.</param>
+    /// <param name="expectedIdentityKind">The expected client trust identity kind.</param>
+    /// <param name="expectedPlayContextId">The expected play-context identity, or <see langword="null"/> when absent.</param>
+    [Theory]
+    [InlineData("hello-ack.json", ClientIdentityKind.Unpaired, null)]
+    [InlineData("hello-ack-paired.json", ClientIdentityKind.Paired, null)]
+    [InlineData("hello-ack-active-context.json", ClientIdentityKind.Unpaired, "context-1")]
+    public void SharedFixture_HelloAck_DecodesHostIdentity(
+        string fileName, ClientIdentityKind expectedIdentityKind, string? expectedPlayContextId)
+    {
+        string path = Path.Combine(
+            AppContext.BaseDirectory, "protocol", "fixtures", "connection", fileName);
+        byte[] bytes = Encoding.UTF8.GetBytes(File.ReadAllText(path));
+
+        Assert.True(Codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.True(Codec.TryDecodePayload(envelope!, out HelloAckPayload? payload));
+        Assert.Equal("81869993-955c-4ba3-a7d0-d35ca86078ea", payload!.HostId);
+        Assert.Equal("GONCALO-DESKTOP", payload.HostName);
+        Assert.Equal(expectedIdentityKind, payload.ClientIdentityKind);
+        Assert.Equal(expectedPlayContextId, envelope!.PlayContextId);
     }
 
     /// <summary>

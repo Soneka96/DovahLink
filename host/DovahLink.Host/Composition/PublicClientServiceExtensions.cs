@@ -31,6 +31,7 @@ public static class PublicClientServiceExtensions
     /// and <see cref="AdapterIpcServiceExtensions.AddAdapterIpcServices"/> to already be registered on
     /// <paramref name="services"/> -- the dispatcher this graph builds forwards pairing display
     /// requests through the adapter-IPC boundary's own registered <see cref="IPairingAdapterNotifier"/>.
+    /// The validated <see cref="HostIdentity"/> must also be registered by the process composition root.
     /// </summary>
     /// <param name="services">The service collection to register into.</param>
     /// <param name="publicListenerPort">The public loopback port to bind, or <see langword="null"/> to leave the public listener uncomposed.</param>

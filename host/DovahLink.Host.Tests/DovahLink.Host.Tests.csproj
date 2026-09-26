@@ -28,6 +28,15 @@
     <None Include="..\..\adapter-host-ipc\fixtures\live-state-catalog.json"
           Link="adapter-host-ipc\fixtures\live-state-catalog.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\connection\hello-ack.json"
+          Link="protocol\fixtures\connection\hello-ack.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\connection\hello-ack-paired.json"
+          Link="protocol\fixtures\connection\hello-ack-paired.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\connection\hello-ack-active-context.json"
+          Link="protocol\fixtures\connection\hello-ack-active-context.json"
+          CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\protocol\fixtures\subscriptions\subscribe-add-area.json"
           Link="protocol\fixtures\subscriptions\subscribe-add-area.json"
           CopyToOutputDirectory="PreserveNewest" />

@@ -1,5 +1,3 @@
-using System.Text;
-
 namespace DovahLink.Host.Identity;
 
 /// <summary>Provides the persistent Host ID together with the current operating-system computer name.</summary>
@@ -31,6 +29,7 @@ public sealed class HostIdentityProvider : IHostIdentityProvider
     /// <inheritdoc/>
     public HostIdentity GetCurrent()
     {
+        HostId hostId = identityStore.LoadOrCreate();
         string hostName;
         try
         {
@@ -38,16 +37,16 @@ public sealed class HostIdentityProvider : IHostIdentityProvider
         }
         catch (Exception)
         {
-            hostName = string.Empty;
+            return new HostIdentity(hostId, "Skyrim PC");
         }
 
-        if (string.IsNullOrWhiteSpace(hostName) ||
-            hostName.Any(char.IsControl) ||
-            Encoding.UTF8.GetByteCount(hostName) > Constants.MaxDisplayNameLengthBytes)
+        try
         {
-            hostName = "Skyrim PC";
+            return new HostIdentity(hostId, hostName);
         }
-
-        return new HostIdentity(identityStore.LoadOrCreate(), hostName);
+        catch (ArgumentException)
+        {
+            return new HostIdentity(hostId, "Skyrim PC");
+        }
     }
 }

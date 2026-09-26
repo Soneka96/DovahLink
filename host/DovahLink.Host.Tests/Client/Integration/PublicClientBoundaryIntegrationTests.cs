@@ -125,6 +125,9 @@ public class PublicClientBoundaryIntegrationTests
         WebSocketReceiveResult helloAckResult = await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(codec.TryDecode(buffer.AsMemory(0, helloAckResult.Count), out PublicEnvelope? helloAck));
         Assert.Equal(PublicMessageType.HelloAck, helloAck!.MessageType);
+        Assert.True(codec.TryDecodePayload(helloAck, out HelloAckPayload? payload));
+        Assert.Equal(Fixtures.BuildHostIdentity().HostId.ToString(), payload!.HostId);
+        Assert.Equal(Fixtures.BuildHostIdentity().HostName, payload.HostName);
 
         await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)); // unsolicited capabilities
 

@@ -14,6 +14,10 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ## [Unreleased]
 
+### Added
+
+- The connection handshake now exposes the stable Host installation ID and current OS computer name.
+
 ### Changed
 
 - Pairing outcomes now expose Host-calculated attempts remaining and the committed renotify cooldown.

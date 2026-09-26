@@ -55,6 +55,7 @@ public class PublicConnectionFactoryTests
         ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
 
         var services = new ServiceCollection();
+        services.AddSingleton(Fixtures.BuildHostIdentity());
         services.AddCoreServices(clock, securityGate, shutdown, new FakeHostSettingsProvider());
         services.AddTrustServices(trustStore);
         services.AddAdapterIpcServices(listenerPort: 0, ownerLifetimeId: default);

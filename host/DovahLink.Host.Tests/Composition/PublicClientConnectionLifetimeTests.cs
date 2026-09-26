@@ -35,6 +35,7 @@ public class PublicClientConnectionLifetimeTests
         ISecurityStateGate securityGate = new SecurityStateGate();
         ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
         var services = new ServiceCollection();
+        services.AddSingleton(Fixtures.BuildHostIdentity());
         services.AddCoreServices(clock, securityGate, shutdown, new FakeHostSettingsProvider { Settings = new HostSettings(2) });
         services.AddTrustServices(trustStore);
         services.AddAdapterIpcServices(listenerPort: 0, ownerLifetimeId: default);
@@ -81,6 +82,7 @@ public class PublicClientConnectionLifetimeTests
         ISecurityStateGate securityGate = new SecurityStateGate();
         ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, new FakeTrustStorePersistence());
         var services = new ServiceCollection();
+        services.AddSingleton(Fixtures.BuildHostIdentity());
         // Constants.MaxActiveSessions (the production shipped default) is 1; this reconnect test needs
         // headroom for a moment where the first connection's admission slot may not have been released
         // yet when the second connects, which is incidental to what this test actually proves.

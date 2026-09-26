@@ -70,6 +70,9 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
     /// <summary>Owns the state-authority continuity-epoch rotation.</summary>
     private readonly IStateAuthorityLifecycle stateAuthorityLifecycle;
 
+    /// <summary>The Host identity exposed in each connection handshake.</summary>
+    private readonly HostIdentity hostIdentity;
+
     /// <summary>Reports abnormal per-connection transport endings.</summary>
     private readonly IPublicWebSocketTransportDiagnostics diagnostics;
 
@@ -87,6 +90,7 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
     /// <param name="registeredStateAreaPolicy">Reports which state areas are currently registered.</param>
     /// <param name="statePublicationFeed">The domain feed each connection's subscription reads from.</param>
     /// <param name="stateAuthorityLifecycle">Owns the state-authority continuity-epoch rotation.</param>
+    /// <param name="hostIdentity">The stable Host ID and current OS computer name exposed in each hello acknowledgement.</param>
     /// <param name="diagnostics">Reports abnormal per-connection transport endings.</param>
     public PublicConnectionFactory(
         IPublicEnvelopeCodec codec,
@@ -102,6 +106,7 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
         IRegisteredStateAreaPolicy registeredStateAreaPolicy,
         IStatePublicationFeed statePublicationFeed,
         IStateAuthorityLifecycle stateAuthorityLifecycle,
+        HostIdentity hostIdentity,
         IPublicWebSocketTransportDiagnostics diagnostics)
     {
         this.codec = codec;
@@ -117,6 +122,7 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
         this.registeredStateAreaPolicy = registeredStateAreaPolicy;
         this.statePublicationFeed = statePublicationFeed;
         this.stateAuthorityLifecycle = stateAuthorityLifecycle;
+        this.hostIdentity = hostIdentity;
         this.diagnostics = diagnostics;
     }
 
@@ -127,6 +133,7 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
             new PublicHelloAdmissionHandler(
                 codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
                 playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry,
+                hostIdentity,
                 subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, codec, playContextTracker, stateAuthorityLifecycle)),
             clock,
             new PublicWebSocketTransportOptions(),
