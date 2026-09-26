@@ -27,6 +27,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Pairing shows while a code redisplay is being sent to Skyrim and prevents repeated requests
+  until the Host responds.
 - Custom Dovah controls suppress Material splash and state overlays.
 - Themed material textures reuse rasterized tile images across repaints.
 - Preset theme endpoints are built together at startup and reused during later rebuilds.
@@ -48,10 +50,13 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- A retained pairing redisplay callback no longer sends another request while one is pending.
+- Pairing now shows the Host-reported cooldown after successfully showing the code again.
 - An open dialog now updates its backdrop as the application theme changes.
 - Bevelled panels, cards, and buttons no longer draw a border line along the bevel.
 - Canvas backgrounds now render each theme's complete atmosphere recipe, including its image
   treatment and haze layers.
+- Pairing is clearly unavailable on platforms without secure client storage, and authentication is skipped there.
 
 ## [0.5.0] - 2026-09-24
 

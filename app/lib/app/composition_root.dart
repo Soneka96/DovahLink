@@ -13,6 +13,9 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show IClientStorage, UnsupportedClientStorage;
+
 /// Composes application-wide dependencies before Flutter starts.
 ///
 /// Each feature's middleware is added to the list here as that feature is
@@ -38,6 +41,9 @@ class AppCompositionRoot {
       middleware: [PairingMiddleware().call, AppearanceMiddleware().call],
       initialState: AppState.initial(
         appearance: AppearanceState(activePreset: preset),
+        pairingSupport: sl<IClientStorage>() is UnsupportedClientStorage
+            ? PairingSupport.secureStorageUnavailable
+            : PairingSupport.available,
       ),
     );
   }

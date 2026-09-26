@@ -47,6 +47,11 @@ class PairingMiddleware extends MiddlewareClass<AppState> {
   void call(Store<AppState> store, dynamic action, NextDispatcher next) {
     next(action);
 
+    if (store.state.pairing.support ==
+        PairingSupport.secureStorageUnavailable) {
+      return;
+    }
+
     switch (action) {
       case PairingStartedAction _:
         _pairingStarted(store, action);

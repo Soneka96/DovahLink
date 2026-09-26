@@ -203,16 +203,16 @@ void main() {
 
   group('Method requestPairingRenotify behaves correctly', () {
     test(
-      'Method requestPairingRenotify returns Right with null when renotify succeeds',
+      'Method requestPairingRenotify forwards Host retry seconds after successful redisplay',
       () async {
         when(
           () => mockDataSource.requestPairingRenotify(),
-        ).thenAnswer((_) async => const Right(null));
+        ).thenAnswer((_) async => const Right(5));
 
         final Either<Failure, int?> result = await repository
             .requestPairingRenotify();
 
-        expect(result, const Right<Failure, int?>(null));
+        expect(result, const Right<Failure, int?>(5));
         verify(() => mockDataSource.requestPairingRenotify()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
@@ -223,12 +223,12 @@ void main() {
       () async {
         when(
           () => mockDataSource.requestPairingRenotify(),
-        ).thenAnswer((_) async => const Right(5));
+        ).thenAnswer((_) async => const Right(3));
 
         final Either<Failure, int?> result = await repository
             .requestPairingRenotify();
 
-        expect(result, const Right<Failure, int?>(5));
+        expect(result, const Right<Failure, int?>(3));
         verify(() => mockDataSource.requestPairingRenotify()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },

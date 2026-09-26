@@ -35,8 +35,8 @@ export 'src/dovahlink_protocol_exception.dart' show DovahLinkProtocolException;
 export 'src/dovahlink_storage_exception.dart' show DovahLinkStorageException;
 export 'src/persistence/client_storage.dart' show IClientStorage;
 export 'src/persistence/persisted_client_state.dart' show PersistedClientState;
-export 'src/persistence/windows/dpapi_client_storage.dart'
-    show DpapiClientStorage;
+export 'src/persistence/unsupported_client_storage.dart'
+    show UnsupportedClientStorage;
 export 'src/state/character_health_state.dart' show CharacterHealthState;
 export 'src/state/character_level_state.dart' show CharacterLevelState;
 export 'src/state/character_magicka_state.dart' show CharacterMagickaState;

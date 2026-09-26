@@ -31,7 +31,6 @@ import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
-import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -55,7 +54,7 @@ class DovahLinkClient {
   final IClientStorage _storage;
 
   /// Creates a client. [storage] is required so every consumer makes its persistence choice
-  /// explicit; see [DovahLinkClient.windows] for the real Windows-backed convenience factory.
+  /// explicit.
   /// @param storage The SDK-owned storage boundary for this client's identity and credential.
   DovahLinkClient({required IClientStorage storage})
     : this._build(
@@ -63,11 +62,6 @@ class DovahLinkClient {
         storage: storage,
         timeoutDurations: kTimeoutClassDurations,
       );
-
-  /// Creates a client backed by the SDK's default WebSocket transport and DPAPI storage for this
-  /// Windows user's default per-user location.
-  factory DovahLinkClient.windows() =>
-      DovahLinkClient(storage: DpapiClientStorage());
 
   /// Assembles the client services over [transport], applies [timeoutDurations] and the supplied
   /// reconnect policy, and passes each collaborator to its owner. Public and test factories share
@@ -512,6 +506,7 @@ class DovahLinkClient {
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
   /// preserved, not reset to generic disconnect.
   Future<void> disconnect() {
+    _reconnectService.stopRecovery();
     _subscriptionService.clearDesiredStateAreas();
     return _sessionService.disconnect();
   }

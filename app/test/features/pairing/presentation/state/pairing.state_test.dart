@@ -18,6 +18,7 @@ void main() {
         expect(state.credentialRejectionReason, isNull);
         expect(state.codeExpiresAt, isNull);
         expect(state.renotifyAvailableAt, isNull);
+        expect(state.isRenotifyPending, isFalse);
       },
     );
   });
@@ -127,6 +128,18 @@ void main() {
       expect(result.codeExpiresAt, isNull);
     });
 
+    test('PairingState copyWith sets and clears redisplay pending state', () {
+      final PairingState state = PairingState.initial().copyWith(
+        isRenotifyPending: true,
+      );
+
+      expect(state.isRenotifyPending, isTrue);
+      expect(
+        state.copyWith(isRenotifyPending: false).isRenotifyPending,
+        isFalse,
+      );
+    });
+
     test('clears renotify availability time explicitly', () {
       final DateTime availableAt = DateTime.now().add(
         const Duration(seconds: 5),
@@ -211,6 +224,18 @@ void main() {
       expect(result.error, isNull);
       expect(result.codeExpiresAt, expiresAt);
     });
+  });
+
+  group('Behavior equality in PairingState behaves correctly', () {
+    test(
+      'Behavior equality in PairingState distinguishes pending redisplay',
+      () {
+        final PairingState idle = PairingState.initial();
+        final PairingState pending = idle.copyWith(isRenotifyPending: true);
+
+        expect(idle, isNot(pending));
+      },
+    );
   });
 
   group('Property credentialRejectionReason in PairingState behaves correctly', () {

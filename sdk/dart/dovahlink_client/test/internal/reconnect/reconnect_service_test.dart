@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
@@ -96,6 +98,111 @@ void main() {
             reason: any(named: 'reason'),
           ),
         );
+      },
+    );
+
+    test(
+      'Method stopRecovery cancels a pending retry delay without starting another attempt',
+      () async {
+        int connectCallCount = 0;
+        when(() => sessionService.connect(any())).thenAnswer((_) async {
+          connectCallCount++;
+          throw const DovahLinkConnectionException('unreachable');
+        });
+        final ReconnectService service = buildService(
+          attemptDelays: const <Duration>[Duration.zero, Duration(seconds: 1)],
+        );
+
+        service.onOrdinaryTransportLoss(_uri);
+        await pumpEventQueue();
+        service.stopRecovery();
+        await pumpEventQueue();
+
+        expect(connectCallCount, 1);
+        verifyNever(() => authenticationService.hello());
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+            reason: any(named: 'reason'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method stopRecovery prevents authentication after an in-flight connect completes',
+      () async {
+        final Completer<void> connectCompleter = Completer<void>();
+        when(
+          () => sessionService.connect(any()),
+        ).thenAnswer((_) => connectCompleter.future);
+        final ReconnectService service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        service.stopRecovery();
+        connectCompleter.complete();
+        await pumpEventQueue();
+
+        verifyNever(() => authenticationService.hello());
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+            reason: any(named: 'reason'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method stopRecovery ignores a late terminal rejection from an in-flight hello',
+      () async {
+        final Completer<HelloResult> helloCompleter = Completer<HelloResult>();
+        when(
+          () => authenticationService.hello(),
+        ).thenAnswer((_) => helloCompleter.future);
+        final ReconnectService service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await pumpEventQueue();
+        service.stopRecovery();
+        helloCompleter.completeError(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.revoked,
+            message: 'rejected',
+            retryable: false,
+          ),
+        );
+        await pumpEventQueue();
+
+        verify(() => sessionService.connect(_uri)).called(1);
+        verify(() => authenticationService.hello()).called(1);
+        verifyNever(() => authenticationService.forgetCredential());
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+            reason: any(named: 'reason'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss starts a later recovery after stopRecovery',
+      () async {
+        when(() => authenticationService.hello()).thenAnswer(
+          (_) async => const HelloResult(
+            hostVersion: '1.0',
+            trustState: DovahLinkTrustState.trusted,
+          ),
+        );
+        final ReconnectService service = buildService();
+
+        service.stopRecovery();
+        service.onOrdinaryTransportLoss(_uri);
+        await pumpEventQueue();
+
+        verify(() => sessionService.connect(_uri)).called(1);
+        verify(() => authenticationService.hello()).called(1);
       },
     );
 

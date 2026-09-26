@@ -95,6 +95,7 @@ void main() {
       () => appearanceViewModel.onSelectPreset,
     ).thenReturn(selectedPresets.add);
     when(() => pairingViewModel.phase).thenReturn(PairingPhase.unpaired);
+    when(() => pairingViewModel.support).thenReturn(PairingSupport.available);
     when(() => pairingViewModel.hostName).thenReturn('Local Host');
     when(() => pairingViewModel.error).thenReturn(null);
     when(() => pairingViewModel.isRepair).thenReturn(false);

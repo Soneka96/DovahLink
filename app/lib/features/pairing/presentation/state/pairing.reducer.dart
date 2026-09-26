@@ -65,13 +65,14 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
 ]);
 
 /// Handles [PairingStartedAction].
-/// Updates [PairingState.phase], [PairingState.error].
+/// Updates [PairingState.phase] and [PairingState.error], and clears pending redisplay state.
 PairingState pairingStartedReducer(
   PairingState state,
   PairingStartedAction action,
 ) => state.copyWith(
   phase: PairingPhase.connecting,
   error: const None(),
+  isRenotifyPending: false,
   credentialRejectionReason: const None(),
 );
 
@@ -106,15 +107,16 @@ PairingState pairingCodeRequestedReducer(
 );
 
 /// Handles [PairingCodeAvailableAction].
-/// Updates [PairingState.phase], [PairingState.error], [PairingState.codeExpiresAt]. Clears
-/// [PairingState.renotifyAvailableAt] unconditionally: a fresh or re-queried challenge invalidates
-/// any cooldown left over from a previous one.
+/// Updates [PairingState.phase], [PairingState.error], and code timing. Clears redisplay state
+/// unconditionally because a fresh or re-queried challenge invalidates the previous challenge's
+/// cooldown and pending request.
 PairingState pairingCodeAvailableReducer(
   PairingState state,
   PairingCodeAvailableAction action,
 ) => state.copyWith(
   phase: PairingPhase.awaitingCode,
   error: const None(),
+  isRenotifyPending: false,
   codeExpiresAt: action.expiresInSeconds == null
       ? const None()
       : Some(DateTime.now().add(Duration(seconds: action.expiresInSeconds!))),
@@ -147,10 +149,8 @@ PairingState pairingDisconnectedReducer(
 ) => state.copyWith(phase: PairingPhase.disconnected, error: const None());
 
 /// Handles [PairingFailedAction].
-/// Updates [PairingState.phase], [PairingState.error]. Clears
-/// [PairingState.codeExpiresAt]/[PairingState.renotifyAvailableAt]: leaving the pairing flow
-/// must not leave timing fields describing a challenge that no longer applies, matching
-/// [pairingCancelSucceededReducer]'s own clear-both-timing-fields behavior.
+/// Updates [PairingState.phase], [PairingState.error], and clears challenge timing and redisplay
+/// state when leaving the pairing flow.
 PairingState pairingFailedReducer(
   PairingState state,
   PairingFailedAction action,
@@ -159,6 +159,7 @@ PairingState pairingFailedReducer(
   error: Some(action.message),
   codeExpiresAt: const None(),
   renotifyAvailableAt: const None(),
+  isRenotifyPending: false,
   credentialRejectionReason: const None(),
 );
 
@@ -167,29 +168,30 @@ PairingState pairingFailedReducer(
 PairingState pairingDisposedReducer(
   PairingState state,
   PairingDisposedAction action,
-) => PairingState.initial();
+) => PairingState.initial(support: state.support);
 
 /// Handles [PairingRenotifyRequestedAction].
-/// Stays in [PairingPhase.awaitingCode], clears error.
+/// Stays in [PairingPhase.awaitingCode], clears error, and marks redisplay pending.
 PairingState pairingRenotifyRequestedReducer(
   PairingState state,
   PairingRenotifyRequestedAction action,
-) => state.copyWith(error: const None());
+) => state.copyWith(error: const None(), isRenotifyPending: true);
 
 /// Handles [PairingRenotifySucceededAction].
-/// Stays in [PairingPhase.awaitingCode], clears error.
+/// Stays in [PairingPhase.awaitingCode], clears error and the pending redisplay state.
 PairingState pairingRenotifySucceededReducer(
   PairingState state,
   PairingRenotifySucceededAction action,
-) => state.copyWith(error: const None());
+) => state.copyWith(error: const None(), isRenotifyPending: false);
 
 /// Handles [PairingRenotifyCooldownAction].
-/// Sets [PairingState.renotifyAvailableAt] to the computed retry time.
+/// Clears the pending redisplay state and sets [PairingState.renotifyAvailableAt] to the retry time.
 /// Stays in [PairingPhase.awaitingCode].
 PairingState pairingRenotifyCooldownReducer(
   PairingState state,
   PairingRenotifyCooldownAction action,
 ) => state.copyWith(
+  isRenotifyPending: false,
   renotifyAvailableAt: Some(
     DateTime.now().add(Duration(seconds: action.retryAfterSeconds)),
   ),
@@ -205,6 +207,7 @@ PairingState pairingCancelSucceededReducer(
   error: const Some('Pairing cancelled.'),
   codeExpiresAt: const None(),
   renotifyAvailableAt: const None(),
+  isRenotifyPending: false,
   credentialRejectionReason: const None(),
 );
 

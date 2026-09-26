@@ -11,6 +11,9 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, debugDefaultTargetPlatformOverride;
+
 /// Mocks async preference reads for composition-root tests.
 class MockSharedPreferencesAsync extends Mock
     implements SharedPreferencesAsync {}
@@ -38,6 +41,22 @@ void main() {
   });
 
   group('Method createStore behaves correctly', () {
+    test(
+      'marks pairing unavailable when secure storage is unsupported',
+      () async {
+        debugDefaultTargetPlatformOverride = TargetPlatform.android;
+        addTearDown(() => debugDefaultTargetPlatformOverride = null);
+        const AppCompositionRoot root = AppCompositionRoot();
+
+        final store = await root.createStore();
+
+        expect(
+          store.state.pairing.support,
+          PairingSupport.secureStorageUnavailable,
+        );
+      },
+    );
+
     test(
       'Method createStore creates independent stores with initial state',
       () async {

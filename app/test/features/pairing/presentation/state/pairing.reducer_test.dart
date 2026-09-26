@@ -28,6 +28,7 @@ void main() {
         credentialRejectionReason: PairingCredentialRejectionReason.blocked,
         codeExpiresAt: null,
         renotifyAvailableAt: null,
+        isRenotifyPending: true,
       );
 
       final PairingState result = pairingReducer(
@@ -37,6 +38,7 @@ void main() {
 
       expect(result.error, isNull);
       expect(result.credentialRejectionReason, isNull);
+      expect(result.isRenotifyPending, isFalse);
     });
   });
 
@@ -231,6 +233,7 @@ void main() {
           error: null,
           codeExpiresAt: null,
           renotifyAvailableAt: staleRenotifyAvailableAt,
+          isRenotifyPending: true,
         );
 
         final PairingState result = pairingReducer(
@@ -239,6 +242,7 @@ void main() {
         );
 
         expect(result.renotifyAvailableAt, isNull);
+        expect(result.isRenotifyPending, isFalse);
       },
     );
   });
@@ -335,6 +339,7 @@ void main() {
           credentialRejectionReason: PairingCredentialRejectionReason.blocked,
           codeExpiresAt: DateTime.now(),
           renotifyAvailableAt: DateTime.now().add(const Duration(seconds: 5)),
+          isRenotifyPending: true,
         );
 
         final PairingState result = pairingReducer(
@@ -345,6 +350,7 @@ void main() {
         expect(result.phase, PairingPhase.failed);
         expect(result.codeExpiresAt, isNull);
         expect(result.renotifyAvailableAt, isNull);
+        expect(result.isRenotifyPending, isFalse);
         expect(result.credentialRejectionReason, isNull);
       },
     );
@@ -354,11 +360,13 @@ void main() {
     test('PairingDisposedAction resets phase, host version, and error', () {
       const PairingState state = PairingState(
         phase: PairingPhase.awaitingCode,
+        support: PairingSupport.secureStorageUnavailable,
         hostVersion: '1.2.3',
         error: 'old error',
         credentialRejectionReason: PairingCredentialRejectionReason.blocked,
         codeExpiresAt: null,
         renotifyAvailableAt: null,
+        isRenotifyPending: true,
       );
 
       final PairingState result = pairingReducer(
@@ -367,9 +375,11 @@ void main() {
       );
 
       expect(result.phase, PairingPhase.none);
+      expect(result.support, PairingSupport.secureStorageUnavailable);
       expect(result.hostVersion, isNull);
       expect(result.error, isNull);
       expect(result.credentialRejectionReason, isNull);
+      expect(result.isRenotifyPending, isFalse);
     });
 
     test(
@@ -400,7 +410,7 @@ void main() {
 
   group('Action PairingRenotifyRequestedAction behaves correctly', () {
     test(
-      'PairingRenotifyRequestedAction clears error, stays in awaitingCode',
+      'PairingRenotifyRequestedAction marks redisplay pending, clears error, and stays in awaitingCode',
       () {
         const PairingState state = PairingState(
           phase: PairingPhase.awaitingCode,
@@ -420,6 +430,7 @@ void main() {
         expect(result.hostVersion, '1.2.3');
         expect(result.codeExpiresAt, isNull);
         expect(result.renotifyAvailableAt, isNull);
+        expect(result.isRenotifyPending, isTrue);
       },
     );
 
@@ -434,6 +445,7 @@ void main() {
         error: 'old error',
         codeExpiresAt: expiresAt,
         renotifyAvailableAt: availableAt,
+        isRenotifyPending: false,
       );
 
       final PairingState result = pairingReducer(
@@ -456,6 +468,7 @@ void main() {
           error: 'old error',
           codeExpiresAt: null,
           renotifyAvailableAt: null,
+          isRenotifyPending: true,
         );
 
         final PairingState result = pairingReducer(
@@ -466,6 +479,7 @@ void main() {
         expect(result.phase, PairingPhase.awaitingCode);
         expect(result.error, isNull);
         expect(result.hostVersion, '1.2.3');
+        expect(result.isRenotifyPending, isFalse);
       },
     );
 
@@ -496,6 +510,7 @@ void main() {
         error: null,
         codeExpiresAt: null,
         renotifyAvailableAt: null,
+        isRenotifyPending: true,
       );
 
       final PairingState result = pairingReducer(
@@ -506,6 +521,7 @@ void main() {
       expect(result.phase, PairingPhase.awaitingCode);
       expect(result.renotifyAvailableAt, isNotNull);
       expect(result.renotifyAvailableAt!.isAfter(DateTime.now()), isTrue);
+      expect(result.isRenotifyPending, isFalse);
     });
 
     test('PairingRenotifyCooldownAction preserves codeExpiresAt and error', () {
@@ -539,6 +555,7 @@ void main() {
           error: null,
           codeExpiresAt: expiresAt,
           renotifyAvailableAt: null,
+          isRenotifyPending: true,
         );
 
         final PairingState result = pairingReducer(
@@ -550,6 +567,7 @@ void main() {
         expect(result.error, 'Pairing cancelled.');
         expect(result.codeExpiresAt, isNull);
         expect(result.renotifyAvailableAt, isNull);
+        expect(result.isRenotifyPending, isFalse);
         expect(result.hostVersion, '1.2.3');
       },
     );

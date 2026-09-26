@@ -17,20 +17,29 @@ class PairingState extends Equatable {
     this.credentialRejectionReason,
     required this.codeExpiresAt,
     required this.renotifyAvailableAt,
+    this.isRenotifyPending = false,
+    this.support = PairingSupport.available,
   });
 
   /// Returns the state before any pairing attempt starts.
-  factory PairingState.initial() => const PairingState(
+  factory PairingState.initial({
+    PairingSupport support = PairingSupport.available,
+  }) => PairingState(
     phase: PairingPhase.none,
     hostVersion: null,
     error: null,
     credentialRejectionReason: null,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
+    isRenotifyPending: false,
+    support: support,
   );
 
   /// The current user-visible pairing phase.
   final PairingPhase phase;
+
+  /// Whether the platform can safely persist the identity needed for pairing.
+  final PairingSupport support;
 
   /// The Host's own release version reported at authentication, or
   /// `null` before it is known.
@@ -50,6 +59,9 @@ class PairingState extends Equatable {
   /// `null` when renotify is available immediately or no challenge is active.
   final DateTime? renotifyAvailableAt;
 
+  /// Whether the Host is waiting for Skyrim to acknowledge a code redisplay.
+  final bool isRenotifyPending;
+
   /// Returns a copy with selected values replaced.
   PairingState copyWith({
     PairingPhase? phase,
@@ -60,8 +72,11 @@ class PairingState extends Equatable {
     Option<PairingCredentialRejectionReason>? credentialRejectionReason,
     Option<DateTime>? codeExpiresAt,
     Option<DateTime>? renotifyAvailableAt,
+    bool? isRenotifyPending,
+    PairingSupport? support,
   }) => PairingState(
     phase: phase ?? this.phase,
+    support: support ?? this.support,
     hostVersion: hostVersion == null
         ? this.hostVersion
         : hostVersion.toNullable(),
@@ -75,16 +90,19 @@ class PairingState extends Equatable {
     renotifyAvailableAt: renotifyAvailableAt == null
         ? this.renotifyAvailableAt
         : renotifyAvailableAt.toNullable(),
+    isRenotifyPending: isRenotifyPending ?? this.isRenotifyPending,
   );
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [
     phase,
+    support,
     hostVersion,
     error,
     credentialRejectionReason,
     codeExpiresAt,
     renotifyAvailableAt,
+    isRenotifyPending,
   ];
 }
