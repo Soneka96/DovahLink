@@ -4,6 +4,7 @@ import 'package:meta/meta.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
@@ -419,6 +420,8 @@ class DovahLinkClient {
   /// requests whose trust requirements the new session satisfies. A trusted admission also starts
   /// restoring this client's desired state subscriptions.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
+  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
+  ///     pairing recovery reports a different Host ID from the stored Known Host.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   /// @throws [DovahLinkConnectionException] if disconnect interrupts authentication.
@@ -433,6 +436,8 @@ class DovahLinkClient {
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
+  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
+  ///     pairing recovery reports a different Host ID from the stored Known Host.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   Future<HelloResult> authenticate(Uri uri) =>

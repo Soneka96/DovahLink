@@ -1,9 +1,9 @@
-/// Thrown when a session reported as trusted claims a different Host ID from the one this client
-/// previously stored.
+/// Thrown when a trusted session or pending pairing recovery reports a different Host ID from the
+/// one this client previously stored.
 final class DovahLinkHostIdentityMismatchException implements Exception {
   /// Creates a mismatch error containing the stored and reported Host IDs.
   /// @param knownHostId The Host ID already stored by this client.
-  /// @param reportedHostId The Host ID reported by the trusted session.
+  /// @param reportedHostId The Host ID reported by the session or pairing recovery attempt.
   const DovahLinkHostIdentityMismatchException({
     required this.knownHostId,
     required this.reportedHostId,

@@ -1478,6 +1478,60 @@ void main() {
 
   group('Method hello behaves correctly', () {
     test(
+      'Method hello rejects a different Host during pending pairing recovery without changing persisted state',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String reportedHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final PersistedClientState pendingState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'pending-credential',
+          recoveryState: PairingRecoveryState.confirming,
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        await storage.save(pendingState);
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        final JsonMap helloAck =
+            jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+        (helloAck['payload'] as JsonMap)['hostId'] = reportedHostId;
+        transport.queueResponse(jsonEncode(helloAck));
+
+        await expectLater(
+          client.hello(),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  knownHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  reportedHostId,
+                ),
+          ),
+        );
+
+        expect(await storage.load(), pendingState);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.sessionId, isNull);
+        expect(
+          transport.sent
+              .map(
+                (String message) =>
+                    (jsonDecode(message) as JsonMap)['messageType'],
+              )
+              .toList(),
+          <String>['hello'],
+        );
+      },
+    );
+
+    test(
       'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));

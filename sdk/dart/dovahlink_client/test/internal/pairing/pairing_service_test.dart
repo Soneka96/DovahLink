@@ -711,7 +711,7 @@ void main() {
         when(() => sessionService.currentHost).thenAnswer((_) => currentHost);
         final Completer<void> loadGate = Completer<void>();
         final GatedClientStorage gatedStorage = GatedClientStorage(
-          loadedState: PersistedClientState(clientId: 'client-1'),
+          loadedState: const PersistedClientState(clientId: 'client-1'),
           loadGate: loadGate,
         );
         service = PairingService(

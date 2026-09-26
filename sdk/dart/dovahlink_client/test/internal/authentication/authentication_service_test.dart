@@ -603,6 +603,95 @@ void main() {
       },
     );
 
+    test(
+      'Method hello rejects a confirming Host ID mismatch before session admission',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String reportedHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final PersistedClientState pendingState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'pending-credential',
+          recoveryState: PairingRecoveryState.confirming,
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        when(() => storage.load()).thenAnswer((_) async => pendingState);
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: reportedHostId,
+            kind: ClientIdentityKind.unpaired,
+          ),
+        );
+
+        await expectLater(
+          service.hello(),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  knownHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  reportedHostId,
+                ),
+          ),
+        );
+
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+          ),
+        );
+        verifyNever(() => storage.save(any()));
+        verify(() => storage.load()).called(1);
+        verify(
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method hello admits a confirming session from the stored Known Host',
+      () async {
+        when(() => storage.load()).thenAnswer(
+          (_) async => PersistedClientState(
+            clientId: 'client-1',
+            credential: 'pending-credential',
+            recoveryState: PairingRecoveryState.confirming,
+            knownHost: DovahLinkHost(
+              hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              hostName: 'KNOWN-HOST',
+              endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+            ),
+          ),
+        );
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(kind: ClientIdentityKind.unpaired),
+        );
+
+        await service.hello();
+
+        verify(
+          () => sessionAdmissionService.admitSession(
+            sessionId: 'session-1',
+            trustState: DovahLinkTrustState.unpaired,
+            currentHost: any(named: 'currentHost'),
+          ),
+        ).called(1);
+        verifyNever(() => storage.save(any()));
+      },
+    );
+
     test('Method hello does not persist an unpaired Host claim', () async {
       when(() => storage.load()).thenAnswer(
         (_) async => PersistedClientState(
@@ -872,8 +961,7 @@ void main() {
     );
 
     test(
-      'Method hello presents unpaired, not the stored credential, while a pairing confirmation is '
-      'outstanding',
+      'Method hello presents unpaired while a legacy confirming state has no Known Host',
       () async {
         when(() => storage.load()).thenAnswer(
           (_) async => Fixtures.buildPersistedClientState(
@@ -887,6 +975,7 @@ void main() {
           buildHelloAckEnvelope(
             sessionId: 'session-1',
             hostVersion: '0.5.0',
+            hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -909,7 +998,7 @@ void main() {
             sessionId: 'session-1',
             trustState: DovahLinkTrustState.unpaired,
             currentHost: DovahLinkHost(
-              hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
               hostName: 'Soneka-Desktop',
               endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),

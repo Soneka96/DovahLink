@@ -32,8 +32,8 @@ abstract interface class IAuthenticationService {
   /// [PairingRecoveryState.confirming] is pending; the Host has not trusted that credential yet.
   /// After admission, retries any orphaned operation whose trust requirement the new session meets.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
-  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session reports a different
-  ///     Host ID from the stored Known Host.
+  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
+  ///     pairing recovery reports a different Host ID from the stored Known Host.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   /// @throws [DovahLinkConnectionException] if disconnect cancels an in-flight authentication.
@@ -56,6 +56,8 @@ abstract interface class IAuthenticationService {
   ///     retry attempt is itself rejected.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
+  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
+  ///     pairing recovery reports a different Host ID from the stored Known Host.
   Future<HelloResult> authenticate(Uri uri);
 
   /// Discards the stored credential and pairing-recovery state while preserving
@@ -182,6 +184,18 @@ class AuthenticationService implements IAuthenticationService {
         hostName: ack.hostName,
         endpoint: currentEndpoint,
       );
+      final DovahLinkHost? pendingPairingHost =
+          state.recoveryState == PairingRecoveryState.confirming
+          ? state.knownHost
+          : null;
+      if (pendingPairingHost != null &&
+          pendingPairingHost.hostId.toLowerCase() !=
+              currentHost.hostId.toLowerCase()) {
+        throw DovahLinkHostIdentityMismatchException(
+          knownHostId: pendingPairingHost.hostId,
+          reportedHostId: currentHost.hostId,
+        );
+      }
       if (trustState == DovahLinkTrustState.trusted) {
         final PersistedClientState currentState = await _storage.load();
         _ensureAuthenticationCurrent(generation);
