@@ -83,6 +83,11 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   its specifications remain as historical engineering evidence in
   [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md).
 
+The maintainer-approved security migration S1–S11 is a prerequisite before proceeding with the next
+planned Stage 5 implementation slice. Its authoritative sequence and target architecture are in
+[`ai/context/security/identity-and-transport.md`](ai/context/security/identity-and-transport.md).
+After S11, resume UI convergence milestone 3.4, Companion Device Identity.
+
 Activating the replacement in production and removing `bridge/` were governed by
 [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md),
 now complete: 3A.1 (Production Cutover) targeted the released Stage 3 baseline, not unreleased

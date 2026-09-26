@@ -6,6 +6,10 @@
 
 **Status:** Planned
 
+This stage is gated on completion of security migration S1–S11. Its target identity, pairing, and
+transport authority is [`ai/context/security/identity-and-transport.md`](../ai/context/security/identity-and-transport.md);
+the current runtime rules remain in `ai/context/protocol/security.md` until cutover.
+
 This is an intentionally narrow delivery slice pulled forward from the later LAN and mobile stages
 so the official Flutter client can be developed and validated on a real Android device. It does not
 close Stage 5, Stage 22, or Stage 23.
@@ -25,8 +29,9 @@ port into the app.
   physical viewport through appropriate sizing, scrolling, and existing responsive minimum
   constraints; reusing the layout model does not mean using fixed desktop pixel dimensions.
 - Add the Android implementation of the SDK's `IClientStorage` platform port using an approved
-  Android-appropriate secure-storage primitive. The Android adapter owns the same SDK state as the
-  Windows adapter: `clientId`, trusted-device credential, and pairing recovery state.
+  Android-appropriate secure-storage primitive. The Android adapter owns the same SDK security
+  state as the Windows adapter: `clientId`, Client cryptographic identity/key reference, KnownHosts
+  and Host pins, Host-scoped pairing recovery, and related SDK security persistence.
 - Add SDK-owned local Host discovery using an established local service-discovery mechanism,
   initially DNS-SD/mDNS unless an implementation constraint requires another approved mechanism.
   The SDK performs discovery, timeout, deduplication, stale-candidate expiry, and candidate
@@ -42,10 +47,12 @@ port into the app.
   candidate carries that candidate into pairing, and pairing/authentication connects to the selected
   endpoint. The app retains manual endpoint entry as a recovery fallback, and that fallback follows
   the same Host-authentication-before-client-pairing sequence as discovered candidates.
-- Use the approved LAN security design before accepting a non-loopback client. Discovery is not
+- Use the approved security design before accepting a non-loopback client. Discovery is not
   authentication: the implementation must authenticate the intended Host, use established
   authenticated encryption, preserve session binding and replay protection, and keep pairing,
-  authorization, revocation, and rate limits intact. A developer token must never be sent to a
+  authorization, revocation, and rate limits intact. Follow
+  [`ai/context/security/identity-and-transport.md`](../ai/context/security/identity-and-transport.md)
+  for the target identity and first-pair bootstrap. A developer token must never be sent to a
   non-loopback peer.
 - Keep this slice limited to one active client connection, foreground Android use, one normal local
   Wi-Fi network, and the existing read-only companion workflow. The phone replaces the desktop
@@ -53,33 +60,35 @@ port into the app.
 
 ### Required boundary decisions
 
-- Before implementing or enabling any non-loopback Host listener, the LAN threat model,
-  authenticated transport, and first-contact Host authentication or bootstrap mechanism
-  must be designed, approved, and documented in `ai/context/protocol/security.md`. This stage must
-  not introduce an insecure development-only LAN bypass that could become a product path.
-- Pairing authenticates the phone/client to the Host; it does not automatically authenticate the
-  Host to the phone. An mDNS/DNS-SD candidate must never become trusted merely because its
+- Before implementing or enabling any non-loopback Host listener, complete the S1–S11 security
+  migration. The target transport and first-pair bootstrap are governed by
+  `ai/context/security/identity-and-transport.md`; current exposure/authentication rules remain in
+  `ai/context/protocol/security.md` until the approved cutover. Stage 22 later generalizes LAN
+  hardening and discovery. This stage must not introduce an insecure development-only LAN bypass
+  that could become a product path.
+- An mDNS/DNS-SD candidate must never become trusted merely because its
   discovery metadata, service name, hostname, or endpoint matches the requested search. The approved
-  first-contact mechanism must cryptographically prove the intended Host identity before the
-  client treats the endpoint or its advertised metadata as trusted.
+  S1/S2-selected balanced-PAKE first-pair bootstrap must bind the intended Host and Client keys before
+  either side commits trust. The endpoint and its advertised metadata remain untrusted until then.
 - The required conceptual connection sequence is:
 
   ```text
   untrusted discovery candidate
       -> connect to candidate endpoint
-      -> cryptographically authenticate/prove the intended Host identity through the approved bootstrap mechanism
-      -> perform or continue client pairing and session authentication
-      -> persist the appropriate trusted state
+      -> perform the approved initial balanced-PAKE binding, or verify the pinned Host key
+      -> prove Client-key possession and receive typed Host trust state
+      -> persist the established KnownHost/key binding and applicable recovery metadata
   ```
 
-  The exact cryptographic mechanism is not selected by this roadmap slice; its design and ownership
-  belong in the approved protocol security context before implementation.
+  This roadmap slice does not select the balanced-PAKE algorithm or library; S2 does. Its design and
+  ownership belong in the approved identity and transport security contract before implementation.
 - Host identity remains independent of hostname, IP address, port, discovery service name, or
   display name. A discovered endpoint is a connection candidate, not durable identity.
 - The discovery record is deliberately non-secret. A matching service name or search query reduces
   noise but does not prove ownership of a Host and is never used as a credential.
-- The actual endpoint selected by the OS is authoritative for that Host instance. The SDK and app
-  must not recreate an endpoint from a hardcoded port after discovery.
+- The actual endpoint selected by the OS is authoritative for reaching that candidate at that
+  time; it remains routing information, not Host identity. The SDK and app must not recreate an
+  endpoint from a hardcoded port after discovery.
 
 ### Dependencies and boundaries
 
@@ -120,17 +129,21 @@ deferred to later hardening.
   deduplicates repeated advertisements, and ignores malformed or non-DovahLink records.
 - Discovery records contain no credential or developer token, and a spoofed or mismatched candidate
   cannot become a trusted Host merely by matching the service name or search query.
-- Before any client pairing attempt or credential persistence, the selected endpoint must complete
-  the approved first-contact Host-authentication/bootstrap proof. A spoofed, mismatched, or
-  unauthenticated endpoint aborts the flow before the client accepts its metadata, starts normal
-  pairing, or persists trusted state; manual endpoint entry is subject to the same rule.
+- Before any pairing or trust persistence, the selected endpoint must complete the approved
+  first-contact balanced-PAKE bootstrap or verify the pinned Host key. A spoofed, mismatched, or
+  unauthenticated endpoint aborts before the client accepts its metadata or persists a KnownHost;
+  manual endpoint entry follows the same rule.
 - The non-loopback listener remains disabled until the approved LAN threat model, authenticated
-  transport, and first-contact Host-authentication/bootstrap mechanism are documented in the
-  protocol security context, and runtime tests prove that unauthenticated peers are rejected.
+  transport, and first-contact bootstrap are ready under S1–S11, and runtime tests prove that
+  unauthenticated peers are rejected. Provisional TLS without PAKE must not expose an unknown-Host
+  accept-and-pair path.
 - The app displays the discovered candidates, preserves the selected candidate through navigation,
   and authenticates against that candidate's endpoint rather than the old static default URI.
-- A first-time phone connection completes the approved pairing flow; a later foreground reconnect
-  uses the Android-persisted trusted-device credential without repeating pairing.
+- Android storage retains the Client key reference and per-Host pins/recovery securely; it does not
+  persist Host-authoritative `trusted`, `revoked`, or `blocked` state.
+- A first-time phone connection completes the approved balanced-PAKE pairing flow. A later
+  foreground reconnect verifies the pinned Host identity, proves Client private-key possession, and
+  receives the Host's typed trust result without a bearer credential.
 - The existing one-client constraint is respected: the phone can replace the desktop client, but a
   second simultaneous client is rejected or handled according to the current Host contract.
 - Manual endpoint fallback remains available when discovery is unavailable, and the UI explains
