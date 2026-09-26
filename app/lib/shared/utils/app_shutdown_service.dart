@@ -8,6 +8,7 @@ abstract interface class IAppShutdownService {
   /// Stops pairing work and disconnects an SDK client that already exists.
   ///
   /// Concurrent calls share one bounded cleanup operation. Cleanup failures do not escape.
+  /// The deadline stops waiting but does not cancel cleanup already in progress.
   /// @return A future completing when cleanup finishes or the shutdown budget expires.
   Future<void> shutdown();
 }

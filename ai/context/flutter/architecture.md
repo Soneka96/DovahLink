@@ -307,8 +307,9 @@ timer expires; repeated close requests share that pending attempt, and only its 
 can continue closing the window. After the handshake completes, the runner offers the close message
 to Flutter's top-level window pipeline before falling back to native window destruction. Later close
 messages for that window continue through Flutter without starting cleanup again, including the
-engine's own close message. Dart returns when cleanup finishes or its three-second budget expires,
-leaving the native timeout margin before the runner resumes close processing. `WM_QUERYENDSESSION`
+engine's own close message. Dart returns when cleanup finishes or its three-second budget expires;
+the deadline stops waiting but does not cancel cleanup already in progress. This leaves the native
+timeout margin before the runner resumes close processing. `WM_QUERYENDSESSION`
 returns success immediately without cleanup, since another application may cancel the system
 request. When `WM_ENDSESSION` reports a committed session ending, the runner requests best-effort
 Dart cleanup once and returns immediately; Windows may terminate the process before that cleanup

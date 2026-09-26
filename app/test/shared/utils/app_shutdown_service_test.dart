@@ -100,9 +100,12 @@ void main() {
       () {
         fakeAsync((FakeAsync async) {
           final Completer<void> disconnectCompleter = Completer<void>();
-          when(
-            () => existingClient.disconnectIfCreated(),
-          ).thenAnswer((_) => disconnectCompleter.future);
+          bool disconnectCompleted = false;
+          when(() => existingClient.disconnectIfCreated()).thenAnswer(
+            (_) => disconnectCompleter.future.whenComplete(() {
+              disconnectCompleted = true;
+            }),
+          );
           bool shutdownCompleted = false;
           service.shutdown().then((_) => shutdownCompleted = true);
           async.flushMicrotasks();
@@ -112,8 +115,10 @@ void main() {
           async.flushMicrotasks();
 
           expect(shutdownCompleted, isTrue);
+          expect(disconnectCompleted, isFalse);
           disconnectCompleter.complete();
           async.flushMicrotasks();
+          expect(disconnectCompleted, isTrue);
           verify(() => pairingMiddleware.shutdown()).called(1);
           verify(() => existingClient.disconnectIfCreated()).called(1);
         });
