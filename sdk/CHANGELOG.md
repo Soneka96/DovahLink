@@ -26,6 +26,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- Pending pairing recovery fails closed before session admission when `hello_ack` reports a
+  different Known Host, and automatic reconnect treats that identity mismatch as terminal.
 - Interrupted authentication consistently reports cancellation when storage or Host operations fail.
 - Explicit disconnect cancels pending automatic reconnect retries and ignores recovery outcomes
   that arrive afterward.

@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
@@ -293,6 +294,35 @@ void main() {
                 ).captured.single
                 as Exception;
         expect(reason, isA<DovahLinkCompatibilityException>());
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss stops after a Known Host identity mismatch and preserves its reason',
+      () async {
+        const DovahLinkHostIdentityMismatchException mismatch =
+            DovahLinkHostIdentityMismatchException(
+              knownHostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              reportedHostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            );
+        when(() => authenticationService.hello()).thenThrow(mismatch);
+        final ReconnectService service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verify(() => sessionService.connect(_uri)).called(1);
+        verify(() => authenticationService.hello()).called(1);
+        verifyNever(() => authenticationService.forgetCredential());
+        final Exception reason =
+            verify(
+                  () => sessionService.disconnect(
+                    orphanRetrySafeOperations: false,
+                    reason: captureAny(named: 'reason'),
+                  ),
+                ).captured.single
+                as Exception;
+        expect(identical(reason, mismatch), isTrue);
       },
     );
 

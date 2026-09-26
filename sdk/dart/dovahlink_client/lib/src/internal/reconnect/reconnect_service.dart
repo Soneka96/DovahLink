@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_rejection_classifier.dart';
@@ -24,7 +25,8 @@ abstract interface class IReconnectService {
 /// [kReconnectAttemptDelays]/[kReconnectDeadline]) -- whichever is exhausted first.
 /// [SessionService] owns transport/session state and teardown; [AuthenticationService] owns
 /// authentication. This class only chooses when and how often to retry. Incompatible Host versions
-/// are terminal and their typed failure is passed to teardown without another attempt.
+/// and Known Host identity mismatches are terminal and their typed failure is passed to teardown
+/// without another attempt.
 class ReconnectService implements IReconnectService {
   /// Reconnects to and disconnects from the Host, and reports live connection state.
   final ISessionService _sessionService;
@@ -86,7 +88,8 @@ class ReconnectService implements IReconnectService {
 
   /// Attempts one recovery for each [ReconnectService._attemptDelays] entry, stopping at
   /// [ReconnectService._deadline]. Retryable protocol and transport failures consume an attempt;
-  /// [ReconnectRejectionClassifier.isTerminal] failures stop immediately. For
+  /// [ReconnectRejectionClassifier.isTerminal] protocol failures and Host identity mismatches stop
+  /// immediately. For
   /// [CredentialRejectionReason.revoked] or [CredentialRejectionReason.blocked] credentials,
   /// forgets the credential before stopping. If an explicit disconnect or
   /// invalidation already moved the session out of [DovahLinkConnectionState.reconnecting], leaves
@@ -144,6 +147,12 @@ class ReconnectService implements IReconnectService {
         }
         continue;
       } on DovahLinkCompatibilityException catch (error) {
+        if (recoveryGeneration != _recoveryGeneration) {
+          return;
+        }
+        terminalFailure = error;
+        break;
+      } on DovahLinkHostIdentityMismatchException catch (error) {
         if (recoveryGeneration != _recoveryGeneration) {
           return;
         }

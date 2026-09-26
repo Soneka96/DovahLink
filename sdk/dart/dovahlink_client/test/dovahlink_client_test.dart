@@ -2651,6 +2651,76 @@ void main() {
   });
 
   group('Behavior retry-safe operations across reconnect behaves correctly', () {
+    test(
+      'Behavior retry-safe reconnect never replays a pending pairing_ack to a different Known Host',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final PersistedClientState pendingState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'pending-credential',
+          recoveryState: PairingRecoveryState.confirming,
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        await reconnectStorage.save(pendingState);
+        await _connectAndHello(reconnectTransport, reconnectClient);
+
+        final Future<void> pending = reconnectClient
+            .acknowledgeTrustedCredential('pending-credential');
+        final Future<void> pendingFails = expectLater(
+          pending,
+          throwsA(isA<DovahLinkHostIdentityMismatchException>()),
+        );
+        await pumpEventQueue();
+        expect(reconnectTransport.sent, hasLength(2));
+
+        final JsonMap helloAckB =
+            jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+        (helloAckB['payload'] as JsonMap)['hostId'] =
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        reconnectTransport.queueResponse(jsonEncode(helloAckB));
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+        for (
+          int attempt = 0;
+          attempt < 50 &&
+              reconnectClient.connectionState !=
+                  DovahLinkConnectionState.disconnected;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        await pendingFails;
+
+        expect(reconnectTransport.connectCalls, hasLength(2));
+        expect(reconnectTransport.sent, hasLength(3));
+        expect(
+          reconnectTransport.sent
+              .map(
+                (String message) =>
+                    (jsonDecode(message) as JsonMap)['messageType'],
+              )
+              .toList(),
+          <String>['hello', 'pairing_ack', 'hello'],
+        );
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(await reconnectStorage.load(), pendingState);
+      },
+    );
+
     test('Behavior retry-safe reconnect retransmits an orphaned operation and resolves its caller, '
         'via automatic reconnect', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));

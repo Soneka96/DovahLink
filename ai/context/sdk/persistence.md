@@ -22,11 +22,17 @@ Known Host metadata means the Host this client previously associated with, store
 last known `hostName`, and the last known `endpoint`. `hostId` is identity; the name and endpoint are
 mutable metadata. This record is not authoritative trust state: the Host must establish current
 trust on every session, and no trusted/connected/offline/blocked/revoked status is persisted. A
-discovery claim or unpaired `hello_ack` alone never writes Known Host metadata. Successful pairing
-persists it atomically with the issued credential and `confirming` recovery state. A successfully
-trusted session may bind an unbound legacy credential or refresh metadata only when its Host ID
-matches the stored ID. A mismatch raises a typed SDK error and leaves the stored Host unchanged.
-Credential removal and failed pending-pairing recovery preserve Known Host metadata.
+discovery claim or unpaired `hello_ack` alone never writes Known Host metadata. When a Host issues a
+pairing credential, successful code confirmation atomically persists that credential, the Host
+that issued it, and `confirming` recovery state. This becomes the client's most recent durable Host
+association immediately; if final `pairing_ack` later reports `pending_not_found` or
+`pairing_invalidated`, the SDK clears the incomplete credential and recovery state but keeps that
+new Known Host. It never restores an older Host association. A successfully trusted session may
+bind an unbound legacy credential or refresh name/endpoint metadata only when its Host ID matches
+the stored ID. During pending pairing recovery, a different reported Host ID fails before session
+admission, preserving the pending credential and Known Host. A mismatch raises a typed SDK error
+and leaves the stored Host unchanged. Credential removal and failed pending-pairing recovery
+preserve Known Host metadata; none of this metadata establishes current trust.
 
 The app must not persist a competing authoritative copy of SDK-owned protocol or client state: not
 the client credential, not pairing `CONFIRMING` recovery state, not actual subscription state, not
