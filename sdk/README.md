@@ -10,7 +10,8 @@ boundaries live in [ARCHITECTURE.md](../ARCHITECTURE.md); SDK-specific conventio
 The SDK implements what it means to be a correct DovahLink client for one language, so that
 consumers do not need to implement transport, Host-version compatibility detection,
 authentication, pairing recovery, reconnect, session and authoritative-state identity, revisions,
-subscriptions, snapshots, recovery, reusable client persistence, or local Host discovery themselves.
+subscriptions, snapshots, recovery, or reusable client persistence themselves. The SDK also
+provides local Host discovery through its loopback-only public endpoint.
 
 ## Dependency direction
 
