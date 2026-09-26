@@ -10,10 +10,10 @@ public class HostIdentityTests
     public void Constructor_PreservesHostIdAndHostName()
     {
         var id = new HostId(Guid.Parse("81869993-955c-4ba3-a7d0-d35ca86078ea"));
-        var identity = new HostIdentity(id, "GONCALO-DESKTOP");
+        var identity = new HostIdentity(id, "SONEKA-DESKTOP");
 
         Assert.Equal(id, identity.HostId);
-        Assert.Equal("GONCALO-DESKTOP", identity.HostName);
+        Assert.Equal("SONEKA-DESKTOP", identity.HostName);
     }
 
     /// <summary>Verifies empty IDs and unsafe or oversized names cannot cross the Host boundary.</summary>
@@ -33,7 +33,7 @@ public class HostIdentityTests
     [Fact]
     public void Constructor_DefaultHostId_Throws()
     {
-        Assert.Throws<ArgumentException>(() => new HostIdentity(default, "GONCALO-DESKTOP"));
+        Assert.Throws<ArgumentException>(() => new HostIdentity(default, "SONEKA-DESKTOP"));
     }
 
     /// <summary>Verifies the name limit is measured in UTF-8 bytes, including its exact boundary.</summary>
