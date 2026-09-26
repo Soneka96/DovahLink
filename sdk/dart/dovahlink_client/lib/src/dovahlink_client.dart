@@ -31,6 +31,7 @@ import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
+import 'package:dovahlink_client_sdk/src/persistence/transient_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -70,6 +71,7 @@ class DovahLinkClient {
     required IDovahLinkTransport transport,
     required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
+    bool reconnectEnabled = true,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration reconnectDeadline = kReconnectDeadline,
     DateTime Function() reconnectNow = DateTime.now,
@@ -274,8 +276,10 @@ class DovahLinkClient {
       deadline: reconnectDeadline,
       now: reconnectNow,
     );
-    _sessionService.onOrdinaryTransportLoss =
-        _reconnectService.onOrdinaryTransportLoss;
+    if (reconnectEnabled) {
+      _sessionService.onOrdinaryTransportLoss =
+          _reconnectService.onOrdinaryTransportLoss;
+    }
   }
 
   /// Owns transport lifecycle, connection state, and stream ownership. This façade reads its
@@ -540,6 +544,7 @@ DovahLinkClient buildDovahLinkClientForTesting({
   List<Duration> reconnectAttemptDelays = kReconnectAttemptDelays,
   Duration reconnectDeadline = kReconnectDeadline,
   DateTime Function() now = DateTime.now,
+  bool reconnectEnabled = true,
 }) => DovahLinkClient._build(
   transport: transport,
   storage: storage,
@@ -547,4 +552,17 @@ DovahLinkClient buildDovahLinkClientForTesting({
   attemptDelays: reconnectAttemptDelays,
   reconnectDeadline: reconnectDeadline,
   reconnectNow: now,
+  reconnectEnabled: reconnectEnabled,
+);
+
+/// Creates an isolated client engine for a one-shot discovery probe. Its storage is transient and
+/// ordinary transport loss cannot start automatic reconnect.
+/// @param transport The transport to use, or the production WebSocket transport when omitted.
+DovahLinkClient buildDovahLinkClientForDiscovery({
+  IDovahLinkTransport? transport,
+}) => DovahLinkClient._build(
+  transport: transport ?? WebSocketTransport(),
+  storage: TransientClientStorage(),
+  timeoutDurations: kTimeoutClassDurations,
+  reconnectEnabled: false,
 );
