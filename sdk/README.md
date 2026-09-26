@@ -10,7 +10,8 @@ boundaries live in [ARCHITECTURE.md](../ARCHITECTURE.md); SDK-specific conventio
 The SDK implements what it means to be a correct DovahLink client for one language, so that
 consumers do not need to implement transport, Host-version compatibility detection,
 authentication, pairing recovery, reconnect, session and authoritative-state identity, revisions,
-subscriptions, snapshots, recovery, or reusable client persistence themselves.
+subscriptions, snapshots, recovery, or reusable client persistence themselves. The SDK also
+provides local Host discovery through its loopback-only public endpoint.
 
 ## Dependency direction
 
@@ -49,7 +50,11 @@ reconnection after ordinary transport loss, plus SDK-owned `clientId`, credentia
 DPAPI-backed implementation ships today through the Windows-specific
 `dovahlink_client_windows.dart` entry point) -- see `ai/context/sdk/persistence.md`. The official
 Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
-client for pairing and authentication through `PairingRemoteDataSource`.
+client for pairing and authentication through `PairingRemoteDataSource`. The public SDK also probes
+the local loopback endpoint with an isolated unpaired handshake and returns the responding peer's
+protocol-validated `hostId`/`hostName` claims and current endpoint. Discovery does not authenticate
+Host identity, prove the peer owns a previously trusted identity, or discover Hosts over LAN or
+mDNS.
 
 The app selects storage at its composition boundary. Windows uses DPAPI; other platforms currently
 use an explicit unsupported-storage boundary, and pairing stays unavailable until secure storage is
@@ -68,6 +73,7 @@ typed per-domain subscription intent, and the SDK restores the desired set after
 while keeping it dormant after administrative invalidation. Phase 5.4 wires SDK streams through
 Flutter middleware; Phase 5.5 audits version impact and closes Stage 5.
 
-The app's `features/connection/` area remains responsible for Host selection and navigation. It is
-not a parallel protocol implementation. See [`app/README.md`](../app/README.md) for the current
-division between app presentation and SDK-owned communication.
+The app's `features/connection/` area remains responsible for Host selection and navigation. The
+SDK supplies local discovery and protocol communication; the app owns selection and presentation.
+See [`app/README.md`](../app/README.md) for the current division between app presentation and
+SDK-owned communication.

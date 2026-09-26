@@ -68,7 +68,7 @@ API this boundary supports.
 ## Platform ports
 
 Where reusable client behavior requires platform-specific facilities (secure credential storage,
-cache/filesystem location, future local discovery, platform lifecycle integration), place them
+cache/filesystem location, platform lifecycle integration), place them
 behind explicit ports/interfaces rather than hardcoding one platform's APIs into the reusable client
 model. Do not pre-create speculative adapters; add one when a real supported platform requires it.
 The shared client entry point depends only on the supplied storage port. The official app selects its
@@ -77,6 +77,27 @@ Windows-specific SDK entry point; other platforms use [UnsupportedClientStorage]
 implementation exists, so importing or constructing the shared client never constructs a Windows
 facility. Later Android/iOS storage implementations can provide platform behavior without rewriting
 connection, authentication, or state semantics.
+
+## Local Host discovery
+
+The Dart SDK owns the current local discovery candidate, `ws://127.0.0.1:58231/`. Discovery uses a
+temporary `DovahLinkClient` with `TransientClientStorage` and no reconnect callback. It connects,
+sends an unpaired `hello`, relies on the ordinary decoder and compatibility check, and disconnects
+in all outcomes. It does not read or mutate consumer storage, use a saved credential, pair, or
+restore subscriptions.
+
+The candidate endpoint locates a responder. Its protocol-validated `hello_ack` asserts `hostId` and
+`hostName`; this does not cryptographically prove the peer owns a previously known Host identity.
+`hostId` remains the stable DovahLink installation identity, `hostName` is mutable OS display
+metadata, and `endpoint` is the current connection location. The current probe is loopback-only and
+does not implement LAN, mDNS, or other network discovery. A connection failure without an HTTP
+status code returns no candidate. An HTTP response rejecting the WebSocket upgrade includes its
+typed status in `DovahLinkConnectionException`. Without a status, the current transport cannot
+distinguish a refused connection from a peer that accepts TCP and closes before replying; if this
+case needs a different outcome, the transport boundary must provide a typed connect-stage result.
+Malformed protocol, compatibility failures, and a silent or disconnected peer during `hello` also
+remain typed failures. A discovered `hostId` alone must not authorize trust, credential disclosure,
+pairing bypass, or another security-sensitive decision.
 
 ## Feature and capability organization
 

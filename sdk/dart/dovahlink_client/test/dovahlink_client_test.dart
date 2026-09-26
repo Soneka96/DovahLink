@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_client.dart'
-    show buildDovahLinkClientForTesting;
+    show buildDovahLinkClientForDiscovery, buildDovahLinkClientForTesting;
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart' show TimeoutClass;
@@ -3151,5 +3151,32 @@ void main() {
       // above.
       await client.disconnect();
     });
+  });
+
+  group('Behavior reconnect-disabled client composition behaves correctly', () {
+    test(
+      'Behavior reconnect-disabled client composition does not retry after transport loss',
+      () async {
+        final FakeDovahLinkTransport transport = FakeDovahLinkTransport();
+        final DovahLinkClient client = buildDovahLinkClientForDiscovery(
+          transport: transport,
+        );
+        addTearDown(client.disconnect);
+
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        transport.failMessagesWith(const SocketException('dropped'));
+        for (
+          int attempt = 0;
+          attempt < 20 && !transport.closeCalled;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        await pumpEventQueue();
+
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(transport.connectCalls, hasLength(1));
+      },
+    );
   });
 }

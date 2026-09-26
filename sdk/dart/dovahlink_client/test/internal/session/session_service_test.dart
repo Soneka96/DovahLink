@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io' show HttpStatus, WebSocketException;
 
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -229,6 +230,26 @@ void main() {
         verify(() => state.markConnectFailed()).called(1);
         verifyNever(() => state.markConnected());
         verifyNever(() => transport.close());
+      },
+    );
+
+    test(
+      'Method connect preserves an HTTP status from a rejected WebSocket upgrade',
+      () async {
+        when(() => transport.connect(any())).thenThrow(
+          const WebSocketException('upgrade rejected', HttpStatus.ok),
+        );
+
+        await expectLater(
+          service.connect(Uri.parse('ws://127.0.0.1:58231/')),
+          throwsA(
+            isA<DovahLinkConnectionException>().having(
+              (DovahLinkConnectionException error) => error.httpStatusCode,
+              'httpStatusCode',
+              HttpStatus.ok,
+            ),
+          ),
+        );
       },
     );
 
