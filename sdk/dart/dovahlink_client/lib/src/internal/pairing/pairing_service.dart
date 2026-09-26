@@ -1,7 +1,10 @@
+import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
@@ -36,14 +39,15 @@ abstract interface class IPairingService {
   /// only on an `unpaired` session.
   Future<PairingCancelOutcome> cancelPairing();
 
-  /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential
-  /// and a `CONFIRMING` recovery state before returning it, per
+  /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential,
+  /// current Host, and a `CONFIRMING` recovery state in one write before returning it, per
   /// `ai/context/protocol/security.md`'s "client durably persists its issued credential and its
   /// `CONFIRMING` recovery state before sending final confirmation."
   /// @return The issued credential, already persisted.
   /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, hit
   ///     the hard wrong-attempt limit, or an administrative mutation invalidated the challenge
   ///     after it began but before this call was evaluated.
+  /// @throws [DovahLinkConnectionException] if the active session has no current Host context.
   Future<String> confirmPairingCode({
     required String code,
     String? displayName,
@@ -51,7 +55,8 @@ abstract interface class IPairingService {
 
   /// Echoes back a [credential] durably saved from [confirmPairingCode], completing pairing.
   /// The session's trust state becomes trusted on success, and the persisted recovery state
-  /// clears back to `PairingRecoveryState.none` while keeping the credential.
+  /// clears back to `PairingRecoveryState.none` while keeping the credential and Known Host. When
+  /// migrating a legacy confirming state without a Known Host, binds the current session Host.
   /// @throws [DovahLinkPairingException] if the Host has no matching pending confirmation or
   ///     an administrative mutation invalidated the pending credential.
   Future<void> acknowledgeTrustedCredential(String credential);
@@ -66,15 +71,17 @@ abstract interface class IPairingService {
   /// `pairing_invalidated` outcome (an administrative mutation rejected the pending credential)
   /// discards the local credential and resets to unpaired rather than treating that as a fatal
   /// error; any other failure leaves the `CONFIRMING` state untouched so a later relaunch can retry
-  /// again.
+  /// again. Invalidated confirmation clears the credential while preserving Known Host metadata.
   Future<DovahLinkTrustState> recoverPendingPairing();
 }
 
 /// Implements [IPairingService], per `ai/context/sdk/architecture.md`'s "Internal composition".
-/// Every collaborator ([ISessionTrustService], [IRequestService], [IClientStorage]) is supplied by
-/// the caller per `ai/context/sdk/architecture.md`'s "Dependency injection" -- this class never
-/// constructs one of its own dependencies.
+/// Every collaborator is supplied by the caller per `ai/context/sdk/architecture.md`'s
+/// "Dependency injection" -- this class never constructs one of its own dependencies.
 class PairingService implements IPairingService {
+  /// Reads the Host context owned by the active session.
+  final ISessionService _sessionService;
+
   /// Upgrades trust standing once a pairing acknowledgement succeeds -- the only class permitted
   /// to.
   final ISessionTrustService _sessionTrustService;
@@ -82,15 +89,23 @@ class PairingService implements IPairingService {
   /// Sends a pairing message and awaits its correlated reply.
   final IRequestService _requestService;
 
-  /// The SDK-owned persistence boundary for this client's credential and pairing recovery state.
+  /// The SDK-owned persistence boundary for this client's credential, recovery state, and Known
+  /// Host.
   final IClientStorage _storage;
 
-  /// Creates a pairing service over [sessionTrustService], [requestService], and [storage].
+  /// Creates a pairing service over [sessionService], [sessionTrustService], [requestService], and
+  /// [storage].
+  /// @param sessionService Reads the current Host context from the admitted session.
+  /// @param sessionTrustService Upgrades the session after a successful pairing acknowledgement.
+  /// @param requestService Sends pairing messages.
+  /// @param storage Persists client credentials and Host association.
   PairingService({
+    required ISessionService sessionService,
     required ISessionTrustService sessionTrustService,
     required IRequestService requestService,
     required IClientStorage storage,
-  }) : _sessionTrustService = sessionTrustService,
+  }) : _sessionService = sessionService,
+       _sessionTrustService = sessionTrustService,
        _requestService = requestService,
        _storage = storage;
 
@@ -236,11 +251,18 @@ class PairingService implements IPairingService {
       );
     }
 
+    final DovahLinkHost? currentHost = _sessionService.currentHost;
+    if (currentHost == null) {
+      throw const DovahLinkConnectionException(
+        'The current Host context is unavailable.',
+      );
+    }
     final PersistedClientState state = await _storage.load();
     await _storage.save(
       state.copyWith(
         credential: credential,
         recoveryState: PairingRecoveryState.confirming,
+        knownHost: currentHost,
       ),
     );
     return credential;
@@ -285,11 +307,21 @@ class PairingService implements IPairingService {
         retryAfterSeconds: outcome.retryAfterSeconds,
       );
     }
+    final DovahLinkHost? currentHost = _sessionService.currentHost;
+    if (currentHost == null) {
+      throw const DovahLinkConnectionException(
+        'The current Host context is unavailable.',
+      );
+    }
     _sessionTrustService.markTrusted();
 
     final PersistedClientState state = await _storage.load();
+    final DovahLinkHost? knownHost = state.knownHost;
     await _storage.save(
-      state.copyWith(recoveryState: PairingRecoveryState.none),
+      state.copyWith(
+        recoveryState: PairingRecoveryState.none,
+        knownHost: knownHost ?? currentHost,
+      ),
     );
   }
 
@@ -308,7 +340,12 @@ class PairingService implements IPairingService {
     } on DovahLinkPairingException catch (error) {
       if (error.outcome == PairingOutcome.pendingNotFound ||
           error.outcome == PairingOutcome.pairingInvalidated) {
-        await _storage.save(PersistedClientState(clientId: state.clientId));
+        await _storage.save(
+          PersistedClientState(
+            clientId: state.clientId,
+            knownHost: state.knownHost,
+          ),
+        );
         return DovahLinkTrustState.unpaired;
       }
       rethrow;

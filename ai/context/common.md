@@ -6,6 +6,19 @@ client, native Adapter, C# Host, protocol, and integration work. AI authority be
 
 ## Versioning
 
+### Persisted-format migrations
+
+- A persistence format version is independent of an app, package, or product release version. Do
+  not bump a shipped component version solely because its on-disk schema changes.
+- The current implementation must explicitly decode each supported older persisted format and
+  migrate its valid data without discarding established identity or credentials. A successful
+  migration is written in the current format on the next persistence mutation.
+- Tests cover each supported legacy format, preservation of its meaningful values, and writing the
+  current format after migration. They test migration of stored data through the current code; they
+  do not need to execute an older application or SDK binary.
+- Unknown future formats fail closed. Never guess at their meaning or silently replace a
+  persisted store with an empty state.
+
 - Roadmap phase numbers and application versions are separate; completing a phase does not require
   matching the application version to that phase number.
 - Flipping a completed phase's `**Status:**` line to Complete in `ROADMAP.md`/`roadmap/*.md` is part

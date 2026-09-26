@@ -3,7 +3,10 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
@@ -44,9 +47,8 @@ import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
-/// disconnect. Owns its local [DovahLinkClient.clientId], pairing credential, and
-/// [PairingRecoveryState.confirming] recovery state through [IClientStorage], so a consumer never
-/// threads identity or credential material through this API by hand.
+/// disconnect. Owns its local [DovahLinkClient.clientId], credential, pairing recovery state, and
+/// Known Host through [IClientStorage], so a consumer never threads credentials through this API.
 ///
 /// Never exposes raw JSON or transport details: every method takes and returns typed values.
 class DovahLinkClient {
@@ -265,6 +267,7 @@ class DovahLinkClient {
       }
     };
     _pairingService = PairingService(
+      sessionService: _sessionService,
       sessionTrustService: sessionTrustService,
       requestService: _requestService,
       storage: _storage,
@@ -346,6 +349,12 @@ class DovahLinkClient {
   /// it.
   String? get clientId => _authenticationService.clientId;
 
+  /// Loads this client's persisted Known Host without exposing credentials or storage details.
+  /// @return The Host this client previously associated with, or `null` when none is stored.
+  /// @throws [DovahLinkStorageException] if persisted state cannot be read safely.
+  Future<DovahLinkHost?> loadKnownHost() async =>
+      (await _storage.load()).knownHost;
+
   /// The reason [DovahLinkClient.connectionState] is
   /// [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
@@ -411,6 +420,8 @@ class DovahLinkClient {
   /// requests whose trust requirements the new session satisfies. A trusted admission also starts
   /// restoring this client's desired state subscriptions.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
+  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
+  ///     pairing recovery reports a different Host ID from the stored Known Host.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   /// @throws [DovahLinkConnectionException] if disconnect interrupts authentication.
@@ -425,6 +436,8 @@ class DovahLinkClient {
   /// @throws [DovahLinkConnectionException] if the socket cannot be established (initial or retry).
   /// @throws [DovahLinkProtocolException] if hello is rejected for a non-recoverable reason, or the
   ///     retry attempt is itself rejected.
+  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
+  ///     pairing recovery reports a different Host ID from the stored Known Host.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   Future<HelloResult> authenticate(Uri uri) =>
@@ -450,9 +463,9 @@ class DovahLinkClient {
   Future<PairingCancelOutcome> cancelPairing() =>
       _pairingService.cancelPairing();
 
-  /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential
-  /// and a [PairingRecoveryState.confirming] recovery state before returning it, so an interrupted
-  /// final confirmation can be resumed safely.
+  /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential,
+  /// current Host, and a [PairingRecoveryState.confirming] recovery state together before
+  /// returning it, so an interrupted final confirmation can be resumed safely.
   /// @return The issued credential, already persisted.
   /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, or
   ///     hit the hard wrong-attempt limit.
@@ -483,8 +496,8 @@ class DovahLinkClient {
   /// `pairing_invalidated` outcome (an administrative mutation rejected the pending credential)
   /// discards the local credential and resets to [DovahLinkTrustState.unpaired] rather than
   /// treating that as a fatal error; any other failure leaves [PairingRecoveryState.confirming]
-  /// untouched so a later relaunch can retry. A recovered trusted session starts restoring desired
-  /// state subscriptions.
+  /// untouched so a later relaunch can retry. Invalidated confirmation preserves Known Host
+  /// metadata. A recovered trusted session starts restoring desired state subscriptions.
   Future<DovahLinkTrustState> recoverPendingPairing() async {
     final DovahLinkTrustState trustState = await _pairingService
         .recoverPendingPairing();

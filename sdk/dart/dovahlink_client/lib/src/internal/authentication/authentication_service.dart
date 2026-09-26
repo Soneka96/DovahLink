@@ -1,5 +1,7 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
@@ -30,6 +32,8 @@ abstract interface class IAuthenticationService {
   /// [PairingRecoveryState.confirming] is pending; the Host has not trusted that credential yet.
   /// After admission, retries any orphaned operation whose trust requirement the new session meets.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
+  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
+  ///     pairing recovery reports a different Host ID from the stored Known Host.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   /// @throws [DovahLinkConnectionException] if disconnect cancels an in-flight authentication.
@@ -52,6 +56,8 @@ abstract interface class IAuthenticationService {
   ///     retry attempt is itself rejected.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
+  /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
+  ///     pairing recovery reports a different Host ID from the stored Known Host.
   Future<HelloResult> authenticate(Uri uri);
 
   /// Discards the stored credential and pairing-recovery state while preserving
@@ -167,12 +173,61 @@ class AuthenticationService implements IAuthenticationService {
           retryable: false,
         );
       }
+      final Uri? currentEndpoint = _sessionService.currentEndpoint;
+      if (currentEndpoint == null) {
+        throw const DovahLinkConnectionException(
+          'The current connection endpoint is unavailable.',
+        );
+      }
+      final DovahLinkHost currentHost = DovahLinkHost(
+        hostId: ack.hostId,
+        hostName: ack.hostName,
+        endpoint: currentEndpoint,
+      );
+      final DovahLinkHost? pendingPairingHost =
+          state.recoveryState == PairingRecoveryState.confirming
+          ? state.knownHost
+          : null;
+      if (pendingPairingHost != null &&
+          pendingPairingHost.hostId.toLowerCase() !=
+              currentHost.hostId.toLowerCase()) {
+        throw DovahLinkHostIdentityMismatchException(
+          knownHostId: pendingPairingHost.hostId,
+          reportedHostId: currentHost.hostId,
+        );
+      }
+      if (trustState == DovahLinkTrustState.trusted) {
+        final PersistedClientState currentState = await _storage.load();
+        _ensureAuthenticationCurrent(generation);
+        final DovahLinkHost? knownHost = currentState.knownHost;
+        if (knownHost != null &&
+            knownHost.hostId.toLowerCase() !=
+                currentHost.hostId.toLowerCase()) {
+          throw DovahLinkHostIdentityMismatchException(
+            knownHostId: knownHost.hostId,
+            reportedHostId: currentHost.hostId,
+          );
+        }
+        await _storage.save(
+          currentState.copyWith(
+            knownHost: knownHost == null
+                ? currentHost
+                : DovahLinkHost(
+                    hostId: knownHost.hostId,
+                    hostName: currentHost.hostName,
+                    endpoint: currentHost.endpoint,
+                  ),
+          ),
+        );
+        _ensureAuthenticationCurrent(generation);
+      }
       // admitSession also retransmits any retry-safe operation an earlier ordinary transport
       // loss orphaned, now that this new session's trust state is known -- see
       // ISessionAdmissionService.admitSession's documentation.
       _sessionAdmissionService.admitSession(
         sessionId: sessionId,
         trustState: trustState,
+        currentHost: currentHost,
       );
       final HelloResult result = HelloResult(
         hostId: ack.hostId,
@@ -285,6 +340,11 @@ class AuthenticationService implements IAuthenticationService {
     if (generation != null) {
       _ensureAuthenticationCurrent(generation);
     }
-    await _storage.save(PersistedClientState(clientId: state.clientId));
+    await _storage.save(
+      PersistedClientState(
+        clientId: state.clientId,
+        knownHost: state.knownHost,
+      ),
+    );
   }
 }

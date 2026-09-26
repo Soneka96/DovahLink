@@ -2,8 +2,16 @@ import 'dart:async';
 
 import 'package:test/test.dart';
 
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+
+/// Builds the Host context admitted with a session.
+DovahLinkHost _currentHost({String hostName = 'LOCAL-HOST'}) => DovahLinkHost(
+  hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+  hostName: hostName,
+  endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+);
 
 /// Runs session-state behavior tests.
 void main() {
@@ -20,6 +28,8 @@ void main() {
         expect(state.connectionState, DovahLinkConnectionState.disconnected);
         expect(state.sessionId, isNull);
         expect(state.trustState, isNull);
+        expect(state.currentHost, isNull);
+        expect(state.currentEndpoint, isNull);
         expect(state.invalidationReason, isNull);
         expect(state.connectionGeneration, 0);
         expect(state.lastConnectedUri, isNull);
@@ -38,6 +48,7 @@ void main() {
         expect(state.connectionState, DovahLinkConnectionState.connecting);
         expect(state.lastConnectedUri, uri);
         expect(state.connectionGeneration, 1);
+        expect(state.currentEndpoint, isNull);
       },
     );
 
@@ -62,6 +73,22 @@ void main() {
     });
 
     test(
+      'Method beginConnectAttempt clears the prior Host session context',
+      () {
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
+        );
+
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+
+        expect(state.currentHost, isNull);
+        expect(state.currentEndpoint, isNull);
+      },
+    );
+
+    test(
       'Method beginConnectAttempt advances the generation on every call',
       () {
         final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
@@ -75,10 +102,12 @@ void main() {
 
   group('Method markConnected behaves correctly', () {
     test('Method markConnected transitions from connecting to connected', () {
-      state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+      final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+      state.beginConnectAttempt(endpoint);
       state.markConnected();
 
       expect(state.connectionState, DovahLinkConnectionState.connected);
+      expect(state.currentEndpoint, endpoint);
     });
 
     test(
@@ -155,10 +184,12 @@ void main() {
       state.admit(
         sessionId: 'session-1',
         trustState: DovahLinkTrustState.unpaired,
+        currentHost: _currentHost(),
       );
 
       expect(state.sessionId, 'session-1');
       expect(state.trustState, DovahLinkTrustState.unpaired);
+      expect(state.currentHost, _currentHost());
     });
 
     test(
@@ -167,14 +198,17 @@ void main() {
         state.admit(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.unpaired,
+          currentHost: _currentHost(),
         );
         state.admit(
           sessionId: 'session-2',
           trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(hostName: 'OTHER-HOST'),
         );
 
         expect(state.sessionId, 'session-2');
         expect(state.trustState, DovahLinkTrustState.trusted);
+        expect(state.currentHost, _currentHost(hostName: 'OTHER-HOST'));
       },
     );
 
@@ -187,6 +221,7 @@ void main() {
         state.admit(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
         );
 
         expect(state.connectionState, DovahLinkConnectionState.connected);
@@ -200,6 +235,7 @@ void main() {
       state.admit(
         sessionId: 'session-1',
         trustState: DovahLinkTrustState.trusted,
+        currentHost: _currentHost(),
       );
 
       expect(state.connectionState, DovahLinkConnectionState.connected);
@@ -211,6 +247,7 @@ void main() {
       state.admit(
         sessionId: 'session-1',
         trustState: DovahLinkTrustState.unpaired,
+        currentHost: _currentHost(),
       );
       state.markTrusted();
 
@@ -235,6 +272,7 @@ void main() {
         state.admit(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
         );
         final int generationBefore = state.connectionGeneration;
 
@@ -250,6 +288,7 @@ void main() {
         );
         expect(state.sessionId, isNull);
         expect(state.trustState, isNull);
+        expect(state.currentHost, isNull);
         expect(state.connectionGeneration, generationBefore + 1);
       },
     );
@@ -303,6 +342,7 @@ void main() {
         state.admit(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
         );
 
         state.resetAfterTeardown(preserveReconnecting: true);
@@ -310,6 +350,7 @@ void main() {
         expect(state.connectionState, DovahLinkConnectionState.disconnected);
         expect(state.sessionId, isNull);
         expect(state.trustState, isNull);
+        expect(state.currentHost, isNull);
       },
     );
 
@@ -631,6 +672,7 @@ void main() {
         state.admit(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
         );
 
         await expectation;
@@ -655,6 +697,7 @@ void main() {
         state.admit(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
         );
         state.invalidate(AdministrativeInvalidationReason.revoked);
 

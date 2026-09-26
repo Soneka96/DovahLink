@@ -9,6 +9,8 @@ export 'src/dovahlink_compatibility_exception.dart'
 export 'src/dovahlink_discovery_service.dart'
     show DovahLinkDiscoveryService, IDovahLinkDiscoveryService;
 export 'src/dovahlink_host.dart' show DovahLinkHost;
+export 'src/dovahlink_host_identity_mismatch_exception.dart'
+    show DovahLinkHostIdentityMismatchException;
 // PairingOutcome is exported alongside the other domain enums, not hidden as a purely internal
 // wire-decode detail: DovahLinkPairingException.outcome exposes it directly, so a consumer must be
 // able to name and compare against it without reaching into src/.

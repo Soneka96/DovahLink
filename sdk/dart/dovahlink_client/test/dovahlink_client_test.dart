@@ -197,6 +197,9 @@ class TrackingClientStorage implements IClientStorage {
   /// Optional error thrown by [IClientStorage.save].
   Object? saveError;
 
+  /// Optional error thrown by [IClientStorage.load].
+  Object? loadError;
+
   /// Optional gate held until a test releases an [IClientStorage.save] call.
   Completer<void>? saveGate;
 
@@ -208,7 +211,13 @@ class TrackingClientStorage implements IClientStorage {
 
   /// See [IClientStorage.load].
   @override
-  Future<PersistedClientState> load() async => _state;
+  Future<PersistedClientState> load() async {
+    final Object? error = loadError;
+    if (error != null) {
+      throw error;
+    }
+    return _state;
+  }
 
   /// See [IClientStorage.save].
   @override
@@ -422,6 +431,50 @@ void main() {
       transport: transport,
       storage: storage,
     );
+  });
+
+  group('Method loadKnownHost behaves correctly', () {
+    test(
+      'Method loadKnownHost returns the persisted Host without credentials',
+      () async {
+        final DovahLinkHost knownHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'LOCAL-HOST',
+          endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await storage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'private-credential',
+            knownHost: knownHost,
+          ),
+        );
+
+        expect(await client.loadKnownHost(), knownHost);
+      },
+    );
+
+    test(
+      'Method loadKnownHost returns null when no Host is persisted',
+      () async {
+        expect(await client.loadKnownHost(), isNull);
+      },
+    );
+
+    test('Method loadKnownHost propagates corrupt storage errors', () async {
+      final TrackingClientStorage failingStorage = TrackingClientStorage(
+        Fixtures.buildPersistedClientState(clientId: 'client-1'),
+      )..loadError = const DovahLinkStorageException('corrupt state');
+      final DovahLinkClient failingClient = buildDovahLinkClientForTesting(
+        transport: FakeDovahLinkTransport(),
+        storage: failingStorage,
+      );
+
+      await expectLater(
+        failingClient.loadKnownHost(),
+        throwsA(isA<DovahLinkStorageException>()),
+      );
+    });
   });
 
   group('Property character state streams behave correctly', () {
@@ -1425,6 +1478,60 @@ void main() {
 
   group('Method hello behaves correctly', () {
     test(
+      'Method hello rejects a different Host during pending pairing recovery without changing persisted state',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String reportedHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final PersistedClientState pendingState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'pending-credential',
+          recoveryState: PairingRecoveryState.confirming,
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        await storage.save(pendingState);
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        final JsonMap helloAck =
+            jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+        (helloAck['payload'] as JsonMap)['hostId'] = reportedHostId;
+        transport.queueResponse(jsonEncode(helloAck));
+
+        await expectLater(
+          client.hello(),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  knownHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  reportedHostId,
+                ),
+          ),
+        );
+
+        expect(await storage.load(), pendingState);
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.sessionId, isNull);
+        expect(
+          transport.sent
+              .map(
+                (String message) =>
+                    (jsonDecode(message) as JsonMap)['messageType'],
+              )
+              .toList(),
+          <String>['hello'],
+        );
+      },
+    );
+
+    test(
       'Method hello an unpaired hello (no stored credential) sets sessionId and trustState from the real fixtures',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
@@ -1862,6 +1969,15 @@ void main() {
         expect(stored.clientId, 'client-1');
         expect(stored.credential, 'a1b2c3d4e5f6');
         expect(stored.recoveryState, PairingRecoveryState.confirming);
+        expect(
+          stored.knownHost,
+          DovahLinkHost(
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            hostName: 'Soneka-Desktop',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        expect(await client.loadKnownHost(), stored.knownHost);
       },
     );
 
@@ -2344,7 +2460,7 @@ void main() {
         );
         await pumpEventQueue();
 
-        expect(trackingStorage.saveCount, 1);
+        expect(trackingStorage.saveCount, 2);
         expect((await trackingStorage.load()).credential, isNull);
       },
     );
@@ -2357,7 +2473,7 @@ void main() {
             clientId: 'client-1',
             credential: 'credential-1',
           ),
-        )..saveError = StateError('storage unavailable');
+        );
         final FakeDovahLinkTransport failingTransport =
             FakeDovahLinkTransport();
         final DovahLinkClient failingClient = buildDovahLinkClientForTesting(
@@ -2374,6 +2490,7 @@ void main() {
           _rawFixture('capabilities/capabilities-host.json'),
         );
         await failingClient.hello();
+        failingStorage.saveError = StateError('storage unavailable');
 
         final List<Object> uncaughtErrors = <Object>[];
         final Completer<void> done = Completer<void>();
@@ -2385,7 +2502,7 @@ void main() {
         await done.future;
 
         expect(uncaughtErrors, isEmpty);
-        expect(failingStorage.saveCount, 1);
+        expect(failingStorage.saveCount, 2);
         expect((await failingStorage.load()).credential, 'credential-1');
       },
     );
@@ -2534,6 +2651,76 @@ void main() {
   });
 
   group('Behavior retry-safe operations across reconnect behaves correctly', () {
+    test(
+      'Behavior retry-safe reconnect never replays a pending pairing_ack to a different Known Host',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final PersistedClientState pendingState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'pending-credential',
+          recoveryState: PairingRecoveryState.confirming,
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        await reconnectStorage.save(pendingState);
+        await _connectAndHello(reconnectTransport, reconnectClient);
+
+        final Future<void> pending = reconnectClient
+            .acknowledgeTrustedCredential('pending-credential');
+        final Future<void> pendingFails = expectLater(
+          pending,
+          throwsA(isA<DovahLinkHostIdentityMismatchException>()),
+        );
+        await pumpEventQueue();
+        expect(reconnectTransport.sent, hasLength(2));
+
+        final JsonMap helloAckB =
+            jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+        (helloAckB['payload'] as JsonMap)['hostId'] =
+            'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        reconnectTransport.queueResponse(jsonEncode(helloAckB));
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+        for (
+          int attempt = 0;
+          attempt < 50 &&
+              reconnectClient.connectionState !=
+                  DovahLinkConnectionState.disconnected;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        await pendingFails;
+
+        expect(reconnectTransport.connectCalls, hasLength(2));
+        expect(reconnectTransport.sent, hasLength(3));
+        expect(
+          reconnectTransport.sent
+              .map(
+                (String message) =>
+                    (jsonDecode(message) as JsonMap)['messageType'],
+              )
+              .toList(),
+          <String>['hello', 'pairing_ack', 'hello'],
+        );
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(await reconnectStorage.load(), pendingState);
+      },
+    );
+
     test('Behavior retry-safe reconnect retransmits an orphaned operation and resolves its caller, '
         'via automatic reconnect', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));

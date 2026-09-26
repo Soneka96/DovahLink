@@ -1,3 +1,4 @@
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
@@ -11,9 +12,13 @@ abstract interface class ISessionAdmissionService {
   /// retransmission of any retry-safe operation an earlier ordinary transport loss orphaned, per
   /// `ai/context/sdk/architecture.md`'s "Session-state ownership". A trusted admission also starts
   /// best-effort restoration of the remembered state-area subscriptions.
+  /// @param sessionId The server-issued identity for this connection's session.
+  /// @param trustState The trust tier admitted by the Host.
+  /// @param currentHost The Host identity and endpoint reported for this session.
   void admitSession({
     required String sessionId,
     required DovahLinkTrustState trustState,
+    required DovahLinkHost currentHost,
   });
 }
 
@@ -50,8 +55,13 @@ class SessionAdmissionService implements ISessionAdmissionService {
   void admitSession({
     required String sessionId,
     required DovahLinkTrustState trustState,
+    required DovahLinkHost currentHost,
   }) {
-    _state.admit(sessionId: sessionId, trustState: trustState);
+    _state.admit(
+      sessionId: sessionId,
+      trustState: trustState,
+      currentHost: currentHost,
+    );
     _requestService.retryOrphanedOperations();
     if (trustState == DovahLinkTrustState.trusted) {
       _subscriptionService.restoreDesiredStateAreas();

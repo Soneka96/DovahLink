@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
@@ -56,11 +57,19 @@ class DpapiClientStorage implements IClientStorage {
   /// target, so a crash mid-write cannot leave a partially written state file.
   @override
   Future<void> save(PersistedClientState state) async {
+    final DovahLinkHost? knownHost = state.knownHost;
     final Map<String, dynamic> json = <String, dynamic>{
       'formatVersion': PersistedClientState.currentFormatVersion,
       'clientId': state.clientId,
       'credential': state.credential,
       'recoveryState': state.recoveryState.name,
+      'knownHost': knownHost == null
+          ? null
+          : <String, dynamic>{
+              'hostId': knownHost.hostId,
+              'hostName': knownHost.hostName,
+              'endpoint': knownHost.endpoint.toString(),
+            },
     };
     final Uint8List plaintext = Uint8List.fromList(
       utf8.encode(jsonEncode(json)),

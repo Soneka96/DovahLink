@@ -32,6 +32,12 @@ merely because an expert API exists, unless a later explicit low-level API decis
 mutable computer-name display metadata. Neither represents the endpoint. A peer's assertion of
 `hostId` is not cryptographic proof that it owns a previously trusted identity.
 
+`DovahLinkClient.loadKnownHost()` reads the SDK-owned persisted Known Host as a `DovahLinkHost`, or
+returns `null` when the client has not established one. The value contains identity and last-known
+metadata only; it exposes no credential and does not claim the Host currently trusts this client.
+Trusted sessions may refresh its name and endpoint only when the reported Host ID matches the stored
+ID. A mismatch is a typed failure; discovery claims never refresh persisted metadata.
+
 `DovahLinkDiscoveryService.discoverLocalHost()` proposes the local endpoint. The responding peer's
 `hello_ack` asserts `hostId` and `hostName`, which the SDK validates for protocol shape and Host
 version compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the peer
