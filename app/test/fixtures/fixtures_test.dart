@@ -12,6 +12,9 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'fixtures.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show CredentialRejectionReason, DovahLinkTrustState, HelloResult;
+
 /// Exercises the Flutter app's representative typed fixture builders.
 void main() {
   group('Method buildHost behaves correctly', () {
@@ -57,6 +60,49 @@ void main() {
       );
 
       expect(params.hostUri, uri);
+    });
+  });
+
+  group('Method buildSdkHelloResult behaves correctly', () {
+    test(
+      'Method buildSdkHelloResult uses one representative Host identity',
+      () {
+        final HelloResult result = Fixtures.buildSdkHelloResult();
+
+        expect(result.hostId, isA<String>());
+        expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
+        expect(result.hostName, isA<String>());
+        expect(result.hostName, 'Soneka-Desktop');
+        expect(result.hostVersion, '1.2.3');
+        expect(result.trustState, DovahLinkTrustState.trusted);
+        expect(result.recoveredFromRejectedCredential, isNull);
+      },
+    );
+
+    test('Method buildSdkHelloResult preserves handshake overrides', () {
+      final HelloResult result = Fixtures.buildSdkHelloResult(
+        hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        hostName: 'LIVINGROOM-PC',
+        hostVersion: '2.0.0',
+        trustState: DovahLinkTrustState.unpaired,
+        recoveredFromRejectedCredential: CredentialRejectionReason.revoked,
+      );
+
+      expect(result.hostId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+      expect(result.hostName, 'LIVINGROOM-PC');
+      expect(result.hostVersion, '2.0.0');
+      expect(result.trustState, DovahLinkTrustState.unpaired);
+      expect(
+        result.recoveredFromRejectedCredential,
+        CredentialRejectionReason.revoked,
+      );
+    });
+
+    test('Method buildSdkHelloResult returns a fresh result per call', () {
+      final HelloResult first = Fixtures.buildSdkHelloResult();
+      final HelloResult second = Fixtures.buildSdkHelloResult();
+
+      expect(identical(first, second), isFalse);
     });
   });
 

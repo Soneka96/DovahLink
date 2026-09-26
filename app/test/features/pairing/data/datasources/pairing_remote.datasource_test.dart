@@ -34,7 +34,7 @@ void main() {
       'Method authenticate returns a trusted handshake without recovering pending pairing',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildSdkHelloResult(
             hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.trusted,
           ),
@@ -58,7 +58,7 @@ void main() {
       'Method authenticate recovers an interrupted pairing when hello admits unpaired',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildSdkHelloResult(
             hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
           ),
@@ -84,7 +84,7 @@ void main() {
       'Method authenticate reports still-unpaired when no pairing recovers',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildSdkHelloResult(
             hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
           ),
@@ -109,7 +109,7 @@ void main() {
       'Method authenticate carries the revoked-credential explanation through when the SDK recovered',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildSdkHelloResult(
             hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
             recoveredFromRejectedCredential: CredentialRejectionReason.revoked,
@@ -140,7 +140,7 @@ void main() {
       'Method authenticate carries the blocked-credential explanation through when the SDK recovered',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildSdkHelloResult(
             hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
             recoveredFromRejectedCredential: CredentialRejectionReason.blocked,
@@ -173,7 +173,7 @@ void main() {
       'Method authenticate carries the unrecognized-credential explanation through when the SDK recovered',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildSdkHelloResult(
             hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
             recoveredFromRejectedCredential:
@@ -256,7 +256,7 @@ void main() {
       'invalidated',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildSdkHelloResult(
             hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
           ),
@@ -328,7 +328,7 @@ void main() {
       'Method authenticate maps a pairing failure from recovery to a user-safe PairingFailure',
       () async {
         when(() => mockClient.authenticate(any())).thenAnswer(
-          (_) async => const HelloResult(
+          (_) async => Fixtures.buildSdkHelloResult(
             hostVersion: '1.2.3',
             trustState: DovahLinkTrustState.unpaired,
           ),

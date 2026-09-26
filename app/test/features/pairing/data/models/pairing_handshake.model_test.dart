@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import '../../../../fixtures/fixtures.dart';
 
 /// Exercises SDK authentication result mapping for [PairingHandshakeModel].
 void main() {
@@ -11,7 +12,7 @@ void main() {
     test(
       'Method fromHelloResult maps the host version and resolved trust status',
       () {
-        const HelloResult hello = HelloResult(
+        final HelloResult hello = Fixtures.buildSdkHelloResult(
           hostVersion: '1.2.3',
           trustState: DovahLinkTrustState.unpaired,
         );
@@ -58,7 +59,7 @@ void main() {
           in mappings) {
         final PairingHandshakeModel model =
             PairingHandshakeModel.fromHelloResult(
-              hello: HelloResult(
+              hello: Fixtures.buildSdkHelloResult(
                 hostVersion: '2.0.0',
                 trustState: DovahLinkTrustState.unpaired,
                 recoveredFromRejectedCredential: reason,

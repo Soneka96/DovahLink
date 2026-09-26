@@ -9,6 +9,9 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show CredentialRejectionReason, DovahLinkTrustState, HelloResult;
+
 /// Central test-owned catalog of representative Flutter app values.
 abstract final class Fixtures {
   // ---- Connection ----
@@ -53,6 +56,26 @@ abstract final class Fixtures {
     /// The Host endpoint to authenticate with, or the representative local endpoint when omitted.
     Uri? hostUri,
   }) => AuthenticateParams(hostUri: hostUri ?? defaultHostUri);
+
+  /// Builds the SDK handshake value consumed by pairing tests.
+  /// @param hostId The stable Host installation identity.
+  /// @param hostName The representative OS-derived computer name.
+  /// @param hostVersion The Host release version.
+  /// @param trustState The trust tier reported by the SDK.
+  /// @param recoveredFromRejectedCredential The rejected stored credential reason, when present.
+  static HelloResult buildSdkHelloResult({
+    String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
+    String hostName = 'Soneka-Desktop',
+    String hostVersion = '1.2.3',
+    DovahLinkTrustState trustState = DovahLinkTrustState.trusted,
+    CredentialRejectionReason? recoveredFromRejectedCredential,
+  }) => HelloResult(
+    hostId: hostId,
+    hostName: hostName,
+    hostVersion: hostVersion,
+    trustState: trustState,
+    recoveredFromRejectedCredential: recoveredFromRejectedCredential,
+  );
 
   /// Builds a pairing handshake with representative trusted-session defaults.
   static PairingHandshake buildPairingHandshake({
