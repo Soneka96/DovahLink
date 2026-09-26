@@ -522,13 +522,24 @@ void main() {
         when(
           () => sessionService.currentEndpoint,
         ).thenReturn(Uri.parse('ws://127.0.0.1:58231/'));
-        stubSendAndAwait(
-          requestService,
-          buildHelloAckEnvelope(
-            hostName: 'NEW-NAME',
-            kind: ClientIdentityKind.paired,
+        int helloCount = 0;
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
           ),
-        );
+        ).thenAnswer((_) async {
+          helloCount++;
+          return buildHelloAckEnvelope(
+            hostName: 'NEW-NAME',
+            kind: helloCount == 1
+                ? ClientIdentityKind.unpaired
+                : ClientIdentityKind.paired,
+            sessionId: 'session-$helloCount',
+          );
+        });
 
         await service.hello();
 
@@ -545,6 +556,131 @@ void main() {
             ),
           ),
         ).called(1);
+        expect(helloCount, 2);
+        verify(
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
+        verify(() => sessionService.connect(any())).called(1);
+      },
+    );
+
+    test(
+      'Method hello probes Known Host identity without presenting its credential to another Host',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String otherHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final PersistedClientState persisted = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        when(() => storage.load()).thenAnswer((_) async => persisted);
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: otherHostId,
+            kind: ClientIdentityKind.unpaired,
+          ),
+        );
+
+        await expectLater(
+          service.hello(),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  knownHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  otherHostId,
+                ),
+          ),
+        );
+
+        final List<Object?> sentPayloads = verify(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: captureAny(named: 'payload'),
+            expectedType: ProtocolMessageType.helloAck,
+            policy: any(named: 'policy'),
+          ),
+        ).captured;
+        expect(sentPayloads, hasLength(1));
+        expect((sentPayloads.single as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        verifyNever(() => storage.save(any()));
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+          ),
+        );
+        verify(
+          () => sessionService.disconnect(orphanRetrySafeOperations: true),
+        ).called(1);
+        verifyNever(() => sessionService.connect(any()));
+      },
+    );
+
+    test(
+      'Method hello rejects a trusted response to its non-admitting unpaired identity probe',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final PersistedClientState persisted = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+        when(() => storage.load()).thenAnswer((_) async => persisted);
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(kind: ClientIdentityKind.paired),
+        );
+
+        await expectLater(
+          service.hello(),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (error) => error.code,
+              'code',
+              ProtocolErrorCode.malformedMessage,
+            ),
+          ),
+        );
+
+        final List<Object?> sentPayloads = verify(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: captureAny(named: 'payload'),
+            expectedType: ProtocolMessageType.helloAck,
+            policy: any(named: 'policy'),
+          ),
+        ).captured;
+        expect(sentPayloads, hasLength(1));
+        expect((sentPayloads.single as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        verifyNever(() => storage.save(any()));
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+          ),
+        );
       },
     );
 
@@ -1631,6 +1767,353 @@ void main() {
           ),
         ).called(1);
         verify(() => sessionService.connect(any())).called(2);
+      },
+    );
+
+    for (final MapEntry<ProtocolErrorCode, CredentialRejectionReason> rejection
+        in <MapEntry<ProtocolErrorCode, CredentialRejectionReason>>[
+          const MapEntry<ProtocolErrorCode, CredentialRejectionReason>(
+            ProtocolErrorCode.revoked,
+            CredentialRejectionReason.revoked,
+          ),
+          const MapEntry<ProtocolErrorCode, CredentialRejectionReason>(
+            ProtocolErrorCode.unauthenticated,
+            CredentialRejectionReason.unrecognized,
+          ),
+        ]) {
+      test(
+        'Method authenticate preserves same-Host ${rejection.value.name} recovery semantics',
+        () async {
+          const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+          final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+          final DovahLinkHost knownHost = DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: endpoint,
+          );
+          PersistedClientState persisted = PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+            knownHost: knownHost,
+          );
+          when(() => storage.load()).thenAnswer((_) async => persisted);
+          when(() => storage.save(any())).thenAnswer((
+            Invocation invocation,
+          ) async {
+            persisted =
+                invocation.positionalArguments.single as PersistedClientState;
+          });
+          int requestCount = 0;
+          when(
+            () => requestService.sendAndAwait(
+              messageType: any(named: 'messageType'),
+              payload: any(named: 'payload'),
+              expectedType: any(named: 'expectedType'),
+              policy: any(named: 'policy'),
+            ),
+          ).thenAnswer((_) async {
+            requestCount++;
+            if (requestCount == 2) {
+              throw DovahLinkProtocolException(
+                code: rejection.key,
+                message: 'credential rejected',
+                retryable: false,
+              );
+            }
+            return buildHelloAckEnvelope(
+              hostId: knownHostId,
+              sessionId: 'session-$requestCount',
+              kind: ClientIdentityKind.unpaired,
+            );
+          });
+
+          final HelloResult result = await service.authenticate(endpoint);
+
+          expect(result.trustState, DovahLinkTrustState.unpaired);
+          expect(result.recoveredFromRejectedCredential, rejection.value);
+          expect(
+            persisted,
+            PersistedClientState(clientId: 'client-1', knownHost: knownHost),
+          );
+          expect(requestCount, 4);
+          verify(() => storage.save(any())).called(1);
+          verify(() => sessionService.connect(endpoint)).called(4);
+          verify(
+            () => sessionAdmissionService.admitSession(
+              sessionId: 'session-4',
+              trustState: DovahLinkTrustState.unpaired,
+              currentHost: DovahLinkHost(
+                hostId: knownHostId,
+                hostName: 'Soneka-Desktop',
+                endpoint: endpoint,
+              ),
+            ),
+          ).called(1);
+          final List<Object?> sentPayloads = verify(
+            () => requestService.sendAndAwait(
+              messageType: ProtocolMessageType.hello,
+              payload: captureAny(named: 'payload'),
+              expectedType: ProtocolMessageType.helloAck,
+              policy: any(named: 'policy'),
+            ),
+          ).captured;
+          expect(sentPayloads, hasLength(4));
+          expect((sentPayloads[0] as JsonMap)['auth'], <String, dynamic>{
+            'method': 'unpaired',
+          });
+          expect((sentPayloads[1] as JsonMap)['auth'], <String, dynamic>{
+            'method': 'trusted_device_credential',
+            'token': 'credential-1',
+          });
+          expect((sentPayloads[2] as JsonMap)['auth'], <String, dynamic>{
+            'method': 'unpaired',
+          });
+          expect((sentPayloads[3] as JsonMap)['auth'], <String, dynamic>{
+            'method': 'unpaired',
+          });
+        },
+      );
+    }
+
+    test(
+      'Method authenticate preserves a Known Host credential when the rejecting Host identity changes after preflight',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String otherHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+        final DovahLinkHost knownHost = DovahLinkHost(
+          hostId: knownHostId,
+          hostName: 'KNOWN-HOST',
+          endpoint: endpoint,
+        );
+        final PersistedClientState original = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+          knownHost: knownHost,
+        );
+        when(() => storage.load()).thenAnswer((_) async => original);
+        int requestCount = 0;
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((_) async {
+          requestCount++;
+          if (requestCount == 2) {
+            throw const DovahLinkProtocolException(
+              code: ProtocolErrorCode.revoked,
+              message: 'credential rejected',
+              retryable: false,
+            );
+          }
+          return buildHelloAckEnvelope(
+            hostId: requestCount == 1 ? knownHostId : otherHostId,
+            sessionId: 'session-$requestCount',
+            kind: ClientIdentityKind.unpaired,
+          );
+        });
+
+        await expectLater(
+          service.authenticate(endpoint),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  knownHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  otherHostId,
+                ),
+          ),
+        );
+
+        expect(await storage.load(), original);
+        verifyNever(() => storage.save(any()));
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+          ),
+        );
+        final List<Object?> sentPayloads = verify(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: captureAny(named: 'payload'),
+            expectedType: ProtocolMessageType.helloAck,
+            policy: any(named: 'policy'),
+          ),
+        ).captured;
+        expect(sentPayloads, hasLength(3));
+        expect((sentPayloads[0] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        expect((sentPayloads[1] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'trusted_device_credential',
+          'token': 'credential-1',
+        });
+        expect((sentPayloads[2] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        verify(() => sessionService.connect(endpoint)).called(3);
+      },
+    );
+
+    test(
+      'Method authenticate rejects a different Host even if its credential reply is unpaired',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String otherHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+        final PersistedClientState persisted = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'KNOWN-HOST',
+            endpoint: endpoint,
+          ),
+        );
+        when(() => storage.load()).thenAnswer((_) async => persisted);
+        int requestCount = 0;
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((_) async {
+          requestCount++;
+          return buildHelloAckEnvelope(
+            hostId: requestCount == 1 ? knownHostId : otherHostId,
+            sessionId: 'session-$requestCount',
+            kind: ClientIdentityKind.unpaired,
+          );
+        });
+
+        await expectLater(
+          service.authenticate(endpoint),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  knownHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  otherHostId,
+                ),
+          ),
+        );
+
+        expect(await storage.load(), persisted);
+        expect(requestCount, 2);
+        verifyNever(() => storage.save(any()));
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate presents the credential from the identity-checked persisted snapshot',
+      () async {
+        const String checkedHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String replacementHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+        final PersistedClientState checkedState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-A',
+          knownHost: DovahLinkHost(
+            hostId: checkedHostId,
+            hostName: 'HOST-A',
+            endpoint: endpoint,
+          ),
+        );
+        final PersistedClientState replacementState = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-B',
+          knownHost: DovahLinkHost(
+            hostId: replacementHostId,
+            hostName: 'HOST-B',
+            endpoint: endpoint,
+          ),
+        );
+        PersistedClientState persisted = checkedState;
+        when(() => storage.load()).thenAnswer((_) async => persisted);
+        int requestCount = 0;
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((_) async {
+          requestCount++;
+          if (requestCount == 1) {
+            persisted = replacementState;
+            return buildHelloAckEnvelope(
+              hostId: checkedHostId,
+              sessionId: 'probe-session',
+              kind: ClientIdentityKind.unpaired,
+            );
+          }
+          return buildHelloAckEnvelope(
+            hostId: checkedHostId,
+            sessionId: 'trusted-session',
+            kind: ClientIdentityKind.paired,
+          );
+        });
+
+        await expectLater(
+          service.authenticate(endpoint),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  replacementHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  checkedHostId,
+                ),
+          ),
+        );
+
+        expect(persisted, replacementState);
+        verifyNever(() => storage.save(any()));
+        final List<Object?> sentPayloads = verify(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: captureAny(named: 'payload'),
+            expectedType: ProtocolMessageType.helloAck,
+            policy: any(named: 'policy'),
+          ),
+        ).captured;
+        expect(sentPayloads, hasLength(2));
+        expect((sentPayloads[0] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        expect((sentPayloads[1] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'trusted_device_credential',
+          'token': 'credential-A',
+        });
       },
     );
 

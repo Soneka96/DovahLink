@@ -43,6 +43,11 @@ SDK may expose typed APIs for Host trust-administration
 capabilities (list/revoke/reset), but the authoritative mutation always happens on the Host; see
 `ai/context/protocol/security.md` for the trust model itself.
 
+Stored credentials are Host-scoped. A candidate endpoint must not cause a credential to be
+discarded or disclosed to a different Host identity. Before presenting a credential associated with
+a Known Host, the SDK compares the Host ID from an unpaired hello with the stored ID. This is an
+identity-misdirection guard only; it does not prove ownership or establish trust.
+
 ## App independence
 
 After the Dart Client SDK Foundation phase, the official app depends on the SDK's public API for

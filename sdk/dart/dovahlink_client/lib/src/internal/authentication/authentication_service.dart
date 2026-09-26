@@ -33,7 +33,8 @@ abstract interface class IAuthenticationService {
   /// After admission, retries any orphaned operation whose trust requirement the new session meets.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
   /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
-  ///     pairing recovery reports a different Host ID from the stored Known Host.
+  ///     pairing recovery reports a different Host ID from the stored Known Host, or an unpaired
+  ///     preflight reports a different identity before a saved Known Host credential is presented.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   /// @throws [DovahLinkConnectionException] if disconnect cancels an in-flight authentication.
@@ -45,6 +46,8 @@ abstract interface class IAuthenticationService {
   /// Connects to [uri] and authenticates. If the Host rejects a saved credential as
   /// [CredentialRejectionReason.revoked] or [CredentialRejectionReason.unrecognized], discards it
   /// and retries once with [AuthMethod.unpaired].
+  /// Before presenting a credential associated with a Known Host, confirms the endpoint reports
+  /// the stored Host identity; a mismatch preserves the credential and Known Host.
   /// [HelloResult.recoveredFromRejectedCredential] reports that recovery. Transport failures,
   /// incompatible Host versions, and non-recoverable protocol errors still throw.
   ///
@@ -57,7 +60,8 @@ abstract interface class IAuthenticationService {
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
-  ///     pairing recovery reports a different Host ID from the stored Known Host.
+  ///     pairing recovery reports a different Host ID from the stored Known Host, or an unpaired
+  ///     preflight reports a different identity before a saved Known Host credential is presented.
   Future<HelloResult> authenticate(Uri uri);
 
   /// Discards the stored credential and pairing-recovery state while preserving
@@ -118,18 +122,75 @@ class AuthenticationService implements IAuthenticationService {
 
   /// Implements [IAuthenticationService.hello].
   @override
-  Future<HelloResult> hello() => _hello(_authenticationGeneration);
+  Future<HelloResult> hello() async {
+    final int generation = _authenticationGeneration;
+    final Uri? endpoint = _sessionService.currentEndpoint;
+    final PersistedClientState state = await _loadPersistedState(generation);
+    final DovahLinkHost? knownHost = await _preflightKnownHost(
+      generation,
+      endpoint,
+      state,
+    );
+    try {
+      return await _hello(generation, persistedState: state);
+    } on DovahLinkProtocolException catch (error) {
+      if (knownHost != null &&
+          endpoint != null &&
+          CredentialRejectionReason.fromProtocolErrorCode(error.code) != null) {
+        await _confirmKnownHostAfterRejection(generation, endpoint, knownHost);
+      }
+      rethrow;
+    }
+  }
 
-  /// Sends hello while [generation] remains the active authentication generation.
-  Future<HelloResult> _hello(int generation) async {
-    bool disconnectAfterFailure = false;
+  /// Loads state while preserving disconnect cancellation semantics.
+  /// @param generation The authentication generation that must remain active.
+  /// @return The current persisted client state.
+  /// @throws [DovahLinkConnectionException] if disconnect cancels the load.
+  /// @throws [DovahLinkStorageException] if persisted state cannot be read safely.
+  /// @throws [UnsupportedError] if the selected storage implementation is unavailable.
+  Future<PersistedClientState> _loadPersistedState(int generation) async {
     try {
       final PersistedClientState state = await _storage.load();
+      _ensureAuthenticationCurrent(generation);
+      return state;
+    } on Object {
+      _ensureAuthenticationCurrent(generation);
+      rethrow;
+    }
+  }
+
+  /// Sends hello while [generation] remains the active authentication generation.
+  /// @param generation The authentication generation that must remain active.
+  /// @param persistedState A previously loaded snapshot to use for the request, when available.
+  /// @param forceUnpaired Whether this hello must omit any stored credential.
+  /// @param admitSession Whether a successful response becomes the active session.
+  /// @param expectedHostId The Host identity required before accepting the response.
+  /// @return The validated Host response.
+  /// @throws [DovahLinkConnectionException] if the endpoint or connection is unavailable, or the
+  ///     operation was cancelled.
+  /// @throws [DovahLinkStorageException] if persisted state cannot be read safely.
+  /// @throws [UnsupportedError] if the selected storage implementation is unavailable.
+  /// @throws [DovahLinkProtocolException] if the Host response is malformed or rejects the client.
+  /// @throws [DovahLinkCompatibilityException] if the Host version is unsupported.
+  /// @throws [DovahLinkHostIdentityMismatchException] if the response conflicts with persisted
+  ///     pending-pairing or trusted Host identity.
+  Future<HelloResult> _hello(
+    int generation, {
+    PersistedClientState? persistedState,
+    bool forceUnpaired = false,
+    bool admitSession = true,
+    String? expectedHostId,
+  }) async {
+    bool disconnectAfterFailure = false;
+    try {
+      final PersistedClientState state =
+          persistedState ?? await _loadPersistedState(generation);
       _ensureAuthenticationCurrent(generation);
       final String clientId = await _clientIdResolver.resolve(state);
       _ensureAuthenticationCurrent(generation);
       final String? credential =
-          state.recoveryState == PairingRecoveryState.none
+          !forceUnpaired && state.recoveryState == PairingRecoveryState.none
           ? state.credential
           : null;
       _clientIdCache.set(clientId);
@@ -157,6 +218,17 @@ class AuthenticationService implements IAuthenticationService {
         HelloAckPayload.fromJson,
         response.payload,
       );
+      final String? credentialHostId = credential == null
+          ? null
+          : state.knownHost?.hostId;
+      final String? requiredHostId = expectedHostId ?? credentialHostId;
+      if (requiredHostId != null &&
+          requiredHostId.toLowerCase() != ack.hostId.toLowerCase()) {
+        throw DovahLinkHostIdentityMismatchException(
+          knownHostId: requiredHostId,
+          reportedHostId: ack.hostId,
+        );
+      }
       validateHostVersionCompatibility(ack.hostVersion);
       final DovahLinkTrustState trustState = switch (ack.clientIdentityKind) {
         ClientIdentityKind.unpaired => DovahLinkTrustState.unpaired,
@@ -184,6 +256,13 @@ class AuthenticationService implements IAuthenticationService {
         hostName: ack.hostName,
         endpoint: currentEndpoint,
       );
+      if (forceUnpaired && trustState != DovahLinkTrustState.unpaired) {
+        throw const DovahLinkProtocolException(
+          code: ProtocolErrorCode.malformedMessage,
+          message: 'The Host reported a paired identity for an unpaired hello.',
+          retryable: false,
+        );
+      }
       final DovahLinkHost? pendingPairingHost =
           state.recoveryState == PairingRecoveryState.confirming
           ? state.knownHost
@@ -224,18 +303,20 @@ class AuthenticationService implements IAuthenticationService {
       // admitSession also retransmits any retry-safe operation an earlier ordinary transport
       // loss orphaned, now that this new session's trust state is known -- see
       // ISessionAdmissionService.admitSession's documentation.
-      _sessionAdmissionService.admitSession(
-        sessionId: sessionId,
-        trustState: trustState,
-        currentHost: currentHost,
-      );
       final HelloResult result = HelloResult(
         hostId: ack.hostId,
         hostName: ack.hostName,
         hostVersion: ack.hostVersion,
         trustState: trustState,
       );
-      _lastHelloResult = result;
+      if (admitSession) {
+        _sessionAdmissionService.admitSession(
+          sessionId: sessionId,
+          trustState: trustState,
+          currentHost: currentHost,
+        );
+        _lastHelloResult = result;
+      }
 
       // The Host always sends an unprompted `capabilities` message right after `hello_ack`; it
       // arrives as an unsolicited (null-correlationId) message and is discarded by
@@ -263,6 +344,76 @@ class AuthenticationService implements IAuthenticationService {
     }
   }
 
+  /// Confirms a candidate endpoint before this client presents a Known Host credential.
+  /// @param generation The authentication generation that must remain active.
+  /// @param endpoint The current endpoint to probe and reconnect to.
+  /// @param state The persisted snapshot whose Host identity and credential are being guarded.
+  /// @return The persisted Known Host when an identity probe was required, or `null` otherwise.
+  /// @throws [DovahLinkConnectionException] if no endpoint is available or the operation is
+  ///     cancelled.
+  /// @throws [DovahLinkProtocolException] if the unpaired probe is rejected or malformed.
+  /// @throws [DovahLinkCompatibilityException] if the responder's Host version is unsupported.
+  /// @throws [DovahLinkHostIdentityMismatchException] if the responder reports another Host ID.
+  Future<DovahLinkHost?> _preflightKnownHost(
+    int generation,
+    Uri? endpoint,
+    PersistedClientState state,
+  ) async {
+    _ensureAuthenticationCurrent(generation);
+    final DovahLinkHost? knownHost = state.knownHost;
+    if (knownHost == null ||
+        state.credential == null ||
+        state.recoveryState != PairingRecoveryState.none) {
+      return null;
+    }
+    if (endpoint == null) {
+      throw const DovahLinkConnectionException(
+        'The current connection endpoint is unavailable.',
+      );
+    }
+
+    await _hello(
+      generation,
+      persistedState: state,
+      forceUnpaired: true,
+      admitSession: false,
+      expectedHostId: knownHost.hostId,
+    );
+    await _sessionService.disconnect(orphanRetrySafeOperations: true);
+    _ensureAuthenticationCurrent(generation);
+    await _sessionService.connect(endpoint);
+    _ensureAuthenticationCurrent(generation);
+    return knownHost;
+  }
+
+  /// Identifies the rejecting peer before recovery can discard its Known Host credential.
+  /// Completes after an unpaired identity probe matches the stored Host.
+  /// @param generation The authentication generation that must remain active.
+  /// @param endpoint The endpoint that rejected the saved credential.
+  /// @param knownHost The persisted Host identity the credential belongs to.
+  /// @throws [DovahLinkConnectionException] if reconnecting or cancellation fails.
+  /// @throws [DovahLinkStorageException] if persisted state cannot be read safely.
+  /// @throws [UnsupportedError] if the selected storage implementation is unavailable.
+  /// @throws [DovahLinkProtocolException] if the unpaired probe is rejected or malformed.
+  /// @throws [DovahLinkCompatibilityException] if the responder's Host version is unsupported.
+  /// @throws [DovahLinkHostIdentityMismatchException] if another Host rejected the credential.
+  Future<void> _confirmKnownHostAfterRejection(
+    int generation,
+    Uri endpoint,
+    DovahLinkHost knownHost,
+  ) async {
+    await _sessionService.connect(endpoint);
+    _ensureAuthenticationCurrent(generation);
+    await _hello(
+      generation,
+      forceUnpaired: true,
+      admitSession: false,
+      expectedHostId: knownHost.hostId,
+    );
+    await _sessionService.disconnect(orphanRetrySafeOperations: true);
+    _ensureAuthenticationCurrent(generation);
+  }
+
   /// Implements [IAuthenticationService.authenticate].
   @override
   Future<HelloResult> authenticate(Uri uri) async {
@@ -288,8 +439,17 @@ class AuthenticationService implements IAuthenticationService {
     }
     await _sessionService.connect(uri);
     _ensureAuthenticationCurrent(generation);
+    final PersistedClientState state = await _loadPersistedState(generation);
+    final DovahLinkHost? knownHost = await _preflightKnownHost(
+      generation,
+      uri,
+      state,
+    );
     try {
-      final HelloResult result = await _hello(generation);
+      final HelloResult result = await _hello(
+        generation,
+        persistedState: state,
+      );
       _ensureAuthenticationCurrent(generation);
       return result;
     } on DovahLinkProtocolException catch (error) {
@@ -298,6 +458,9 @@ class AuthenticationService implements IAuthenticationService {
           CredentialRejectionReason.fromProtocolErrorCode(error.code);
       if (reason == null) {
         rethrow;
+      }
+      if (knownHost != null) {
+        await _confirmKnownHostAfterRejection(generation, uri, knownHost);
       }
       await _forgetCredential(generation);
       _ensureAuthenticationCurrent(generation);

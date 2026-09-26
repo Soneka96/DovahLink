@@ -245,6 +245,30 @@ class TrackingClientStorage implements IClientStorage {
 String _rawFixture(String relativePath) =>
     File('../../../protocol/fixtures/$relativePath').readAsStringSync();
 
+/// Builds a canonical hello acknowledgement with the requested Host identity and trust claim.
+/// @param hostId The Host installation identity asserted by the responder.
+/// @param hostName The mutable computer-name metadata asserted by the responder.
+/// @param sessionId The session identifier carried by the acknowledgement.
+/// @param kind The client identity kind returned by the responder.
+/// @return The raw acknowledgement envelope.
+String _rawHelloAckForHost({
+  required String hostId,
+  required String hostName,
+  required String sessionId,
+  required DovahLinkTrustState kind,
+}) {
+  final JsonMap helloAck =
+      jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+  helloAck['sessionId'] = sessionId;
+  final JsonMap payload = helloAck['payload'] as JsonMap;
+  payload['hostId'] = hostId;
+  payload['hostName'] = hostName;
+  payload['clientIdentityKind'] = kind == DovahLinkTrustState.trusted
+      ? 'paired'
+      : 'unpaired';
+  return jsonEncode(helloAck);
+}
+
 /// Builds an unsolicited `session_invalidated` envelope for [reason] (a raw wire value, e.g.
 /// `'revoked'`).
 String _rawSessionInvalidated(
@@ -1753,6 +1777,126 @@ void main() {
     );
 
     test(
+      'Method authenticate preserves a Known Host credential when another Host occupies its endpoint',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String otherHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+        final PersistedClientState original = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-A',
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'HOST-A',
+            endpoint: endpoint,
+          ),
+        );
+        await storage.save(original);
+        transport.queueResponse(
+          _rawHelloAckForHost(
+            hostId: otherHostId,
+            hostName: 'HOST-B',
+            sessionId: 'probe-session',
+            kind: DovahLinkTrustState.unpaired,
+          ),
+        );
+
+        await expectLater(
+          client.authenticate(endpoint),
+          throwsA(
+            isA<DovahLinkHostIdentityMismatchException>()
+                .having(
+                  (error) => error.knownHostId,
+                  'knownHostId',
+                  knownHostId,
+                )
+                .having(
+                  (error) => error.reportedHostId,
+                  'reportedHostId',
+                  otherHostId,
+                ),
+          ),
+        );
+
+        expect(await storage.load(), original);
+        final List<JsonMap> hellos = transport.sent
+            .map((String raw) => jsonDecode(raw) as JsonMap)
+            .where((JsonMap envelope) => envelope['messageType'] == 'hello')
+            .toList();
+        expect(hellos, hasLength(1));
+        expect((hellos.single['payload'] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        expect(transport.connectCalls, hasLength(1));
+        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+      },
+    );
+
+    test(
+      'Method authenticate refreshes Known Host name and endpoint after confirming the same identity',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final Uri oldEndpoint = Uri.parse('ws://127.0.0.1:58230/');
+        final Uri currentEndpoint = Uri.parse('ws://127.0.0.1:58231/');
+        final PersistedClientState original = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-A',
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'OLD-NAME',
+            endpoint: oldEndpoint,
+          ),
+        );
+        await storage.save(original);
+        transport.queueResponse(
+          _rawHelloAckForHost(
+            hostId: knownHostId,
+            hostName: 'NEW-NAME',
+            sessionId: 'probe-session',
+            kind: DovahLinkTrustState.unpaired,
+          ),
+        );
+        transport.queueResponse(
+          _rawHelloAckForHost(
+            hostId: knownHostId,
+            hostName: 'NEW-NAME',
+            sessionId: 'trusted-session',
+            kind: DovahLinkTrustState.trusted,
+          ),
+        );
+
+        final HelloResult result = await client.authenticate(currentEndpoint);
+
+        expect(result.trustState, DovahLinkTrustState.trusted);
+        expect(
+          await storage.load(),
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-A',
+            knownHost: DovahLinkHost(
+              hostId: knownHostId,
+              hostName: 'NEW-NAME',
+              endpoint: currentEndpoint,
+            ),
+          ),
+        );
+        final List<JsonMap> hellos = transport.sent
+            .map((String raw) => jsonDecode(raw) as JsonMap)
+            .where((JsonMap envelope) => envelope['messageType'] == 'hello')
+            .toList();
+        expect(hellos, hasLength(2));
+        expect((hellos[0]['payload'] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        expect((hellos[1]['payload'] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'trusted_device_credential',
+          'token': 'credential-A',
+        });
+        expect(transport.connectCalls, <Uri>[currentEndpoint, currentEndpoint]);
+      },
+    );
+
+    test(
       'Method authenticate does not reconnect when disconnect overlaps credential recovery',
       () async {
         final Completer<void> saveStarted = Completer<void>();
@@ -3079,6 +3223,97 @@ void main() {
         // terminal rejection must not consume the remaining attempt budget by retrying with
         // the now-forgotten credential.
         expect(helloSends, hasLength(2));
+      },
+    );
+
+    test(
+      'Behavior automatic reconnect stops on a different Known Host before sending its credential',
+      () async {
+        const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String otherHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+        final PersistedClientState original = PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-A',
+          knownHost: DovahLinkHost(
+            hostId: knownHostId,
+            hostName: 'HOST-A',
+            endpoint: endpoint,
+          ),
+        );
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        addTearDown(reconnectClient.disconnect);
+        await reconnectStorage.save(original);
+        reconnectTransport.queueResponse(
+          _rawHelloAckForHost(
+            hostId: knownHostId,
+            hostName: 'HOST-A',
+            sessionId: 'initial-probe',
+            kind: DovahLinkTrustState.unpaired,
+          ),
+        );
+        reconnectTransport.queueResponse(
+          _rawHelloAckForHost(
+            hostId: knownHostId,
+            hostName: 'HOST-A',
+            sessionId: 'initial-trusted',
+            kind: DovahLinkTrustState.trusted,
+          ),
+        );
+        await reconnectClient.authenticate(endpoint);
+
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        reconnectTransport.queueResponse(
+          _rawHelloAckForHost(
+            hostId: otherHostId,
+            hostName: 'HOST-B',
+            sessionId: 'reconnect-probe',
+            kind: DovahLinkTrustState.unpaired,
+          ),
+        );
+        for (int attempt = 0; attempt < 100; attempt++) {
+          if (reconnectTransport.connectCalls.length >= 3) {
+            break;
+          }
+          await pumpEventQueue();
+        }
+        expect(reconnectTransport.connectCalls, hasLength(3));
+        for (
+          int attempt = 0;
+          attempt < 100 &&
+              reconnectClient.connectionState !=
+                  DovahLinkConnectionState.disconnected;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(await reconnectStorage.load(), original);
+        final List<JsonMap> hellos = reconnectTransport.sent
+            .map((String raw) => jsonDecode(raw) as JsonMap)
+            .where((JsonMap envelope) => envelope['messageType'] == 'hello')
+            .toList();
+        expect(hellos, hasLength(3));
+        expect((hellos[0]['payload'] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        expect((hellos[1]['payload'] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'trusted_device_credential',
+          'token': 'credential-A',
+        });
+        expect((hellos[2]['payload'] as JsonMap)['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        expect(reconnectTransport.connectCalls, hasLength(3));
       },
     );
   });

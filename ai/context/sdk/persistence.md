@@ -31,8 +31,13 @@ new Known Host. It never restores an older Host association. A successfully trus
 bind an unbound legacy credential or refresh name/endpoint metadata only when its Host ID matches
 the stored ID. During pending pairing recovery, a different reported Host ID fails before session
 admission, preserving the pending credential and Known Host. A mismatch raises a typed SDK error
-and leaves the stored Host unchanged. Credential removal and failed pending-pairing recovery
-preserve Known Host metadata; none of this metadata establishes current trust.
+and leaves the stored Host unchanged. Stored credentials are Host-scoped. A candidate endpoint must
+not cause a credential to be discarded or disclosed to a different Host identity. Before sending a
+Known Host credential, the SDK uses the ordinary unpaired hello path to compare the responding Host
+ID with the stored identity; it does not admit that probe as a session or mutate persistence. If a
+credential rejection occurs, the SDK confirms the rejecting Host the same way before clearing the
+credential. Credential removal and failed pending-pairing recovery preserve Known Host metadata;
+none of this metadata or the identity probe establishes current trust.
 
 The app must not persist a competing authoritative copy of SDK-owned protocol or client state: not
 the client credential, not pairing `CONFIRMING` recovery state, not actual subscription state, not
