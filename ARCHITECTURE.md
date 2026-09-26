@@ -103,8 +103,9 @@ Render companion views and manage local layout preferences. A client should rema
   widget layout, and other client UI concepts do not belong in the public host/client contract.
 - The wire contract is defined by `protocol/schema/README.md`; transport framing remains outside
   the architecture contract.
-- Transport exposure, pairing, authentication, and input limits are defined by
-  `ai/context/protocol/security.md`.
+- Current transport exposure, pairing, authentication, and input limits are defined by
+  `ai/context/protocol/security.md`. The target Host/client identity and transport migration is
+  defined by [`ai/context/security/identity-and-transport.md`](ai/context/security/identity-and-transport.md).
 
 ## Runtime and identity model
 

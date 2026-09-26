@@ -34,6 +34,12 @@ admission, preserving the pending credential and Known Host. A mismatch raises a
 and leaves the stored Host unchanged. Credential removal and failed pending-pairing recovery
 preserve Known Host metadata; none of this metadata establishes current trust.
 
+This is the current singleton persistence contract. The target replaces `knownHost` with a
+`knownHosts` collection keyed by `hostId`, adds the Client cryptographic identity reference and
+Host-scoped pairing recovery, and keeps Host-selection preference in the app. See
+[`../security/identity-and-transport.md`](../security/identity-and-transport.md) for the migration
+contract; do not treat that target as an implemented persistence schema.
+
 The app must not persist a competing authoritative copy of SDK-owned protocol or client state: not
 the client credential, not pairing `CONFIRMING` recovery state, not actual subscription state, not
 reconnect state, not authoritative revision/recovery state, not SDK cache-validity metadata, and not

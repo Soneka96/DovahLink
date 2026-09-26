@@ -43,6 +43,10 @@ SDK may expose typed APIs for Host trust-administration
 capabilities (list/revoke/reset), but the authoritative mutation always happens on the Host; see
 `ai/context/protocol/security.md` for the trust model itself.
 
+This describes the current singleton Known Host and bearer-credential implementation. The target
+multiple-KnownHost, key-based authentication, and pairing ownership contract is in
+[`../security/identity-and-transport.md`](../security/identity-and-transport.md).
+
 ## App independence
 
 After the Dart Client SDK Foundation phase, the official app depends on the SDK's public API for
