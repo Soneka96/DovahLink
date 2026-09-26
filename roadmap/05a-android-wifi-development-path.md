@@ -77,7 +77,7 @@ port into the app.
       -> connect to candidate endpoint
       -> perform the approved initial balanced-PAKE binding, or verify the pinned Host key
       -> prove Client-key possession and receive typed Host trust state
-      -> persist the appropriate trusted state
+      -> persist the established KnownHost/key binding and applicable recovery metadata
   ```
 
   This roadmap slice does not select the balanced-PAKE algorithm or library; S2 does. Its design and
