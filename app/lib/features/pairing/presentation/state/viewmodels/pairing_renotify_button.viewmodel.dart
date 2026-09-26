@@ -43,7 +43,18 @@ class PairingRenotifyButtonViewModel extends Equatable {
       isPending: isPending,
       cooldownSeconds: cooldownSeconds,
       onPressed: isAvailable
-          ? () => store.dispatch(const PairingRenotifyRequestedAction())
+          ? () {
+              final AppState currentState = store.state;
+              final int? currentCooldownSeconds =
+                  PairingSelectors.renotifyCooldownSecondsSelector(
+                    currentState,
+                  );
+              if (!PairingSelectors.renotifyPendingSelector(currentState) &&
+                  (currentCooldownSeconds == null ||
+                      currentCooldownSeconds == 0)) {
+                store.dispatch(const PairingRenotifyRequestedAction());
+              }
+            }
           : null,
     );
   }

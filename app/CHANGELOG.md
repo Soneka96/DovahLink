@@ -50,6 +50,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- A retained pairing redisplay callback no longer sends another request while one is pending.
 - Pairing now shows the Host-reported cooldown after successfully showing the code again.
 - An open dialog now updates its backdrop as the application theme changes.
 - Bevelled panels, cards, and buttons no longer draw a border line along the bevel.

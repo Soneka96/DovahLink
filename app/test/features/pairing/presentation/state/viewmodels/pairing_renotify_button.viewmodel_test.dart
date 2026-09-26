@@ -118,6 +118,68 @@ void main() {
         ).called(1);
       },
     );
+
+    test(
+      'Method fromStore retained callback does not dispatch when redisplay becomes pending',
+      () {
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState.initial().copyWith(
+              phase: PairingPhase.awaitingCode,
+            ),
+          ),
+        );
+
+        final PairingRenotifyButtonViewModel viewModel =
+            PairingRenotifyButtonViewModel.fromStore(store);
+
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState.initial().copyWith(isRenotifyPending: true),
+          ),
+        );
+        viewModel.onPressed!();
+
+        verifyNever(() => store.dispatch(any()));
+      },
+    );
+
+    test(
+      'Method fromStore retained callback does not dispatch during a new cooldown',
+      () {
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState.initial().copyWith(
+              phase: PairingPhase.awaitingCode,
+            ),
+          ),
+        );
+
+        final PairingRenotifyButtonViewModel viewModel =
+            PairingRenotifyButtonViewModel.fromStore(store);
+
+        when(() => store.state).thenReturn(
+          AppState(
+            connection: ConnectionState.initial(),
+            pairing: PairingState(
+              phase: PairingPhase.awaitingCode,
+              hostVersion: null,
+              error: null,
+              codeExpiresAt: null,
+              renotifyAvailableAt: DateTime.now().add(
+                const Duration(seconds: 5),
+              ),
+            ),
+          ),
+        );
+        viewModel.onPressed!();
+
+        verifyNever(() => store.dispatch(any()));
+      },
+    );
   });
 
   group('Method displayLabel behaves correctly', () {
