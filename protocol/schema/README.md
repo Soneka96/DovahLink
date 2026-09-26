@@ -279,7 +279,7 @@ compatibility information a client needs before trusting the rest of the exchang
 {
   "hostVersion": "0.5.0",
   "hostId": "81869993-955c-4ba3-a7d0-d35ca86078ea",
-  "hostName": "GONCALO-DESKTOP",
+  "hostName": "Soneka-Desktop",
   "clientIdentityKind": "paired"
 }
 ```

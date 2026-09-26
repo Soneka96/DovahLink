@@ -66,7 +66,7 @@ abstract final class Fixtures {
   /// Builds a successful Host handshake result with stable identity defaults.
   static HelloResult buildHelloResult({
     String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
-    String hostName = 'GONCALO-DESKTOP',
+    String hostName = 'Soneka-Desktop',
     String hostVersion = '0.5.0',
     DovahLinkTrustState trustState = DovahLinkTrustState.trusted,
     CredentialRejectionReason? recoveredFromRejectedCredential,

@@ -128,7 +128,7 @@ public class TrustServiceExtensionsTests
             new HelloAckPayload
             {
                 HostId = "81869993-955c-4ba3-a7d0-d35ca86078ea",
-                HostName = "GONCALO-DESKTOP",
+                HostName = "Soneka-Desktop",
                 HostVersion = Constants.PublicProtocolHostVersion,
                 ClientIdentityKind = ClientIdentityKind.Unpaired,
             });

@@ -1289,7 +1289,7 @@ void main() {
         );
         expect(result.hostVersion, '0.5.0');
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
-        expect(result.hostName, 'GONCALO-DESKTOP');
+        expect(result.hostName, 'Soneka-Desktop');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
@@ -1506,7 +1506,7 @@ void main() {
             'payload': <String, dynamic>{
               'hostVersion': '0.4.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
-              'hostName': 'GONCALO-DESKTOP',
+              'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1698,7 +1698,7 @@ void main() {
             'payload': <String, dynamic>{
               'hostVersion': '0.5.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
-              'hostName': 'GONCALO-DESKTOP',
+              'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -1722,7 +1722,7 @@ void main() {
             'payload': <String, dynamic>{
               'hostVersion': '0.5.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
-              'hostName': 'GONCALO-DESKTOP',
+              'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'paired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -2151,7 +2151,7 @@ void main() {
             'payload': <String, dynamic>{
               'hostVersion': '0.3.2',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
-              'hostName': 'GONCALO-DESKTOP',
+              'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'unpaired',
             },
             'stateAuthorityId': 'state-authority-1',
@@ -2588,7 +2588,7 @@ void main() {
           'payload': <String, dynamic>{
             'hostVersion': '0.5.0',
             'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
-            'hostName': 'GONCALO-DESKTOP',
+            'hostName': 'Soneka-Desktop',
             'clientIdentityKind': 'paired',
           },
           'stateAuthorityId': 'state-authority-1',

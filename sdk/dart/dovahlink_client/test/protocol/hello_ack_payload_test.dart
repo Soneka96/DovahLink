@@ -47,7 +47,7 @@ void main() {
           () => HelloAckPayload.fromJson(<String, dynamic>{
             'hostVersion': '0.2.0',
             'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
-            'hostName': 'GONCALO-DESKTOP',
+            'hostName': 'Soneka-Desktop',
             'clientIdentityKind': 'not-a-real-kind',
           }),
           throwsA(isA<ProtocolFormatException>()),

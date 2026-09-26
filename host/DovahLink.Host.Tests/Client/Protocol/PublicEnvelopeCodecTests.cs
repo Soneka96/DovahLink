@@ -53,7 +53,7 @@ public class PublicEnvelopeCodecTests
         var payload = new HelloAckPayload
         {
             HostId = "81869993-955c-4ba3-a7d0-d35ca86078ea",
-            HostName = "GONCALO-DESKTOP",
+            HostName = "Soneka-Desktop",
             HostVersion = "0.5.0",
             ClientIdentityKind = ClientIdentityKind.Paired,
         };
@@ -171,7 +171,7 @@ public class PublicEnvelopeCodecTests
         var payload = new HelloAckPayload
         {
             HostId = "81869993-955c-4ba3-a7d0-d35ca86078ea",
-            HostName = "GONCALO-DESKTOP",
+            HostName = "Soneka-Desktop",
             HostVersion = "0.5.0",
             ClientIdentityKind = ClientIdentityKind.Unpaired,
         };
@@ -202,7 +202,7 @@ public class PublicEnvelopeCodecTests
         Assert.True(Codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.True(Codec.TryDecodePayload(envelope!, out HelloAckPayload? payload));
         Assert.Equal("81869993-955c-4ba3-a7d0-d35ca86078ea", payload!.HostId);
-        Assert.Equal("GONCALO-DESKTOP", payload.HostName);
+        Assert.Equal("Soneka-Desktop", payload.HostName);
         Assert.Equal(expectedIdentityKind, payload.ClientIdentityKind);
         Assert.Equal(expectedPlayContextId, envelope!.PlayContextId);
     }

@@ -135,7 +135,7 @@ void main() {
         final HelloResult result = Fixtures.buildHelloResult();
 
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
-        expect(result.hostName, 'GONCALO-DESKTOP');
+        expect(result.hostName, 'Soneka-Desktop');
         expect(result.hostVersion, '0.5.0');
         expect(result.trustState, DovahLinkTrustState.trusted);
       },

@@ -11,12 +11,12 @@ public class HostIdentityProviderTests
     {
         HostId id = new(Guid.Parse("81869993-955c-4ba3-a7d0-d35ca86078ea"));
         var store = new FakeHostIdentityStore(id);
-        var provider = new HostIdentityProvider(store, new FakeHostMachineNameProvider("SONEKA-DESKTOP"));
+        var provider = new HostIdentityProvider(store, new FakeHostMachineNameProvider("Soneka-Desktop"));
 
         HostIdentity identity = provider.GetCurrent();
 
         Assert.Equal(id, identity.HostId);
-        Assert.Equal("SONEKA-DESKTOP", identity.HostName);
+        Assert.Equal("Soneka-Desktop", identity.HostName);
         Assert.Equal(1, store.LoadCount);
     }
 
@@ -27,14 +27,14 @@ public class HostIdentityProviderTests
         HostId id = new(Guid.Parse("81869993-955c-4ba3-a7d0-d35ca86078ea"));
         var store = new FakeHostIdentityStore(id);
         var first = new HostIdentityProvider(store, new FakeHostMachineNameProvider("DESKTOP-A19F2"));
-        var renamed = new HostIdentityProvider(store, new FakeHostMachineNameProvider("SONEKA-DESKTOP"));
+        var renamed = new HostIdentityProvider(store, new FakeHostMachineNameProvider("Soneka-Desktop"));
 
         HostIdentity before = first.GetCurrent();
         HostIdentity after = renamed.GetCurrent();
 
         Assert.Equal(before.HostId, after.HostId);
         Assert.Equal("DESKTOP-A19F2", before.HostName);
-        Assert.Equal("SONEKA-DESKTOP", after.HostName);
+        Assert.Equal("Soneka-Desktop", after.HostName);
     }
 
     /// <summary>Verifies the UTF-8 byte bound accepts its exact limit and rejects a multibyte overflow.</summary>
@@ -80,7 +80,7 @@ public class HostIdentityProviderTests
     public void GetCurrent_IdentityStoreThrows_PropagatesFailure()
     {
         var provider = new HostIdentityProvider(
-            new ThrowingHostIdentityStore(), new FakeHostMachineNameProvider("SONEKA-DESKTOP"));
+            new ThrowingHostIdentityStore(), new FakeHostMachineNameProvider("Soneka-Desktop"));
 
         Assert.Throws<InvalidDataException>(() => provider.GetCurrent());
     }
