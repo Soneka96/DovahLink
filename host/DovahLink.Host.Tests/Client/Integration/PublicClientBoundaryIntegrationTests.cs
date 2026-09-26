@@ -93,7 +93,7 @@ public class PublicClientBoundaryIntegrationTests
         var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            ownerLifetimeId, listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
+            ownerLifetimeId, Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
         // Waits for PUBLICPORT specifically, not HOSTPROOF: Program.cs writes PUBLICPORT last, after
         // HOSTPROOF, so HOSTPROOF alone does not prove every line this helper parses below is present
         // yet.

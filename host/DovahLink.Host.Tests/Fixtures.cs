@@ -16,6 +16,10 @@ public static class Fixtures
 {
     // ---- Identity ----
 
+    /// <summary>Builds a valid Host identity for composition and handshake tests.</summary>
+    public static HostIdentity BuildHostIdentity() =>
+        new(new HostId(Guid.Parse("81869993-955c-4ba3-a7d0-d35ca86078ea")), "GONCALO-DESKTOP");
+
     /// <summary>Builds a ready-to-use, never-faulted state-authority lifecycle backed by a fresh fake adapter-availability tracker.</summary>
     public static IStateAuthorityLifecycle BuildStateAuthorityLifecycle() => new StateAuthorityLifecycle(new FakeAdapterAvailabilityTracker());
 

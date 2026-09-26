@@ -370,7 +370,7 @@ public class AdapterNotificationIntegrationTests
         var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            ownerLifetimeId, listenerPort: 0, output, new HostProcessLifetime(), shutdown,
+            ownerLifetimeId, Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
             publicListenerPort: 0, trustStorePersistence: trustStorePersistence);
         // Waits for PUBLICPORT specifically, not HOSTPROOF: Program.cs writes PUBLICPORT last, after
         // HOSTPROOF, so HOSTPROOF alone does not prove every line this helper parses below is present

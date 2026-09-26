@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using DovahLink.Host;
 using DovahLink.Host.Composition;
+using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.Process;
 using DovahLink.Host.Security;
@@ -29,8 +30,10 @@ internal static class Program
 
         try
         {
+            HostIdentity hostIdentity = new HostIdentityProvider(
+                new FileHostIdentityStore(), new SystemHostMachineNameProvider()).GetCurrent();
             return await ComposeAndRunAsync(
-                ownerLifetimeId, Constants.AdapterIpcLoopbackPort, Console.Out, new HostProcessLifetime(), shutdown, publicListenerPort,
+                ownerLifetimeId, hostIdentity, Constants.AdapterIpcLoopbackPort, Console.Out, new HostProcessLifetime(), shutdown, publicListenerPort,
                 trustStorePersistence);
         }
         finally
@@ -46,6 +49,7 @@ internal static class Program
     /// neither can ever admit a client under a partially loaded or silently reset trust store.
     /// </summary>
     /// <param name="ownerLifetimeId">The owning Skyrim process's lifetime identity.</param>
+    /// <param name="hostIdentity">The persistent Host ID and current OS computer name for this Host installation.</param>
     /// <param name="listenerPort">The private adapter-IPC loopback port to bind, or zero to let the operating system assign one.</param>
     /// <param name="rendezvousOutput">
     /// Where to report the bound adapter-IPC port and, once bound, the public listener's own bound
@@ -75,11 +79,13 @@ internal static class Program
     /// The provider the user-configured device cap is resolved from. Defaults to the real
     /// <see cref="HostSettingsProvider"/>; a test may override it to exercise a specific cap.
     /// </param>
+    /// <exception cref="InvalidDataException">The persisted Host identity file exists but does not contain a valid UUID.</exception>
     /// <returns>A successful process exit code once <paramref name="shutdown"/> is cancelled and teardown completes.</returns>
     /// <exception cref="System.Net.Sockets.SocketException">A listener could not bind its configured port.</exception>
     /// <exception cref="InvalidDataException">The persisted trust store exists but could not be decrypted or parsed.</exception>
     internal static async Task<int> ComposeAndRunAsync(
         OwnerLifetimeId ownerLifetimeId,
+        HostIdentity hostIdentity,
         int listenerPort,
         TextWriter rendezvousOutput,
         IHostProcessLifetime lifetime,
@@ -97,6 +103,7 @@ internal static class Program
         ITrustStore trustStore = await TrustServiceExtensions.CreateTrustStoreAsync(clock, securityGate, trustStorePersistence);
 
         var services = new ServiceCollection();
+        services.AddSingleton(hostIdentity);
         services.AddCoreServices(clock, securityGate, shutdown, hostSettingsProvider);
         services.AddTrustServices(trustStore);
         services.AddAdapterIpcServices(listenerPort, ownerLifetimeId);

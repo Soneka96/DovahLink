@@ -210,7 +210,7 @@ public class ProgramCompositionTests
         var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            ownerLifetimeId, listenerPort: 0, output, new HostProcessLifetime(), shutdown);
+            ownerLifetimeId, Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown);
         await WaitUntilAsync(() => output.Snapshot().Contains("PORT "), runTask);
 
         shutdown.Cancel();
@@ -235,7 +235,7 @@ public class ProgramCompositionTests
         string rendezvousPath = Constants.RendezvousFilePath(ownerLifetimeId);
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            ownerLifetimeId, listenerPort: 0, output, new HostProcessLifetime(), shutdown);
+            ownerLifetimeId, Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown);
         await WaitUntilAsync(() => File.Exists(rendezvousPath), runTask);
 
         try
@@ -260,7 +260,7 @@ public class ProgramCompositionTests
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown);
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown);
         Assert.False(runTask.IsCompleted);
 
         shutdown.Cancel();
@@ -276,7 +276,7 @@ public class ProgramCompositionTests
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            ownerLifetimeId, listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown);
+            ownerLifetimeId, Fixtures.BuildHostIdentity(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown);
         Assert.False(runTask.IsCompleted);
 
         using var adapterSideHandle = new EventWaitHandle(
@@ -297,7 +297,7 @@ public class ProgramCompositionTests
         using var shutdown = new CancellationTokenSource();
 
         await Assert.ThrowsAsync<SocketException>(() => global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), occupiedPort, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown));
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), occupiedPort, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown));
     }
 
     /// <summary>
@@ -314,7 +314,7 @@ public class ProgramCompositionTests
         using var shutdown = new CancellationTokenSource();
 
         await Assert.ThrowsAsync<SocketException>(() => global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,
             publicListenerPort: occupiedPort));
     }
 
@@ -347,7 +347,7 @@ public class ProgramCompositionTests
         var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown);
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown);
         await WaitUntilAsync(() => output.Snapshot().Contains("PORT "), runTask);
 
         // Known limitation: proving PUBLICPORT is never written proves a negative with no cheaper
@@ -373,7 +373,7 @@ public class ProgramCompositionTests
         var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
         await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
         string rendezvous = output.Snapshot();
         int publicPort = int.Parse(rendezvous.Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
@@ -410,7 +410,7 @@ public class ProgramCompositionTests
         var persistence = new FakeTrustStorePersistence { ThrowOnLoad = new InvalidDataException("corrupt") };
 
         await Assert.ThrowsAsync<InvalidDataException>(() => global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
             publicListenerPort: 0, trustStorePersistence: persistence));
 
         Assert.DoesNotContain("PORT", output.Snapshot());
@@ -438,7 +438,7 @@ public class ProgramCompositionTests
         };
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
             publicListenerPort: 0, trustStorePersistence: persistence);
         await enteredLoad.Task.WaitAsync(TimeSpan.FromSeconds(5));
 
@@ -476,7 +476,7 @@ public class ProgramCompositionTests
             var clientId = new ClientId(Guid.NewGuid());
 
             Task<int> runTask = global::Program.ComposeAndRunAsync(
-                UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0,
+                UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0,
                 onComposed: (composedSessionRegistry, composedPairingCoordinator) =>
                 {
                     sessionRegistry = composedSessionRegistry;
@@ -530,7 +530,7 @@ public class ProgramCompositionTests
         var output = new SynchronizedTextCapture();
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown, publicListenerPort: 0);
         await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
         string rendezvous = output.Snapshot();
         int publicPort = int.Parse(rendezvous.Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
@@ -586,7 +586,7 @@ public class ProgramCompositionTests
         ISessionRegistry? sessionRegistry = null;
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, new SynchronizedTextCapture(), new HostProcessLifetime(), shutdown,
             hostSettingsProvider: hostSettingsProvider,
             onComposed: (composedSessionRegistry, _) => sessionRegistry = composedSessionRegistry);
         await WaitUntilAsync(() => sessionRegistry is not null, runTask);
@@ -610,7 +610,7 @@ public class ProgramCompositionTests
         var hostSettingsProvider = new FakeHostSettingsProvider { Settings = new HostSettings(2) };
 
         Task<int> runTask = global::Program.ComposeAndRunAsync(
-            UniqueOwnerLifetimeId(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
+            UniqueOwnerLifetimeId(), Fixtures.BuildHostIdentity(), listenerPort: 0, output, new HostProcessLifetime(), shutdown,
             publicListenerPort: 0, hostSettingsProvider: hostSettingsProvider);
         await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
         string rendezvous = output.Snapshot();

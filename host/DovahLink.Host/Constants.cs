@@ -5,6 +5,23 @@ namespace DovahLink.Host;
 /// <summary>Small, cross-cutting constant values shared across the host, grouped by area.</summary>
 public static class Constants
 {
+    // ---- Host identity ----
+
+    /// <summary>The non-secret per-user file containing the Host installation ID.</summary>
+    public static string HostIdentityFilePath
+    {
+        get
+        {
+            string localApplicationData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            if (string.IsNullOrWhiteSpace(localApplicationData))
+            {
+                throw new InvalidOperationException("The current Windows user has no local application-data directory.");
+            }
+
+            return Path.Combine(localApplicationData, "DovahLink", "host", "host-id.dat");
+        }
+    }
+
     // ---- Trust ----
 
     /// <summary>The default per-Windows-user file the trust store is persisted to.</summary>
