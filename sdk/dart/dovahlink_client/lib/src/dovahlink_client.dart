@@ -558,11 +558,13 @@ DovahLinkClient buildDovahLinkClientForTesting({
 /// Creates an isolated client engine for a one-shot discovery probe. Its storage is transient and
 /// ordinary transport loss cannot start automatic reconnect.
 /// @param transport The transport to use, or the production WebSocket transport when omitted.
+/// @param timeoutDurations The bounded request durations for the probe.
 DovahLinkClient buildDovahLinkClientForDiscovery({
   IDovahLinkTransport? transport,
+  Map<TimeoutClass, Duration> timeoutDurations = kTimeoutClassDurations,
 }) => DovahLinkClient._build(
   transport: transport ?? WebSocketTransport(),
   storage: TransientClientStorage(),
-  timeoutDurations: kTimeoutClassDurations,
+  timeoutDurations: timeoutDurations,
   reconnectEnabled: false,
 );
