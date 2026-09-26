@@ -35,8 +35,11 @@ Host:               "These clients are trusted."
 SDK on a client:    "This is my clientId and credential."
 ```
 
-The SDK owns its local `clientId`, credential, pairing `CONFIRMING` recovery state, and other
-client-side authentication persistence. It may expose typed APIs for Host trust-administration
+The SDK owns its local `clientId`, credential, pairing `CONFIRMING` recovery state, Known Host
+metadata, and other client-side authentication persistence. Known Host records which Host the
+client previously paired with; it does not establish current trust. `SessionState` owns the current
+session's `DovahLinkHost` context, while the persistence layer owns its last-known durable copy. The
+SDK may expose typed APIs for Host trust-administration
 capabilities (list/revoke/reset), but the authoritative mutation always happens on the Host; see
 `ai/context/protocol/security.md` for the trust model itself.
 
@@ -97,7 +100,7 @@ distinguish a refused connection from a peer that accepts TCP and closes before 
 case needs a different outcome, the transport boundary must provide a typed connect-stage result.
 Malformed protocol, compatibility failures, and a silent or disconnected peer during `hello` also
 remain typed failures. A discovered `hostId` alone must not authorize trust, credential disclosure,
-pairing bypass, or another security-sensitive decision.
+pairing bypass, durable Known Host updates, or another security-sensitive decision.
 
 ## Feature and capability organization
 
@@ -160,9 +163,9 @@ The eight Services:
 
 - `ISessionService`/`SessionService` — owns transport lifecycle, connection state, and stream
   ownership: `connect`, `disconnect`, reads (`connectionState`, `currentSessionId`,
-  `currentTrustState`, `invalidationReason`), and the reactive signals `onUnhealthy`,
-  `onProtocolViolation`, `onSessionInvalidated`, `onUnsolicitedError`. Privately owns
-  `ConnectionTeardownCoordinator` and `LifecycleOperationQueue`.
+  `currentTrustState`, `currentHost`, `currentEndpoint`, `invalidationReason`), and the reactive
+  signals `onUnhealthy`, `onProtocolViolation`, `onSessionInvalidated`, and `onUnsolicitedError`.
+  Privately owns `ConnectionTeardownCoordinator` and `LifecycleOperationQueue`.
 - `ISessionAdmissionService`/`SessionAdmissionService` — `admitSession`, a privileged capability
   injected only into `AuthenticationService`. Also triggers `RequestService`'s
   retry-orphaned-operations transition as part of admitting a session, keeping reconnect/session

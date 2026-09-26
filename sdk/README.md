@@ -45,16 +45,17 @@ sdk/
 ```
 
 It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic
-reconnection after ordinary transport loss, plus SDK-owned `clientId`, credential, and
-`CONFIRMING` pairing-recovery persistence behind the `IClientStorage` interface (a real Windows
+reconnection after ordinary transport loss, plus SDK-owned `clientId`, credential, `CONFIRMING`
+pairing-recovery, and Known Host persistence behind the `IClientStorage` interface (a real Windows
 DPAPI-backed implementation ships today through the Windows-specific
 `dovahlink_client_windows.dart` entry point) -- see `ai/context/sdk/persistence.md`. The official
 Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
 client for pairing and authentication through `PairingRemoteDataSource`. The public SDK also probes
 the local loopback endpoint with an isolated unpaired handshake and returns the responding peer's
 protocol-validated `hostId`/`hostName` claims and current endpoint. Discovery does not authenticate
-Host identity, prove the peer owns a previously trusted identity, or discover Hosts over LAN or
-mDNS.
+Host identity, prove the peer owns a previously trusted identity, update persisted Known Host data,
+or discover Hosts over LAN or mDNS. Consumers read the SDK-owned prior association through
+`DovahLinkClient.loadKnownHost()`; it does not represent current trust.
 
 The app selects storage at its composition boundary. Windows uses DPAPI; other platforms currently
 use an explicit unsupported-storage boundary, and pairing stays unavailable until secure storage is

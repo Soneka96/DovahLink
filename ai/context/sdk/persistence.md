@@ -6,8 +6,8 @@ If persisted data is required for correct reusable DovahLink client behavior, th
 persisted data exists only for the official product experience, the app owns it.
 
 SDK-owned persistence includes: the stable local `clientId`, the client credential, pairing
-recovery state, reusable known-Host information required by approved connection semantics,
-reusable resource/cache metadata, cache-format version, and SDK persistence-format version.
+recovery state, reusable known-Host information required by approved connection semantics, reusable
+resource/cache metadata, cache-format version, and SDK persistence-format version.
 App-owned persistence includes product/UI preferences such as preferred Host selection, dashboard
 layout, map zoom, selected marker, and UI filters.
 
@@ -15,8 +15,18 @@ Administrative invalidation reasons are not persisted as authoritative trust sta
 `revoked`, `trustReset`, and `factoryReset` may be exposed in the current SDK lifecycle state but
 must be re-established from the Host after an application restart. When an authoritative device
 credential invalidation is received, the SDK removes the obsolete local credential while preserving
-the stable local `clientId`; a Factory Reset ending a developer-token session does not delete the
-configured developer token.
+the stable local `clientId` and Known Host metadata; a Factory Reset ending a developer-token session
+does not delete the configured developer token.
+
+Known Host metadata means the Host this client previously associated with, stored as `hostId`, the
+last known `hostName`, and the last known `endpoint`. `hostId` is identity; the name and endpoint are
+mutable metadata. This record is not authoritative trust state: the Host must establish current
+trust on every session, and no trusted/connected/offline/blocked/revoked status is persisted. A
+discovery claim or unpaired `hello_ack` alone never writes Known Host metadata. Successful pairing
+persists it atomically with the issued credential and `confirming` recovery state. A successfully
+trusted session may bind an unbound legacy credential or refresh metadata only when its Host ID
+matches the stored ID. A mismatch raises a typed SDK error and leaves the stored Host unchanged.
+Credential removal and failed pending-pairing recovery preserve Known Host metadata.
 
 The app must not persist a competing authoritative copy of SDK-owned protocol or client state: not
 the client credential, not pairing `CONFIRMING` recovery state, not actual subscription state, not
@@ -30,11 +40,12 @@ secure-storage calls throughout its state machines. Platform-specific storage fa
 credential storage, cache/filesystem location) stay behind the platform ports defined in
 `ai/context/sdk/architecture.md`.
 
-The `IClientStorage` interface implements this boundary for `clientId`, credential, and pairing
-recovery state (`sdk/dart/dovahlink_client/lib/src/persistence/client_storage.dart`); its Windows
-implementation, `DpapiClientStorage`, is the platform port this section describes, using DPAPI in
-the per-user scope `ai/context/protocol/security.md` requires and failing closed on corrupt or
-undecryptable state rather than substituting a plausible default.
+The `IClientStorage` interface implements this boundary for `clientId`, credential, pairing
+recovery state, and Known Host metadata
+(`sdk/dart/dovahlink_client/lib/src/persistence/client_storage.dart`); its Windows implementation,
+`DpapiClientStorage`, is the platform port this section describes, using DPAPI in the per-user scope
+`ai/context/protocol/security.md` requires and failing closed on corrupt or undecryptable state rather
+than substituting a plausible default.
 
 The standard SDK entry point does not expose or import Windows storage. Windows consumers import
 `dovahlink_client_windows.dart` for `DpapiClientStorage` and inject it through `IClientStorage`.
@@ -48,8 +59,13 @@ Persisted SDK formats are versioned. The SDK that owns a persistent format owns 
 official application must never need to understand or migrate the SDK's private persistence schema.
 
 `PersistedClientState.currentFormatVersion` is the concrete version field this section describes for
-`clientId`/credential/recovery state; `DpapiClientStorage` throws `DovahLinkStorageException` on an
-unrecognized version rather than guessing a migration, since no migration exists yet.
+SDK client state. Version 2 stores `knownHost` as a nested object containing `hostId`, `hostName`,
+and `endpoint`, or `null` when no Host is known. Version 1 contains `clientId`, `credential`, and
+`recoveryState` only; it migrates to v2 with those values preserved and `knownHost: null`. The SDK
+does not fabricate a Host from an endpoint, computer name, or discovery result. A legacy state is
+written as v2 on its next persistence mutation. Tests exercise the current SDK decoding legacy
+stored data; they do not run an older SDK binary. Unknown future versions and malformed v2 Host
+objects throw `DovahLinkStorageException`.
 
 ## Cache ownership
 
