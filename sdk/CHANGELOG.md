@@ -14,6 +14,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 ### Added
 
 - The SDK handshake result exposes the stable Host installation ID and current OS computer name.
+- The Dart SDK discovers the local loopback Host with an isolated unpaired handshake and returns its confirmed identity and endpoint.
 
 ### Changed
 
