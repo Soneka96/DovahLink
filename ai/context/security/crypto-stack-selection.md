@@ -53,10 +53,11 @@ areas were not promoted to concrete production selections after that gate failed
 | **Python `spake2`** | MIT-licensed pure Python package; older implementation. | Upstream explicitly says it is not constant-time and warns about timing measurement. | Not a practical embedded C# Host plus Flutter/Dart mobile boundary. | **Reject.** Timing and platform fit fail the gate. |
 | **SRP / OPAQUE / SPAKE2+** | Implementations exist in multiple ecosystems. | SRP is not a fit selected solely by familiarity; OPAQUE and SPAKE2+ are augmented PAKEs. | Cross-platform availability cannot override S1's balanced-PAKE requirement. | **Reject under the current S1 contract.** |
 
-The strongest current candidate is `pakery-spake2`, but its missing independent review leaves it
-unproven against the acceptance criterion stated above. Treating published RFC test-vector coverage
-as equivalent to an implementation security review would weaken that criterion. No custom PAKE
-arithmetic or wrapper around an unreviewed implementation was added. POC C was therefore not run.
+The strongest candidate assessed was `pakery-spake2` 0.3.1, but its missing independent review
+leaves it unproven against the acceptance criterion stated above. Treating published RFC
+test-vector coverage as equivalent to an implementation security review would weaken that
+criterion. No custom PAKE arithmetic or wrapper around an unreviewed implementation was added. POC C
+was therefore not run.
 
 ## Existing pairing attempt bound
 

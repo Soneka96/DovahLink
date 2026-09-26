@@ -11,6 +11,7 @@ Run from the repository root after restoring/building the spike:
 dotnet build tooling/security_feasibility/host_poc/host_poc.csproj --configuration Release
 Push-Location tooling/security_feasibility/client_poc
 try { dart pub get; dart analyze } finally { Pop-Location }
+pwsh -NoProfile -NonInteractive -File tooling/security_feasibility/run-host-poc.tests.ps1
 pwsh -NoProfile -NonInteractive -File tooling/security_feasibility/run-host-poc.ps1
 pwsh -NoProfile -NonInteractive -File tooling/security_feasibility/run-client-key-poc.ps1
 ```

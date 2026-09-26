@@ -7,6 +7,7 @@ $clientDirectory = Join-Path $PSScriptRoot 'client_poc'
 $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) ('dovahlink-s2-' + [guid]::NewGuid().ToString('N') + '.out')
 $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) ('dovahlink-s2-' + [guid]::NewGuid().ToString('N') + '.err')
 $hostProcess = $null
+$runFailed = $false
 
 try {
     $quotedHostDll = '"' + $hostDll + '"'
@@ -44,11 +45,24 @@ try {
         Pop-Location
     }
 }
+catch {
+    $runFailed = $true
+    throw
+}
 finally {
     if ($hostProcess -and -not $hostProcess.HasExited) {
         Stop-Process -Id $hostProcess.Id -Force
         $hostProcess.WaitForExit()
     }
-    & dotnet $hostDll "--key-name=$keyName" --delete-key
     Remove-Item -LiteralPath $stdoutPath, $stderrPath -Force -ErrorAction SilentlyContinue
+    & dotnet $hostDll "--key-name=$keyName" --delete-key
+    if ($LASTEXITCODE -ne 0) {
+        $cleanupError = "POC key cleanup for $keyName exited with code $LASTEXITCODE."
+        if ($runFailed) {
+            Write-Warning $cleanupError
+        }
+        else {
+            throw $cleanupError
+        }
+    }
 }
