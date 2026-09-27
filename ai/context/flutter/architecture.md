@@ -15,6 +15,8 @@ presentation -> domain
 - Imports may point from `presentation` to `domain`, and from `data` to `domain`.
 - Domain must not import `data`, `presentation`, Flutter, or transport implementations.
 - Presentation may consume domain interfaces and client-state outputs, but never construct infrastructure.
+- Redux middleware may call a registered SDK contract directly for a complete SDK-owned operation.
+  It remains orchestration and does not own protocol rules or application-domain decisions.
 - Domain dependencies are constructor-injected interfaces. Domain code never imports or resolves
   the `GetIt` container.
 
@@ -252,15 +254,15 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 Two call paths are valid, depending on who owns the behavior:
 
 ```text
-SDK/service-owned operation: Middleware -> Service / SDK boundary
+SDK-owned operation:          Middleware -> SDK contract
 App-owned domain behavior:   Middleware -> UseCase -> Repository -> Datasource
 ```
 
 Use a use case when the app owns a domain decision. Use a repository when the app coordinates
 multiple sources, persistence, cache, or domain aggregation. Use a datasource when the Flutter app
 owns external I/O. Do not add a UseCase, Repository, Datasource, Entity/Model pair, or other layer
-whose only responsibility is forwarding an SDK operation unchanged. A narrow app-facing boundary
-is appropriate when it shields app code from SDK details or maps SDK values into app-owned values.
+whose only responsibility is forwarding an SDK operation unchanged. Use the SDK's registered
+contract directly when it already owns the complete operation.
 
 ## Dependency injection
 
@@ -295,7 +297,9 @@ is appropriate when it shields app code from SDK details or maps SDK values into
   not wrapped in a use case.
 - Feature-specific orchestration stays in its owning feature; do not move it to `shared/utils/` to
   avoid choosing a feature boundary.
-- One-off I/O belongs in the owning feature datasource.
+- One-off external I/O owned by the Flutter app belongs in the owning feature datasource. An
+  SDK-owned operation with an adequate public contract may be called directly by its Redux
+  middleware; do not wrap it in a feature service or forwarding-only architecture chain.
 
 ## Application shutdown
 

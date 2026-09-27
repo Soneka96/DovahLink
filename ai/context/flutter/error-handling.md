@@ -8,7 +8,9 @@ never catches raw exceptions from transport, persistence, or `dart:io`.
 
 `Either` flows from datasource to repository to use case and stops at Redux middleware. Middleware
 folds the result into a plain success or failure action. Reducers, Redux state, and widgets never
-see an `Either`.
+see an `Either`. A complete SDK-owned operation may instead be called directly by middleware using
+its registered SDK contract; middleware carries its typed result or exception into a typed Redux
+action without converting it to user-facing text.
 
 All `Failure` subclasses live in `lib/shared/failures/failures.dart`. Add only the categories a
 real feature needs; do not create a speculative hierarchy.
@@ -31,7 +33,13 @@ not be treated as valid. Document the choice on the repository method.
 
 - User-visible error, disconnected, stale, and recovery states expose typed, user-safe status
   models or localized messages.
+- Widgets own selecting and rendering user-visible error copy. Middleware, datasources,
+  repositories, use cases, selectors, and ViewModels must carry typed failure information without
+  constructing, inspecting, or reformatting display text.
+- A widget may use a documented typed exception or failure category to choose safe copy. Do not
+  render diagnostic `.message` text directly; generic raw exceptions, stack traces, tokens, and
+  protocol payloads must never reach the UI.
 - Inline validation belongs in the native field error affordance.
 - Unexpected or blocking failures go through the approved logging/popup boundary once one exists.
 - Background failures that should not interrupt the user remain silent.
-- Never expose raw exceptions, stack traces, tokens, or protocol payloads to the UI.
+- Never expose generic raw exceptions, stack traces, tokens, or protocol payloads to the UI.
