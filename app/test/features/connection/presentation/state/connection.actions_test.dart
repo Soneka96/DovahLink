@@ -3,9 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
-
-import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkConnectionException;
+import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Exercises the values carried by connection discovery actions.
 void main() {
@@ -47,18 +45,17 @@ void main() {
   );
 
   group(
-    'Property error in ConnectionDiscoveryFailedAction behaves correctly',
+    'Property failure in ConnectionDiscoveryFailedAction behaves correctly',
     () {
       test(
-        'ConnectionDiscoveryFailedAction carries the original error object',
+        'ConnectionDiscoveryFailedAction carries the semantic failure reason',
         () {
-          const DovahLinkConnectionException exception =
-              DovahLinkConnectionException('diagnostic');
           const ConnectionDiscoveryFailedAction action =
-              ConnectionDiscoveryFailedAction(exception);
+              ConnectionDiscoveryFailedAction(
+                ConnectionFailureReason.hostUnavailable,
+              );
 
-          expect(action.error, isA<DovahLinkConnectionException>());
-          expect(action.error, exception);
+          expect(action.failure, ConnectionFailureReason.hostUnavailable);
         },
       );
     },

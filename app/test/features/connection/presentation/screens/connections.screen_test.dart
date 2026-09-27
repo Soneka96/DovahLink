@@ -93,7 +93,7 @@ void main() {
     when(
       () => viewModel.discoveryStatus,
     ).thenReturn(ConnectionDiscoveryStatus.idle);
-    when(() => viewModel.discoveryError).thenReturn(null);
+    when(() => viewModel.discoveryFailure).thenReturn(null);
     when(
       () => viewModel.onDiscover,
     ).thenReturn(() => discoveryCalls.add('discover'));

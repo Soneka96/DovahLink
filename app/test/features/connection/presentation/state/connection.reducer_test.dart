@@ -7,9 +7,6 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
-import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkConnectionException;
-
 /// Exercises connection reducer transitions.
 void main() {
   group('Action ConnectionHostSelectedAction behaves correctly', () {
@@ -105,7 +102,7 @@ void main() {
         final ConnectionState state = ConnectionState(
           hosts: [Fixtures.buildHost()],
           discoveryStatus: ConnectionDiscoveryStatus.failed,
-          discoveryError: const DovahLinkConnectionException('earlier'),
+          discoveryFailure: ConnectionFailureReason.hostUnavailable,
         );
 
         final ConnectionState result = connectionReducer(
@@ -115,7 +112,7 @@ void main() {
 
         expect(result.hosts, isEmpty);
         expect(result.discoveryStatus, ConnectionDiscoveryStatus.discovering);
-        expect(result.discoveryError, isNull);
+        expect(result.discoveryFailure, isNull);
       },
     );
   });
@@ -124,6 +121,10 @@ void main() {
     test(
       'ConnectionDiscoverySucceededAction stores every candidate in order',
       () {
+        const ConnectionState state = ConnectionState(
+          discoveryStatus: ConnectionDiscoveryStatus.failed,
+          discoveryFailure: ConnectionFailureReason.hostUnavailable,
+        );
         final List<Host> hosts = [
           Fixtures.buildHost(),
           Fixtures.buildHost(
@@ -133,13 +134,13 @@ void main() {
         ];
 
         final ConnectionState result = connectionReducer(
-          ConnectionState.initial(),
+          state,
           ConnectionDiscoverySucceededAction(hosts),
         );
 
         expect(result.hosts, hosts);
         expect(result.discoveryStatus, ConnectionDiscoveryStatus.available);
-        expect(result.discoveryError, isNull);
+        expect(result.discoveryFailure, isNull);
       },
     );
 
@@ -158,18 +159,27 @@ void main() {
   });
 
   group('Action ConnectionDiscoveryFailedAction behaves correctly', () {
-    test('ConnectionDiscoveryFailedAction preserves the SDK error object', () {
-      const DovahLinkConnectionException exception =
-          DovahLinkConnectionException('diagnostic');
-      final ConnectionState result = connectionReducer(
-        ConnectionState.initial(),
-        const ConnectionDiscoveryFailedAction(exception),
-      );
+    test(
+      'ConnectionDiscoveryFailedAction stores the semantic failure reason',
+      () {
+        final ConnectionState state = ConnectionState(
+          hosts: [Fixtures.buildHost()],
+          discoveryStatus: ConnectionDiscoveryStatus.available,
+        );
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionDiscoveryFailedAction(
+            ConnectionFailureReason.hostUnavailable,
+          ),
+        );
 
-      expect(result.hosts, isEmpty);
-      expect(result.discoveryStatus, ConnectionDiscoveryStatus.failed);
-      expect(result.discoveryError, isA<DovahLinkConnectionException>());
-      expect(result.discoveryError, exception);
-    });
+        expect(result.hosts, isEmpty);
+        expect(result.discoveryStatus, ConnectionDiscoveryStatus.failed);
+        expect(
+          result.discoveryFailure,
+          ConnectionFailureReason.hostUnavailable,
+        );
+      },
+    );
   });
 }

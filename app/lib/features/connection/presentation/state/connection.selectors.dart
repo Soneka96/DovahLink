@@ -15,9 +15,9 @@ abstract final class ConnectionSelectors {
   static ConnectionDiscoveryStatus discoveryStatusSelector(AppState state) =>
       state.connection.discoveryStatus;
 
-  /// Returns the latest discovery error for the presentation layer, or `null` when it did not fail.
-  static Object? discoveryErrorSelector(AppState state) =>
-      state.connection.discoveryError;
+  /// Returns the semantic reason the latest discovery operation failed, or `null` when it did not.
+  static ConnectionFailureReason? discoveryFailureSelector(AppState state) =>
+      state.connection.discoveryFailure;
 
   /// Returns the Host the user most recently selected, or `null` before any selection.
   static Host? selectedHostSelector(AppState state) =>

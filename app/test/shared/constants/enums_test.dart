@@ -2,6 +2,19 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show
+        DovahLinkCompatibilityException,
+        DovahLinkConnectionException,
+        DovahLinkProtocolException,
+        HostVersionCompatibilityFailure,
+        ProtocolErrorCode;
+
+class _UnknownErrorWithUnsafeToString implements Exception {
+  @override
+  String toString() => throw StateError('toString must not be called');
+}
+
 /// Exercises stable labels for every enum declared in `shared/constants/enums.dart`.
 void main() {
   group(
@@ -33,6 +46,71 @@ void main() {
         ]);
       },
     );
+  });
+
+  group('ConnectionFailureReason maps discovery errors', () {
+    test(
+      'ConnectionFailureReason maps SDK discovery exception types to app meanings',
+      () {
+        expect(
+          ConnectionFailureReason.fromDiscoveryError(
+            const DovahLinkConnectionException('unsupported version text'),
+          ),
+          ConnectionFailureReason.hostUnavailable,
+        );
+        expect(
+          ConnectionFailureReason.fromDiscoveryError(
+            const DovahLinkCompatibilityException(
+              hostVersion: 'unsupported',
+              supportedHostVersionRange: 'supported',
+              failure: HostVersionCompatibilityFailure.hostTooNew,
+            ),
+          ),
+          ConnectionFailureReason.incompatibleHost,
+        );
+        expect(
+          ConnectionFailureReason.fromDiscoveryError(
+            const DovahLinkProtocolException(
+              code: ProtocolErrorCode.malformedMessage,
+              message: 'connection refused text',
+              retryable: false,
+            ),
+          ),
+          ConnectionFailureReason.invalidResponse,
+        );
+      },
+    );
+
+    test(
+      'ConnectionFailureReason maps unknown errors without calling toString',
+      () {
+        expect(
+          ConnectionFailureReason.fromDiscoveryError(
+            _UnknownErrorWithUnsafeToString(),
+          ),
+          ConnectionFailureReason.unknown,
+        );
+      },
+    );
+
+    test('ConnectionFailureReason exposes centralized user-facing copy', () {
+      expect(
+        ConnectionFailureReason.hostUnavailable.message,
+        'Could not reach the local Host. Check that it is running and try again.',
+      );
+      expect(
+        ConnectionFailureReason.incompatibleHost.message,
+        'This local Host version is not compatible with the app.',
+      );
+      expect(
+        ConnectionFailureReason.invalidResponse.message,
+        'The local Host returned an invalid response. Try again.',
+      );
+      expect(
+        ConnectionFailureReason.unknown.message,
+        'Host discovery failed. Try again.',
+      );
+    });
   });
 
   group('Property label in PairingPhase behaves correctly', () {

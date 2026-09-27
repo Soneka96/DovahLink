@@ -22,7 +22,30 @@ void main() {
 
       expect(viewModel.hostCards, isEmpty);
       expect(viewModel.discoveryStatus, ConnectionDiscoveryStatus.idle);
-      expect(viewModel.discoveryError, isNull);
+      expect(viewModel.discoveryFailure, isNull);
+    });
+
+    test('fromStore projects the current discovery failure reason', () {
+      final Store<AppState> store = const CreateStore()(
+        initialState: AppState(
+          connection: ConnectionState(
+            hosts: [Fixtures.buildHost()],
+            discoveryStatus: ConnectionDiscoveryStatus.failed,
+            discoveryFailure: ConnectionFailureReason.invalidResponse,
+          ),
+          pairing: PairingState.initial(),
+        ),
+      );
+
+      final ConnectionsScreenViewModel viewModel =
+          ConnectionsScreenViewModel.fromStore(store);
+
+      expect(viewModel.discoveryStatus, ConnectionDiscoveryStatus.failed);
+      expect(
+        viewModel.discoveryFailure,
+        ConnectionFailureReason.invalidResponse,
+      );
+      expect(viewModel.hostCards, hasLength(1));
     });
 
     test(
@@ -94,14 +117,14 @@ void main() {
       final ConnectionsScreenViewModel first = ConnectionsScreenViewModel(
         hostCards: [Fixtures.buildHostCardViewData()],
         discoveryStatus: ConnectionDiscoveryStatus.idle,
-        discoveryError: null,
+        discoveryFailure: null,
         onDiscover: () {},
         onSelectHost: (Host host) {},
       );
       final ConnectionsScreenViewModel second = ConnectionsScreenViewModel(
         hostCards: [Fixtures.buildHostCardViewData(title: 'Other')],
         discoveryStatus: ConnectionDiscoveryStatus.idle,
-        discoveryError: null,
+        discoveryFailure: null,
         onDiscover: () {},
         onSelectHost: (Host host) {},
       );

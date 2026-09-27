@@ -8,12 +8,6 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 
-import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show
-        DovahLinkCompatibilityException,
-        DovahLinkConnectionException,
-        DovahLinkProtocolException;
-
 /// The connections screen's "My Skyrim PCs" section: a labelled gradient rule followed by one
 /// [DovahConnectionCard] per Host. It shows the supplied display data and reports which Host a
 /// card selects; it does not read state.
@@ -24,8 +18,8 @@ class ConnectionsHostSection extends StatelessWidget {
   /// The latest Host discovery operation's state.
   final ConnectionDiscoveryStatus discoveryStatus;
 
-  /// The latest typed discovery error, or `null` when it did not fail.
-  final Object? discoveryError;
+  /// The semantic reason the latest discovery operation failed, or `null` when it did not fail.
+  final ConnectionFailureReason? discoveryFailure;
 
   /// Called with the Host of the card the user taps.
   final void Function(Host host) onSelectHost;
@@ -34,7 +28,7 @@ class ConnectionsHostSection extends StatelessWidget {
   const ConnectionsHostSection({
     required this.cards,
     this.discoveryStatus = ConnectionDiscoveryStatus.idle,
-    this.discoveryError,
+    this.discoveryFailure,
     required this.onSelectHost,
     super.key,
   });
@@ -48,15 +42,8 @@ class ConnectionsHostSection extends StatelessWidget {
       ConnectionDiscoveryStatus.available => null,
       ConnectionDiscoveryStatus.discovering => 'Searching for Skyrim PCs…',
       ConnectionDiscoveryStatus.empty => 'No local Hosts found.',
-      ConnectionDiscoveryStatus.failed => switch (discoveryError) {
-        DovahLinkConnectionException _ =>
-          'Could not reach the local Host. Check that it is running and try again.',
-        DovahLinkProtocolException _ =>
-          'The local Host returned an invalid response. Try again.',
-        DovahLinkCompatibilityException _ =>
-          'This local Host version is not compatible with the app.',
-        _ => 'Host discovery failed. Try again.',
-      },
+      ConnectionDiscoveryStatus.failed =>
+        (discoveryFailure ?? ConnectionFailureReason.unknown).message,
     };
 
     return Column(

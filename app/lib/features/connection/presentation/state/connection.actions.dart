@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Records the Host the user selected to pair or connect with.
 class ConnectionHostSelectedAction extends Equatable {
@@ -38,15 +39,15 @@ class ConnectionDiscoverySucceededAction extends Equatable {
   List<Object?> get props => [hosts];
 }
 
-/// Carries the discovery error without processing its diagnostic text.
+/// Carries the app-owned meaning of a discovery failure.
 class ConnectionDiscoveryFailedAction extends Equatable {
-  /// The SDK error raised during discovery.
-  final Object error;
+  /// The semantic reason discovery failed.
+  final ConnectionFailureReason failure;
 
-  /// Creates a discovery-failure action with [error].
-  const ConnectionDiscoveryFailedAction(this.error);
+  /// Creates a discovery-failure action with [failure].
+  const ConnectionDiscoveryFailedAction(this.failure);
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [error];
+  List<Object?> get props => [failure];
 }

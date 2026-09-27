@@ -3,6 +3,7 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
@@ -48,8 +49,11 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
         ),
       );
     } on Object catch (error) {
-      final Object discoveryError = error;
-      store.dispatch(ConnectionDiscoveryFailedAction(discoveryError));
+      store.dispatch(
+        ConnectionDiscoveryFailedAction(
+          ConnectionFailureReason.fromDiscoveryError(error),
+        ),
+      );
     }
   }
 }

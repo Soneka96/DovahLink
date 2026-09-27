@@ -17,8 +17,8 @@ class ConnectionsScreenViewModel extends Equatable {
   /// The latest Host discovery operation's state.
   final ConnectionDiscoveryStatus discoveryStatus;
 
-  /// The latest discovery error, or `null` when discovery did not fail.
-  final Object? discoveryError;
+  /// The semantic reason the latest discovery operation failed, or `null` when it did not fail.
+  final ConnectionFailureReason? discoveryFailure;
 
   /// Called when the user requests Host discovery.
   final void Function() onDiscover;
@@ -30,7 +30,7 @@ class ConnectionsScreenViewModel extends Equatable {
   const ConnectionsScreenViewModel({
     required this.hostCards,
     required this.discoveryStatus,
-    required this.discoveryError,
+    required this.discoveryFailure,
     required this.onDiscover,
     required this.onSelectHost,
   });
@@ -41,7 +41,7 @@ class ConnectionsScreenViewModel extends Equatable {
     return ConnectionsScreenViewModel(
       hostCards: ConnectionSelectors.hostCardsSelector(state),
       discoveryStatus: ConnectionSelectors.discoveryStatusSelector(state),
-      discoveryError: ConnectionSelectors.discoveryErrorSelector(state),
+      discoveryFailure: ConnectionSelectors.discoveryFailureSelector(state),
       onDiscover: () =>
           store.dispatch(const ConnectionDiscoveryRequestedAction()),
       onSelectHost: (Host host) =>
@@ -51,5 +51,5 @@ class ConnectionsScreenViewModel extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [hostCards, discoveryStatus, discoveryError];
+  List<Object?> get props => [hostCards, discoveryStatus, discoveryFailure];
 }

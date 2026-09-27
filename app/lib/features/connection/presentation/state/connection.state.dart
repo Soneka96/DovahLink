@@ -18,15 +18,15 @@ class ConnectionState extends Equatable {
   /// The latest discovery operation's state.
   final ConnectionDiscoveryStatus discoveryStatus;
 
-  /// The latest discovery error, or `null` when discovery did not fail.
-  final Object? discoveryError;
+  /// The semantic reason the latest discovery operation failed, or `null` when it did not fail.
+  final ConnectionFailureReason? discoveryFailure;
 
   /// Creates connection state with an explicit Host list and an optional selected Host.
   const ConnectionState({
     this.hosts = const <Host>[],
     this.selectedHost,
     this.discoveryStatus = ConnectionDiscoveryStatus.idle,
-    this.discoveryError,
+    this.discoveryFailure,
   });
 
   /// Returns the initial connection state before Host discovery or selection.
@@ -38,16 +38,16 @@ class ConnectionState extends Equatable {
     List<Host>? hosts,
     Option<Host>? selectedHost,
     ConnectionDiscoveryStatus? discoveryStatus,
-    Option<Object>? discoveryError,
+    Option<ConnectionFailureReason>? discoveryFailure,
   }) => ConnectionState(
     hosts: hosts ?? this.hosts,
     selectedHost: selectedHost == null
         ? this.selectedHost
         : selectedHost.toNullable(),
     discoveryStatus: discoveryStatus ?? this.discoveryStatus,
-    discoveryError: discoveryError == null
-        ? this.discoveryError
-        : discoveryError.toNullable(),
+    discoveryFailure: discoveryFailure == null
+        ? this.discoveryFailure
+        : discoveryFailure.toNullable(),
   );
 
   /// See [Equatable.props].
@@ -56,6 +56,6 @@ class ConnectionState extends Equatable {
     hosts,
     selectedHost,
     discoveryStatus,
-    discoveryError,
+    discoveryFailure,
   ];
 }

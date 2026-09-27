@@ -9,6 +9,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import '../../../../fixtures/fixtures.dart';
 
@@ -112,7 +113,7 @@ void main() {
       );
 
       test(
-        'ConnectionDiscoveryRequestedAction dispatches a typed exception after connection failure',
+        'ConnectionDiscoveryRequestedAction maps connection failure to hostUnavailable',
         () async {
           const DovahLinkConnectionException exception =
               DovahLinkConnectionException('diagnostic');
@@ -133,14 +134,16 @@ void main() {
 
           expect(actions, [
             action,
-            const ConnectionDiscoveryFailedAction(exception),
+            const ConnectionDiscoveryFailedAction(
+              ConnectionFailureReason.hostUnavailable,
+            ),
           ]);
           verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
         },
       );
 
       test(
-        'ConnectionDiscoveryRequestedAction dispatches a typed exception after protocol failure',
+        'ConnectionDiscoveryRequestedAction maps protocol failure to invalidResponse',
         () async {
           const DovahLinkProtocolException exception =
               DovahLinkProtocolException(
@@ -165,14 +168,16 @@ void main() {
 
           expect(actions, [
             action,
-            const ConnectionDiscoveryFailedAction(exception),
+            const ConnectionDiscoveryFailedAction(
+              ConnectionFailureReason.invalidResponse,
+            ),
           ]);
           verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
         },
       );
 
       test(
-        'ConnectionDiscoveryRequestedAction dispatches a typed exception after compatibility failure',
+        'ConnectionDiscoveryRequestedAction maps compatibility failure to incompatibleHost',
         () async {
           const DovahLinkCompatibilityException exception =
               DovahLinkCompatibilityException(
@@ -197,14 +202,16 @@ void main() {
 
           expect(actions, [
             action,
-            const ConnectionDiscoveryFailedAction(exception),
+            const ConnectionDiscoveryFailedAction(
+              ConnectionFailureReason.incompatibleHost,
+            ),
           ]);
           verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
         },
       );
 
       test(
-        'ConnectionDiscoveryRequestedAction dispatches unexpected errors unchanged',
+        'ConnectionDiscoveryRequestedAction maps unexpected errors to unknown',
         () async {
           final StateError error = StateError('diagnostic');
           when(() => mockDiscoveryService.discoverLocalHost()).thenThrow(error);
@@ -220,7 +227,12 @@ void main() {
           middleware.call(store, action, actions.add);
           await resultDispatched.future.timeout(const Duration(seconds: 1));
 
-          expect(actions, [action, ConnectionDiscoveryFailedAction(error)]);
+          expect(actions, [
+            action,
+            const ConnectionDiscoveryFailedAction(
+              ConnectionFailureReason.unknown,
+            ),
+          ]);
           verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
         },
       );

@@ -14,6 +14,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 ### Added
 
 - The Connections screen can discover the local Host on demand and shows searching, empty, and failure feedback.
+- Discovery failures use app-owned semantic reasons and one presentation mapping for safe user-facing copy.
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
 - Connection cards rise and take the raised material when hovered, and wear each theme's
   decoration: Frostbound's fracture lines and available edge, Dovah's ember-to-ice link line, and

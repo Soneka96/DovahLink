@@ -38,7 +38,7 @@ ConnectionState connectionDiscoveryRequestedReducer(
 ) => state.copyWith(
   hosts: const <Host>[],
   discoveryStatus: ConnectionDiscoveryStatus.discovering,
-  discoveryError: const None(),
+  discoveryFailure: const None(),
 );
 
 /// Handles [ConnectionDiscoverySucceededAction].
@@ -51,16 +51,16 @@ ConnectionState connectionDiscoverySucceededReducer(
   discoveryStatus: action.hosts.isEmpty
       ? ConnectionDiscoveryStatus.empty
       : ConnectionDiscoveryStatus.available,
-  discoveryError: const None(),
+  discoveryFailure: const None(),
 );
 
 /// Handles [ConnectionDiscoveryFailedAction].
-/// Clears candidates and preserves the error for widget presentation.
+/// Clears candidates and preserves the semantic failure reason for presentation.
 ConnectionState connectionDiscoveryFailedReducer(
   ConnectionState state,
   ConnectionDiscoveryFailedAction action,
 ) => state.copyWith(
   hosts: const <Host>[],
   discoveryStatus: ConnectionDiscoveryStatus.failed,
-  discoveryError: Some(action.error),
+  discoveryFailure: Some(action.failure),
 );

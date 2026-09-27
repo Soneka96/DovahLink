@@ -84,7 +84,7 @@ class ConnectionsScreen extends StatelessWidget {
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
                                   discoveryStatus: viewModel.discoveryStatus,
-                                  discoveryError: viewModel.discoveryError,
+                                  discoveryFailure: viewModel.discoveryFailure,
                                   onSelectHost: (Host host) {
                                     viewModel.onSelectHost(host);
                                     PairingDialog.show(context);

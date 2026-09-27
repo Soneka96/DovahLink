@@ -14,14 +14,6 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widg
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
-import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show
-        DovahLinkCompatibilityException,
-        DovahLinkConnectionException,
-        DovahLinkProtocolException,
-        HostVersionCompatibilityFailure,
-        ProtocolErrorCode;
-
 /// Exercises [ConnectionsHostSection] across every DovahLink theme, both test sizes, empty and
 /// long-name inputs, and selection.
 void main() {
@@ -342,6 +334,28 @@ void main() {
   });
 
   group('ConnectionsHostSection presents discovery status', () {
+    testWidgets(
+      'ConnectionsHostSection shows the candidate without status feedback when available',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          ConnectionsHostSection(
+            cards: [Fixtures.buildHostCardViewData()],
+            discoveryStatus: ConnectionDiscoveryStatus.available,
+            onSelectHost: ignoreHost,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(find.byType(DovahConnectionCard), findsOneWidget);
+        expect(
+          find.byKey(const Key('connection-discovery-status')),
+          findsNothing,
+        );
+      },
+    );
+
     testWidgets('ConnectionsHostSection announces active discovery', (
       WidgetTester tester,
     ) async {
@@ -390,14 +404,14 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsHostSection maps a connection exception without exposing diagnostic text',
+      'ConnectionsHostSection displays centralized hostUnavailable copy',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
           const ConnectionsHostSection(
             cards: <HostCardViewData>[],
             discoveryStatus: ConnectionDiscoveryStatus.failed,
-            discoveryError: DovahLinkConnectionException('private diagnostic'),
+            discoveryFailure: ConnectionFailureReason.hostUnavailable,
             onSelectHost: ignoreHost,
           ),
           preset: DovahThemePreset.dovah,
@@ -410,23 +424,18 @@ void main() {
           ),
           findsOneWidget,
         );
-        expect(find.text('private diagnostic'), findsNothing);
       },
     );
 
     testWidgets(
-      'ConnectionsHostSection maps protocol exceptions to safe feedback',
+      'ConnectionsHostSection displays centralized invalidResponse copy',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
           const ConnectionsHostSection(
             cards: <HostCardViewData>[],
             discoveryStatus: ConnectionDiscoveryStatus.failed,
-            discoveryError: DovahLinkProtocolException(
-              code: ProtocolErrorCode.malformedMessage,
-              message: 'private diagnostic',
-              retryable: false,
-            ),
+            discoveryFailure: ConnectionFailureReason.invalidResponse,
             onSelectHost: ignoreHost,
           ),
           preset: DovahThemePreset.dovah,
@@ -437,23 +446,18 @@ void main() {
           find.text('The local Host returned an invalid response. Try again.'),
           findsOneWidget,
         );
-        expect(find.text('private diagnostic'), findsNothing);
       },
     );
 
     testWidgets(
-      'ConnectionsHostSection maps compatibility exceptions to safe feedback',
+      'ConnectionsHostSection displays centralized incompatibleHost copy',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
           const ConnectionsHostSection(
             cards: <HostCardViewData>[],
             discoveryStatus: ConnectionDiscoveryStatus.failed,
-            discoveryError: DovahLinkCompatibilityException(
-              hostVersion: 'unsupported',
-              supportedHostVersionRange: 'supported',
-              failure: HostVersionCompatibilityFailure.hostTooNew,
-            ),
+            discoveryFailure: ConnectionFailureReason.incompatibleHost,
             onSelectHost: ignoreHost,
           ),
           preset: DovahThemePreset.dovah,
@@ -467,25 +471,22 @@ void main() {
       },
     );
 
-    testWidgets(
-      'ConnectionsHostSection uses generic feedback for unexpected errors',
-      (WidgetTester tester) async {
-        await pumpDovahThemedWidget(
-          tester,
-          ConnectionsHostSection(
-            cards: const <HostCardViewData>[],
-            discoveryStatus: ConnectionDiscoveryStatus.failed,
-            discoveryError: StateError('private diagnostic'),
-            onSelectHost: ignoreHost,
-          ),
-          preset: DovahThemePreset.dovah,
-          size: dovahTestSizes.first,
-        );
+    testWidgets('ConnectionsHostSection displays centralized unknown copy', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const ConnectionsHostSection(
+          cards: <HostCardViewData>[],
+          discoveryStatus: ConnectionDiscoveryStatus.failed,
+          onSelectHost: ignoreHost,
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
 
-        expect(find.text('Host discovery failed. Try again.'), findsOneWidget);
-        expect(find.text('private diagnostic'), findsNothing);
-      },
-    );
+      expect(find.text('Host discovery failed. Try again.'), findsOneWidget);
+    });
   });
 }
 

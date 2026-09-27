@@ -6,9 +6,6 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
-import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkConnectionException;
-
 /// Exercises connection-state initialization and copying.
 void main() {
   group('ConnectionState — initial', () {
@@ -102,26 +99,35 @@ void main() {
 
       expect(result.discoveryStatus, ConnectionDiscoveryStatus.discovering);
     });
+
+    test('ConnectionState copyWith preserves discovery state when omitted', () {
+      const ConnectionState state = ConnectionState(
+        discoveryStatus: ConnectionDiscoveryStatus.failed,
+        discoveryFailure: ConnectionFailureReason.incompatibleHost,
+      );
+
+      final ConnectionState result = state.copyWith();
+
+      expect(result.discoveryStatus, ConnectionDiscoveryStatus.failed);
+      expect(result.discoveryFailure, ConnectionFailureReason.incompatibleHost);
+    });
   });
 
-  group('Property discoveryError in ConnectionState behaves correctly', () {
-    test('ConnectionState has no discovery error before a failure occurs', () {
-      expect(ConnectionState.initial().discoveryError, isNull);
+  group('Property discoveryFailure in ConnectionState behaves correctly', () {
+    test('ConnectionState has no failure reason before a failure occurs', () {
+      expect(ConnectionState.initial().discoveryFailure, isNull);
     });
 
-    test('ConnectionState copyWith sets and clears the discovery error', () {
-      const DovahLinkConnectionException exception =
-          DovahLinkConnectionException('diagnostic');
+    test('ConnectionState copyWith sets and clears the semantic failure', () {
       final ConnectionState failed = ConnectionState.initial().copyWith(
-        discoveryError: const Some(exception),
+        discoveryFailure: const Some(ConnectionFailureReason.hostUnavailable),
       );
       final ConnectionState cleared = failed.copyWith(
-        discoveryError: const None(),
+        discoveryFailure: const None(),
       );
 
-      expect(failed.discoveryError, isA<DovahLinkConnectionException>());
-      expect(failed.discoveryError, exception);
-      expect(cleared.discoveryError, isNull);
+      expect(failed.discoveryFailure, ConnectionFailureReason.hostUnavailable);
+      expect(cleared.discoveryFailure, isNull);
     });
   });
 }
