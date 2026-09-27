@@ -20,6 +20,21 @@ void main() {
     },
   );
 
+  group('Behavior values in ConnectionDiscoveryStatus behave correctly', () {
+    test(
+      'ConnectionDiscoveryStatus values include every discovery result state',
+      () {
+        expect(ConnectionDiscoveryStatus.values, [
+          ConnectionDiscoveryStatus.idle,
+          ConnectionDiscoveryStatus.discovering,
+          ConnectionDiscoveryStatus.available,
+          ConnectionDiscoveryStatus.empty,
+          ConnectionDiscoveryStatus.failed,
+        ]);
+      },
+    );
+  });
+
   group('Property label in PairingPhase behaves correctly', () {
     test(
       'Property label in PairingPhase returns the concise label for every phase',

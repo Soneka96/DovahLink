@@ -3,7 +3,11 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
+
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show DovahLinkConnectionException;
 
 /// Exercises connection-state initialization and copying.
 void main() {
@@ -79,6 +83,44 @@ void main() {
       );
 
       expect(selected, isNot(unselected));
+    });
+  });
+
+  group('Property discoveryStatus in ConnectionState behaves correctly', () {
+    test('ConnectionState starts discovery in idle state', () {
+      expect(
+        ConnectionState.initial().discoveryStatus,
+        ConnectionDiscoveryStatus.idle,
+      );
+    });
+
+    test('ConnectionState copyWith replaces discovery status', () {
+      final ConnectionState result = ConnectionState.initial().copyWith(
+        discoveryStatus: ConnectionDiscoveryStatus.discovering,
+      );
+
+      expect(result.discoveryStatus, ConnectionDiscoveryStatus.discovering);
+    });
+  });
+
+  group('Property discoveryError in ConnectionState behaves correctly', () {
+    test('ConnectionState has no discovery error before a failure occurs', () {
+      expect(ConnectionState.initial().discoveryError, isNull);
+    });
+
+    test('ConnectionState copyWith sets and clears the discovery error', () {
+      const DovahLinkConnectionException exception =
+          DovahLinkConnectionException('diagnostic');
+      final ConnectionState failed = ConnectionState.initial().copyWith(
+        discoveryError: const Some(exception),
+      );
+      final ConnectionState cleared = failed.copyWith(
+        discoveryError: const None(),
+      );
+
+      expect(failed.discoveryError, isA<DovahLinkConnectionException>());
+      expect(failed.discoveryError, exception);
+      expect(cleared.discoveryError, isNull);
     });
   });
 }

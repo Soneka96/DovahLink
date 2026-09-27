@@ -14,3 +14,39 @@ class ConnectionHostSelectedAction extends Equatable {
   @override
   List<Object?> get props => [host];
 }
+
+/// Requests a fresh Host discovery operation.
+class ConnectionDiscoveryRequestedAction extends Equatable {
+  /// Creates a discovery request action.
+  const ConnectionDiscoveryRequestedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
+/// Carries every Host candidate returned by discovery.
+class ConnectionDiscoverySucceededAction extends Equatable {
+  /// The candidates returned by discovery.
+  final List<Host> hosts;
+
+  /// Creates a discovery-success action with [hosts].
+  const ConnectionDiscoverySucceededAction(this.hosts);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hosts];
+}
+
+/// Carries the discovery error without processing its diagnostic text.
+class ConnectionDiscoveryFailedAction extends Equatable {
+  /// The SDK error raised during discovery.
+  final Object error;
+
+  /// Creates a discovery-failure action with [error].
+  const ConnectionDiscoveryFailedAction(this.error);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [error];
+}

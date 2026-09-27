@@ -85,6 +85,24 @@ enum PairingConnectionStatus {
   invalidated,
 }
 
+/// The state of the latest Host discovery operation.
+enum ConnectionDiscoveryStatus {
+  /// Discovery has not been requested during this app session.
+  idle,
+
+  /// A discovery request is in progress.
+  discovering,
+
+  /// Discovery completed with one or more candidates.
+  available,
+
+  /// Discovery completed without candidates.
+  empty,
+
+  /// Discovery failed with a typed SDK exception.
+  failed,
+}
+
 /// One of DovahLink's three visual themes. Every value fully determines a concrete theme.
 enum DovahThemePreset {
   /// Cold, severe, and compact: fractured stone and scratched iron.

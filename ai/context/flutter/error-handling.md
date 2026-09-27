@@ -36,9 +36,9 @@ not be treated as valid. Document the choice on the repository method.
 - Widgets own selecting and rendering user-visible error copy. Middleware, datasources,
   repositories, use cases, selectors, and ViewModels must carry typed failure information without
   constructing, inspecting, or reformatting display text.
-- A widget may use a documented typed exception or failure category to choose safe copy. Do not
-  render diagnostic `.message` text directly; generic raw exceptions, stack traces, tokens, and
-  protocol payloads must never reach the UI.
+- Middleware may pass the original typed error object through Redux without reading its message. A
+  widget may use its type to choose safe copy, with a generic fallback for unknown types; never
+  display diagnostic `.message`/`toString()` text, stack traces, tokens, or protocol payloads.
 - Inline validation belongs in the native field error affordance.
 - Unexpected or blocking failures go through the approved logging/popup boundary once one exists.
 - Background failures that should not interrupt the user remain silent.

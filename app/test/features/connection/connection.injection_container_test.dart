@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/connection.injection_container.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/injection_container.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
@@ -24,6 +25,7 @@ void main() {
         sl<IDovahLinkDiscoveryService>(),
         isA<DovahLinkDiscoveryService>(),
       );
+      expect(sl<IConnectionMiddleware>(), isA<ConnectionMiddleware>());
     });
   });
 }

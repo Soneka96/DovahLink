@@ -1,13 +1,24 @@
 import 'package:fpdart/fpdart.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Reduces connection actions into [ConnectionState].
 Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
   TypedReducer<ConnectionState, ConnectionHostSelectedAction>(
     connectionHostSelectedReducer,
+  ).call,
+  TypedReducer<ConnectionState, ConnectionDiscoveryRequestedAction>(
+    connectionDiscoveryRequestedReducer,
+  ).call,
+  TypedReducer<ConnectionState, ConnectionDiscoverySucceededAction>(
+    connectionDiscoverySucceededReducer,
+  ).call,
+  TypedReducer<ConnectionState, ConnectionDiscoveryFailedAction>(
+    connectionDiscoveryFailedReducer,
   ).call,
 ]);
 
@@ -18,3 +29,38 @@ ConnectionState connectionHostSelectedReducer(
   ConnectionState state,
   ConnectionHostSelectedAction action,
 ) => state.copyWith(selectedHost: Some(action.host));
+
+/// Handles [ConnectionDiscoveryRequestedAction].
+/// Clears prior candidates and records that discovery is in progress.
+ConnectionState connectionDiscoveryRequestedReducer(
+  ConnectionState state,
+  ConnectionDiscoveryRequestedAction action,
+) => state.copyWith(
+  hosts: const <Host>[],
+  discoveryStatus: ConnectionDiscoveryStatus.discovering,
+  discoveryError: const None(),
+);
+
+/// Handles [ConnectionDiscoverySucceededAction].
+/// Stores all candidates and distinguishes available from empty results.
+ConnectionState connectionDiscoverySucceededReducer(
+  ConnectionState state,
+  ConnectionDiscoverySucceededAction action,
+) => state.copyWith(
+  hosts: action.hosts,
+  discoveryStatus: action.hosts.isEmpty
+      ? ConnectionDiscoveryStatus.empty
+      : ConnectionDiscoveryStatus.available,
+  discoveryError: const None(),
+);
+
+/// Handles [ConnectionDiscoveryFailedAction].
+/// Clears candidates and preserves the error for widget presentation.
+ConnectionState connectionDiscoveryFailedReducer(
+  ConnectionState state,
+  ConnectionDiscoveryFailedAction action,
+) => state.copyWith(
+  hosts: const <Host>[],
+  discoveryStatus: ConnectionDiscoveryStatus.failed,
+  discoveryError: Some(action.error),
+);
