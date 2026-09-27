@@ -1,15 +1,28 @@
 # Identity and transport security architecture
 
-**Status:** S1 target architecture contract. This document is authoritative for the future security migration. It does not describe behavior already implemented. Until later migration PRs land, current behavior remains defined by `protocol/schema/README.md`, `ai/context/protocol/security.md`, and the current SDK/Host implementation.
+**Status:** S1 architecture contract with an unresolved initial-pairing gate. S2.2 reassessed the
+Pasini–Vaudenay SAS-AKE construction, current Shortcake upstream, DovahLink's Host lifecycle, and
+platform integration evidence. **S2.2 STOP — no production initial-pairing profile is selected and
+S3 remains blocked.** The paper's commitment can be implemented faithfully in an isolated POC, but
+Shortcake still omits its independent randomness; no proof justifies the proposed post-SAS identity,
+transcript-MAC, and Client-PoP composition; the P-256 library change remains an open PR; retry
+analysis lacks an accepted lifetime bound; and no canonical bytes, vectors, or demonstrated target
+platform builds exist. This STOP applies to initial pairing; it does not reopen the separately
+selected normal reconnect architecture of application-level fresh ECDSA P-256 proof-of-possession.
+Its exact S7 protocol remains future work. This document does not describe behavior already
+implemented. Until later migration PRs land, current behavior remains defined by
+`protocol/schema/README.md`, `ai/context/protocol/security.md`, and the current SDK/Host
+implementation. Sections below that describe cryptographic migration behavior remain proposals
+only where they are not supported by a completed security gate.
 
-The Host/client security migration must follow this contract. The selected cryptographic algorithms and libraries are not implementation details to guess later; S2 below is a required feasibility and selection gate.
+The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.2 is the current feasibility and selection gate; it ended in STOP, so do not implement S3 or infer a protocol from this document's candidate descriptions.
 
 ## 1. Goals
 
 - Give each DovahLink Host and Client a stable logical installation identity and a separate persistent cryptographic identity.
 - Authenticate and encrypt connections with standard TLS 1.3 over WebSocket (`WSS`), using Host-key pinning rather than public certificate authorities.
 - Use client proof-of-possession instead of a reusable bearer credential for trusted reconnects.
-- Make pairing the user-authorized establishment of a Host-key ↔ Client-key relationship, including a balanced PAKE bootstrap for the first connection.
+- Make pairing the user-authorized establishment of a Host-key ↔ Client-key relationship through an initial-pairing construction that passes the security gate. The construction is unresolved; balanced PAKE is no longer a mandatory selection.
 - Make client persistence support zero or more Known Hosts without confusing local knowledge with the Host's live trust decision.
 - Preserve distinct Host-authoritative trusted, revoked, blocked, and unknown outcomes.
 
@@ -27,7 +40,7 @@ LAN/mDNS discovery, Host selection UI, automatic Host ranking or failover, alias
 - **KnownDevice** is a Host-side record associating a Client identity with a public key and Host-authoritative trust state.
 - **Candidate** is an endpoint suggested by discovery or manual input. A candidate has no trust by itself.
 - **Provisional TLS** is encrypted TLS used only for initial pairing before the client has a pinned Host key. It does not authenticate the Host to the client and cannot carry ordinary trusted traffic.
-- **Balanced PAKE** is a reviewed password-authenticated key exchange for two parties that both know the same short-lived pairing secret. It is the mandatory initial trust-bootstrap primitive; its algorithm and implementation are selected in S2.
+- **Initial-pairing construction** is the cryptographic protocol that first binds a Host and Client identity. S2.1 selected no construction; S2.2 also ended without selecting one. Balanced PAKE was the S1 proposal and is not an implementation authorization or an active mandatory primitive.
 
 ## 4. Current implementation and target architecture
 
@@ -38,7 +51,7 @@ LAN/mDNS discovery, Host selection UI, automatic Host ranking or failover, alias
 | Endpoint | Routing information, separate from Host identity. | Routing information only; never a trust anchor. |
 | Client Host persistence | One optional `PersistedClientState.knownHost`. | `knownHosts`, keyed by `hostId`, with an independent pin and endpoint per Host. |
 | Trusted reconnect | `hello.auth` sends a persisted bearer `trusted_device_credential`. | TLS Host verification and Client proof-of-possession; no reusable bearer secret. |
-| Pairing | Six-digit code eventually issues a reusable credential. | Six-digit code is a temporary shared PAKE secret that establishes the public-key binding. |
+| Pairing | Six-digit code eventually issues a reusable credential. | Cryptographic construction unresolved after S2.2 STOP. No SAS-AKE profile was selected; do not treat the six-digit Committed-SAS candidate as a PAKE secret, a trust token, or an implemented profile. |
 | Transport | Current loopback WebSocket behavior is defined by `ai/context/protocol/security.md`. | WSS/TLS 1.3, pinned Host identity, and mutual cryptographic authentication for trusted clients. |
 
 The current wire schema remains current until the migration changes it. Do not edit `protocol/schema/README.md` or fixtures to describe target messages as implemented during S1.
@@ -55,7 +68,7 @@ It survives Skyrim, Host, and Windows restarts, machine rename, and endpoint/IP/
 
 ### Cryptographic identity
 
-The Host owns a persistent asymmetric key pair. Its private key never leaves the Host. The corresponding public key, presented by the TLS certificate or an equivalent standard representation, is the cryptographic Host identity. A client's KnownHost binds that identity to `hostId` only after successful initial pairing or authorized key rotation.
+The Host owns a persistent asymmetric key pair. Its private key never leaves the Host. The canonical public identity representation is DER-encoded SubjectPublicKeyInfo (SPKI); its fingerprint is `SHA-256(SPKI DER)` encoded as unpadded base64url. S2.1 separately selected this representation, independently of its initial-pairing STOP. A client's KnownHost can bind this identity to `hostId` only after a future passing pairing profile or authorized key rotation; this selection does not authorize production pinning behavior.
 
 `hostId` and Host public key are deliberately separate. The ID names the logical installation; the key proves cryptographic control of it.
 
@@ -63,7 +76,7 @@ The Host owns a persistent asymmetric key pair. Its private key never leaves the
 
 `clientId` is the stable logical identity of one companion installation and persists across reconnects. `clientName` is presentation metadata resolved later in this order: user override, OS device name, then `This device`.
 
-The Client owns a persistent asymmetric key pair, and its private key never leaves the Client. The Host binds the Client public identity to `clientId` in its KnownDevice record. `clientId` names the logical installation; proof of the corresponding private key establishes possession of that identity.
+The Client owns a persistent asymmetric key pair, and its private key never leaves the Client. The canonical public identity representation is DER SPKI and its fingerprint is `SHA-256(SPKI DER)` encoded as unpadded base64url, as selected independently of the unresolved pairing protocol. The Host may bind the Client public identity to `clientId` in its KnownDevice record only after proof of possession and authorized pairing; this selection does not implement that binding. `clientId` names the logical installation; proof of the corresponding private key establishes possession of that identity.
 
 ## 7. Endpoint semantics and discovery
 
@@ -74,7 +87,7 @@ Discovery remains untrusted candidate discovery. Loopback is current; LAN, mDNS,
 ```text
 discovery candidate
     → secure connection
-    → cryptographic Host verification or explicit initial PAKE pairing
+    → cryptographic Host verification or an initial-pairing construction that passes the security gate
     → KnownHost lookup/update
 ```
 
@@ -100,31 +113,13 @@ The same Client identity and key may pair independently with Hosts AAA, BBB, and
 
 A KnownHost means “this Client previously established a relationship with this Host identity.” It does not mean that Host currently trusts the Client. Do not persist `trusted`, `connected`, `offline`, `blocked`, or `revoked` as authoritative facts. Only the Host supplies current trust status.
 
-### Transitional bearer ownership in S5
+### Legacy bearer state
 
-S5 may introduce the `knownHosts` collection before bearer credentials are removed, but it does not activate multi-Host trusted authentication. Until S9 cutover, the existing bearer trust relationship remains associated with exactly one Host. Migration from the singleton state is conceptually:
-
-```text
-OLD:
-  knownHost = AAA
-  credential = credential-A
-
-TRANSITIONAL:
-  knownHosts:
-    AAA
-  legacy bearer binding:
-    hostId = AAA
-    credential = credential-A
-
-FINAL:
-  knownHosts:
-    AAA
-    BBB
-    CCC
-  bearer credentials: none
-```
-
-The transitional binding may use another repository-consistent representation, but it must explicitly associate the old credential with AAA. A multi-Host store must never contain one global bearer credential with an unknown owner. Other KnownHost entries cannot authenticate through that legacy credential. S9 handles existing development trust data by an approved migration or deliberate invalidation and re-pairing policy; S10 removes the transitional binding with the bearer path.
+The S1 plan for a transitional singleton bearer binding was superseded by the maintainer's S2.1
+legacy rule. Do not add a singleton bearer migration service, dual-authentication mode, bearer
+fallback, or compatibility negotiation. Existing bearer/PIN state is unreleased development state;
+a later authorized cutover may invalidate it and require re-pairing. The current production baseline
+remains unchanged while S2.2 is STOP.
 
 There may be at most one active/persisted pairing recovery operation per Client installation. It must record its owning `hostId`; a pairing operation or recovery for AAA must never resume against BBB. Multiple concurrent pairing operations are not required.
 
@@ -140,9 +135,9 @@ The Host's trusted, revoked, blocked, and unrecognized (unknown) outcomes remain
 
 ### Trusted connections
 
-The target public transport is WSS over TLS 1.3, implemented with maintained platform TLS libraries. Hosts use a self-generated certificate/key; the design does not require public CA certificates. A KnownHost pins the Host public-key identity (for example, an SPKI fingerprint) associated with its `hostId`; endpoint and `hostName` do not participate in verification.
+The target public transport is WSS over TLS 1.3, implemented with maintained platform TLS libraries. Hosts use a self-generated certificate/key; the design does not require public CA certificates. The independently selected public identity representation is DER SPKI, fingerprinted as `SHA-256(SPKI DER)` in unpadded base64url. A KnownHost may pin that Host identity only after a future passing pairing profile binds it to `hostId`; endpoint and `hostName` do not participate in verification. The representation selection alone does not authorize production pin validation.
 
-Trusted reconnect uses certificate-based client authentication as well as Host-key pinning. The Client verifies the pinned Host key during the TLS handshake before sending DovahLink application data. The Host verifies proof of possession of the Client key and maps its public identity plus `clientId` to a KnownDevice. A syntactically valid but unrecognized Client certificate may be admitted only into the restricted initial-pairing path; it is not trusted merely because TLS completed.
+The old S1 certificate-based Client-authentication direction is superseded. The selected DovahLink v1 normal reconnect architecture is application-level Client proof-of-possession: establish TLS 1.3, verify the pinned Host identity, receive a fresh cryptographically random authentication challenge generated by the Host, sign a domain-separated transcript with the Client's persistent non-exportable ECDSA P-256 identity key, verify against the KnownDevice public key, consume the challenge, then apply Trusted / Revoked / Blocked / Unknown state. mTLS and TLS Client certificates are not selected for v1. S2.2's initial-pairing STOP does not reopen this architecture decision. S7 still owns the exact transcript bytes, domain/version constant, challenge size and entropy, lifetime, single-use semantics, signature encoding, replay behavior, canonical encoding, deterministic C#↔Dart vectors, and production platform key integration. Until S7 freezes those details, this is an approved architecture direction, not a production-ready protocol profile. A peer-supplied `clientId` or public key alone is never proof of possession.
 
 Disable TLS 1.3 early data (0-RTT) and any resumption path that would omit fresh proof of the Client private key. A TLS ticket or other reusable value must not become a bearer substitute for Client identity. Every reconnect creates a fresh authenticated transport/session.
 
@@ -150,34 +145,34 @@ Disable TLS 1.3 early data (0-RTT) and any resumption path that would omit fresh
 
 The first Host certificate is not yet pinned. A provisional TLS connection may therefore accept the candidate certificate only while the user explicitly starts initial pairing. This connection is encrypted but the certificate is not treated as an authenticated Host identity. It carries only restricted pairing/bootstrap traffic; it cannot read or publish normal Host state or establish a trusted session. A KnownHost key mismatch must abort before any pairing secret or ordinary application data is sent. It must not silently downgrade to provisional pairing.
 
-The six-digit code is a short-lived shared secret: the Host generates it and displays it in Skyrim, and the user enters it in the Client. The two endpoints run a reviewed **balanced PAKE** with that code. The code is never sent as a reusable token, is never stored as permanent trust material, and is destroyed with all temporary PAKE material after the ceremony. The current short lifetime, single-use, and attempt-limit policy remains. A failed PAKE or key-confirmation attempt counts against that pairing attempt policy.
+The S1 balanced-PAKE bootstrap proposal is unresolved and was not replaced by Committed SAS. The S2.1 investigation found that Pasini–Vaudenay's three-move SAS-AKE construction might remain internally unchanged while later authenticated application data binds DovahLink identity fields, subject to source composition rules. S2.2 did not establish that composition's security argument or select the construction. Shortcake remains unaudited and pre-release, its P-256 suite is not in the release, and the DovahLink transcript, retry policy, and finalization ordering lack byte-level and independent-language evidence. Do not implement the ceremony, persist trust from a provisional TLS connection, or infer an attempt policy from the existing wrong-code counter.
 
-The PAKE's authenticated transcript/key-confirmation context must bind all of the following:
+Any future initial-pairing construction's authenticated transcript/key-confirmation context must bind all of the following:
 
 - `hostId` and the Host public key/certificate fingerprint;
 - `clientId` and the Client public key/certificate fingerprint;
 - DovahLink protocol/domain-separation context;
 - the one pairing challenge, session nonce, or equivalent fresh anti-confusion context.
 
-The exact canonical encoding is specified before implementation. Both endpoints must use their own actual identity/key values in the binding, not trust peer-supplied identity text alone. Mutual PAKE key confirmation must fail if an intermediary substitutes either public key or changes the context. A transparent relay of unmodified PAKE messages does not authorize a different Host or Client identity.
+The exact canonical encoding must be specified before implementation. Both endpoints must use their own actual identity/key values in the binding, not trust peer-supplied identity text alone. Authentication and key confirmation must fail if an intermediary substitutes either public key or changes the context. A transparent relay of unmodified messages must not authorize a different Host or Client identity. The candidate application composition described in `crypto-stack-selection.md` has not been frozen or proven interoperable, so S2.2 selects no construction proving these properties together.
 
-No permanent trust is committed before successful mutual key confirmation. On success, the Host stores the KnownDevice binding and the Client stores the KnownHost binding. The PAKE protocol response and persistence/recovery ordering are finalized in S8; neither side may report pairing complete before its own durable binding succeeds.
+No permanent trust may be committed before the selected construction's client proof-of-possession, user authorization, cryptographic confirmation, and durable finalization all succeed for one exact ceremony. The current production flow is unchanged. The finalization contract remains future work and cannot be activated before the security gate passes.
 
-After the pairing binding is committed, close the provisional connection. Establish a **new** normal WSS/TLS 1.3 connection. The Client verifies the newly pinned Host key, and the Host verifies the Client key against the KnownDevice record. Only then does ordinary DovahLink session negotiation continue. PAKE is not used on normal reconnects.
+Any future profile must define whether pairing continues on the provisional connection or requires a new one, then bind subsequent normal authentication to the durable Host and Client keys. S2.2 did not decide this lifecycle. Do not infer the old PAKE reconnect ordering as selected.
 
-SPAKE2 (RFC 9382) is a relevant published balanced-PAKE reference. CPace is also relevant; its specification and library maturity must be rechecked in S2. Neither is selected by S1. Do not select the augmented SPAKE2+ merely because it is a PAKE, and do not implement PAKE arithmetic in DovahLink.
+SPAKE2 (RFC 9382) and CPace remain references from the prior S1 PAKE proposal, not selected bootstrap protocols. ZRTP (RFC 6189) and Bluetooth LE Secure Connections Numeric Comparison remain complete but protocol-specific SAS references. Generic SAS/AKE work, including Pasini–Vaudenay and Shortcake, was also assessed; the construction survives, but the implementation and profile gates do not. See `crypto-stack-selection.md` for the STOP analysis and evidence.
 
 ## 11. Trusted reconnect and hello
 
 For Known Host AAA, the Client loads `hostId = AAA`, its pinned Host key, and AAA's last-known endpoint. It connects once to that endpoint. TLS proves the responder holds the pinned Host key before DovahLink application data is sent. A mismatch aborts the connection, discloses no Client secret, leaves KnownHost unchanged, and returns a typed Host-identity mismatch.
 
-On that same authenticated TLS connection, certificate-based client authentication proves possession of the Client private key. The Host maps `clientId` and the authenticated public key to its current KnownDevice, checks current trust, and returns typed trusted/revoked/blocked/unrecognized semantics. There is no “verify socket A, disconnect, then authenticate socket B” sequence.
+The selected normal reconnect architecture is application-level fresh-signature PoP on the same TLS 1.3 connection: verify the pinned Host identity; receive a fresh cryptographically random authentication challenge generated by the Host; have the Client sign a domain-separated transcript with its persistent non-exportable ECDSA P-256 identity key; verify against the KnownDevice public key; consume the challenge; then apply the current Host-owned trust state. mTLS and TLS Client certificates are not selected for v1. The exact transcript, domain/version, challenge size/entropy/lifetime and consumption semantics, optional Client nonce, signature encoding, canonical wire encoding, replay behavior, and deterministic C#↔Dart vectors remain S7 specification work; platform key integration is also future implementation work. S2.2's initial-pairing STOP does not change this architecture decision or select the concrete reconnect protocol. The Host must map proven Client-key possession and `clientId` to current Host-owned trust before granting normal session access.
 
 Only after transport identity/authentication does `hello` negotiate DovahLink protocol/session semantics. Target `hello` may carry `clientId` and non-secret compatibility/bootstrap metadata; it does not carry a reusable credential or PAKE secret. `hello_ack` may carry `hostId`, `hostName`, `hostVersion`, and typed identity/trust interpretation. The current `hello.auth.method` values `trusted_device_credential` and `one_time_local_token` are current implementation details expected to change or disappear as their respective policies migrate. Do not change the canonical current schema during S1.
 
 ## 12. Pairing and recovery
 
-Initial pairing binds `hostId` + Host public identity to `clientId` + Client public identity through the six-digit balanced-PAKE ceremony. The Host records the KnownDevice and remains authoritative for trust; the Client records its KnownHost and never infers current Host trust from that record.
+Initial pairing must bind `hostId` + Host public identity to `clientId` + Client public identity through a construction that passes a future security gate. S2.2 selected none. The Host remains authoritative for trust; the Client never infers current Host trust from a local KnownHost record.
 
 Pairing recovery is Host-scoped. A pending record names its owning `hostId` and phase. If pairing with AAA is interrupted, connecting to BBB cannot continue, cancel, complete, or overwrite AAA's recovery state. At most one recovery operation is required per Client installation; multiple simultaneous pairings are not a target requirement.
 
@@ -214,9 +209,9 @@ Current state is a singleton KnownHost record, a persisted trusted-device bearer
 
 PR #100's experimental sequence — identify a Host on one connection, disconnect, reconnect to the same endpoint, then send that Host's bearer credential — is rejected. Endpoint ownership can change between the two connections, so a different Host can receive the credential after the first connection verified the expected `hostId`. More reconnects or another `AuthenticationService` guard do not close that TOCTOU gap. The replacement verifies the pinned Host key and proves Client-key possession on one cryptographically bound transport. Preserve the useful regression cases from that experiment: a wrong Host does not mutate KnownHost; endpoint/name changes do not change Host identity; and Host mismatch remains typed.
 
-The target stores multiple KnownHosts and a persistent Client key, pins each Host's cryptographic identity, binds public keys during PAKE pairing, authenticates normal reconnects with TLS proof-of-possession, and removes reusable bearer credentials from normal authentication. Current wire fields remain current until their migration PR lands.
+The S1 target proposed multiple KnownHosts, a persistent Client key, Host-key pinning, PAKE pairing, certificate-based Client authentication, and removal of reusable bearer credentials. The certificate-based Client-authentication direction has been superseded by the selected application-level fresh ECDSA P-256 PoP architecture for v1; its exact S7 protocol remains unspecified. S2.2 did not select an initial-pairing profile. No legacy migration or dual-authentication machinery is approved; when a future passing initial-pairing profile reaches its authorized cutover, unreleased development trust may be invalidated and require re-pairing. Current wire fields remain current until their migration PR lands.
 
-DovahLink has no supported public release that requires compatibility with unshipped protocol generations. Follow `ai/context/common.md`'s pre-release compatibility policy: update the baseline cleanly instead of adding legacy protocol negotiation or a compatibility shim. Preserve local development data only where a narrow, safe migration is straightforward; do not build a general backward-compatibility layer for unreleased behavior.
+DovahLink has no supported public release that requires compatibility with unshipped protocol generations. Follow `ai/context/common.md`'s pre-release compatibility policy: update the baseline cleanly instead of adding legacy protocol negotiation or a compatibility shim. Existing unreleased bearer/PIN development state may be invalidated and require re-pairing; do not add migration machinery to preserve it.
 
 ## 18. Ownership boundaries
 
@@ -227,7 +222,7 @@ DovahLink has no supported public release that requires compatibility with unshi
 | Platform | Private-key persistence and OS cryptographic APIs, plus OS device/computer-name lookup. |
 | App | UI, current screen/modal, selected/preferred Host presentation, user Client-name override, themes, and interaction flow. |
 
-The SDK owns reusable security behavior; Flutter calls the SDK and never implements TLS verification, PAKE, key handling, or trust decisions independently.
+The SDK owns reusable security behavior; Flutter calls the SDK and never implements TLS verification, unselected pairing cryptography, key handling, or trust decisions independently.
 
 ## 19. Frozen implementation PR sequence
 
@@ -238,34 +233,36 @@ Every security migration PR must leave the merged baseline internally coherent. 
 | Slice | Scope |
 | --- | --- |
 | **S1** | Security + identity architecture contract — this document. |
-| **S2** | Cryptographic stack feasibility and primitive selection. Prove the full target is implementable with acceptable standard/platform APIs and maintained libraries before S3 creates production keys. S2 may stop the sequence if it cannot establish a safe implementation path. |
+| **S2** | Original cryptographic feasibility gate; stopped because no acceptable balanced-PAKE implementation path was established. Superseded for investigation by S2.1, but its implementation slices remain blocked. |
+| **S2.1** | Committed-SAS feasibility and standards review. Historical STOP; superseded by S2.2 assessment. See `crypto-stack-selection.md`. |
+| **S2.2** | Pasini–Vaudenay SAS-AKE production-profile feasibility. **STOP — post-SAS application composition is unproven; no production profile selected; S3 remains blocked.** See `crypto-stack-selection.md`. |
 | **S3** | Persistent Host cryptographic identity and protected Host private-key storage. |
 | **S4** | Persistent Client cryptographic identity abstraction and platform key storage. |
-| **S5** | Multi-Host persistence: `knownHosts` keyed by `hostId`, each pinned Host identity, endpoint and name metadata, Host-scoped pairing recovery, and migration from singleton `knownHost`. Keep legacy bearer trust bound to exactly one `hostId`; multi-Host bearer authentication is not active. |
-| **S6** | WSS/TLS 1.3 transport, normal Host-key verification, and provisional initial-pair plumbing. Provisional unknown-certificate acceptance remains unreachable or feature-gated from production pairing until PAKE exists and S9 activates it. Disable early-data/resumption paths that would bypass fresh proof. |
-| **S7** | Client certificate proof-of-possession and Host mapping of public identity plus `clientId` to KnownDevice. |
-| **S8** | Implement the balanced-PAKE/public-key pairing path alongside the old production path. Retain short-lived, single-use, attempt-limited code policy and commit only after mutual confirmation. Do not remove or deactivate bearer credential issuance/reconnect behavior from the active product path in this slice. |
-| **S9** | Atomic production cutover and full integration: activate PAKE pairing/key binding, pinned Host verification, Client proof-of-possession, and SDK KnownHost/reconnect/discovery integration. Migrate existing development trust data or intentionally invalidate it for re-pairing according to the approved migration policy. After S9, the product operates on the new cryptographic identity model; the old path is no longer active. |
-| **S10** | Delete obsolete bearer machinery after cutover: pairing credential issuance/ack semantics, `trusted_device_credential` reconnect, obsolete auth token fields/messages, storage fields, tests/docs/fixtures, and canonical protocol pieces. |
+| **S5** | Multi-Host persistence: `knownHosts` keyed by `hostId`, each pinned Host identity, endpoint and name metadata, and Host-scoped pairing recovery. The old singleton bearer format is unreleased development state; do not add compatibility or migration machinery to preserve it. A later approved cutover may require reset and re-pairing. |
+| **S6** | WSS/TLS 1.3 transport, normal Host-key verification, and provisional initial-pair plumbing, only after the profile passes. Disable resumption and 0-RTT. |
+| **S7** | Specify and implement the selected application-level fresh ECDSA P-256 Client PoP architecture: exact transcript/encoding, challenge and consumption rules, replay behavior, independent C#↔Dart vectors, and Host mapping of proven public identity plus `clientId` to KnownDevice. This does not select mTLS. |
+| **S8** | Implement the selected initial-pairing construction and key binding, only after a future complete profile and retry policy pass review. |
+| **S9** | After a future initial-pairing profile passes and S7's reconnect protocol is specified, atomically activate initial pairing plus the selected application-level Client PoP architecture with Host pinning and SDK KnownHost/reconnect integration. Unreleased development trust may be intentionally invalidated for re-pairing; do not build bearer compatibility, fallback, or migration machinery. |
+| **S10** | Remove any remaining obsolete bearer pairing/authentication behavior as part of the approved cutover. This is not permission to retain dual security modes or defer deletion for unreleased development state. |
 | **S11** | Security/adversarial regression audit across Host, SDK, transport, persistence, pairing, recovery, and protocol boundaries. |
 
-### S2 feasibility gate
+### S2/S2.1/S2.2 feasibility gate
 
-S2 evaluates the whole cryptographic stack, not only the PAKE:
+The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1 first assessed ZRTP and Bluetooth Numeric Comparison, then reassessed generic SAS constructions and Shortcake. S2.2 checked the Pasini–Vaudenay construction against the whole-profile requirements below. The construction survives at paper level, but no production profile passed:
 
-- **Transport:** TLS 1.3 and WSS support; self-generated Host certificates; SPKI/public-key pinning; custom certificate verification; client-certificate authentication/mTLS or the selected equivalent; restricted handling of unknown Client certificates during bootstrap; session resumption; disabling 0-RTT; ensuring tickets cannot become bearer substitutes; and fresh proof requirements.
+- **Transport:** TLS 1.3 and WSS; Host SPKI pinning; provisional Host key possession; resumption and 0-RTT policy; fresh Client proof.
 - **Host and Windows:** C#/.NET TLS and WSS capabilities; certificate/key generation; private-key storage integration; and DPAPI, Windows CNG, or appropriate Windows cryptographic APIs.
-- **Dart/Flutter Client:** Dart TLS/WebSocket capabilities; custom Host-pin verification; Client certificate/private-key integration; and whether non-exportable platform keys can be used directly.
-- **Android and iOS:** Android Keystore and non-exportable key support; Keychain/Secure Enclave where appropriate; and compatibility of those keys with TLS client authentication.
-- **Balanced PAKE:** maintained/reviewed implementation; mutual key confirmation; authenticated transcript/application-context binding; deterministic cross-language vectors; offline-dictionary resistance appropriate to the selected PAKE; licensing; maintenance status; and implementation maturity.
+- **Dart/Flutter Client:** Dart TLS/WebSocket capabilities, Host pinning, and platform key operations for application-level signatures.
+- **Android and iOS:** Android Keystore and non-exportable key support; Keychain/Secure Enclave where appropriate; and compatibility with application-level signatures.
+- **Initial pairing:** complete reviewed SAS construction, commitment/reveal ordering and grinding resistance, exact transcript and identities, unbiased SAS, key confirmation, Client PoP, durable authorization, and bounded repeated attempts.
 - **Cross-language/native boundary:** C# Host interoperability with Dart/Flutter, vector compatibility, Windows plus future Android/iOS support, and whether one shared native crypto/FFI boundary is safer than separate stacks.
 - **Security and supply chain:** no custom cryptography; maintained libraries; vulnerability/update process; licensing; platform coverage; and a version-pinning strategy.
 
-S2 must confirm a safe end-to-end implementation path before S3 creates production keys. It may stop S3–S11 if required platform APIs or acceptable maintained libraries cannot satisfy the approved architecture. S2 does not preselect SPAKE2, CPace, or a library.
+S2.2 did not confirm a safe end-to-end profile. The blockers are the unproven mapping from the chosen KEM to the paper's key-agreement assumptions, the unproven post-SAS DovahLink identity/PoP composition, lack of an accepted lifetime retry bound, Shortcake's explicit unaudited prerelease status and open P-256 change, unverified target packaging, and missing canonical profile bytes and interoperability evidence—not a finding that the Pasini–Vaudenay construction is unsuitable. S3–S11 remain blocked. A renewed feasibility step must address these gaps and establish all required interoperability evidence before any production identity or authentication work begins. Standard primitives or matching vectors alone are insufficient.
 
 ### S6 provisional-TLS activation guard
 
-Provisional TLS certificate acceptance is implementation plumbing only until the balanced-PAKE bootstrap is available. It must remain unreachable or feature-gated from normal production pairing. TLS encryption without PAKE does not establish first trust. A user must never reach “accept unknown Host certificate → pair/trust” before PAKE binding is implemented; production activation happens only at S9 cutover.
+Provisional TLS certificate acceptance is not trust. TLS 1.3 `CertificateVerify` proves possession of the private key for the presented certificate, but an unknown certificate is not yet a trusted Host identity. A future profile may rely on that proof only if the certificate SPKI is the Host identity and the exact SPKI plus `hostId` is bound by the selected initial-pairing construction. S2.2 selected no such construction. Keep provisional acceptance unreachable from production pairing.
 
 After S11, resume UI convergence milestone 3.4, Companion Device Identity. This security sequence is a prerequisite gate, not permission to implement that UI in these PRs.
 
@@ -278,15 +275,15 @@ After S11, resume UI convergence milestone 3.4, Companion Device Identity. This 
 5. Discovery and provisional TLS encryption alone establish no trust.
 6. A KnownHost record does not mean the Host currently trusts the Client.
 7. Only the Host determines current trusted, revoked, blocked, and unknown state.
-8. Pairing is the user-authorized operation that initially binds the Host and Client cryptographic identities through balanced PAKE.
-9. PAKE binds the actual Host and Client keys, logical IDs, domain/protocol context, and fresh pairing context; no identity may be substituted.
+8. Pairing is the user-authorized operation that initially binds the Host and Client cryptographic identities; the required cryptographic construction remains unresolved.
+9. Any selected construction must bind the actual Host and Client keys, logical IDs, domain/protocol context, and fresh pairing context; no identity may be substituted.
 10. Host verification and Client proof-of-possession occur on one cryptographically bound normal transport/session; never verify one socket and authenticate another.
 11. Endpoint or `hostName` changes do not change Host identity.
 12. Authorized key rotation may retain `hostId` or `clientId`; lost keys require re-pair/recovery, not blind ID trust.
 13. A Host identity reset creates a new logical Host unless explicitly restored through a supported authenticated backup/restore mechanism.
 14. Multi-Host data is keyed by stable `hostId`; pairing recovery is scoped to its Host.
 15. Blocked, revoked, and unrecognized/unknown remain typed and distinct; Client-local keys do not override Host status.
-16. The Flutter app never handles private keys, permanent bearer secrets, PAKE internals, or protocol security policy.
+16. The Flutter app never handles private keys, permanent bearer secrets, unselected pairing internals, or protocol security policy.
 
 ## 21. Adversarial scenarios
 
@@ -303,12 +300,13 @@ After S11, resume UI convergence milestone 3.4, Companion Device Identity. This 
 | **I.** AAA rotates H1 to H2 with authorization from H1. | Clients accept the authorized transition, update the pin, and may retain `hostId = AAA`. |
 | **J.** Pairing with AAA is interrupted; Client connects to BBB. | BBB cannot resume or mutate AAA's recovery record; recovery remains explicitly scoped to AAA. |
 | **K.** AAA, BBB, and CCC independently trust the same Client ID/key. | Each Host's KnownDevice record is independent; each endpoint has its own KnownHost pin and metadata. |
-| **L.** Discovery returns a fake candidate endpoint. | No trust is written. Normal TLS pin verification or explicit initial PAKE pairing must succeed first. |
-| **M.** An active intermediary terminates provisional TLS during first pairing. | TLS encryption alone is not accepted as Host authentication. The balanced PAKE must authenticate the identities/context; substitution fails mutual key confirmation. The provisional certificate is never pinned merely because it completed TLS. |
-| **N.** PAKE messages or a pairing code are replayed against another attempt/session. | Single-use code, bounded lifetime, attempt limits, and fresh bound pairing context reject reuse; failure consumes the applicable attempt. |
+| **L.** Discovery returns a fake candidate endpoint. | No trust is written. Normal pinned-key verification or an initial-pairing construction that passes the security gate must succeed first. |
+| **M.** An active intermediary terminates provisional TLS during first pairing. | TLS encryption and certificate possession alone do not authenticate a trusted Host. S2.2 selected no construction to bind the presented SPKI and `hostId`; pairing must remain unavailable. |
+| **N.** Candidate SAS messages or a six-digit display are replayed or restarted. | No DovahLink profile or attempt policy was selected. The old wrong-code counter does not bound independent SAS restarts; see `crypto-stack-selection.md`. |
 
 ## Reference material
 
-- [RFC 9382: SPAKE2, a Password-Authenticated Key Exchange](https://www.rfc-editor.org/rfc/rfc9382.html) is a published balanced-PAKE reference; S2 still evaluates its fit and maintained implementations.
-- [CPace, a balanced composable PAKE](https://datatracker.ietf.org/doc/draft-irtf-cfrg-cpace/) is a relevant alternative. At the time of S1 it is an active Internet-Draft; S2 must re-check publication and implementation maturity.
-- [RFC 8446: TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446.html) defines the transport handshake. TLS supplies transport encryption and certificate proof; DovahLink pinning and the initial PAKE ceremony supply the application trust relationship.
+- [RFC 9382: SPAKE2](https://www.rfc-editor.org/rfc/rfc9382.html) and [CPace](https://datatracker.ietf.org/doc/draft-irtf-cfrg-cpace/) are historical references for the S1 balanced-PAKE proposal; neither is selected.
+- [RFC 6189: ZRTP](https://www.rfc-editor.org/rfc/rfc6189.html) defines a complete SAS-based media key agreement whose commitment and SAS behavior were assessed in the historical S2.1 review; it is not a selected DovahLink protocol.
+- [Bluetooth Core Security Manager Specification](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/host/security-manager-specification.html) defines LE Secure Connections Numeric Comparison; it is a security-design reference only, not a DovahLink transport or selected protocol.
+- [RFC 8446: TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446.html) defines TLS certificate private-key possession and handshake authentication; TLS does not make an unknown certificate a trusted DovahLink Host identity.

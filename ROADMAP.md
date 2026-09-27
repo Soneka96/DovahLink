@@ -79,6 +79,17 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   synthetic native captures. Phase 4.5 audited the complete Stage 4 range from the 0.3.2 baseline
   and recommends `0.4.0` for the incompatible Host/client contract changes; that release shipped on
   2026-09-23.
+- **Security gate:** S2.2 ended **STOP**. The Pasini–Vaudenay SAS-AKE construction survives at the
+  paper level, and its independent-randomness commitment can be implemented with standard hash and
+  random primitives in an isolated POC. No proof justifies composing the AKE output with DovahLink's
+  Host/Client identity transcript, MACs, and pairing PoP; the exact KEM assumptions and lifetime
+  retry bound also remain unresolved. Shortcake is still prerelease and unaudited, its P-256 DHKEM
+  change remains an open PR, and canonical profile bytes, vectors, and Windows/Android/iOS builds
+  have not been demonstrated. No production profile is selected; S3–S11 remain blocked. This STOP
+  applies to initial pairing; normal reconnect uses the separately selected application-level fresh
+  ECDSA P-256 Client PoP architecture, with its exact protocol deferred to S7. Stage 5.4 and later
+  product work stay held until the security migration gate is passed. See
+  [`ai/context/security/crypto-stack-selection.md`](ai/context/security/crypto-stack-selection.md).
 - The Bridge-authored Stage 4.2–4.4 implementation path was permanently superseded after Stage 3A;
   its specifications remain as historical engineering evidence in
   [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md).
