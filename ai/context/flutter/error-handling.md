@@ -40,8 +40,9 @@ not be treated as valid. Document the choice on the repository method.
 - Middleware, datasources, repositories, use cases, selectors, and ViewModels carry typed failure
   information without constructing, inspecting, or reformatting display text. Redux never stores
   localized Strings.
-- Keep one centralized user-facing copy mapping with the app-owned semantic failure reason. Widgets
-  render that mapping and do not switch on SDK exception types or inspect error text. When
+- Keep one centralized user-facing copy mapping with the app-owned semantic failure reason; when
+  project conventions place enums in a shared enum file, the reason may expose that copy there.
+  Widgets render the mapping and do not switch on SDK exception types or inspect error text. When
   localization is introduced, the mapping can resolve generated localization entries; do not add a
   localization framework for a feature that does not have one.
 - Never display diagnostic `.message`/`toString()` text, stack traces, tokens, or protocol payloads.

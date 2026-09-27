@@ -505,6 +505,7 @@ void main() {
     testWidgets(
       'ConnectionsScreen selects the Host before the pairing section starts',
       (WidgetTester tester) async {
+        when(() => pairingViewModel.phase).thenReturn(PairingPhase.connecting);
         useWindow(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
 
@@ -512,6 +513,8 @@ void main() {
 
         expect(selectedHosts, [Fixtures.buildHost()]);
         expect(pairingCalls, ['start']);
+        expect(find.text('Connecting…'), findsOneWidget);
+        expect(find.text('Connected'), findsNothing);
       },
     );
 
@@ -752,6 +755,89 @@ void main() {
         }
       },
     );
+  });
+
+  group('ConnectionsScreen presents discovery state', () {
+    testWidgets('ConnectionsScreen presents the available candidate state', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => viewModel.discoveryStatus,
+      ).thenReturn(ConnectionDiscoveryStatus.available);
+      await useSurface(tester, const Size(1280, 720));
+
+      await tester.pumpWidget(buildWidget());
+
+      expect(find.text('AVAILABLE'), findsOneWidget);
+      expect(find.text('Local Host'), findsOneWidget);
+    });
+
+    testWidgets('ConnectionsScreen presents the empty discovery state', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => viewModel.discoveryStatus,
+      ).thenReturn(ConnectionDiscoveryStatus.empty);
+      when(() => viewModel.hostCards).thenReturn(const <HostCardViewData>[]);
+      await useSurface(tester, const Size(1280, 720));
+
+      await tester.pumpWidget(buildWidget());
+
+      expect(find.text('No local Hosts found.'), findsOneWidget);
+      expect(find.byType(DovahConnectionCard), findsNothing);
+    });
+
+    testWidgets('ConnectionsScreen presents the failed discovery state', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => viewModel.discoveryStatus,
+      ).thenReturn(ConnectionDiscoveryStatus.failed);
+      when(
+        () => viewModel.discoveryFailure,
+      ).thenReturn(ConnectionFailureReason.hostUnavailable);
+      when(() => viewModel.hostCards).thenReturn(const <HostCardViewData>[]);
+      await useSurface(tester, const Size(1280, 720));
+
+      await tester.pumpWidget(buildWidget());
+
+      expect(
+        find.text(
+          'Could not reach the local Host. Check that it is running and try again.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('ConnectionsScreen presents searching as a live status', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      try {
+        when(
+          () => viewModel.discoveryStatus,
+        ).thenReturn(ConnectionDiscoveryStatus.discovering);
+        await useSurface(tester, const Size(1280, 720));
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(
+          find.text('Searching for DovahLink on this PC…'),
+          findsOneWidget,
+        );
+        expect(
+          tester.getSemantics(
+            find.byKey(const Key('connection-discovery-status')),
+          ),
+          isSemantics(
+            label: 'Searching for DovahLink on this PC…',
+            isLiveRegion: true,
+          ),
+        );
+      } finally {
+        semantics.dispose();
+      }
+    });
   });
 
   group('ConnectionsScreen opens the appearance UI', () {

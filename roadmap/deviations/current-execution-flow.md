@@ -13,7 +13,9 @@ active deviations.
    operation behind a narrow app-facing boundary. The app candidate exposes only the fixed display
    label and endpoint; discovery claims are not app Host identity or trust. The approved prototype
    remains the presentation authority, and the existing SDK connection path owns the outcome after
-   selection. This advances the Connections experience without choosing production discovery.
+   selection. The discovery UI follows real state without simulated waits and remains stable if the
+   discovery implementation changes. This advances the Connections experience without choosing
+   production discovery.
 2. **Record this convergence continuation.** Keep the candidate-only scope distinct from the
    broader historical 03.6 discovery / trust UI plan. Do not mark the broader step complete.
 3. **Re-plan historical connection/pairing slices 03.4–03.10 before resuming them.** Compare each

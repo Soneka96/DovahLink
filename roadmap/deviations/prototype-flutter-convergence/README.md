@@ -63,6 +63,20 @@ the discovery implementation changes. Future discovery should replace the implem
 app-facing boundary without redesigning the Connections UI, Redux state, ViewModels, or card
 composition.
 
+The current surface uses the **Discover Skyrim** action, announces “Searching for DovahLink on this
+PC…” as a live status, and labels a discovered candidate **AVAILABLE**. Selecting **Local Host**
+opens the existing pairing flow: its in-progress state and outcome come from real pairing/SDK state,
+with no simulated discovery delay or implied trust result.
+
+At the Redux boundary, middleware maps SDK discovery exceptions to the app-owned
+`ConnectionFailureReason`; Redux carries that reason, not the exception or display text. The enum's
+`message` getter owns the centralized user-facing copy, and widgets render it without SDK exception
+switches. Operation-specific conversions such as `fromDiscoveryError` can be added when needed; do
+not add one method per SDK exception or a global enum for every possible DovahLink failure. The
+current app-wide enum file follows repository convention and can be split by feature if that file
+later becomes difficult to navigate. Localization can replace the centralized copy when the app
+adopts localization.
+
 This continuation is local / loopback development behavior, not production-secure discovery or
 pairing. It does not choose or implement LAN discovery, mDNS/DNS-SD, secure first-contact pairing,
 `sas-pairing`, WSS/TLS migration, or future Pair / Reject / Block authorization behavior. Unknown

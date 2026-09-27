@@ -348,6 +348,7 @@ void main() {
           size: dovahTestSizes.first,
         );
 
+        expect(find.text('AVAILABLE'), findsOneWidget);
         expect(find.byType(DovahConnectionCard), findsOneWidget);
         expect(
           find.byKey(const Key('connection-discovery-status')),
@@ -372,12 +373,18 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        expect(find.text('Searching for Skyrim PCs…'), findsOneWidget);
+        expect(
+          find.text('Searching for DovahLink on this PC…'),
+          findsOneWidget,
+        );
         expect(
           tester.getSemantics(
             find.byKey(const Key('connection-discovery-status')),
           ),
-          isSemantics(label: 'Searching for Skyrim PCs…', isLiveRegion: true),
+          isSemantics(
+            label: 'Searching for DovahLink on this PC…',
+            isLiveRegion: true,
+          ),
         );
       } finally {
         semantics.dispose();

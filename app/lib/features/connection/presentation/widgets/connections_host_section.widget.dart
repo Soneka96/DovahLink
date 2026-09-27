@@ -8,9 +8,9 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 
-/// The connections screen's "My Skyrim PCs" section: a labelled gradient rule followed by one
-/// [DovahConnectionCard] per Host. It shows the supplied display data and reports which Host a
-/// card selects; it does not read state.
+/// The connections screen's discovery section: a labelled gradient rule followed by one
+/// [DovahConnectionCard] per Host. It shows supplied discovery feedback and card data, and reports
+/// which Host a card selects; it does not read state.
 class ConnectionsHostSection extends StatelessWidget {
   /// The cards to show, in order.
   final List<HostCardViewData> cards;
@@ -37,10 +37,15 @@ class ConnectionsHostSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
+    final String sectionLabel =
+        discoveryStatus == ConnectionDiscoveryStatus.available
+        ? 'AVAILABLE'
+        : 'MY SKYRIM PCS';
     final String? discoveryMessage = switch (discoveryStatus) {
       ConnectionDiscoveryStatus.idle ||
       ConnectionDiscoveryStatus.available => null,
-      ConnectionDiscoveryStatus.discovering => 'Searching for Skyrim PCs…',
+      ConnectionDiscoveryStatus.discovering =>
+        'Searching for DovahLink on this PC…',
       ConnectionDiscoveryStatus.empty => 'No local Hosts found.',
       ConnectionDiscoveryStatus.failed =>
         (discoveryFailure ?? ConnectionFailureReason.unknown).message,
@@ -52,7 +57,7 @@ class ConnectionsHostSection extends StatelessWidget {
         Row(
           children: [
             Text(
-              'MY SKYRIM PCS',
+              sectionLabel,
               style: TextStyle(
                 color: tokens.textMuted,
                 fontSize: DovahRootMetrics.sectionLabelFontSize,
