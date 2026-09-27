@@ -169,8 +169,9 @@ would not prove the source AKE's assumptions.
 The source does not need to mention Skyrim UI or `TrustStore`: those remain DovahLink transaction and
 authorization rules outside the cryptographic construction. The Host must persist unknown-client
 Block by the Client key fingerprint only after verifying Client PoP; claimed `clientId` remains
-metadata. Normal reconnect PoP remains a separate fresh-challenge ECDSA signature domain. Neither
-profile is selected or implemented by this assessment.
+metadata. Normal reconnect architecture is separately selected: application-level fresh ECDSA P-256
+PoP after Host pin verification. Its exact S7 transcript and challenge protocol remain unspecified and
+unimplemented; the S2.1 initial-pairing STOP does not reopen that architecture decision.
 
 ## Six-character SAS candidate and retry analysis
 
@@ -233,7 +234,7 @@ explicitly against the source theorem before selection. No production rate limit
 | Challenge, security generation, Skyrim Pair decision | DovahLink Host transaction/fence state, not the SAS-AKE paper | Bind exact `ChallengeId` and fence generation in the application transcript; Host accepts only the current ceremony and commits trust after PoP | **Authenticated application context plus local authorization**; not an internal SAS input |
 | Human-readable display | Pasini–Vaudenay `rho`-bit OOB output | Prefix 30 SAS bits and map each 5-bit group to Crockford Base32 | **Bijective display encoding candidate**; not selected pending UI/accessibility review |
 | Replay and retry bound | PV multi-instance theorem; Laur–Pasini composition restrictions | Unique active ceremony, one active Host transaction, global persisted attempt accounting | **Application retry policy**; proposed rate cap is not a lifetime bound |
-| Normal reconnect PoP | Separate DovahLink target; not the initial SAS-AKE | Fresh Host challenge and Client ECDSA signature in a distinct reconnect domain after TLS pin verification | **Separate protocol**; not selected or implemented by S2.1 |
+| Normal reconnect PoP | Frozen DovahLink architecture decision, separate from initial SAS-AKE | After TLS 1.3 Host pin verification, Host issues a fresh random challenge; Client signs a domain-separated transcript with persistent non-exportable ECDSA P-256; Host verifies the KnownDevice key, consumes the challenge, then applies trust state | **Architecture selected**; exact S7 bytes, challenge rules, replay behavior, and vectors remain unspecified |
 | Persistent Block principal | DovahLink trust-authority rule, not SAS-AKE | Block an unknown Client by proven Client-key fingerprint after PoP; keep claimed `clientId` as metadata | **Application trust rule**; not selected or implemented |
 | Message serialization | Shortcake Rust message types and `postcard` example | Define versioned canonical binary wire bytes and deterministic cross-language vectors | **Unspecified encoding/profile**; no wire format can be inferred from serde derives |
 
@@ -282,7 +283,9 @@ transcript or independent C#↔Dart vectors. These are composition, implementati
 platform, and interoperability blockers. No production profile or SAS alphabet is selected. Step 2
 is not authorized by this STOP; S3 and later work remain blocked. Reopen only on direct maintainer
 approval of a renewed feasibility step that addresses these classified blockers without weakening
-the acceptance criteria.
+the acceptance criteria. This initial-pairing STOP does not reopen the separately selected normal
+reconnect architecture of application-level fresh ECDSA P-256 Client PoP; S7 still owns its concrete
+protocol specification and implementation.
 
 ## Primary references
 

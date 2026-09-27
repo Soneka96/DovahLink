@@ -85,7 +85,9 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   complete proof mapping and no production profile is selected: Shortcake is pre-release and
   unaudited, its released suite and target-platform evidence are insufficient, and the exact DovahLink
   wire/application transcript and independent C#↔Dart vectors are missing. S3–S11 remain
-  blocked. Stage 5.4 and later product work stay held until the security migration gate is passed. See
+  blocked. This STOP applies to initial pairing; normal reconnect uses the separately selected
+  application-level fresh ECDSA P-256 Client PoP architecture, with its exact protocol deferred to S7.
+  Stage 5.4 and later product work stay held until the security migration gate is passed. See
   [`ai/context/security/crypto-stack-selection.md`](ai/context/security/crypto-stack-selection.md).
 - The Bridge-authored Stage 4.2–4.4 implementation path was permanently superseded after Stage 3A;
   its specifications remain as historical engineering evidence in
