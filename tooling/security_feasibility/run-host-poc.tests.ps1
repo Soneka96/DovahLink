@@ -7,6 +7,7 @@ $realDartPath = (Get-Command dart -CommandType Application | Select-Object -Firs
 $originalLastExitCode = $global:LASTEXITCODE
 $originalDeleteExitCode = $env:DOVAHLINK_TEST_DELETE_EXIT_CODE
 $originalDartExitCode = $env:DOVAHLINK_TEST_DART_EXIT_CODE
+$originalNativeDeleteFailure = $env:DOVAHLINK_TEST_NATIVE_DELETE_FAILURE
 $temporaryPath = [System.IO.Path]::GetTempPath()
 $temporaryFilesBefore = @(Get-ChildItem -LiteralPath $temporaryPath -Filter 'dovahlink-s2-*' -Name)
 
@@ -16,12 +17,25 @@ if (-not (Test-Path -LiteralPath $hostDll -PathType Leaf)) {
 
 <#
 .SYNOPSIS
-Runs the actual Host command while substituting a requested key-deletion exit code.
+Preserves Host command failures before simulating key-deletion exit codes.
 #>
 function dotnet {
-    & $script:realDotnetPath @args
-    $nativeExitCode = $global:LASTEXITCODE
-    if ($args -contains '--delete-key' -and $env:DOVAHLINK_TEST_DELETE_EXIT_CODE) {
+    $isDeleteKey = $args -contains '--delete-key'
+    if ($isDeleteKey -and $env:DOVAHLINK_TEST_NATIVE_DELETE_FAILURE -eq '1') {
+        $nativeArguments = @($args)
+        $nativeArguments[0] = Join-Path $PSScriptRoot 'host_poc\missing-host-poc.dll'
+        & $script:realDotnetPath @nativeArguments
+        $nativeExitCode = $global:LASTEXITCODE
+        & $script:realDotnetPath $args[0] $args[1] --delete-key
+        $global:DOVAHLINK_TEST_KEY_CLEANUP_EXIT_CODE = $global:LASTEXITCODE
+        $global:DOVAHLINK_TEST_NATIVE_EXIT_CODE = $nativeExitCode
+        $global:LASTEXITCODE = $nativeExitCode
+    }
+    else {
+        & $script:realDotnetPath @args
+        $nativeExitCode = $global:LASTEXITCODE
+    }
+    if ($nativeExitCode -eq 0 -and $isDeleteKey -and $env:DOVAHLINK_TEST_DELETE_EXIT_CODE) {
         $global:LASTEXITCODE = [int]$env:DOVAHLINK_TEST_DELETE_EXIT_CODE
     }
     else {
@@ -85,6 +99,22 @@ try {
         throw "The runner did not preserve its primary and cleanup failures. Primary: $primaryFailure. Cleanup warnings: $($global:DOVAHLINK_TEST_WARNINGS -join ' ')"
     }
 
+    $env:DOVAHLINK_TEST_DART_EXIT_CODE = '0'
+    $env:DOVAHLINK_TEST_NATIVE_DELETE_FAILURE = '1'
+    $env:DOVAHLINK_TEST_DELETE_EXIT_CODE = '0'
+    $nativeCleanupFailure = $null
+    try {
+        . $runnerPath
+    }
+    catch {
+        $nativeCleanupFailure = $_.Exception.Message
+    }
+    if ($global:DOVAHLINK_TEST_NATIVE_EXIT_CODE -eq 0 -or
+        $global:DOVAHLINK_TEST_KEY_CLEANUP_EXIT_CODE -ne 0 -or
+        $nativeCleanupFailure -notlike "*POC key cleanup*exited with code $global:DOVAHLINK_TEST_NATIVE_EXIT_CODE*") {
+        throw "The runner masked a native key-deletion failure. Native exit code: $global:DOVAHLINK_TEST_NATIVE_EXIT_CODE. Cleanup exit code: $global:DOVAHLINK_TEST_KEY_CLEANUP_EXIT_CODE. Runner error: $nativeCleanupFailure"
+    }
+
     $temporaryFilesAfter = @(Get-ChildItem -LiteralPath $temporaryPath -Filter 'dovahlink-s2-*' -Name)
     $leftoverFiles = @($temporaryFilesAfter | Where-Object { $_ -notin $temporaryFilesBefore })
     if ($leftoverFiles.Count -gt 0) {
@@ -95,8 +125,9 @@ try {
 }
 finally {
     Remove-Item Function:dotnet, Function:dart, Function:Write-Warning
-    Remove-Variable DOVAHLINK_TEST_WARNINGS -Scope Global -ErrorAction SilentlyContinue
+    Remove-Variable DOVAHLINK_TEST_WARNINGS, DOVAHLINK_TEST_NATIVE_EXIT_CODE, DOVAHLINK_TEST_KEY_CLEANUP_EXIT_CODE -Scope Global -ErrorAction SilentlyContinue
     $global:LASTEXITCODE = $originalLastExitCode
     $env:DOVAHLINK_TEST_DELETE_EXIT_CODE = $originalDeleteExitCode
     $env:DOVAHLINK_TEST_DART_EXIT_CODE = $originalDartExitCode
+    $env:DOVAHLINK_TEST_NATIVE_DELETE_FAILURE = $originalNativeDeleteFailure
 }
