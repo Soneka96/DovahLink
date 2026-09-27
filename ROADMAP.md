@@ -58,6 +58,12 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   protocol, SDK, or other context documents. Repo-wide planning may load the full roadmap corpus.
 - Keep root links and stage headings stable and predictable. Stage files link back to this index.
 
+## Roadmap deviations
+
+Intentional work outside the normal ordered roadmap is recorded in the [roadmap deviations
+index](roadmap/deviations/README.md). Deviation records explain why work left the normal order and
+how progression resumes; they do not replace this roadmap or change its stage statuses.
+
 ## Current position
 
 - **Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phases 5.1–5.3 are complete and
@@ -95,7 +101,8 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   [`Soneka96/sas-pairing`](https://github.com/Soneka96/sas-pairing); DovahLink remains an intended
   consumer and owns application authorization and trust. Normal reconnect retains its separately
   selected application-level fresh ECDSA P-256 Client PoP architecture, with exact protocol work
-  deferred to S7. See
+  deferred to S7. See the [initial-pairing security deviation](roadmap/deviations/initial-pairing-security/README.md)
+  for its development history and
   [`ai/context/security/crypto-stack-selection.md`](ai/context/security/crypto-stack-selection.md).
 - The Bridge-authored Stage 4.2–4.4 implementation path was permanently superseded after Stage 3A;
   its specifications remain as historical engineering evidence in

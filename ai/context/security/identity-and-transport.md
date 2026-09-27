@@ -151,7 +151,9 @@ The first Host certificate is not yet pinned. A provisional TLS connection may t
 
 The current loopback six-digit flow is temporary development behavior, not production security for hostile-network first contact. Generic SAS research, construction selection, protocol profiling, implementation, vectors, and security review continue in `Soneka96/sas-pairing`; do not duplicate that research here. S2.2 did not establish the security argument for a DovahLink composition or select a production construction. Shortcake remains unaudited and pre-release, its P-256 suite is not in the release, and candidate transcript, retry policy, and finalization ordering lack byte-level and independent-language evidence. Do not implement the cryptographic ceremony, persist trust from provisional TLS, or infer an attempt policy from the existing wrong-code counter.
 
-#### DovahLink pairing authorization boundary
+#### Selected DovahLink pairing authorization architecture
+
+The application-level separation is selected architecture; runtime implementation is deferred.
 
 The intended DovahLink application flow is:
 
