@@ -9,10 +9,23 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import '../../../../fixtures/fixtures.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show DovahLinkConnectionException;
+
 /// Exercises connection selectors over root application state.
 void main() {
-  AppState stateWith(List<Host> hosts, {Host? selectedHost}) => AppState(
-    connection: ConnectionState(hosts: hosts, selectedHost: selectedHost),
+  AppState stateWith(
+    List<Host> hosts, {
+    Host? selectedHost,
+    ConnectionDiscoveryStatus discoveryStatus = ConnectionDiscoveryStatus.idle,
+    Object? discoveryError,
+  }) => AppState(
+    connection: ConnectionState(
+      hosts: hosts,
+      selectedHost: selectedHost,
+      discoveryStatus: discoveryStatus,
+      discoveryError: discoveryError,
+    ),
     pairing: PairingState.initial(),
   );
 
@@ -22,6 +35,41 @@ void main() {
 
       expect(ConnectionSelectors.hostsSelector(stateWith([host])), [host]);
     });
+  });
+
+  group('Selector discoveryStatusSelector behaves correctly', () {
+    test(
+      'discoveryStatusSelector selects the current Host discovery state',
+      () {
+        expect(
+          ConnectionSelectors.discoveryStatusSelector(
+            stateWith(
+              const <Host>[],
+              discoveryStatus: ConnectionDiscoveryStatus.discovering,
+            ),
+          ),
+          ConnectionDiscoveryStatus.discovering,
+        );
+      },
+    );
+  });
+
+  group('Selector discoveryErrorSelector behaves correctly', () {
+    test(
+      'discoveryErrorSelector preserves the typed SDK error for the widget',
+      () {
+        const DovahLinkConnectionException error = DovahLinkConnectionException(
+          'diagnostic',
+        );
+
+        expect(
+          ConnectionSelectors.discoveryErrorSelector(
+            stateWith(const <Host>[], discoveryError: error),
+          ),
+          error,
+        );
+      },
+    );
   });
 
   group('Selector selectedHostSelector behaves correctly', () {

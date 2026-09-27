@@ -12,10 +12,11 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
 /// Exercises connection-state initialization and copying.
 void main() {
   group('ConnectionState — initial', () {
-    test('creates a state with the static default Host', () {
+    test('creates an idle state without discovered Hosts', () {
       final ConnectionState state = ConnectionState.initial();
 
-      expect(state.hosts, [Fixtures.buildHost()]);
+      expect(state.hosts, isEmpty);
+      expect(state.discoveryStatus, ConnectionDiscoveryStatus.idle);
     });
 
     test('ConnectionState initial has no selected Host', () {

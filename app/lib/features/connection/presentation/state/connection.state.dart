@@ -3,7 +3,6 @@ import 'package:fpdart/fpdart.dart';
 import 'package:meta/meta.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
-import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Immutable Redux state for the Host connection.
@@ -30,11 +29,8 @@ class ConnectionState extends Equatable {
     this.discoveryError,
   });
 
-  /// Returns the state before a connection attempt starts, with the static default Host list
-  /// until Host discovery exists and no Host selected.
-  factory ConnectionState.initial() => ConnectionState(
-    hosts: [Host(displayName: 'Local Host', uri: defaultHostUri)],
-  );
+  /// Returns the initial connection state before Host discovery or selection.
+  factory ConnectionState.initial() => const ConnectionState();
 
   /// Returns a copy with selected values replaced. [selectedHost] is an [Option] so an omitted,
   /// cleared, and set value stay distinct.

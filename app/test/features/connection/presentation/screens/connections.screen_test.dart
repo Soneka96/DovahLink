@@ -30,6 +30,7 @@ import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
@@ -65,6 +66,7 @@ void main() {
   late MockPairingSectionViewModel pairingViewModel;
   late MockPairingDialogViewModel pairingDialogViewModel;
   late List<String> pairingCalls;
+  late List<String> discoveryCalls;
   late List<Host> selectedHosts;
   late List<DovahThemePreset> selectedPresets;
 
@@ -77,6 +79,7 @@ void main() {
     pairingDialogViewModel = MockPairingDialogViewModel();
     when(() => pairingDialogViewModel.title).thenReturn('Pair with Local Host');
     pairingCalls = [];
+    discoveryCalls = [];
     selectedHosts = [];
     selectedPresets = [];
 
@@ -87,6 +90,13 @@ void main() {
     when(
       () => viewModel.hostCards,
     ).thenReturn([Fixtures.buildHostCardViewData()]);
+    when(
+      () => viewModel.discoveryStatus,
+    ).thenReturn(ConnectionDiscoveryStatus.idle);
+    when(() => viewModel.discoveryError).thenReturn(null);
+    when(
+      () => viewModel.onDiscover,
+    ).thenReturn(() => discoveryCalls.add('discover'));
     when(() => viewModel.onSelectHost).thenReturn(selectedHosts.add);
     when(
       () => appearanceViewModel.activePreset,
@@ -431,7 +441,7 @@ void main() {
     });
 
     testWidgets(
-      'ConnectionsScreen does not select a Host when Discover Skyrim is tapped',
+      'ConnectionsScreen calls discovery when Discover Skyrim is tapped',
       (WidgetTester tester) async {
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
@@ -440,6 +450,22 @@ void main() {
         await tester.pump();
 
         expect(selectedHosts, isEmpty);
+        expect(discoveryCalls, ['discover']);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen disables discovery while a request is active',
+      (WidgetTester tester) async {
+        when(
+          () => viewModel.discoveryStatus,
+        ).thenReturn(ConnectionDiscoveryStatus.discovering);
+
+        await tester.pumpWidget(buildWidget());
+        await tester.tap(find.text('Discover Skyrim'), warnIfMissed: false);
+        await tester.pump();
+
+        expect(discoveryCalls, isEmpty);
       },
     );
   });
@@ -769,7 +795,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen moves keyboard focus from Appearance to the Host card, skipping disabled Discover',
+      'ConnectionsScreen moves keyboard focus from Appearance through Discover to the Host card',
       (WidgetTester tester) async {
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
@@ -789,11 +815,15 @@ void main() {
 
         expect(
           find.descendant(
-            of: find.byType(DovahIconButton),
+            of: find.byType(DovahButton),
             matching: find.byKey(DovahFocusRing.ringKey),
           ),
-          findsNothing,
+          findsOneWidget,
         );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+
         expect(
           find.descendant(
             of: find.byType(DovahConnectionCard),
@@ -915,7 +945,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen exposes the title as a header, the host as a button, and Discover as disabled',
+      'ConnectionsScreen exposes the title, Host, and enabled Discover action semantically',
       (WidgetTester tester) async {
         final SemanticsHandle handle = tester.ensureSemantics();
         try {
@@ -928,7 +958,7 @@ void main() {
           final SemanticsData host = tester
               .getSemantics(
                 find.bySemanticsLabel(
-                  'Local Host, DovahLink Host, 127.0.0.1:58231, Not connected',
+                  'Local Host, DovahLink · Ready to connect, 127.0.0.1:58231, Not connected',
                 ),
               )
               .getSemanticsData();
@@ -942,7 +972,7 @@ void main() {
           expect(title.flagsCollection.isHeader, isTrue);
           expect(host.flagsCollection.isButton, isTrue);
           expect(host.flagsCollection.isEnabled, Tristate.isTrue);
-          expect(discover.flagsCollection.isEnabled, Tristate.isFalse);
+          expect(discover.flagsCollection.isEnabled, Tristate.isTrue);
           expect(appearance.flagsCollection.isButton, isTrue);
           expect(appearance.hasAction(SemanticsAction.tap), isTrue);
         } finally {
