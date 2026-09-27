@@ -30,6 +30,8 @@ The main roadmap answers **“What is the normal product delivery order?”** De
 
 ## Deviations
 
+- [Current Execution Flow](current-execution-flow.md) — the maintainer's short-term order for
+  finishing active deviations and returning to the ordered roadmap.
 - [Prototype → Flutter Convergence](prototype-flutter-convergence/README.md) — staged work to align
   the production Flutter client with the approved prototype while preserving SDK/domain authority
   over real connection and pairing semantics.
