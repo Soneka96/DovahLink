@@ -1,0 +1,9 @@
+name: dovahlink_s2_tls_client_poc
+publish_to: none
+environment:
+  sdk: '>=3.12.0 <4.0.0'
+dependencies:
+  asn1lib: 1.6.5
+  crypto: 3.0.7
+dev_dependencies:
+  tidy_imports: ^1.3.0
