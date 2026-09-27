@@ -41,5 +41,10 @@ The detailed security analysis stays in the linked deviation and
 
 ## Current next action
 
-Re-plan 03.4–03.10 against current DovahLink security and SDK architecture before implementation.
-The exact schedule belongs to future reviewed work; this historical index assigns no new milestones.
+Proceed with the separately approved local discovery UI foundation: expose the existing loopback
+candidate as routing information only and connect it through the existing SDK flow. This does not
+resume or complete historical slice 03.6's broader discovery / Known Host presentation plan.
+
+Re-plan 03.4–03.10 against current DovahLink security and SDK architecture before resuming those
+slices. The exact schedule belongs to future reviewed work; this historical index assigns no new
+milestones.

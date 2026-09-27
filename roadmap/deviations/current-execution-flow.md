@@ -9,15 +9,16 @@ active deviations.
 
 ## Work order
 
-1. **Finish the UI / prototype work already in progress.** Complete the visual, interaction,
-   responsive, accessibility, and parity work already planned for the active convergence effort.
-   Do not keep pulling future feature screens forward for convenience; feature-specific UI stays with
-   its normal roadmap stage unless separately approved. This page does not invent the remaining UI
-   task list.
-2. **Record convergence closeout where appropriate.** Update the relevant deviation record when the
-   active UI work reaches its defined stopping point. Do not mark undocumented work complete.
-3. **Re-plan historical connection/pairing slices 03.4–03.10.** Compare each slice with current SDK,
-   Host, and security architecture; work already completed; the closed PR #100 findings; the SAS
+1. **Implement the approved local Host discovery foundation.** Use the existing loopback discovery
+   operation behind a narrow app-facing boundary. The app candidate exposes only the fixed display
+   label and endpoint; discovery claims are not app Host identity or trust. The approved prototype
+   remains the presentation authority, and the existing SDK connection path owns the outcome after
+   selection. This advances the Connections experience without choosing production discovery.
+2. **Record this convergence continuation.** Keep the candidate-only scope distinct from the
+   broader historical 03.6 discovery / trust UI plan. Do not mark the broader step complete.
+3. **Re-plan historical connection/pairing slices 03.4–03.10 before resuming them.** Compare each
+   slice with current SDK, Host, and security architecture; work already completed; the closed PR
+   #100 findings; the SAS
    research extraction; and the selected DovahLink authorization direction. The old sequence is
    history, not implementation authorization. For each slice, decide whether to keep, narrow,
    reorder, combine, defer, or remove it; this document makes none of those decisions.
@@ -47,9 +48,9 @@ active deviations.
 
 ## Return condition
 
-Resume normal roadmap progression once the intended UI work reaches its defined stopping point,
-remaining connection/pairing slices have been re-planned, necessary work has been completed or
-explicitly deferred, and no active deviation still has a justified reason to precede Phase 5.4.
+Resume normal roadmap progression once this approved discovery foundation is complete, remaining
+connection/pairing slices have been re-planned, necessary work has been completed or explicitly
+deferred, and no active deviation still has a justified reason to precede Phase 5.4.
 
 ## Stage 7 remains planned
 

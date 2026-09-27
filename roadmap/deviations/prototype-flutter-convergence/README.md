@@ -1,7 +1,8 @@
 # Prototype → Flutter Convergence
 
 **Status:** Active — design and visual foundation complete; connection/pairing convergence partial;
-remaining steps require re-planning.
+remaining historical steps require re-planning. A narrow local discovery UI continuation is
+approved independently of those paused steps.
 
 ## Why this deviation exists
 
@@ -45,6 +46,28 @@ generic SAS research continues in `Soneka96/sas-pairing`.
 Remaining connection/pairing steps must be reconciled with current DovahLink security architecture
 before implementation. Ordinary product work that does not depend on hostile-network first contact
 may continue from Phase 5.4. Stage 5A and production LAN pairing remain gated.
+
+## Approved local discovery continuation
+
+The final production discovery mechanism is intentionally undecided. The development environment
+already has a known local Host endpoint, so the app can implement the approved Connections
+experience now without prematurely choosing a network discovery protocol. The current SDK discovery
+operation may check that endpoint; the app-facing candidate retains only the fixed “Local Host” label
+and endpoint. The peer's Host ID/name claims do not become candidate identity, trust, authentication,
+or persisted Known Host metadata. Real Host identity and connection outcome continue to come from
+the selected Host's normal SDK connection flow.
+
+The canonical prototype remains the presentation and interaction authority. Searching, available,
+empty, failure, selection, and connection presentation are product states that remain valid when
+the discovery implementation changes. Future discovery should replace the implementation below the
+app-facing boundary without redesigning the Connections UI, Redux state, ViewModels, or card
+composition.
+
+This continuation is local / loopback development behavior, not production-secure discovery or
+pairing. It does not choose or implement LAN discovery, mDNS/DNS-SD, secure first-contact pairing,
+`sas-pairing`, WSS/TLS migration, or future Pair / Reject / Block authorization behavior. Unknown
+non-loopback peers remain gated. It does not complete the broader historical 03.6 plan or choose a
+production discovery mechanism.
 
 ## Related deviation
 

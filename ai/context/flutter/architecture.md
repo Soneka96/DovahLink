@@ -249,9 +249,18 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 
 ## Feature call chain
 
-Feature business logic follows `Middleware -> UseCase -> Repository -> Datasource`.
-Repositories coordinate local and remote datasources; a use case never chooses between them.
-One-off I/O belongs to the owning feature datasource, not a generic service.
+Two call paths are valid, depending on who owns the behavior:
+
+```text
+SDK/service-owned operation: Middleware -> Service / SDK boundary
+App-owned domain behavior:   Middleware -> UseCase -> Repository -> Datasource
+```
+
+Use a use case when the app owns a domain decision. Use a repository when the app coordinates
+multiple sources, persistence, cache, or domain aggregation. Use a datasource when the Flutter app
+owns external I/O. Do not add a UseCase, Repository, Datasource, Entity/Model pair, or other layer
+whose only responsibility is forwarding an SDK operation unchanged. A narrow app-facing boundary
+is appropriate when it shields app code from SDK details or maps SDK values into app-owned values.
 
 ## Dependency injection
 
