@@ -67,21 +67,23 @@ port into the app.
   hardening and discovery. This stage must not introduce an insecure development-only LAN bypass
   that could become a product path.
 - An mDNS/DNS-SD candidate must never become trusted merely because its
-  discovery metadata, service name, hostname, or endpoint matches the requested search. The approved
-  S1/S2-selected balanced-PAKE first-pair bootstrap must bind the intended Host and Client keys before
-  either side commits trust. The endpoint and its advertised metadata remain untrusted until then.
+  discovery metadata, service name, hostname, or endpoint matches the requested search. An approved
+  initial-pairing profile must bind the intended Host and Client keys before either side
+  commits trust. S2.2 selected no production profile; the endpoint and its advertised metadata remain
+  untrusted until a profile passes the security gate.
 - The required conceptual connection sequence is:
 
   ```text
   untrusted discovery candidate
       -> connect to candidate endpoint
-      -> perform the approved initial balanced-PAKE binding, or verify the pinned Host key
+      -> perform an approved initial-pairing binding, or verify the pinned Host key
       -> prove Client-key possession and receive typed Host trust state
       -> persist the established KnownHost/key binding and applicable recovery metadata
   ```
 
-  This roadmap slice does not select the balanced-PAKE algorithm or library; S2 does. Its design and
-  ownership belong in the approved identity and transport security contract before implementation.
+  This roadmap slice does not select an initial-pairing algorithm or library. S2.2 ended STOP without
+  selecting a production profile. Its security boundary remains: unknown Host identity must not be
+  trusted before an approved initial-pairing profile passes the security gate.
 - Host identity remains independent of hostname, IP address, port, discovery service name, or
   display name. A discovered endpoint is a connection candidate, not durable identity.
 - The discovery record is deliberately non-secret. A matching service name or search query reduces
@@ -129,19 +131,20 @@ deferred to later hardening.
   deduplicates repeated advertisements, and ignores malformed or non-DovahLink records.
 - Discovery records contain no credential or developer token, and a spoofed or mismatched candidate
   cannot become a trusted Host merely by matching the service name or search query.
-- Before any pairing or trust persistence, the selected endpoint must complete the approved
-  first-contact balanced-PAKE bootstrap or verify the pinned Host key. A spoofed, mismatched, or
+- Before any pairing or trust persistence, the selected endpoint must complete an approved
+  first-contact bootstrap or verify the pinned Host key. No production bootstrap is currently
+  selected. A spoofed, mismatched, or
   unauthenticated endpoint aborts before the client accepts its metadata or persists a KnownHost;
   manual endpoint entry follows the same rule.
 - The non-loopback listener remains disabled until the approved LAN threat model, authenticated
   transport, and first-contact bootstrap are ready under S1–S11, and runtime tests prove that
-  unauthenticated peers are rejected. Provisional TLS without PAKE must not expose an unknown-Host
-  accept-and-pair path.
+  unauthenticated peers are rejected. Provisional TLS without an approved bootstrap must not expose
+  an unknown-Host accept-and-pair path.
 - The app displays the discovered candidates, preserves the selected candidate through navigation,
   and authenticates against that candidate's endpoint rather than the old static default URI.
 - Android storage retains the Client key reference and per-Host pins/recovery securely; it does not
   persist Host-authoritative `trusted`, `revoked`, or `blocked` state.
-- A first-time phone connection completes the approved balanced-PAKE pairing flow. A later
+- A first-time phone connection completes an approved initial-pairing flow. A later
   foreground reconnect verifies the pinned Host identity, proves Client private-key possession, and
   receives the Host's typed trust result without a bearer credential.
 - The existing one-client constraint is respected: the phone can replace the desktop client, but a

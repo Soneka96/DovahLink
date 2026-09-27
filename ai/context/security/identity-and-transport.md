@@ -1,6 +1,10 @@
 # Identity and transport security architecture
 
-**Status:** S1 architecture contract with an unresolved initial-pairing gate. S2.2 reassessed the
+**Status:** S1 architecture contract with an unresolved initial-pairing gate. DovahLink owns
+application identity, durable trust, authorization, Pair/Reject/Block decisions, reconnect behavior,
+and product integration. Generic human-authenticated SAS construction and research belong to
+[`Soneka96/sas-pairing`](https://github.com/Soneka96/sas-pairing), which DovahLink intends to consume.
+S2.2 reassessed the
 Pasini–Vaudenay SAS-AKE construction, current Shortcake upstream, DovahLink's Host lifecycle, and
 platform integration evidence. **S2.2 STOP — no production initial-pairing profile is selected and
 S3 remains blocked.** The paper's commitment can be implemented faithfully in an isolated POC, but
@@ -15,7 +19,7 @@ implemented. Until later migration PRs land, current behavior remains defined by
 implementation. Sections below that describe cryptographic migration behavior remain proposals
 only where they are not supported by a completed security gate.
 
-The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.2 is the current feasibility and selection gate; it ended in STOP, so do not implement S3 or infer a protocol from this document's candidate descriptions.
+The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.2 is the current feasibility and selection gate; it ended in STOP, so do not implement or activate its security-dependent S3–S11 sequence or infer a protocol from this document's candidate descriptions. Separately scoped DovahLink product work that does not depend on secure hostile-network first contact may proceed; it does not mark any S3–S11 slice complete.
 
 ## 1. Goals
 
@@ -51,7 +55,7 @@ LAN/mDNS discovery, Host selection UI, automatic Host ranking or failover, alias
 | Endpoint | Routing information, separate from Host identity. | Routing information only; never a trust anchor. |
 | Client Host persistence | One optional `PersistedClientState.knownHost`. | `knownHosts`, keyed by `hostId`, with an independent pin and endpoint per Host. |
 | Trusted reconnect | `hello.auth` sends a persisted bearer `trusted_device_credential`. | TLS Host verification and Client proof-of-possession; no reusable bearer secret. |
-| Pairing | Six-digit code eventually issues a reusable credential. | Cryptographic construction unresolved after S2.2 STOP. No SAS-AKE profile was selected; do not treat the six-digit Committed-SAS candidate as a PAKE secret, a trust token, or an implemented profile. |
+| Pairing | The current loopback implementation uses a six-digit code and issues a reusable credential. | A future successful bootstrap proof feeds a DovahLink-owned pending authorization decision; user approval, not the proof alone, may establish durable trust. The production bootstrap remains unresolved after S2.2 STOP. |
 | Transport | Current loopback WebSocket behavior is defined by `ai/context/protocol/security.md`. | WSS/TLS 1.3, pinned Host identity, and mutual cryptographic authentication for trusted clients. |
 
 The current wire schema remains current until the migration changes it. Do not edit `protocol/schema/README.md` or fixtures to describe target messages as implemented during S1.
@@ -145,7 +149,32 @@ Disable TLS 1.3 early data (0-RTT) and any resumption path that would omit fresh
 
 The first Host certificate is not yet pinned. A provisional TLS connection may therefore accept the candidate certificate only while the user explicitly starts initial pairing. This connection is encrypted but the certificate is not treated as an authenticated Host identity. It carries only restricted pairing/bootstrap traffic; it cannot read or publish normal Host state or establish a trusted session. A KnownHost key mismatch must abort before any pairing secret or ordinary application data is sent. It must not silently downgrade to provisional pairing.
 
-The S1 balanced-PAKE bootstrap proposal is unresolved and was not replaced by Committed SAS. The S2.1 investigation found that Pasini–Vaudenay's three-move SAS-AKE construction might remain internally unchanged while later authenticated application data binds DovahLink identity fields, subject to source composition rules. S2.2 did not establish that composition's security argument or select the construction. Shortcake remains unaudited and pre-release, its P-256 suite is not in the release, and the DovahLink transcript, retry policy, and finalization ordering lack byte-level and independent-language evidence. Do not implement the ceremony, persist trust from a provisional TLS connection, or infer an attempt policy from the existing wrong-code counter.
+The current loopback six-digit flow is temporary development behavior, not production security for hostile-network first contact. Generic SAS research, construction selection, protocol profiling, implementation, vectors, and security review continue in `Soneka96/sas-pairing`; do not duplicate that research here. S2.2 did not establish the security argument for a DovahLink composition or select a production construction. Shortcake remains unaudited and pre-release, its P-256 suite is not in the release, and candidate transcript, retry policy, and finalization ordering lack byte-level and independent-language evidence. Do not implement the cryptographic ceremony, persist trust from provisional TLS, or infer an attempt policy from the existing wrong-code counter.
+
+#### Selected DovahLink pairing authorization architecture
+
+The application-level separation is selected architecture; runtime implementation is deferred.
+
+The intended DovahLink application flow is:
+
+```text
+temporary bootstrap proof or future sas-pairing ceremony
+        -> Pending Pairing Approval for this exact attempt
+        -> Skyrim user chooses Pair / Reject / Block
+        -> durable trust only after Pair
+```
+
+Long term, an approved `sas-pairing` ceremony is intended to replace the temporary bootstrap proof;
+either result feeds the same DovahLink-owned authorization step. No production SAS profile is
+selected. This is a target direction, not current runtime behavior. A future pending approval must
+identify the exact active attempt (conceptually `pendingPairingId`), rather than authorize by
+`clientId` alone, so stale approval cannot authorize a later ceremony. Its eventual model may bind the
+challenge/ceremony identifier, `clientId`, display metadata, proof result, and expiry. This
+documentation does not define
+a wire schema. Pair ends the attempt and may establish durable trust; Reject ends it without trust.
+The application meaning and persistence semantics of Block before completed trust remain for a
+focused design and implementation decision. This direction does not change the current Known Device
+rule that arbitrary or unpaired client IDs are not blockable.
 
 Any future initial-pairing construction's authenticated transcript/key-confirmation context must bind all of the following:
 
@@ -160,7 +189,7 @@ No permanent trust may be committed before the selected construction's client pr
 
 Any future profile must define whether pairing continues on the provisional connection or requires a new one, then bind subsequent normal authentication to the durable Host and Client keys. S2.2 did not decide this lifecycle. Do not infer the old PAKE reconnect ordering as selected.
 
-SPAKE2 (RFC 9382) and CPace remain references from the prior S1 PAKE proposal, not selected bootstrap protocols. ZRTP (RFC 6189) and Bluetooth LE Secure Connections Numeric Comparison remain complete but protocol-specific SAS references. Generic SAS/AKE work, including Pasini–Vaudenay and Shortcake, was also assessed; the construction survives, but the implementation and profile gates do not. See `crypto-stack-selection.md` for the STOP analysis and evidence.
+SPAKE2 (RFC 9382) and CPace remain references from the prior S1 PAKE proposal, not selected bootstrap protocols. ZRTP (RFC 6189) and Bluetooth LE Secure Connections Numeric Comparison remain complete but protocol-specific SAS references. Generic SAS/AKE work was assessed in the historical DovahLink review; ongoing generic construction and profile research belongs in `Soneka96/sas-pairing`. See `crypto-stack-selection.md` for DovahLink's STOP analysis and evidence.
 
 ## 11. Trusted reconnect and hello
 
@@ -246,6 +275,12 @@ Every security migration PR must leave the merged baseline internally coherent. 
 | **S10** | Remove any remaining obsolete bearer pairing/authentication behavior as part of the approved cutover. This is not permission to retain dual security modes or defer deletion for unreleased development state. |
 | **S11** | Security/adversarial regression audit across Host, SDK, transport, persistence, pairing, recovery, and protocol boundaries. |
 
+S3–S11 remain blocked and incomplete as production security-migration slices. In particular,
+production keys, initial-pairing cryptography, authenticated non-loopback transport, secure cutover,
+and migration audit remain gated. DovahLink application-level authorization, Known Host/Device UX,
+and trust-administration design may be developed separately when they do not activate those paths;
+such work neither completes nor substitutes for an S3–S11 slice.
+
 ### S2/S2.1/S2.2 feasibility gate
 
 The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1 first assessed ZRTP and Bluetooth Numeric Comparison, then reassessed generic SAS constructions and Shortcake. S2.2 checked the Pasini–Vaudenay construction against the whole-profile requirements below. The construction survives at paper level, but no production profile passed:
@@ -258,13 +293,13 @@ The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1
 - **Cross-language/native boundary:** C# Host interoperability with Dart/Flutter, vector compatibility, Windows plus future Android/iOS support, and whether one shared native crypto/FFI boundary is safer than separate stacks.
 - **Security and supply chain:** no custom cryptography; maintained libraries; vulnerability/update process; licensing; platform coverage; and a version-pinning strategy.
 
-S2.2 did not confirm a safe end-to-end profile. The blockers are the unproven mapping from the chosen KEM to the paper's key-agreement assumptions, the unproven post-SAS DovahLink identity/PoP composition, lack of an accepted lifetime retry bound, Shortcake's explicit unaudited prerelease status and open P-256 change, unverified target packaging, and missing canonical profile bytes and interoperability evidence—not a finding that the Pasini–Vaudenay construction is unsuitable. S3–S11 remain blocked. A renewed feasibility step must address these gaps and establish all required interoperability evidence before any production identity or authentication work begins. Standard primitives or matching vectors alone are insufficient.
+S2.2 did not confirm a safe end-to-end profile. The blockers are the unproven mapping from the chosen KEM to the paper's key-agreement assumptions, the unproven post-SAS DovahLink identity/PoP composition, lack of an accepted lifetime retry bound, Shortcake's explicit unaudited prerelease status and open P-256 change, unverified target packaging, and missing canonical profile bytes and interoperability evidence—not a finding that the Pasini–Vaudenay construction is unsuitable. Security migration S3–S11 remain blocked. A renewed feasibility step must address these gaps and establish all required interoperability evidence before any production security-dependent identity or authentication path is activated. Standard primitives or matching vectors alone are insufficient. Application-level product work that does not depend on those guarantees may proceed independently.
 
 ### S6 provisional-TLS activation guard
 
 Provisional TLS certificate acceptance is not trust. TLS 1.3 `CertificateVerify` proves possession of the private key for the presented certificate, but an unknown certificate is not yet a trusted Host identity. A future profile may rely on that proof only if the certificate SPKI is the Host identity and the exact SPKI plus `hostId` is bound by the selected initial-pairing construction. S2.2 selected no such construction. Keep provisional acceptance unreachable from production pairing.
 
-After S11, resume UI convergence milestone 3.4, Companion Device Identity. This security sequence is a prerequisite gate, not permission to implement that UI in these PRs.
+S11 gates activation of the production security migration, not unrelated DovahLink product work. Companion Device Identity and application authorization work may proceed independently where it does not rely on secure hostile-network first contact.
 
 ## 20. Security invariants
 

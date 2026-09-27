@@ -10,6 +10,13 @@ composition that binds DovahLink identities, transcript MACs, and Client pairing
 output. A proposed retry ceiling also does not bound lifetime multi-instance probability. No exact
 production profile is selected; vectors were therefore not created.
 
+Reusable SAS research, construction selection, protocol profiling, implementation, vectors, and
+security review now continue in [`Soneka96/sas-pairing`](https://github.com/Soneka96/sas-pairing).
+This file remains the historical record of DovahLink's S2.2 investigation and DovahLink-specific
+security context; generic SAS research should not continue independently here. DovahLink remains an
+intended consumer. Its application-level authorization and trust work may proceed without treating
+the unresolved bootstrap as production-secure.
+
 The latest upstream release remains `0.1.0-pre.4` and its README still says the code has not been
 audited. PR #35 adding RFC 9180 P-256/P-384 DHKEM remains open. The repository's current issues page
 has no issues; no reviewed maintainer statement or open issue/PR promises to add the paper's extra
@@ -356,10 +363,12 @@ the intended P-256 profile; the P-256 implementation has no recorded review and 
 target-platform support/FFI is unverified; and DovahLink has no frozen canonical wire/application
 transcript or independent C#↔Dart vectors. These are composition, implementation-assurance,
 platform, and interoperability blockers. No production profile or SAS alphabet is selected. Step 2
-is not authorized by this STOP; S3 and later work remain blocked. Reopen only on direct maintainer
-approval of a renewed feasibility step that addresses these classified blockers without weakening
-the acceptance criteria. This initial-pairing STOP does not reopen the separately selected normal
-reconnect architecture of application-level fresh ECDSA P-256 Client PoP; S7 still owns its concrete
+is not authorized by this STOP; S3 and later security-migration work remained blocked at the time of
+this historical assessment. The current product-development gate is narrowed in the status note
+above. Reopen only on direct maintainer approval of a renewed feasibility step that addresses these
+classified blockers without weakening the acceptance criteria. This initial-pairing STOP does not
+reopen the separately selected normal reconnect architecture of application-level fresh ECDSA P-256
+Client PoP; S7 still owns its concrete
 protocol specification and implementation.
 
 ## Primary references
