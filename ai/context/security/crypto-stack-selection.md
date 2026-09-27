@@ -1,197 +1,296 @@
 # S2.1 Committed-SAS security feasibility result
 
-**Status: STOP — S2.1 did not pass. S3 remains blocked.** This assessment was completed on
-2026-09-27 against `origin/main` at `77b440e1`. No initial-pairing cryptographic profile is selected.
-The reviewed SAS protocols examined are complete protocols with security properties tied to their
-own message ordering, transcript, primitives, and transport assumptions. DovahLink's requested
-profile would require selecting and composing those elements for DovahLink: commitment roles and
-reveal ordering, new identity and ceremony binding, a six-digit derivation, key confirmation, and
-application proof-of-possession. The sources do not specify or analyze that composition. Building it from
-standard primitives and then showing C# and Dart agree would prove interoperability, not establish
-that the new protocol is secure.
+**Status: STOP — S2.1 did not pass. S3 remains blocked.** This reassessment was completed on
+2026-09-27 against current primary sources. No initial-pairing profile is selected. The Pasini–
+Vaudenay three-move SAS-AKE construction survives at the paper level. Shortcake follows its message
+flow, but its commitment omits an independent random value required by the paper's concrete
+random-oracle commitment scheme. No complete DovahLink profile passes: the
+Shortcake/KEM substitution and post-AKE identity/PoP composition lack a complete assumption-to-proof
+mapping; Shortcake is an unaudited pre-release; its released ready suite is not DovahLink's P-256
+direction; Shortcake's current commitment omits the independent random value in the paper's ROM
+instantiation; its P-256 suite is still an unreviewed pull request; and no frozen canonical wire
+encoding or independent C#↔Dart vectors exist. This STOP is about proof/commitment composition,
+implementation assurance, and profile/interoperability evidence, not a finding that the
+Pasini–Vaudenay construction is unsuitable.
 
-This is a STOP on the proposed Committed-SAS profile under the requested review bar. It is not a
-claim that no future standard or fully specified reviewed construction can meet DovahLink's needs.
+The previous STOP assessment was incomplete. It considered ZRTP and Bluetooth Numeric Comparison
+but missed general SAS-AKE constructions and the possibility of authenticating DovahLink application
+identity data only after successful human SAS confirmation. The construction and composition analysis
+below corrects that record. It does not authorize implementation or weaken any S2.1 acceptance gate.
 
 ## Gate result
 
 | Requirement | Finding | Result |
 | --- | --- | --- |
-| Established complete SAS construction | ZRTP and Bluetooth LE Secure Connections Numeric Comparison each define complete, protocol-specific ceremonies. Neither defines the requested DovahLink ceremony and identity model. | **FAIL** |
-| Commit/reveal and grinding argument | ZRTP's one-sided HVI commitment and Bluetooth's confirm/random exchange each rely on their own roles and sequencing. The proposed two-sided ECDH-plus-nonce commitment is not a profile of either without changing its analyzed flow. | **FAIL** |
-| Exact DovahLink transcript and identity binding | Neither reference defines the joint binding of DovahLink `hostId`, Host SPKI, `clientId`, Client SPKI, `ChallengeId`, security-fence generation, and DovahLink roles/domain. | **FAIL** |
-| Six-digit unbiased SAS | ZRTP defines its own 20-bit Base32 or 16-bit word-list rendering; Bluetooth defines `g2` using AES-CMAC and reduction to six decimal digits. Replacing either with the other extraction or a new rejection-sampling rule changes the selected construction. | **FAIL** |
-| Canonical public identity encoding | ECC SPKI has a standardized DER representation; SHA-256 SPKI fingerprints and unpadded base64url encoding have authoritative format references and were exercised in the Dart pinning POC. This choice is independent of the pairing protocol. | **PASS — independent subdecision** |
-| Application Client PoP, durable Block principal, transaction-bound Skyrim authorization | These are DovahLink application semantics beyond either SAS profile. Their composition with a candidate ceremony has no reviewed construction or complete DovahLink state-machine proof. | **UNPROVEN** |
-| Independent C# ↔ Dart ceremony vectors | Existing POCs do not implement the candidate ceremony. No SAS/transcript/ECDH/HKDF/confirmation vectors were produced. | **NOT RUN** |
-| Production safety | No production Host, SDK, App, Adapter, protocol, or trust behavior changed. | **PASS** |
+| Reviewed SAS-AKE construction | Pasini–Vaudenay defines an optimal three-move SAS-AKE in the random-oracle model by composing a two-move key agreement with a three-move SAS cross-authentication protocol. | **CONSTRUCTION SURVIVES** |
+| Shortcake protocol mapping | Current `main` follows the message flow, SAS expression, transcript key derivation, and human-confirm-before-key-use rule. Its commitment omits the paper's independent random commitment value; one reflection check also differs from the paper's participant-identity check. | **FLOW MATCH; COMMITMENT DEVIATION UNPROVEN** |
+| Sequential DovahLink identity binding | Laur–Pasini's composition restrictions require outputs remain unused until all parties accept, fresh per-instance randomness, distinct roles/identities, and unique OOB-to-instance binding. They do not alone prove the proposed HKDF/MAC/signature composition or its unknown-key-share properties. | **UNPROVEN COMPOSITION BLOCKER** |
+| Exact SAS profile | The source permits a 30-bit prefix and a one-to-one six-symbol Base32 mapping. Crockford's 32-symbol alphabet is a plausible human-oriented candidate; font/accessibility rendering and exact profile bytes are not frozen. | **NOT SELECTED** |
+| Standard key-establishment profile | RFC 9180 DHKEM(P-256, HKDF-SHA256) is a normal, specified KEM instantiation for the construction, not a custom P-256 KEM. Shortcake's implementation of it is only in open PR #35. | **TECHNICALLY PLAUSIBLE; NOT RELEASED/REVIEWED** |
+| Production implementation assurance | Shortcake `0.1.0-pre.4` says it has not been audited. Repository CI does not demonstrate Windows, Android, or iOS builds; Rust FFI and packaging have not been proven here. | **FAIL** |
+| Independent C#↔Dart interoperability | No DovahLink vectors or independent implementations exist. Two clients calling one Rust library through FFI would prove ABI/wire use, not independent C#↔Dart crypto. | **NOT RUN / NOT SATISFIED** |
+| Existing production safety | No production Host, SDK, App, Adapter, protocol, trust, or network behavior changed. | **PASS** |
 
-## Primary-construction comparison
+## Construction review
 
-| Construction | What the complete source specifies | Why it cannot be copied as the DovahLink profile without material changes |
+### Pasini–Vaudenay and Shortcake
+
+Pasini–Vaudenay's PKC 2006 paper defines the three-move SAS-based key-agreement profile in two
+layers: a two-move key-agreement protocol is run over the untrusted channel, and the protocol's
+messages are authenticated by its three-move SAS cross-authentication construction. The optimized
+construction is proven in the random-oracle model. The paper also gives a generic-commitment variant
+with one extra move. The three-move proof has a concrete multi-instance bound; it is not an unlimited
+`2^-rho` guarantee. See the [paper's protocol and theorem](https://infoscience.epfl.ch/server/api/core/bitstreams/a66b46e4-4da7-4013-aae9-4c63abd06756/content), especially Sections 4–6.
+
+Shortcake's current `main` source implements the following byte-level operations (this describes the
+current implementation, not the paper's exact commitment construction or a DovahLink wire profile):
+
+1. Initiator generates a KEM key pair `(dk, ek)` and a fresh 32-byte nonce `R_A`; sends
+   `MessageOne = (ek, c)`, where
+   `c = SHA3-256("shortcake-commitment-v1" || I2OSP8(|ek|) || ek || I2OSP8(32) || R_A)`.
+2. Responder encapsulates to `ek`, obtaining `(ct, kem_ss)`, generates fresh 32-byte `R_B`, and
+   sends `MessageTwo = (ct, R_B)`.
+3. Initiator decapsulates `ct`, computes the SAS, and sends `MessageThree = R_A`.
+4. Responder verifies `c` against `(ek, R_A)` before computing its output. Both derive the same
+   session key as
+   `SHA3-256("shortcake-session-key-v1" || len8(ek) || ek || len8(ct) || ct || len8(R_B) || R_B || len8(R_A) || R_A || len8(kem_ss) || kem_ss)`.
+
+The raw SAS is
+`R_B XOR SHA3-256("shortcake-sas-v1" || len8(R_A) || R_A || len8(ct) || ct)`.
+The shared `hash_fields` routine uses eight-byte big-endian length prefixes (`I2OSP(len, 8)`) for
+each field. The code uses a random 256-bit initiator nonce as the commitment opening/key and as the
+SAS hash key; the responder's independent 256-bit nonce masks the hash output. The KEM secret and
+all ordered public transcript values feed the session-key derivation.
+
+The mapping to the paper is:
+
+| Pasini–Vaudenay value | Shortcake value | Classification |
 | --- | --- | --- |
-| **ZRTP, RFC 6189** | A media-path key agreement with fixed `Hello`, `Commit`, `DHPart1`, `DHPart2`, `Confirm1`, and `Confirm2` sequencing. The initiator commits with `hvi = hash(DHPart2 || responder Hello)` before the responder's DH public value is revealed; the responder checks that commitment after receiving DHPart2. The RFC explains that this constrains a MITM to one SAS guess. It defines P-256 as optional EC25, the full `total_hash` order, an HMAC-based KDF, SAS derivation, and confirmation messages. | The commitment is asymmetric and coupled to ZRTP's `Hello`/`DHPart` messages and role election. Its `Hello` carries a random 96-bit ZID and protocol capabilities, not DovahLink logical IDs and identity SPKIs. The RFC's SAS output is the top 20 bits rendered as Base32 or the top 16 bits rendered as words, not six decimal digits. Replacing its commitment, transcript contents, derivation, or confirmation exchange with the proposed DovahLink variants is a new protocol profile whose security is not established by RFC 6189. |
-| **Bluetooth LE Secure Connections Numeric Comparison** | Bluetooth Core Security Manager first exchanges both P-256 public keys. It then exchanges `f4` confirm values: the initiator sends `Ca`, the responder sends `Cb` after receiving it; only after both confirms does the initiator reveal `Na`, followed by responder reveal `Nb`. The confirms commit to the nonces, not to the already-exchanged public keys. `g2` then computes the displayed six-digit value from public-key x-coordinates and nonces. Later `f6` DHKey checks use AES-CMAC and include nonces, role-associated IO capabilities, and Bluetooth addresses. | It is a Bluetooth link-layer ceremony. Its role/address/IO-capability inputs and pairing state machine are not DovahLink fields. Its nonce commitment does not commit the ephemeral public-key contributions proposed for DovahLink. Replacing its inputs/order with WSS application messages, SHA-256/HMAC, DovahLink IDs, SPKIs, challenge generations, and Skyrim authorization is not merely reusing `g2`; it creates a distinct protocol. Also, reducing a uniform 32-bit `g2` output modulo 1,000,000 is not exactly uniform: 967,296 decimal values have 4,295 preimages and 32,704 values have 4,294 preimages. |
+| Initiator message `m_A` | KEM encapsulation key `ek` | Underlying key-agreement message |
+| Committed key `K` | Initiator nonce `R_A` | Faithful commitment/SAS-key role |
+| Responder message `m_B` | KEM ciphertext `ct` | Underlying key-agreement message |
+| Responder random `R` | Responder nonce `R_B` | Faithful SAS mask |
+| Commitment/opening | Shortcake computes domain-separated SHA3-256 over length-prefixed `ek` and `R_A`; opening reveals `R_A` | **Security-relevant deviation:** the PV random-oracle commitment also samples an independent `ell_e`-bit value `e` and commits to `(e,R_A,tag)`. Shortcake has no independent `e`; its code is not the paper's analyzed instantiation by inspection. A separate hiding/binding/non-malleability reduction or a faithful implementation is required. |
+| `R XOR h_K(m_B)` | `R_B XOR SHA3-256(domain, R_A, ct)` | Faithful keyed-hash SAS form; SHA3-256 is modeled as the random oracle |
+| Underlying two-move KA output | KEM secret combined with full ordered transcript under a separate hash label | Modern key-agreement/KDF profile choice; the exact KEM must satisfy the underlying KA assumptions |
+| Paper's `Alice != Bob` reflection guard | Shortcake rejects byte-equal `ek` and `ct` | **Not equivalent by inspection.** DovahLink must enforce distinct, role-typed Host and Client identities in its outer authenticated transcript; do not treat the library check as that proof. |
+| OOB SAS confirmation before key use | `ProtocolOutput` exposes the session key through a separate consuming method and documents that it must not be used before the SAS matches | API warning/state boundary; DovahLink must enforce the ordering in its caller |
+| Protocol state/errors | Consuming `start`/`finish` transitions; typed encapsulation, decapsulation, commitment, and reflection errors; zeroization on drop | Faithful implementation mechanics, but message cloning/replay and untrusted serialized state remain caller/wire-profile responsibilities |
 
-### Evidence mapping
+The PV random-oracle commitment described in Section 2.3 is `c = H(e, K, m)`: it samples an
+independent `ell_e`-bit random value `e`, commits to the SAS key `K` under tag/message `m`, and opens
+with `(e,K)`. Shortcake's current `c = H(domain, ek, R_A)` has no independent `e`; `R_A` is the
+committed SAS key. A faithful candidate profile would instead commit to `(e,R_A,ek)`, reveal both
+`e` and `R_A` in move three, and bind `e` in the session-key transcript. Using SHA3-256 as the random
+oracle and adding domain-separated, length-prefixed fields are profile/encoding choices; removing
+`e` is a protocol-security change. A separate reduction might justify the current construction under
+its high-entropy nonce, but none of the reviewed sources provides that proof.
 
-| DovahLink mechanism under consideration | Reference mechanism | DovahLink change | Does the reference establish the changed construction's security? |
-| --- | --- | --- | --- |
-| P-256 ephemeral ECDH | ZRTP EC25 (optional); Bluetooth LE Secure Connections P-256 | Make P-256 mandatory, run it over WSS, and bind DovahLink identities and challenge state | **No.** The primitive is standardized; its composition with new messages and context is not. |
-| Commit/reveal to limit adaptive SAS grinding | ZRTP initiator HVI commitment; Bluetooth confirms commit to nonces after public-key exchange | Commit both ephemeral public keys and nonces before revealing either side's values | **No.** ZRTP commits one initiator DHPart2 before responder key reveal; Bluetooth commits nonces after both public keys are already public. Neither analyzes this new symmetric key-plus-nonce order. `SHA-256(ephemeralKey)` alone is not that proof. |
-| Transcript-bound SAS | ZRTP hashes its fixed ZRTP transcript; Bluetooth `g2` consumes Bluetooth-specific public-key and nonce inputs | Include DovahLink version/domain, roles, logical IDs, Host/Client SPKIs, ephemeral keys, nonces, `ChallengeId`, and other generation context | **No.** Neither reference specifies these fields or their exact encoding/order. |
-| Six-digit SAS | ZRTP 20-bit Base32 / 16-bit word-list; Bluetooth `g2` reduction | Produce exactly `000000`–`999999`, preserve leading zeroes, and meet the requested bias requirement | **No.** A new extraction/rejection rule needs its own profile and analysis. |
-| Key confirmation | ZRTP Confirm1/Confirm2 and hash-chain MACs; Bluetooth `f6` DHKey checks | HMAC-SHA-256 with independent directional labels and ceremony-bound fields | **No.** Standard MACs do not prove the surrounding state machine is secure. |
-| Client key proof during pairing | ZRTP optionally signs its SAS hash; Bluetooth confirms the DHKey | ECDSA P-256/SHA-256 signature over a pairing-only transcript binding `clientId`, Client SPKI, and exact ceremony | **No.** The pairing context and signature protocol are DovahLink additions. |
-| Normal reconnect proof | TLS 1.3 certificate authentication proves possession of a certificate key in the TLS handshake | Application-level fresh Host challenge and Client ECDSA signature, with distinct authentication domain | **No.** TLS CertificateVerify is not this application-authentication transcript. |
-| Provisional Host key possession | TLS 1.3 CertificateVerify signs the handshake transcript with the private key for the presented certificate | Treat its SPKI as the long-term Host identity and bind that SPKI and `hostId` into the SAS transcript | **Conditionally sufficient only for key possession.** The TLS proof does not make the presented certificate a trusted DovahLink Host. The required equality and SAS binding have not been implemented or proven. |
-| `hostId`/Host-key and `clientId`/Client-key binding | ZRTP ZID and Bluetooth address fields are local to those protocols | Bind both logical IDs and both full cryptographic identities to one ceremony | **No.** Hashing or packing DovahLink values into an unrelated field is not specified by either source. |
-| Public identity encoding and fingerprint | RFC 5480 ECC SPKI DER; RFC 7469 SHA-256 SPKI fingerprint; RFC 4648 base64url | Encode Host and Client public identities as DER SPKI; fingerprint as `SHA-256(SPKI DER)` using unpadded base64url | **Yes, independently.** This fixes representation only; it does not bind IDs, authenticate pairing, or establish trust. |
-| Human Pair action and persistent Block | Existing Host owns trust state; existing pairing uses exact challenge IDs, display acknowledgements, expiry, cancellation, supersession, and a security-fence generation | Authorize and persist one exact cryptographic ceremony; key-backed unknown-client Block | **No.** Existing application safeguards are useful fit evidence, but do not bind a new ceremony to finalization. |
+The source uses a generic KEM abstraction; it is not tied to X-Wing by the protocol proof. The current
+ready suite is X-Wing (X25519 + ML-KEM-768) with SHA3-256. RFC 9180's
+[DHKEM(P-256, HKDF-SHA256)](https://www.rfc-editor.org/rfc/rfc9180.html) is a standard two-message
+KEM candidate with a fresh recipient key and shared secret. It matches the shape of the generic
+two-message key-agreement input to Pasini–Vaudenay, so using the standard DHKEM is a ciphersuite
+candidate rather than inventing P-256 encapsulation mathematics. The generic protocol interface alone
+does not prove that a specific KEM plus Shortcake's transcript hash meets the underlying AKA security
+assumptions; that reduction must be checked before the substitution can count as faithful.
+Shortcake's [open PR #35](https://github.com/facebook/shortcake/pull/35) proposes that exact suite,
+including RFC vectors; it is not in `main` or the released crate and has no recorded reviewer. Do not
+assume it has passed the production bar. Long-term ECDSA P-256 identity keys remain separate from
+ephemeral DHKEM keys.
 
-The references justify their respective constructions only. A deterministic cross-language implementation
-would be necessary for a viable profile, but would not substitute for the missing construction-level
-security argument.
+The implementation's fixed hash labels are domain-separated by operation, but do not encode a suite
+identifier or DovahLink version. A DovahLink profile would need to pin one suite/version rather than
+negotiate a downgradeable choice, frame its exact wire version, and bind the selected suite identifier
+in the later authenticated application transcript. Adding DovahLink identities or version fields to
+Shortcake's commitment/SAS inputs would be a protocol modification and is not proposed.
 
-## Grinding, six-digit probability, and retry conclusion
+### Shortcake maturity and integration
 
-RFC 6189 explicitly describes why the HVI commitment constrains a MitM to one SAS guess: the
-initiator forms HVI over its complete DHPart2 (including its public contribution) and the responder's
-Hello, sends that commitment first, receives the responder's DHPart1, then reveals DHPart2. The
-responder verifies HVI before deriving keys. In the two-sided MitM case, the attacker must take the
-initiator role on one leg and the responder role on the other; the sequence stops it from choosing
-both leg contributions after seeing both peers' public values.
+As of this review, [Shortcake's README](https://github.com/facebook/shortcake/blob/main/README.md)
+identifies version `0.1.0-pre.4` and says the implementation has not been audited. Its release is
+marked prerelease. The repository was created in January 2026, has two named core authors, and the
+current main head is [`db73640`](https://github.com/facebook/shortcake/commit/db73640a5531b5266bd1094d72e947ef22295cc1), published in August 2026. Its license is dual MIT/Apache-2.0. The crate depends on `digest`, `subtle`, `zeroize`, and `rand_core`, with optional `serde`, `getrandom`, and X-Wing features; the X-Wing feature depends on pre-release
+`x-wing` and SHA3 crates. CI runs on Linux and cross-builds `wasm32-unknown-unknown` and
+`thumbv6m-none-eabi`; it does not demonstrate Windows, Android, or iOS support. The current example
+uses `postcard`, but neither the Rust types nor serde derive freezes a DovahLink wire protocol.
 
-Bluetooth LE Secure Connections has a different order. Both ephemeral public keys are exchanged
-first. The initiator then sends `Ca`; the responder sends `Cb` only after receiving `Ca`. The
-initiator reveals `Na` only after receiving `Cb`, and the responder reveals `Nb` after receiving
-`Na`; both verify their confirms and later exchange `f6` DHKey checks. Thus Bluetooth commits both
-nonces before nonce reveal, but does not commit the ephemeral public keys. Its attack argument relies
-on its fixed SMP state machine, `f4`/`g2`/`f6` inputs, Bluetooth roles, and address/IO-capability
-context.
+The August 2026 [PR #37](https://github.com/facebook/shortcake/pull/37) fixed stale SAS/hash
+documentation and added coverage for rejecting a deserialized responder state with no shared secret.
+The required guard had already been added; this was a test-coverage gap, not evidence of a known
+cryptographic break. The May 2026 P-256 suite PR has no recorded review. These facts reinforce the
+authors' explicit unaudited warning; Meta ownership does not substitute for review. No independent
+security audit or platform assurance evidence was found in the reviewed primary sources.
 
-One possible DovahLink order would require both peers to commit to every SAS-influencing ephemeral
-public key and nonce before either peer reveals. If commitments are binding and hiding, and every
-input affecting the SAS is included, that order would stop a peer from changing its already-committed
-contribution after a reveal. It would not, by itself, prove the full two-leg active-MITM bound, bind
-all DovahLink identities, or constrain fresh attempts. If a contribution or SAS input remains
-uncommitted when the other side reveals, an active peer can choose that value with information it
-should not yet have. A ZRTP-shaped one-sided HVI order is another possible direction, but adopting it
-requires preserving ZRTP's exact initiator/responder order and commitment inputs while defining
-DovahLink's additional identity and application context. Neither branch was selected or reviewed as
-a whole. Therefore the required question — whether a MitM can repeatedly choose an ephemeral
-contribution after learning enough information to bias the SAS — cannot be answered “no” for the
-proposed DovahLink ceremony. The RFC and Bluetooth security arguments cannot be transferred by
-assertion.
+Rust can in principle be built as a C ABI library for C# P/Invoke and Dart FFI. That alone would not
+prove target support, memory ownership, panic containment, zeroization across the ABI, reproducible
+packaging, or Windows/Android/iOS buildability. No static/dynamic library packaging, Android ABI,
+iOS framework, or host-native ABI POC exists in this repository. Nor would one shared Rust implementation called by
+both clients satisfy the original independent C#↔Dart implementation/vector criterion. Shortcake is
+therefore a useful protocol reference, not an acceptable production dependency on current evidence.
 
-For an ideal independent six-digit SAS, one active MitM ceremony has match probability `1/1,000,000`.
-After `n` independently generated ceremonies, the cumulative probability is
-`1 - (1 - 10^-6)^n`: five ceremonies are about `0.0005%` (about 1 in 200,000), and 100 are about
-`0.01%` (about 1 in 10,000). With unlimited rapid restarts the probability tends to 1. The existing
-five wrong-code attempts do not bound this attack: no six-digit value is submitted to the Host, and
-each new ceremony may create a new chance. A policy would have to charge mismatch, Reject, cancellation,
-disconnect, expiry, and rapid restart consistently, and resist reconnect/restart reset; changing the
-subject ID must not reset a Host-wide resource/attempt bound. No retry policy is selected because no
-ceremony and no verified transcript exists to define what counts as one attempt. This is another
-unmet PASS condition, not a reason to adopt the old wrong-PIN counter mechanically.
+## Composition and DovahLink mapping
 
-## DovahLink fit and production evidence
+The DovahLink fields should not be added to Shortcake's SAS formula or commitment. The source result
+supports an authenticated session key, and the user-aided composition analysis by
+[Laur and Pasini](https://secu.famillepasini.ch/files/publications/LaurPasini09-IJSN.pdf) gives the
+conditions needed when protocols are used in a larger setting: fresh randomness per instance, no use
+of outputs before all parties accept, distinct identities, and an authenticated OOB comparison that
+uniquely identifies one protocol instance. Its multi-instance bound also grows with the number of
+instances. These conditions support considering the following **candidate** sequence, subject to a
+faithful commitment implementation, a separate composition proof, and independent implementation
+evidence:
 
-The canonical public identity encoding is the independent S2.1 selection: use DER-encoded
-SubjectPublicKeyInfo (SPKI) for Host and Client public identities, and represent a pin fingerprint
-as `SHA-256(SPKI DER)` in unpadded base64url. RFC 5480 defines ECC SPKI; RFC 7469 specifies SHA-256
-over DER SPKI for fingerprints; RFC 4648 defines the URL-safe alphabet and padding behavior. The
-existing Dart POC extracted SPKI DER from a TLS certificate and accepted a matching SHA-256
-base64url pin while rejecting a mismatch. This does not select a pairing transcript, make an
-unknown Host trusted, or authorize production pin validation.
+```text
+Faithful Pasini–Vaudenay three-move SAS-AKE profile (not current Shortcake commitment code)
+  → both sides complete and the user confirms the six-character SAS
+  → derive a fresh application-authentication key with HKDF and a DovahLink-specific label
+  → MAC one canonical, role-tagged transcript containing domain/version, hostId, Host SPKI DER,
+    clientId, Client SPKI DER, ChallengeId, security-fence generation, and ceremony context
+  → Client signs a separate pairing-PoP domain plus that transcript with its long-term ECDSA P-256 key
+  → Host checks its TLS CertificateVerify key equals the transcript Host SPKI and authorizes only
+    the current, unexpired, uncancelled, unsuperseded ceremony
+```
 
-The current Host's `PairingCoordinator` already uses a distinct `ChallengeId`, expiry, cancellation,
-supersession, an Adapter display acknowledgement, and the Host `SecurityFenceGeneration`. The
-`TrustStore` advances that fence with trust mutations; `TrustAdminService` coordinates durable
-Revoke/Block/Unblock/ResetTrust, session invalidation, and pairing cancellation; and the Adapter IPC
-session has an attempt/session generation. Current Block is keyed by `ClientId`; `Unblock` returns a
-blocked record to Unpaired, not Trusted; `ResetTrust` changes Trusted records to Revoked and advances
-the security fence. These are application lifecycle boundaries a later design must preserve, but no
-current component accepts a cryptographic ceremony identifier or proves `Pair(C)` through Client
-PoP, Skyrim authorization, confirmation, and Host finalization. No production code was changed.
+This would be sequential application authentication after human-approved AKE output; it does not
+modify the internal SAS construction. The output key must not be used before both sides accept the
+SAS. The fresh exporter key must be separated from the AKE output. Both role-ordered MAC confirmations
+and the Client signature must cover the same canonical transcript, and Host finalization must still
+be gated by the exact current `ChallengeId` and security generation. Laur–Pasini's composition
+restrictions are necessary usage rules, not proof of this specific key-exporter/MAC/Client-PoP design.
+A security argument must reduce transcript substitution and unknown-key-share attempts to the AKE key
+security, HKDF key separation, and MAC/signature authenticity assumptions. That argument has not been
+supplied. A TLS 1.3 `CertificateVerify` proves
+possession of the presented certificate's private key; it does not make an unknown Host trusted. The
+transcript must bind the exact certificate SPKI and logical `hostId`. This proposed composition has
+not been written as a fully specified interoperable profile or tested; matching KDF/MAC vectors alone
+would not prove the source AKE's assumptions.
 
-The existing isolated POCs were reused and rerun:
+The source does not need to mention Skyrim UI or `TrustStore`: those remain DovahLink transaction and
+authorization rules outside the cryptographic construction. The Host must persist unknown-client
+Block by the Client key fingerprint only after verifying Client PoP; claimed `clientId` remains
+metadata. Normal reconnect PoP remains a separate fresh-challenge ECDSA signature domain. Neither
+profile is selected or implemented by this assessment.
 
-| Existing experiment | Result | What it does not prove |
-| --- | --- | --- |
-| .NET Kestrel TLS 1.3 / Dart WSS | Passed: WSS exchange used TLS 1.3. | Production listener policy, resumption disablement, 0-RTT disablement, or SAS security. |
-| Dart SPKI pin extraction | Passed: matching SPKI accepted; mismatch rejected before application data. | Production pin validation, logical `hostId` binding, or a complete initial pairing protocol. |
-| Windows CNG P-256 key and certificate | Passed: software CNG private key export rejected; renewed certificate retained SPKI. | Packaged Host key ACLs, hardware key assurance, or production identity lifecycle. |
-| CNG Client challenge/signature POC | Passed: fresh signature verified; reused challenge and old signature for a new challenge rejected. | Cross-language authentication transcript, pairing PoP, persistent challenge consumption, or production admission. |
+## Six-character SAS candidate and retry analysis
 
-The Client signature POC signs a POC-only UTF-8 string. It is not a canonical transcript. None of the
-existing POCs implements commitment/reveal, ECDH ceremony binding, SAS extraction, HKDF key separation,
-directional confirmation, or C#↔Dart vectors. `pubspec.yaml` and POC files remain unchanged.
+Shortcake exposes 256 raw SAS bits. The Pasini–Vaudenay construction parameterizes the output length
+`rho`; taking the first 30 bits is a prefix extraction, not modulo reduction. A candidate exact
+display profile is Crockford Base32's 32-symbol alphabet:
 
-## Security invariants retained or deferred
+```text
+0123456789ABCDEFGHJKMNPQRSTVWXYZ
+```
 
-The STOP does not weaken these target invariants. They remain constraints for any future passing
-profile; this PR makes no production claim that they are newly implemented:
+Read the first 30 SAS bits in network bit order as six consecutive 5-bit values and map each value
+directly to that alphabet. This is a bijection: no modulo bias, discarded value, or zero special
+case; render exactly six uppercase characters and preserve leading `0`s. Crockford omits visually
+confusable `I`, `L`, `O`, and `U`. This remains a candidate profile: Skyrim font rendering, screen
+reader/accessibility behavior, contrast, and the final canonical display format have not been
+validated, so S2.1 does not select it.
 
-- Endpoint, hostname, display name, `hostId`, and `clientId` are not substitutes for cryptographic
-  Host/Client identity. Both logical ID and actual key identity must eventually be bound.
-- Discovery is not authentication. A known Host-key mismatch must abort and must never downgrade to
-  provisional pairing. A same Host/key at a new endpoint may be verified; endpoint reuse grants no
-  inherited trust.
-- Long-term Host and Client identity keys must not be reused as ephemeral ECDH keys. Private keys
-  remain with their owner. No production keys are added by this PR.
-- Host remains the trust authority. Adapter presents Skyrim decisions but does not own trust;
-  Flutter presents the Client flow but does not own Host trust. Trusted, Revoked, Blocked, Unknown,
-  Unblock, ResetTrust, and Host identity reset stay distinct operations.
-- A future Skyrim Pair decision must authorize one exact ceremony only: current ChallengeId, keys,
-  transcript, expiry, cancellation/supersession state, and current security-fence generation. A
-  stale callback or generic success cannot authorize another ceremony. The existing generation and
-  challenge guards are evidence to preserve, not proof for the new protocol.
-- Normal reconnect must not use a reusable bearer credential. Multi-Host remains native to the
-  Client design. An unknown-client Block principal must be a proven Client-key fingerprint; claimed
-  IDs, names, IPs, and endpoints are metadata or routing only.
-- TLS target remains TLS 1.3 WSS with resumption and 0-RTT disabled and fresh Client proof on each
-  full connection. LAN remains restricted and is not enabled by this PR.
-- The development-token path survives only if later adversarial review proves it is explicitly
-  local/development scoped and cannot admit a normal remote Client, bypass Client PoP, or operate on
-  a future LAN path.
+For the paper's analyzed commitment with one ideal 30-bit SAS comparison, a single active MITM
+succeeds with probability `2^-30` (about 1 in 1,073,741,824). The Pasini–Vaudenay theorem's
+multi-instance bound is approximately
+`Q(Q-1)/2 × (2^-rho + epsilon_commit + epsilon_hash)` for `Q` protocol instances, with the two
+construction-specific error terms from its random-oracle commitment and keyed-hash assumptions. Thus
+do not multiply only by the number of completed Pair decisions and call that the whole theorem. Five
+sequential ceremonies create ten role instances (`Q=10`), giving a leading bound of
+`45 × 2^-30 ≈ 4.19×10^-8`, plus the proof error terms. With five ceremonies per day for 365 days,
+`Q=3650` and the theorem's leading bound is about `6.20×10^-3` (0.62%). This quadratic growth shows
+why a daily throttle alone is not a lifetime bound. These numeric theorem bounds are conditional on
+the analyzed commitment construction; they do not certify Shortcake's current commitment without a
+separate proof.
 
-## Required scenarios and disposition
+A candidate Host policy is: one active ceremony per Host; persist a Host-global attempt counter;
+allow at most five started ceremonies in a rolling 24-hour window; charge mismatch, Pair/Reject,
+cancellation, disconnect, expiry, timeout, reconnect, and restart identically; do not reset for a new
+`clientId`, Client key, app process, Host process, or ordinary trust mutation. Enforce expiry and
+supersession against the same persisted ceremony. This bounds rapid online grinding to at most five
+ceremonies per Host per window, but cumulative multi-window risk still grows and must be accepted
+explicitly against the source theorem before selection. No production rate limiter is implemented.
 
-| Scenario group | Required disposition for this assessment |
+## Other required candidates
+
+| Candidate | Security result and DovahLink fit |
 | --- | --- |
-| Normal pairing; active MITM; transparent relay; substituted Host key; substituted Client key; fake `hostId`; fake `clientId`; fake display name | No pairing is authorized under S2.1. A later profile must bind actual IDs and keys; display name stays metadata. Provisional TLS proves possession of the certificate key only, not the claimed Host identity. |
-| Commitment mismatch; contribution grinding; nonce replay; ephemeral-key replay; whole-ceremony replay; role reflection; version/domain/field mutation | No DovahLink message order or canonical bytes exist to verify. The ZRTP and Bluetooth defenses apply only to their defined messages and inputs; they cannot be assumed for a hybrid. |
-| SAS mismatch; repeated SAS attempts; duplicate Pair; stale Pair; Pair after ResetTrust/fence change; Pair after expiry/supersession; Reject; cancellation; Client/Host/Adapter disconnect | The existing challenge/display/cancellation/fence checks remain production behavior but do not prove a future ceremony-bound finalization. S3 is blocked; no SAS authorization reaches production. |
-| Correct Client reconnect proof; wrong key; replayed signature/challenge; expired/reused challenge; same ID with different key; same key with different ID; Host pin mismatch | The CNG POC demonstrates only local C# signing and verification for its test transcript. No normal-auth transcript is selected or proven. Host pin mismatch must remain a hard abort in the future design. |
-| Block with fake `clientId` and attacker-owned key; same blocked key with new ID/name; known ID with unexpected key; entirely new key and ID | No key-backed Block behavior exists in production. A later design must use the proven Client-key fingerprint as unknown-subject principal; IDs and names remain metadata. A new key and ID cannot be linked cryptographically to the old installation. |
+| Laur–Asokan–Nyberg MA-3 | Their [ePrint 2005/424](https://eprint.iacr.org/2005/424.pdf) has Alice commit to a random key and send `(m_A,c)`, Bob return `(m_B,r_B)`, and Alice open; both compare an `ell`-bit keyed-hash result over the authenticated data. Its proof needs the exact order, commitment non-malleability (or an explicit instantiation proof), and hash-combiner properties; ordinary hiding/binding alone are insufficient. The paper discusses practical commitment/hash instantiations and explains composition with a key-agreement transcript, but MA-3 is not itself Shortcake's three-move SAS-AKE profile and does not justify replacing PV steps piecemeal. |
+| Laur–Nyberg MANA IV / MA-DH | The [CANS 2006 paper](https://kodu.ut.ee/~swen/publications/articles/laur-nyberg-2006.pdf) gives MANA IV's commit-key, reveal-key, and two-way OOB hash check; MA-DH replaces the committed random key with an ephemeral DH public value, then derives the DH key after the same authenticated OOB check. Its proof needs hiding, binding and non-malleable commitments, almost-regular/almost-universal hashing (strong universality for key agreement), and DDH for key secrecy. It requires fresh values, no output use before acceptance, and no concurrent instances for the same pair. The authors specifically warn that a casual PV/DH fusion using a plain `H(g^a)` commitment does not inherit their proof. Shortcake instead claims the PV three-move generic-AKA profile, but its KEM and commitment instantiation still require exact premise checking. |
+| Pasini–Vaudenay SAS-AKE | The three-move random-oracle construction is the strongest fit found: its proof directly treats a generic two-move key agreement plus SAS cross-authentication. Its generic standard-model alternative costs another move. It supports a candidate application composition after OOB acceptance under explicit composition restrictions; it does not itself specify DovahLink IDs, Client PoP, durable authorization, or a DovahLink wire encoding. |
+| Laur–Pasini systematization | [User-aided data authentication](https://secu.famillepasini.ch/files/publications/LaurPasini09-IJSN.pdf) organizes MA/SAS protocols and composition conditions. Its key-use restriction is directly relevant: outputs are not used before all parties accept, and the OOB action must identify one unique instance. Concurrent risk grows with the number of role instances. It is a survey/systematization, not an alternate concrete DovahLink profile. |
+| TLS-SAS draft | [draft-miers-tls-sas-00](https://datatracker.ietf.org/doc/draft-miers-tls-sas/) is expired and never became an RFC. It defines a TLS 1.2 extension/new-handshake-message coin flip and derives SAS bits from TLS certificate fingerprints plus the shared coin flip. It is not a TLS 1.3 profile, requires TLS-stack handshake changes unavailable through ordinary .NET/Dart WebSocket APIs, and does not bind DovahLink's application ceremony. It is not suitable for the fixed TLS 1.3/WSS direction. |
+| ZRTP / Bluetooth Numeric Comparison | Their complete constructions remain protocol-specific. Their commitments, SAS functions, key confirmation, and endpoint context cannot be transplanted into a different flow. The prior assessment of those two candidates remains valid; it was incomplete only because it omitted generic SAS-AKE work. |
 
-## Rejected assumptions and remaining direction
+## Security-critical mechanism mapping
 
-- “P-256 + SHA-256 + HKDF + HMAC is a protocol” is rejected. It names primitives, not an analyzed composition.
-- `SHA-256(ephemeralKey)` does not by itself establish a commit/reveal order or stop adaptive contribution choice.
-- Copying Bluetooth `g2()` does not import Bluetooth Numeric Comparison's complete authentication stage. Bluetooth exchanges public keys before committing to the nonces, and its exact six-digit reduction has a small, specified nonuniformity.
-- Copying ZRTP's HVI while changing its message roles, transcript inputs, SAS representation, or confirmation flow does not preserve its one-guess argument automatically.
-- A TLS certificate accepted provisionally is not a trusted Host identity. TLS 1.3 `CertificateVerify` proves possession of the presented certificate's private key and binds it to the TLS handshake. It can establish the long-term Host key only if the certificate SPKI is that identity and the exact SPKI plus `hostId` is bound into a separately valid pairing transcript. An additional Host signature is not intrinsically required under those conditions; those conditions are not a selected DovahLink profile.
-- Normal authentication must not use mTLS or a reusable bearer credential under the maintainer's current candidate direction. A future application-level Client signature needs a separate, exact reconnect domain and fresh single-use challenge. This direction is not a completed profile.
-- TLS resumption and 0-RTT are not acceptable substitutes for fresh Client proof. TLS 1.3 specifies weaker 0-RTT replay guarantees; a later implementation must use full TLS 1.3 WSS handshakes, with resumption and early data disabled as requested.
-- LAN remains disabled. No discovery, listener, firewall, or network exposure change is part of S2.1.
-- Old development bearer/PIN state is not a compatibility requirement. No migration or dual-authentication machinery was added.
-- The loopback development-token path remains a separate audit requirement: it may survive only if adversarial review proves local/development scoping and that it cannot admit or bypass PoP for normal remote Clients or future LAN paths.
+| Mechanism | Reviewed source | Candidate DovahLink mapping | Change type and status |
+| --- | --- | --- | --- |
+| Three-move SAS-AKE, roles, contribution order | Pasini–Vaudenay PKC 2006, Sections 4–6; Shortcake current `initiator.rs`/`responder.rs` | Fix one Host/Client role assignment and one KEM suite; use its three in-band messages and one human comparison | **Faithful message-flow candidate**; current commitment deviates, and the specific KEM premises are unverified |
+| Commitment and nonce reveal | Pasini–Vaudenay Fig. 4 and Section 2.3 random-oracle commitment; Shortcake `commitment.rs` | Faithful profile commits to `(e,R_A,ek)`, receives `(ct,R_B)`, then reveals `(e,R_A)`; current Shortcake commits only to `(ek,R_A)` and reveals only `R_A` | **Current code has an unproven security-relevant omission**; adding `e` follows the analyzed scheme but changes Shortcake's current messages |
+| Session key and SAS derivation | Pasini–Vaudenay cross-authentication output; Shortcake `sas.rs` | Fixed RFC 9180 DHKEM P-256 candidate, SHA-256 profile; candidate 30-bit SAS prefix | **KEM/hash profile choice**; underlying KA and KDF assumptions still require a reduction |
+| Host logical and cryptographic identity | PV AKE identity/session model; TLS 1.3 `CertificateVerify` for key possession | After human confirmation, authenticate `hostId` and exact TLS certificate SPKI DER in a role-tagged application transcript | **Authenticated application data**; source does not itself bind these DovahLink fields |
+| Client logical and cryptographic identity | PV AKE identity/session model; no pairing-signature mechanism in Shortcake | After SAS confirmation, MAC `clientId` and Client SPKI DER; verify distinct-domain ECDSA P-256 pairing PoP | **Application-authentication addition**; composition proof not supplied |
+| Challenge, security generation, Skyrim Pair decision | DovahLink Host transaction/fence state, not the SAS-AKE paper | Bind exact `ChallengeId` and fence generation in the application transcript; Host accepts only the current ceremony and commits trust after PoP | **Authenticated application context plus local authorization**; not an internal SAS input |
+| Human-readable display | Pasini–Vaudenay `rho`-bit OOB output | Prefix 30 SAS bits and map each 5-bit group to Crockford Base32 | **Bijective display encoding candidate**; not selected pending UI/accessibility review |
+| Replay and retry bound | PV multi-instance theorem; Laur–Pasini composition restrictions | Unique active ceremony, one active Host transaction, global persisted attempt accounting | **Application retry policy**; proposed rate cap is not a lifetime bound |
+| Normal reconnect PoP | Separate DovahLink target; not the initial SAS-AKE | Fresh Host challenge and Client ECDSA signature in a distinct reconnect domain after TLS pin verification | **Separate protocol**; not selected or implemented by S2.1 |
+| Persistent Block principal | DovahLink trust-authority rule, not SAS-AKE | Block an unknown Client by proven Client-key fingerprint after PoP; keep claimed `clientId` as metadata | **Application trust rule**; not selected or implemented |
+| Message serialization | Shortcake Rust message types and `postcard` example | Define versioned canonical binary wire bytes and deterministic cross-language vectors | **Unspecified encoding/profile**; no wire format can be inferred from serde derives |
+
+## DovahLink identity and application requirements
+
+No source construction binds all DovahLink fields inside its SAS calculation. The candidate composition
+would bind them after successful SAS acceptance in one length-prefixed, role-tagged transcript with a
+versioned DovahLink domain. At minimum it must bind `hostId`, exact Host SPKI DER, `clientId`, exact
+Client SPKI DER, `ChallengeId`, security-fence generation, and the selected pairing domain. The
+endpoint and display name stay metadata. A canonical transcript MAC binds application identities to
+the AKE key; a distinct pairing-PoP signature proves Client private-key possession. These are
+authenticated application data and application proof, not changes to Shortcake's commitment or SAS.
+
+The exact transcript encoding, signature input, MAC schedule, confirmation ordering, retry-state
+storage, and final transaction are not specified at byte level. Laur–Nyberg's warning that a careless
+PV/DH fusion can invalidate an argument is an additional reason to require a specific composition
+reduction rather than infer safety from matching protocol shapes. There are no deterministic
+C#↔Dart vectors for success, mutation, reflection, replay, stale ceremony, wrong key/ID, or wrong
+challenge. A shared Rust FFI implementation would not satisfy the independent-language criterion by
+itself. Therefore the application composition remains a candidate, not an approved profile.
+
+## Existing production evidence and boundaries
+
+The previously completed .NET TLS 1.3/WSS, Dart SPKI pinning, Windows CNG key, and Client challenge
+signature POCs are historical evidence for those separate primitives only. They do not validate
+Shortcake, the selected DHKEM ciphersuite, a SAS profile, an application transcript, or cross-language
+interoperability. No new POC or production code was added in this step.
+
+The existing Host challenge, expiry, cancellation, supersession, Adapter acknowledgement, security
+fence, trust administration, and IPC generations remain application lifecycle protections. They
+must authorize one exact cryptographic ceremony before durable trust. The approved unknown-client
+Block principal remains the proven Client-key fingerprint, with claimed IDs and names as metadata.
+TLS remains WSS over TLS 1.3, resumption and 0-RTT disabled, and a known Host pin mismatch remains a
+hard abort. LAN stays restricted; no legacy bearer/PIN migration, fallback, or compatibility path is
+approved. These production behaviors were not changed.
 
 ## Disposition
 
-**S2.1 STOP — S3 remains blocked.** The candidate cannot be promoted without inventing or materially
-improvising the cryptographic protocol composition. No exact byte-level profile, deterministic SAS
-vectors, C#↔Dart proof, or final retry policy is selected. Do not start S3 or implement production
-security behavior. Reopen this gate only when an established complete construction can meet the full
-DovahLink identity, ceremony, authorization, and interoperability requirements without changing its
-security argument, or when a new complete reviewed standard/profile becomes available and is directly
-approved for investigation.
+**S2.1 STOP — S3 remains blocked.** The Pasini–Vaudenay construction itself survives, and Shortcake is
+a close implementation reference. The exact production profile does not pass because the specific
+Shortcake/KEM substitution and post-AKE application binding lack a complete assumption-to-proof
+mapping; its only concrete library is pre-release and explicitly unaudited; the released suite is not
+the intended P-256 profile; the P-256 implementation has no recorded review and is not released;
+target-platform support/FFI is unverified; and DovahLink has no frozen canonical wire/application
+transcript or independent C#↔Dart vectors. These are composition, implementation-assurance,
+platform, and interoperability blockers. No production profile or SAS alphabet is selected. Step 2
+is not authorized by this STOP; S3 and later work remain blocked. Reopen only on direct maintainer
+approval of a renewed feasibility step that addresses these classified blockers without weakening
+the acceptance criteria.
 
 ## Primary references
 
-- [RFC 6189 — ZRTP: Media Path Key Agreement for Unicast Secure RTP](https://www.rfc-editor.org/rfc/rfc6189.html), especially Sections 3.1, 4.4.1.1–4.4.1.4, 4.5.1–4.5.2, 4.6, 5.1.5, 5.1.6, and 7.2.
-- [Bluetooth Core Specification 6.3, Part H — Security Manager Specification](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/host/security-manager-specification.html), especially the LE Secure Connections `f4`, `f6`, and `g2` functions, public-key exchange, Numeric Comparison, and DHKey checks.
-- [RFC 5480 — ECC Subject Public Key Information](https://www.rfc-editor.org/rfc/rfc5480.html), [RFC 7469 — Public Key Pinning Extension for HTTP](https://www.rfc-editor.org/rfc/rfc7469.html), and [RFC 4648 — Base-N Encodings](https://www.rfc-editor.org/rfc/rfc4648.html) support the independent SPKI/fingerprint encoding selection.
-- [RFC 8446 — TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446.html), Sections 4.4.3–4.4.4 and 8. It specifies certificate private-key possession in `CertificateVerify`, handshake key confirmation, and the replay limitations of 0-RTT.
+- [Pasini and Vaudenay, SAS-Based Authenticated Key Agreement (PKC 2006)](https://infoscience.epfl.ch/server/api/core/bitstreams/a66b46e4-4da7-4013-aae9-4c63abd06756/content).
+- [Laur, Asokan, and Nyberg, Efficient Mutual Data Authentication Using Manually Authenticated Strings (ePrint 2005/424)](https://eprint.iacr.org/2005/424.pdf).
+- [Laur and Nyberg, Efficient Mutual Data Authentication Using Manually Authenticated Strings (CANS 2006)](https://kodu.ut.ee/~swen/publications/articles/laur-nyberg-2006.pdf).
+- [Laur and Pasini, User-aided Data Authentication (2009)](https://secu.famillepasini.ch/files/publications/LaurPasini09-IJSN.pdf).
+- Shortcake [README](https://github.com/facebook/shortcake/blob/main/README.md), [Cargo.toml](https://github.com/facebook/shortcake/blob/main/Cargo.toml), [SAS implementation](https://github.com/facebook/shortcake/blob/main/src/sas.rs), [commitment](https://github.com/facebook/shortcake/blob/main/src/commitment.rs), [initiator](https://github.com/facebook/shortcake/blob/main/src/initiator.rs), [responder](https://github.com/facebook/shortcake/blob/main/src/responder.rs), [ciphersuite](https://github.com/facebook/shortcake/blob/main/src/ciphersuite.rs), and [CI workflow](https://github.com/facebook/shortcake/blob/main/.github/workflows/main.yml).
+- [RFC 9180 — HPKE](https://www.rfc-editor.org/rfc/rfc9180.html); [Shortcake DHKEM P-256/P-384 PR #35](https://github.com/facebook/shortcake/pull/35); [Shortcake state-deserialization test PR #37](https://github.com/facebook/shortcake/pull/37).
+- [TLS-SAS expired draft](https://datatracker.ietf.org/doc/draft-miers-tls-sas/); [RFC 6189 — ZRTP](https://www.rfc-editor.org/rfc/rfc6189.html); [Bluetooth Core Security Manager Specification](https://www.bluetooth.com/wp-content/uploads/Files/Specification/HTML/Core_v6.3/out/en/host/security-manager-specification.html).
+- [RFC 5480 — ECC SPKI](https://www.rfc-editor.org/rfc/rfc5480.html), [RFC 7469 — SPKI fingerprints](https://www.rfc-editor.org/rfc/rfc7469.html), [RFC 4648 — Base-N encodings](https://www.rfc-editor.org/rfc/rfc4648.html), and [RFC 8446 — TLS 1.3](https://www.rfc-editor.org/rfc/rfc8446.html).

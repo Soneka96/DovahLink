@@ -1,6 +1,6 @@
 # Identity and transport security architecture
 
-**Status:** S1 architecture contract with an unresolved initial-pairing gate. S2.1 assessed the approved Committed-SAS candidate and stopped: no complete initial-pairing construction or production security profile is selected, and S3 remains blocked. This document does not describe behavior already implemented. Until later migration PRs land, current behavior remains defined by `protocol/schema/README.md`, `ai/context/protocol/security.md`, and the current SDK/Host implementation. Sections below that describe cryptographic migration behavior remain proposals only where they are not supported by a completed S2.1 profile.
+**Status:** S1 architecture contract with an unresolved initial-pairing gate. S2.1 reassessed generic SAS/AKE work and found the Pasini–Vaudenay construction defensible at the paper level. Shortcake follows its message flow, but its commitment omits the independent random value in the paper's random-oracle instantiation. S2.1 still ended **STOP**: the specific commitment/KEM/application composition is unproven; Shortcake is pre-release and unaudited; its released suite does not match the intended P-256 profile; and no complete DovahLink wire/application profile or independent C#↔Dart evidence exists. No initial-pairing profile is selected, and S3 remains blocked. This document does not describe behavior already implemented. Until later migration PRs land, current behavior remains defined by `protocol/schema/README.md`, `ai/context/protocol/security.md`, and the current SDK/Host implementation. Sections below that describe cryptographic migration behavior remain proposals only where they are not supported by a completed S2.1 profile.
 
 The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.1 is the required feasibility and selection gate; it ended in STOP, so do not implement S3 or infer a protocol from this document's candidate descriptions.
 
@@ -132,7 +132,7 @@ Disable TLS 1.3 early data (0-RTT) and any resumption path that would omit fresh
 
 The first Host certificate is not yet pinned. A provisional TLS connection may therefore accept the candidate certificate only while the user explicitly starts initial pairing. This connection is encrypted but the certificate is not treated as an authenticated Host identity. It carries only restricted pairing/bootstrap traffic; it cannot read or publish normal Host state or establish a trusted session. A KnownHost key mismatch must abort before any pairing secret or ordinary application data is sent. It must not silently downgrade to provisional pairing.
 
-The S1 balanced-PAKE bootstrap proposal is unresolved and was not replaced by Committed SAS. The proposed Skyrim Numeric Comparison experience (`NNN NNN` on both screens, with Skyrim as the authorization surface) was investigated in S2.1 and stopped because no complete reviewed construction could be profiled for DovahLink without materially changing its security argument. Do not implement either ceremony, persist trust from a provisional TLS connection, or infer an attempt policy from the existing wrong-code counter. The exact construction, transcript, retry policy, and finalization ordering require a new passing security gate.
+The S1 balanced-PAKE bootstrap proposal is unresolved and was not replaced by Committed SAS. S2.1 found that Pasini–Vaudenay's three-move SAS-AKE construction can remain internally unchanged while later authenticated application data binds DovahLink identity fields, subject to the source composition rules. That construction was not selected: the available Shortcake implementation is unaudited and pre-release, its P-256 suite is not in the release, and the DovahLink transcript, retry policy, and finalization ordering lack byte-level and independent-language evidence. Do not implement the ceremony, persist trust from a provisional TLS connection, or infer an attempt policy from the existing wrong-code counter.
 
 Any future initial-pairing construction's authenticated transcript/key-confirmation context must bind all of the following:
 
@@ -141,13 +141,13 @@ Any future initial-pairing construction's authenticated transcript/key-confirmat
 - DovahLink protocol/domain-separation context;
 - the one pairing challenge, session nonce, or equivalent fresh anti-confusion context.
 
-The exact canonical encoding must be specified before implementation. Both endpoints must use their own actual identity/key values in the binding, not trust peer-supplied identity text alone. Authentication and key confirmation must fail if an intermediary substitutes either public key or changes the context. A transparent relay of unmodified messages must not authorize a different Host or Client identity. S2.1 selected no construction proving these properties together.
+The exact canonical encoding must be specified before implementation. Both endpoints must use their own actual identity/key values in the binding, not trust peer-supplied identity text alone. Authentication and key confirmation must fail if an intermediary substitutes either public key or changes the context. A transparent relay of unmodified messages must not authorize a different Host or Client identity. The candidate application composition described in `crypto-stack-selection.md` has not been frozen or proven interoperable, so S2.1 selects no construction proving these properties together.
 
 No permanent trust may be committed before the selected construction's client proof-of-possession, user authorization, cryptographic confirmation, and durable finalization all succeed for one exact ceremony. The current production flow is unchanged. The finalization contract remains future work and cannot be activated before the security gate passes.
 
 Any future profile must define whether pairing continues on the provisional connection or requires a new one, then bind subsequent normal authentication to the durable Host and Client keys. S2.1 did not decide this lifecycle. Do not infer the old PAKE reconnect ordering as selected.
 
-SPAKE2 (RFC 9382) and CPace remain references from the prior S1 PAKE proposal, not selected bootstrap protocols. ZRTP (RFC 6189) and Bluetooth LE Secure Connections Numeric Comparison were assessed as complete SAS references in S2.1; neither could be adapted to the DovahLink identity and transport contract without material protocol changes. See `crypto-stack-selection.md` for the STOP analysis and evidence.
+SPAKE2 (RFC 9382) and CPace remain references from the prior S1 PAKE proposal, not selected bootstrap protocols. ZRTP (RFC 6189) and Bluetooth LE Secure Connections Numeric Comparison remain complete but protocol-specific SAS references. Generic SAS/AKE work, including Pasini–Vaudenay and Shortcake, was also assessed; the construction survives, but the implementation and profile gates do not. See `crypto-stack-selection.md` for the STOP analysis and evidence.
 
 ## 11. Trusted reconnect and hello
 
@@ -234,7 +234,7 @@ Every security migration PR must leave the merged baseline internally coherent. 
 
 ### S2/S2.1 feasibility gate
 
-The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1 assessed Committed SAS against the following whole-profile requirements and stopped:
+The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1 first assessed ZRTP and Bluetooth Numeric Comparison, then reassessed generic SAS constructions and Shortcake against the following whole-profile requirements. The Pasini–Vaudenay construction survived the construction-level review, but the KEM and application composition still need a complete proof mapping and no production profile passed:
 
 - **Transport:** TLS 1.3 and WSS; Host SPKI pinning; provisional Host key possession; resumption and 0-RTT policy; fresh Client proof.
 - **Host and Windows:** C#/.NET TLS and WSS capabilities; certificate/key generation; private-key storage integration; and DPAPI, Windows CNG, or appropriate Windows cryptographic APIs.
@@ -244,7 +244,7 @@ The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1
 - **Cross-language/native boundary:** C# Host interoperability with Dart/Flutter, vector compatibility, Windows plus future Android/iOS support, and whether one shared native crypto/FFI boundary is safer than separate stacks.
 - **Security and supply chain:** no custom cryptography; maintained libraries; vulnerability/update process; licensing; platform coverage; and a version-pinning strategy.
 
-S2.1 did not confirm a safe end-to-end path. S3–S11 remain blocked. A future S2 revision must establish a complete reviewed construction and all required interoperability evidence before any production identity or authentication work begins. Standard primitives or matching vectors alone are insufficient.
+S2.1 did not confirm a safe end-to-end profile. The blockers are the unproven KEM/application composition, implementation assurance (Shortcake is explicitly unaudited and pre-release), released-suite/platform evidence, and missing byte-level application binding and independent C#↔Dart vectors—not a finding that the Pasini–Vaudenay construction is unsuitable. S3–S11 remain blocked. A renewed feasibility step must address these gaps and establish all required interoperability evidence before any production identity or authentication work begins. Standard primitives or matching vectors alone are insufficient.
 
 ### S6 provisional-TLS activation guard
 
