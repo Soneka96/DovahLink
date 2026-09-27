@@ -1,8 +1,21 @@
 # Identity and transport security architecture
 
-**Status:** S1 architecture contract with an unresolved initial-pairing gate. S2.1 reassessed generic SAS/AKE work and found the Pasini–Vaudenay construction defensible at the paper level. Shortcake follows its message flow, but its commitment omits the independent random value in the paper's random-oracle instantiation. S2.1 still ended **STOP**: the specific commitment/KEM/application composition is unproven; Shortcake is pre-release and unaudited; its released suite does not match the intended P-256 profile; and no complete DovahLink wire/application profile or independent C#↔Dart evidence exists. No initial-pairing profile is selected, and S3 remains blocked. This STOP applies to initial pairing; it does not reopen the separately selected normal reconnect architecture of application-level fresh ECDSA P-256 proof-of-possession. Its exact S7 protocol remains future work. This document does not describe behavior already implemented. Until later migration PRs land, current behavior remains defined by `protocol/schema/README.md`, `ai/context/protocol/security.md`, and the current SDK/Host implementation. Sections below that describe cryptographic migration behavior remain proposals only where they are not supported by a completed S2.1 profile.
+**Status:** S1 architecture contract with an unresolved initial-pairing gate. S2.2 reassessed the
+Pasini–Vaudenay SAS-AKE construction, current Shortcake upstream, DovahLink's Host lifecycle, and
+platform integration evidence. **S2.2 STOP — no production initial-pairing profile is selected and
+S3 remains blocked.** The paper's commitment can be implemented faithfully in an isolated POC, but
+Shortcake still omits its independent randomness; no proof justifies the proposed post-SAS identity,
+transcript-MAC, and Client-PoP composition; the P-256 library change remains an open PR; retry
+analysis lacks an accepted lifetime bound; and no canonical bytes, vectors, or demonstrated target
+platform builds exist. This STOP applies to initial pairing; it does not reopen the separately
+selected normal reconnect architecture of application-level fresh ECDSA P-256 proof-of-possession.
+Its exact S7 protocol remains future work. This document does not describe behavior already
+implemented. Until later migration PRs land, current behavior remains defined by
+`protocol/schema/README.md`, `ai/context/protocol/security.md`, and the current SDK/Host
+implementation. Sections below that describe cryptographic migration behavior remain proposals
+only where they are not supported by a completed security gate.
 
-The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.1 is the required feasibility and selection gate; it ended in STOP, so do not implement S3 or infer a protocol from this document's candidate descriptions.
+The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.2 is the current feasibility and selection gate; it ended in STOP, so do not implement S3 or infer a protocol from this document's candidate descriptions.
 
 ## 1. Goals
 
@@ -38,7 +51,7 @@ LAN/mDNS discovery, Host selection UI, automatic Host ranking or failover, alias
 | Endpoint | Routing information, separate from Host identity. | Routing information only; never a trust anchor. |
 | Client Host persistence | One optional `PersistedClientState.knownHost`. | `knownHosts`, keyed by `hostId`, with an independent pin and endpoint per Host. |
 | Trusted reconnect | `hello.auth` sends a persisted bearer `trusted_device_credential`. | TLS Host verification and Client proof-of-possession; no reusable bearer secret. |
-| Pairing | Six-digit code eventually issues a reusable credential. | Cryptographic construction unresolved after S2.1 STOP. The six-digit Committed-SAS candidate was not selected; do not treat it as a PAKE secret, a trust token, or an implemented profile. |
+| Pairing | Six-digit code eventually issues a reusable credential. | Cryptographic construction unresolved after S2.2 STOP. No SAS-AKE profile was selected; do not treat the six-digit Committed-SAS candidate as a PAKE secret, a trust token, or an implemented profile. |
 | Transport | Current loopback WebSocket behavior is defined by `ai/context/protocol/security.md`. | WSS/TLS 1.3, pinned Host identity, and mutual cryptographic authentication for trusted clients. |
 
 The current wire schema remains current until the migration changes it. Do not edit `protocol/schema/README.md` or fixtures to describe target messages as implemented during S1.
@@ -196,7 +209,7 @@ Current state is a singleton KnownHost record, a persisted trusted-device bearer
 
 PR #100's experimental sequence — identify a Host on one connection, disconnect, reconnect to the same endpoint, then send that Host's bearer credential — is rejected. Endpoint ownership can change between the two connections, so a different Host can receive the credential after the first connection verified the expected `hostId`. More reconnects or another `AuthenticationService` guard do not close that TOCTOU gap. The replacement verifies the pinned Host key and proves Client-key possession on one cryptographically bound transport. Preserve the useful regression cases from that experiment: a wrong Host does not mutate KnownHost; endpoint/name changes do not change Host identity; and Host mismatch remains typed.
 
-The S1 target proposed multiple KnownHosts, a persistent Client key, Host-key pinning, PAKE pairing, certificate-based Client authentication, and removal of reusable bearer credentials. The certificate-based Client-authentication direction has been superseded by the selected application-level fresh ECDSA P-256 PoP architecture for v1; its exact S7 protocol remains unspecified. S2.1 did not select an initial-pairing profile. No legacy migration or dual-authentication machinery is approved; when a future passing initial-pairing profile reaches its authorized cutover, unreleased development trust may be invalidated and require re-pairing. Current wire fields remain current until their migration PR lands.
+The S1 target proposed multiple KnownHosts, a persistent Client key, Host-key pinning, PAKE pairing, certificate-based Client authentication, and removal of reusable bearer credentials. The certificate-based Client-authentication direction has been superseded by the selected application-level fresh ECDSA P-256 PoP architecture for v1; its exact S7 protocol remains unspecified. S2.2 did not select an initial-pairing profile. No legacy migration or dual-authentication machinery is approved; when a future passing initial-pairing profile reaches its authorized cutover, unreleased development trust may be invalidated and require re-pairing. Current wire fields remain current until their migration PR lands.
 
 DovahLink has no supported public release that requires compatibility with unshipped protocol generations. Follow `ai/context/common.md`'s pre-release compatibility policy: update the baseline cleanly instead of adding legacy protocol negotiation or a compatibility shim. Existing unreleased bearer/PIN development state may be invalidated and require re-pairing; do not add migration machinery to preserve it.
 
@@ -221,7 +234,8 @@ Every security migration PR must leave the merged baseline internally coherent. 
 | --- | --- |
 | **S1** | Security + identity architecture contract — this document. |
 | **S2** | Original cryptographic feasibility gate; stopped because no acceptable balanced-PAKE implementation path was established. Superseded for investigation by S2.1, but its implementation slices remain blocked. |
-| **S2.1** | Committed-SAS feasibility and standards review. **STOP — no complete DovahLink profile selected; S3 remains blocked.** See `crypto-stack-selection.md`. |
+| **S2.1** | Committed-SAS feasibility and standards review. Historical STOP; superseded by S2.2 assessment. See `crypto-stack-selection.md`. |
+| **S2.2** | Pasini–Vaudenay SAS-AKE production-profile feasibility. **STOP — post-SAS application composition is unproven; no production profile selected; S3 remains blocked.** See `crypto-stack-selection.md`. |
 | **S3** | Persistent Host cryptographic identity and protected Host private-key storage. |
 | **S4** | Persistent Client cryptographic identity abstraction and platform key storage. |
 | **S5** | Multi-Host persistence: `knownHosts` keyed by `hostId`, each pinned Host identity, endpoint and name metadata, and Host-scoped pairing recovery. The old singleton bearer format is unreleased development state; do not add compatibility or migration machinery to preserve it. A later approved cutover may require reset and re-pairing. |
@@ -234,7 +248,7 @@ Every security migration PR must leave the merged baseline internally coherent. 
 
 ### S2/S2.1 feasibility gate
 
-The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1 first assessed ZRTP and Bluetooth Numeric Comparison, then reassessed generic SAS constructions and Shortcake against the following whole-profile requirements. The Pasini–Vaudenay construction survived the construction-level review, but the KEM and application composition still need a complete proof mapping and no production profile passed:
+The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1 first assessed ZRTP and Bluetooth Numeric Comparison, then reassessed generic SAS constructions and Shortcake. S2.2 checked the Pasini–Vaudenay construction against the whole-profile requirements below. The construction survives at paper level, but no production profile passed:
 
 - **Transport:** TLS 1.3 and WSS; Host SPKI pinning; provisional Host key possession; resumption and 0-RTT policy; fresh Client proof.
 - **Host and Windows:** C#/.NET TLS and WSS capabilities; certificate/key generation; private-key storage integration; and DPAPI, Windows CNG, or appropriate Windows cryptographic APIs.
@@ -244,7 +258,7 @@ The original S2 evaluated the whole cryptographic stack, not only the PAKE. S2.1
 - **Cross-language/native boundary:** C# Host interoperability with Dart/Flutter, vector compatibility, Windows plus future Android/iOS support, and whether one shared native crypto/FFI boundary is safer than separate stacks.
 - **Security and supply chain:** no custom cryptography; maintained libraries; vulnerability/update process; licensing; platform coverage; and a version-pinning strategy.
 
-S2.1 did not confirm a safe end-to-end profile. The blockers are the unproven KEM/application composition, implementation assurance (Shortcake is explicitly unaudited and pre-release), released-suite/platform evidence, and missing byte-level application binding and independent C#↔Dart vectors—not a finding that the Pasini–Vaudenay construction is unsuitable. S3–S11 remain blocked. A renewed feasibility step must address these gaps and establish all required interoperability evidence before any production identity or authentication work begins. Standard primitives or matching vectors alone are insufficient.
+S2.2 did not confirm a safe end-to-end profile. The blockers are the unproven mapping from the chosen KEM to the paper's key-agreement assumptions, the unproven post-SAS DovahLink identity/PoP composition, lack of an accepted lifetime retry bound, Shortcake's explicit unaudited prerelease status and open P-256 change, unverified target packaging, and missing canonical profile bytes and interoperability evidence—not a finding that the Pasini–Vaudenay construction is unsuitable. S3–S11 remain blocked. A renewed feasibility step must address these gaps and establish all required interoperability evidence before any production identity or authentication work begins. Standard primitives or matching vectors alone are insufficient.
 
 ### S6 provisional-TLS activation guard
 

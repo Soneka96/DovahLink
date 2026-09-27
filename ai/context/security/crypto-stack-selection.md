@@ -1,3 +1,78 @@
+# S2.2 SAS-AKE production-profile feasibility result
+
+**Status: STOP — S2.2 did not pass. S3 remains blocked.** Reviewed 2026-09-27 against the
+Pasini–Vaudenay PKC 2006 paper, current Shortcake upstream sources, the DovahLink Host lifecycle,
+and current platform integration documentation. The paper's three-move construction remains a
+credible candidate. Its random-oracle commitment can be implemented faithfully with a standard
+hash and random generator in an isolated POC, but Shortcake still omits the paper's independent
+commitment randomness. More decisively, no security argument justifies the proposed post-SAS
+composition that binds DovahLink identities, transcript MACs, and Client pairing PoP to the AKE
+output. A proposed retry ceiling also does not bound lifetime multi-instance probability. No exact
+production profile is selected; vectors were therefore not created.
+
+The latest upstream release remains `0.1.0-pre.4` and its README still says the code has not been
+audited. PR #35 adding RFC 9180 P-256/P-384 DHKEM remains open. The repository's current issues page
+has no issues; no reviewed maintainer statement or open issue/PR promises to add the paper's extra
+commitment randomness. Current open PRs #32–#36 are dependency, API, CI, or P-256 suite changes; no
+new audit evidence was found. The P-256 suite and any commitment correction remain unmerged. See
+[upstream releases](https://github.com/facebook/shortcake/releases),
+[Shortcake README](https://github.com/facebook/shortcake/blob/main/README.md),
+[PR #35](https://github.com/facebook/shortcake/pull/35), and
+[open pull requests](https://github.com/facebook/shortcake/pulls).
+
+Implementation strategy is **none for production**. Shortcake unchanged fails commitment fidelity;
+waiting on or contributing upstream fixes cannot supply the missing DovahLink composition proof;
+and a tiny Rust implementation, though technically possible with standard hash/random APIs and a
+standard DHKEM library, would still need reviewed cryptographic dependencies and independent
+assurance. Shared Rust FFI could keep one crypto core but would prove packaging/ABI use, not
+independent C#↔Dart cryptographic interoperability. Independent implementations are also premature
+until the profile is justified. Rust C ABI + .NET P/Invoke and Flutter/Dart FFI have viable documented
+integration mechanisms; Android ABI builds and iOS static/XCFramework packaging remain untested in
+this repository. This is missing evidence, not a finding that packaging is inherently impossible.
+
+### S2.2 gate result
+
+| Required layer | Finding | Result |
+| --- | --- | --- |
+| Construction | Pasini–Vaudenay Fig. 4 is the candidate: Alice commits to random key `K` tagged by `m_A`; Bob sends `(m_B,R)`; Alice opens; both exchange and compare `SAS = R XOR h_K(m_B)` / `R_A XOR h_K(m_A)`; output use follows mutual acceptance. | **SURVIVES AS PAPER CONSTRUCTION; NOT A SELECTED PROFILE** |
+| Commitment | The paper's ROM instantiation samples independent `e` and computes `c = H(e,K,m_A)`, opening `(e,K)`. Standard hash/random primitives can instantiate this in a feasibility POC; omitting `e` changes the analyzed construction. | **FAITHFUL POC POSSIBLE; SHORTCAKE DOES NOT MATCH** |
+| Key agreement | RFC 9180 DHKEM(P-256, HKDF-SHA256) is a plausible two-message KEM shape, but the PV theorem's required KA properties have not been reduced to this exact KEM and surrounding transcript/KDF. | **UNPROVEN MAPPING** |
+| Application composition | Adding Host/Client IDs and SPKIs, challenge/fence context, transcript MACs, and ECDSA Client pairing PoP after SAS is not proved by the PV construction or by the cited composition restrictions. | **BLOCKER** |
+| Attempts | A host-global five ceremonies/24-hour cap bounds short-term attempts only. The theorem's bound grows quadratically with the total role instances over the product lifetime. No defensible lifetime risk budget or mathematically sufficient product-wide cap was selected. | **BLOCKER** |
+| Implementation assurance | Shortcake is still prerelease/unaudited; its P-256 PR remains open. No alternative reviewed implementation was established. | **FAIL** |
+| Wire/interoperability | There is no canonical profile, no DovahLink deterministic vector set, and no demonstrated independent C#↔Dart reproduction. | **NOT SATISFIED** |
+| Platforms | P/Invoke and Flutter FFI/native packaging are supported integration patterns, but DovahLink target builds, ABI behavior, memory ownership, panic containment, and packaging have not been demonstrated on Windows, Android, or iOS. | **UNVERIFIED** |
+| Production boundary | No production behavior or schema changed. Existing Host pairing and trust controls remain untouched. | **PASS** |
+
+The exact paper mapping is Alice → initiator/Client candidate and Bob → responder/Host candidate;
+`m_A`/`m_B` are the selected underlying two-move key-agreement messages (no exact DovahLink bytes
+selected); `K` is Alice's committed SAS key; `e` is the independent ROM commitment randomness;
+`R` is Bob's fresh `rho`-bit mask; and `h_K(m)` is the keyed hash producing the SAS. The underlying
+KA output is not itself the paper's commitment key. The paper leaves the underlying KA generic and
+requires its assumptions to be met. The OOB step must be human-authenticated, compare the same
+instance at both ends, and complete before either side uses the resulting key. The identities must
+be distinct, roles fixed, and independent session randomness fresh. No mapping of these abstract
+values to finalized DovahLink bytes is approved.
+
+The six-character, 30-bit Crockford Base32 display and five-per-day attempt policy remain analysis
+candidates only. Five ceremonies per 24 hours do not stop unbounded cumulative multi-instance risk;
+for example, the leading term `Q(Q−1)/2 × 2^-30` eventually becomes material as Q grows, before
+adding the commitment/hash proof error terms. S2.2 does not claim the candidate policy is safe.
+
+For eventual shared-Rust vs independent-language verification: FFI plus common vectors can check ABI,
+serialization, and packaging; it cannot independently validate crypto. If one Rust core is later
+justified, independent review of that core, published deterministic source vectors, independent
+parsers/encoders, and a separately implemented verifier or reference reproduction would still be
+needed. No vectors or implementation were warranted while the profile is unselected.
+
+The approved normal reconnect architecture remains TLS 1.3 → verify pinned Host identity → Host
+fresh challenge → Client domain-separated signature with its persistent non-exportable ECDSA P-256
+key → Host verifies against KnownDevice → consume challenge → apply current trust state. mTLS/TLS
+Client certificates are not the selected v1 Client-authentication architecture. Exact byte-level
+PoP protocol remains S7 work.
+
+---
+
 # S2.1 Committed-SAS security feasibility result
 
 **Status: STOP — S2.1 did not pass. S3 remains blocked.** This reassessment was completed on
