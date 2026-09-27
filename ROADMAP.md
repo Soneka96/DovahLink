@@ -80,24 +80,31 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   and recommends `0.4.0` for the incompatible Host/client contract changes; that release shipped on
   2026-09-23.
 - **Security gate:** S2.2 ended **STOP**. The Pasini–Vaudenay SAS-AKE construction survives at the
-  paper level, and its independent-randomness commitment can be implemented with standard hash and
-  random primitives in an isolated POC. No proof justifies composing the AKE output with DovahLink's
-  Host/Client identity transcript, MACs, and pairing PoP; the exact KEM assumptions and lifetime
-  retry bound also remain unresolved. Shortcake is still prerelease and unaudited, its P-256 DHKEM
-  change remains an open PR, and canonical profile bytes, vectors, and Windows/Android/iOS builds
-  have not been demonstrated. No production profile is selected; S3–S11 remain blocked. This STOP
-  applies to initial pairing; normal reconnect uses the separately selected application-level fresh
-  ECDSA P-256 Client PoP architecture, with its exact protocol deferred to S7. Stage 5.4 and later
-  product work stay held until the security migration gate is passed. See
+  paper level, but no proof justifies composing it with DovahLink's Host/Client identity transcript,
+  MACs, and pairing PoP; the exact KEM assumptions and lifetime retry bound also remain unresolved.
+  Shortcake is still prerelease and unaudited, its P-256 DHKEM change remains an open PR, and
+  canonical profile bytes, vectors, and Windows/Android/iOS builds have not been demonstrated. No
+  production initial-pairing profile is selected; security migration S3–S11 remain blocked and
+  incomplete. This STOP blocks production secure first contact and security-dependent network
+  exposure, not unrelated product development. Phase 5.4, ordinary Flutter/Redux work, local or
+  loopback development, Known Host UX, and DovahLink-owned trust and pairing-authorization design may
+  proceed independently. The current six-digit flow is not production security for hostile-network
+  first contact, and unknown non-loopback peers must not be enabled on its basis. Stage 5A secure
+  Android/Wi-Fi development and production LAN exposure remain blocked. Generic SAS construction,
+  protocol-profile, implementation, vectors, and security-review work continues in
+  [`Soneka96/sas-pairing`](https://github.com/Soneka96/sas-pairing); DovahLink remains an intended
+  consumer and owns application authorization and trust. Normal reconnect retains its separately
+  selected application-level fresh ECDSA P-256 Client PoP architecture, with exact protocol work
+  deferred to S7. See
   [`ai/context/security/crypto-stack-selection.md`](ai/context/security/crypto-stack-selection.md).
 - The Bridge-authored Stage 4.2–4.4 implementation path was permanently superseded after Stage 3A;
   its specifications remain as historical engineering evidence in
   [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md).
 
-The maintainer-approved security migration S1–S11 is a prerequisite before proceeding with the next
-planned Stage 5 implementation slice. Its authoritative sequence and target architecture are in
+The security migration S1–S11 remains the prerequisite for production cryptographic identity,
+initial-pairing security, and secure network exposure. It does not gate product work that can proceed
+without those guarantees. Its authoritative sequence and target architecture are in
 [`ai/context/security/identity-and-transport.md`](ai/context/security/identity-and-transport.md).
-After S11, resume UI convergence milestone 3.4, Companion Device Identity.
 
 Activating the replacement in production and removing `bridge/` were governed by
 [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md),
