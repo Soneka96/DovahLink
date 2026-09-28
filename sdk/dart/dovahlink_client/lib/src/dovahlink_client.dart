@@ -12,6 +12,7 @@ import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/message_router.dart';
@@ -48,13 +49,13 @@ import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
 /// disconnect. Owns its local [DovahLinkClient.clientId], credential, pairing recovery state, and
-/// Known Host through [IClientStorage], so a consumer never threads credentials through this API.
+/// Known Host through its SDK-managed [IClientStorage] boundary, so a consumer never threads
+/// credentials through this API.
 ///
 /// Never exposes raw JSON or transport details: every method takes and returns typed values.
 class DovahLinkClient {
-  /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
-  /// recovery state.
-  final IClientStorage _storage;
+  /// Owns persisted client state and its semantic change streams.
+  final IClientStateService _clientStateService;
 
   /// Creates a client. [storage] is required so every consumer makes its persistence choice
   /// explicit.
@@ -77,7 +78,7 @@ class DovahLinkClient {
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration reconnectDeadline = kReconnectDeadline,
     DateTime Function() reconnectNow = DateTime.now,
-  }) : _storage = storage {
+  }) : _clientStateService = ClientStateService(storage: storage) {
     final SessionState state = SessionState();
     final LifecycleOperationQueue lifecycleQueue = LifecycleOperationQueue();
     // The callback closes over the session service before it is assigned; it is only invoked by
@@ -236,14 +237,14 @@ class DovahLinkClient {
       state: state,
     );
     final ClientIdResolver clientIdResolver = ClientIdResolver(
-      storage: _storage,
+      clientStateService: _clientStateService,
       randomIdGenerator: RandomIdGenerator(),
     );
     _authenticationService = AuthenticationService(
       sessionService: _sessionService,
       sessionAdmissionService: sessionAdmissionService,
       requestService: _requestService,
-      storage: _storage,
+      clientStateService: _clientStateService,
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
     );
@@ -270,7 +271,7 @@ class DovahLinkClient {
       sessionService: _sessionService,
       sessionTrustService: sessionTrustService,
       requestService: _requestService,
-      storage: _storage,
+      clientStateService: _clientStateService,
     );
     _reconnectService = ReconnectService(
       sessionService: _sessionService,
@@ -353,7 +354,13 @@ class DovahLinkClient {
   /// @return The Host this client previously associated with, or `null` when none is stored.
   /// @throws [DovahLinkStorageException] if persisted state cannot be read safely.
   Future<DovahLinkHost?> loadKnownHost() async =>
-      (await _storage.load()).knownHost;
+      (await _clientStateService.load()).knownHost;
+
+  /// Emits the persisted Known Host immediately on listen and after each committed change. A
+  /// failure to load the initial persisted state is sent to the stream as an error.
+  /// @return A broadcast stream of the current Known Host and committed changes.
+  Stream<DovahLinkHost?> get knownHostChanges =>
+      _clientStateService.knownHostChanges;
 
   /// The reason [DovahLinkClient.connectionState] is
   /// [DovahLinkConnectionState.administrativelyInvalidated], or

@@ -7,11 +7,11 @@ import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/compatibility/host_version_compatibility.dart';
+import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
-import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_ack_payload.dart';
@@ -78,9 +78,8 @@ class AuthenticationService implements IAuthenticationService {
   /// Sends `hello` and awaits its correlated reply.
   final IRequestService _requestService;
 
-  /// The SDK-owned persistence boundary for this client's identity, credential, and pairing
-  /// recovery state.
-  final IClientStorage _storage;
+  /// The owner of persisted identity, credentials, recovery state, and Known Host metadata.
+  final IClientStateService _clientStateService;
 
   /// Resolves this installation's persisted client ID on first use.
   final ClientIdResolver _clientIdResolver;
@@ -91,18 +90,24 @@ class AuthenticationService implements IAuthenticationService {
   final ClientIdCache _clientIdCache;
 
   /// Creates an authentication service over [sessionService], [sessionAdmissionService],
-  /// [requestService], [storage], [clientIdResolver], and [clientIdCache].
+  /// [requestService], [clientStateService], [clientIdResolver], and [clientIdCache].
+  /// @param sessionService Connects to the Host and reads live session state.
+  /// @param sessionAdmissionService Admits a validated Host session.
+  /// @param requestService Sends authentication requests.
+  /// @param clientStateService Owns persisted client state and its semantic streams.
+  /// @param clientIdResolver Resolves the stable local client ID.
+  /// @param clientIdCache Shares the resolved client ID with request transmission.
   AuthenticationService({
     required ISessionService sessionService,
     required ISessionAdmissionService sessionAdmissionService,
     required IRequestService requestService,
-    required IClientStorage storage,
+    required IClientStateService clientStateService,
     required ClientIdResolver clientIdResolver,
     required ClientIdCache clientIdCache,
   }) : _sessionService = sessionService,
        _sessionAdmissionService = sessionAdmissionService,
        _requestService = requestService,
-       _storage = storage,
+       _clientStateService = clientStateService,
        _clientIdResolver = clientIdResolver,
        _clientIdCache = clientIdCache;
 
@@ -124,7 +129,7 @@ class AuthenticationService implements IAuthenticationService {
   Future<HelloResult> _hello(int generation) async {
     bool disconnectAfterFailure = false;
     try {
-      final PersistedClientState state = await _storage.load();
+      final PersistedClientState state = await _clientStateService.load();
       _ensureAuthenticationCurrent(generation);
       final String clientId = await _clientIdResolver.resolve(state);
       _ensureAuthenticationCurrent(generation);
@@ -197,19 +202,17 @@ class AuthenticationService implements IAuthenticationService {
         );
       }
       if (trustState == DovahLinkTrustState.trusted) {
-        final PersistedClientState currentState = await _storage.load();
-        _ensureAuthenticationCurrent(generation);
-        final DovahLinkHost? knownHost = currentState.knownHost;
-        if (knownHost != null &&
-            knownHost.hostId.toLowerCase() !=
-                currentHost.hostId.toLowerCase()) {
-          throw DovahLinkHostIdentityMismatchException(
-            knownHostId: knownHost.hostId,
-            reportedHostId: currentHost.hostId,
-          );
-        }
-        await _storage.save(
-          currentState.copyWith(
+        await _clientStateService.updateState((PersistedClientState state) {
+          final DovahLinkHost? knownHost = state.knownHost;
+          if (knownHost != null &&
+              knownHost.hostId.toLowerCase() !=
+                  currentHost.hostId.toLowerCase()) {
+            throw DovahLinkHostIdentityMismatchException(
+              knownHostId: knownHost.hostId,
+              reportedHostId: currentHost.hostId,
+            );
+          }
+          return state.copyWith(
             knownHost: knownHost == null
                 ? currentHost
                 : DovahLinkHost(
@@ -217,8 +220,8 @@ class AuthenticationService implements IAuthenticationService {
                     hostName: currentHost.hostName,
                     endpoint: currentHost.endpoint,
                   ),
-          ),
-        );
+          );
+        });
         _ensureAuthenticationCurrent(generation);
       }
       // admitSession also retransmits any retry-safe operation an earlier ordinary transport
@@ -336,15 +339,14 @@ class AuthenticationService implements IAuthenticationService {
 
   /// Clears persisted trust only while [generation] remains current.
   Future<void> _forgetCredential(int? generation) async {
-    final PersistedClientState state = await _storage.load();
-    if (generation != null) {
-      _ensureAuthenticationCurrent(generation);
-    }
-    await _storage.save(
-      PersistedClientState(
-        clientId: state.clientId,
-        knownHost: state.knownHost,
-      ),
-    );
+    await _clientStateService.updateState((PersistedClientState current) {
+      if (generation != null) {
+        _ensureAuthenticationCurrent(generation);
+      }
+      return PersistedClientState(
+        clientId: current.clientId,
+        knownHost: current.knownHost,
+      );
+    });
   }
 }

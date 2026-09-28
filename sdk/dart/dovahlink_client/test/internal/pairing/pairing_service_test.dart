@@ -8,13 +8,13 @@ import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
-import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
@@ -36,45 +36,45 @@ class MockSessionService extends Mock implements ISessionService {}
 /// Mock client storage -- its own persistence mechanics are covered by its own implementation's
 /// test file; this file only proves [PairingService] reads and writes the right state, and
 /// never touches it on a rejected outcome.
-class MockClientStorage extends Mock implements IClientStorage {}
+class MockClientStateService extends Mock implements IClientStateService {}
 
-/// Holds a storage read until a pairing test releases it to control lifecycle timing.
-class GatedClientStorage implements IClientStorage {
-  /// Creates storage that returns [loadedState] after [loadGate] completes.
-  GatedClientStorage({
+/// Holds a state update until a pairing test releases it to control lifecycle timing.
+class GatedClientStateService implements IClientStateService {
+  /// Creates a state owner beginning with [loadedState].
+  /// @param loadedState The initial client state.
+  /// @param updateGate The signal that permits the next update to commit.
+  GatedClientStateService({
     required PersistedClientState loadedState,
-    required this.loadGate,
-  }) : _loadedState = loadedState;
+    required this.updateGate,
+  }) : _state = loadedState;
 
-  /// Signals that [load] has started.
-  final Completer<void> loadStarted = Completer<void>();
+  /// Signals that [updateState] has started.
+  final Completer<void> updateStarted = Completer<void>();
 
-  /// Controls when [load] returns.
-  final Completer<void> loadGate;
+  /// Controls when [updateState] commits.
+  final Completer<void> updateGate;
 
-  /// State returned when the gate opens.
-  final PersistedClientState _loadedState;
+  /// Latest state committed by this fake owner.
+  PersistedClientState _state;
 
-  /// State captured by [save].
-  PersistedClientState? savedState;
-
-  /// Returns the configured state only after the test opens [loadGate].
+  /// Returns the latest committed state.
   @override
-  Future<PersistedClientState> load() async {
-    loadStarted.complete();
-    await loadGate.future;
-    return _loadedState;
+  Future<PersistedClientState> load() async => _state;
+
+  /// Applies [update] after the gate opens.
+  @override
+  Future<void> updateState(
+    PersistedClientState Function(PersistedClientState state) update,
+  ) async {
+    updateStarted.complete();
+    await updateGate.future;
+    _state = update(_state);
   }
 
-  /// Captures the state written by the pairing operation.
+  /// Emits the current Known Host to a new subscriber.
   @override
-  Future<void> save(PersistedClientState state) async {
-    savedState = state;
-  }
-
-  /// Implements [IClientStorage.clear].
-  @override
-  Future<void> clear() async {}
+  Stream<DovahLinkHost?> get knownHostChanges =>
+      Stream<DovahLinkHost?>.value(_state.knownHost);
 }
 
 /// Builds the Host associated with the session used by pairing tests.
@@ -136,9 +136,9 @@ void stubSendAndAwait(MockRequestService requestService, Envelope envelope) {
 }
 
 /// Verifies that a rejected pairing operation did not touch [storage].
-void verifyNoStorageCalls(MockClientStorage storage) {
+void verifyNoStorageCalls(MockClientStateService storage) {
   verifyNever(() => storage.load());
-  verifyNever(() => storage.save(any()));
+  verifyNever(() => storage.updateState(any()));
 }
 
 /// Runs pairing service behavior tests.
@@ -146,7 +146,8 @@ void main() {
   late MockRequestService requestService;
   late MockSessionTrustService sessionTrustService;
   late MockSessionService sessionService;
-  late MockClientStorage storage;
+  late MockClientStateService storage;
+  late PersistedClientState? updatedState;
   late PairingService service;
 
   setUpAll(() {
@@ -159,25 +160,32 @@ void main() {
       ),
     );
     registerFallbackValue(Fixtures.buildPersistedClientState());
+    registerFallbackValue((PersistedClientState state) => state);
   });
 
   setUp(() {
     requestService = MockRequestService();
     sessionTrustService = MockSessionTrustService();
     sessionService = MockSessionService();
-    storage = MockClientStorage();
+    storage = MockClientStateService();
+    updatedState = null;
     when(() => sessionTrustService.markTrusted()).thenReturn(null);
     when(() => sessionService.currentHost).thenReturn(_currentHost());
     when(() => storage.load()).thenAnswer(
       (_) async =>
           PersistedClientState(clientId: 'client-1', knownHost: _currentHost()),
     );
-    when(() => storage.save(any())).thenAnswer((_) async {});
+    when(() => storage.updateState(any())).thenAnswer((invocation) async {
+      final PersistedClientState Function(PersistedClientState) update =
+          invocation.positionalArguments.single
+              as PersistedClientState Function(PersistedClientState);
+      updatedState = update(await storage.load());
+    });
     service = PairingService(
       sessionService: sessionService,
       sessionTrustService: sessionTrustService,
       requestService: requestService,
-      storage: storage,
+      clientStateService: storage,
     );
   });
 
@@ -685,16 +693,16 @@ void main() {
         );
 
         expect(credential, 'new-cred');
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              credential: 'new-cred',
-              recoveryState: PairingRecoveryState.confirming,
-              knownHost: _currentHost(),
-            ),
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'new-cred',
+            recoveryState: PairingRecoveryState.confirming,
+            knownHost: _currentHost(),
           ),
-        ).called(1);
+        );
       },
     );
 
@@ -709,16 +717,16 @@ void main() {
         );
         DovahLinkHost currentHost = hostA;
         when(() => sessionService.currentHost).thenAnswer((_) => currentHost);
-        final Completer<void> loadGate = Completer<void>();
-        final GatedClientStorage gatedStorage = GatedClientStorage(
+        final Completer<void> updateGate = Completer<void>();
+        final GatedClientStateService gatedStorage = GatedClientStateService(
           loadedState: const PersistedClientState(clientId: 'client-1'),
-          loadGate: loadGate,
+          updateGate: updateGate,
         );
         service = PairingService(
           sessionService: sessionService,
           sessionTrustService: sessionTrustService,
           requestService: requestService,
-          storage: gatedStorage,
+          clientStateService: gatedStorage,
         );
         stubSendAndAwait(
           requestService,
@@ -731,13 +739,13 @@ void main() {
         final Future<String> confirmation = service.confirmPairingCode(
           code: '123456',
         );
-        await gatedStorage.loadStarted.future;
+        await gatedStorage.updateStarted.future;
         currentHost = hostB;
-        loadGate.complete();
+        updateGate.complete();
 
         expect(await confirmation, 'new-cred');
         expect(
-          gatedStorage.savedState,
+          await gatedStorage.load(),
           PersistedClientState(
             clientId: 'client-1',
             credential: 'new-cred',
@@ -765,7 +773,7 @@ void main() {
           throwsA(isA<DovahLinkConnectionException>()),
         );
 
-        verifyNever(() => storage.save(any()));
+        verifyNever(() => storage.updateState(any()));
       },
     );
 
@@ -992,15 +1000,15 @@ void main() {
           ),
         ).called(1);
         verify(() => sessionTrustService.markTrusted()).called(1);
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              credential: 'cred',
-              knownHost: _currentHost(),
-            ),
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'cred',
+            knownHost: _currentHost(),
           ),
-        ).called(1);
+        );
       },
     );
 
@@ -1027,15 +1035,15 @@ void main() {
         await service.acknowledgeTrustedCredential('cred');
 
         verify(() => sessionTrustService.markTrusted()).called(1);
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              credential: 'cred',
-              knownHost: _currentHost(),
-            ),
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'cred',
+            knownHost: _currentHost(),
           ),
-        ).called(1);
+        );
       },
     );
 
@@ -1060,16 +1068,16 @@ void main() {
 
         await service.acknowledgeTrustedCredential('legacy-credential');
 
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              credential: 'legacy-credential',
-              recoveryState: PairingRecoveryState.none,
-              knownHost: _currentHost(),
-            ),
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'legacy-credential',
+            recoveryState: PairingRecoveryState.none,
+            knownHost: _currentHost(),
           ),
-        ).called(1);
+        );
       },
     );
 
@@ -1305,15 +1313,15 @@ void main() {
           ),
         ).called(1);
         verify(() => sessionTrustService.markTrusted()).called(1);
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              credential: 'stored-cred',
-              knownHost: _currentHost(),
-            ),
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'stored-cred',
+            knownHost: _currentHost(),
           ),
-        ).called(1);
+        );
       },
     );
 
@@ -1338,14 +1346,11 @@ void main() {
             .recoverPendingPairing();
 
         expect(result, DovahLinkTrustState.unpaired);
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              knownHost: _currentHost(),
-            ),
-          ),
-        ).called(1);
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(clientId: 'client-1', knownHost: _currentHost()),
+        );
       },
     );
 
@@ -1372,14 +1377,11 @@ void main() {
             .recoverPendingPairing();
 
         expect(result, DovahLinkTrustState.unpaired);
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              knownHost: _currentHost(),
-            ),
-          ),
-        ).called(1);
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(clientId: 'client-1', knownHost: _currentHost()),
+        );
       },
     );
 
@@ -1406,7 +1408,7 @@ void main() {
           service.recoverPendingPairing(),
           throwsA(isA<DovahLinkPairingException>()),
         );
-        verifyNever(() => storage.save(any()));
+        verifyNever(() => storage.updateState(any()));
         final PersistedClientState stored = await storage.load();
         expect(stored.credential, confirmingState.credential);
         expect(stored.recoveryState, PairingRecoveryState.confirming);

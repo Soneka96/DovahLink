@@ -12,10 +12,10 @@ import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
-import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
@@ -32,9 +32,8 @@ class MockSessionAdmissionService extends Mock
 /// Mocks request transmission so these tests can isolate [AuthenticationService].
 class MockRequestService extends Mock implements IRequestService {}
 
-/// Mocks persistence so these tests can verify which state [AuthenticationService] reads and
-/// writes.
-class MockClientStorage extends Mock implements IClientStorage {}
+/// Mocks persisted-state ownership so these tests can inspect authentication updates.
+class MockClientStateService extends Mock implements IClientStateService {}
 
 /// Mocks client ID resolution so these tests can verify [AuthenticationService] uses its result.
 class MockClientIdResolver extends Mock implements ClientIdResolver {}
@@ -81,7 +80,8 @@ void main() {
   late MockSessionService sessionService;
   late MockSessionAdmissionService sessionAdmissionService;
   late MockRequestService requestService;
-  late MockClientStorage storage;
+  late MockClientStateService storage;
+  late PersistedClientState? updatedState;
   late MockClientIdResolver clientIdResolver;
   late MockClientIdCache clientIdCache;
   late AuthenticationService service;
@@ -105,13 +105,15 @@ void main() {
       ),
     );
     registerFallbackValue(Fixtures.buildPersistedClientState());
+    registerFallbackValue((PersistedClientState state) => state);
   });
 
   setUp(() {
     sessionService = MockSessionService();
     sessionAdmissionService = MockSessionAdmissionService();
     requestService = MockRequestService();
-    storage = MockClientStorage();
+    storage = MockClientStateService();
+    updatedState = null;
     clientIdResolver = MockClientIdResolver();
     clientIdCache = MockClientIdCache();
     when(() => sessionService.connect(any())).thenAnswer((_) async {});
@@ -137,7 +139,12 @@ void main() {
     when(() => storage.load()).thenAnswer(
       (_) async => Fixtures.buildPersistedClientState(clientId: 'client-1'),
     );
-    when(() => storage.save(any())).thenAnswer((_) async {});
+    when(() => storage.updateState(any())).thenAnswer((invocation) async {
+      final PersistedClientState Function(PersistedClientState) update =
+          invocation.positionalArguments.single
+              as PersistedClientState Function(PersistedClientState);
+      updatedState = update(await storage.load());
+    });
     when(
       () => clientIdResolver.resolve(any()),
     ).thenAnswer((_) async => 'client-1');
@@ -145,7 +152,7 @@ void main() {
       sessionService: sessionService,
       sessionAdmissionService: sessionAdmissionService,
       requestService: requestService,
-      storage: storage,
+      clientStateService: storage,
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
     );
@@ -490,19 +497,19 @@ void main() {
 
         await service.hello();
 
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              credential: 'legacy-credential',
-              knownHost: DovahLinkHost(
-                hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
-                hostName: 'Soneka-Desktop',
-                endpoint: Uri.parse('ws://127.0.0.1:58231/'),
-              ),
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'legacy-credential',
+            knownHost: DovahLinkHost(
+              hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              hostName: 'Soneka-Desktop',
+              endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),
           ),
-        ).called(1);
+        );
       },
     );
 
@@ -532,19 +539,19 @@ void main() {
 
         await service.hello();
 
-        verify(
-          () => storage.save(
-            PersistedClientState(
-              clientId: 'client-1',
-              credential: 'credential-1',
-              knownHost: DovahLinkHost(
-                hostId: '81869993-955C-4BA3-A7D0-D35CA86078EA',
-                hostName: 'NEW-NAME',
-                endpoint: Uri.parse('ws://127.0.0.1:58231/'),
-              ),
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-1',
+            knownHost: DovahLinkHost(
+              hostId: '81869993-955C-4BA3-A7D0-D35CA86078EA',
+              hostName: 'NEW-NAME',
+              endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),
           ),
-        ).called(1);
+        );
       },
     );
 
@@ -589,7 +596,8 @@ void main() {
           ),
         );
 
-        verifyNever(() => storage.save(any()));
+        verify(() => storage.updateState(any())).called(1);
+        expect(updatedState, isNull);
         verifyNever(
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
@@ -651,7 +659,7 @@ void main() {
             currentHost: any(named: 'currentHost'),
           ),
         );
-        verifyNever(() => storage.save(any()));
+        verifyNever(() => storage.updateState(any()));
         verify(() => storage.load()).called(1);
         verify(
           () => sessionService.disconnect(orphanRetrySafeOperations: true),
@@ -688,7 +696,7 @@ void main() {
             currentHost: any(named: 'currentHost'),
           ),
         ).called(1);
-        verifyNever(() => storage.save(any()));
+        verifyNever(() => storage.updateState(any()));
       },
     );
 
@@ -714,7 +722,7 @@ void main() {
 
       await service.hello();
 
-      verifyNever(() => storage.save(any()));
+      verifyNever(() => storage.updateState(any()));
       verify(
         () => sessionAdmissionService.admitSession(
           sessionId: 'session-1',
@@ -729,42 +737,10 @@ void main() {
     });
 
     test(
-      'Method hello disconnects without admission when Host reconciliation load fails',
-      () async {
-        int loadCount = 0;
-        when(() => storage.load()).thenAnswer((_) async {
-          loadCount++;
-          if (loadCount == 1) {
-            return Fixtures.buildPersistedClientState(clientId: 'client-1');
-          }
-          throw StateError('reconciliation load failed');
-        });
-        stubSendAndAwait(
-          requestService,
-          buildHelloAckEnvelope(kind: ClientIdentityKind.paired),
-        );
-
-        await expectLater(service.hello(), throwsA(isA<StateError>()));
-
-        verifyNever(() => storage.save(any()));
-        verifyNever(
-          () => sessionAdmissionService.admitSession(
-            sessionId: any(named: 'sessionId'),
-            trustState: any(named: 'trustState'),
-            currentHost: any(named: 'currentHost'),
-          ),
-        );
-        verify(
-          () => sessionService.disconnect(orphanRetrySafeOperations: true),
-        ).called(1);
-      },
-    );
-
-    test(
       'Method hello disconnects without admission when Host reconciliation save fails',
       () async {
         when(
-          () => storage.save(any()),
+          () => storage.updateState(any()),
         ).thenThrow(StateError('reconciliation save failed'));
         stubSendAndAwait(
           requestService,
@@ -773,7 +749,7 @@ void main() {
 
         await expectLater(service.hello(), throwsA(isA<StateError>()));
 
-        verify(() => storage.save(any())).called(1);
+        verify(() => storage.updateState(any())).called(1);
         verifyNever(
           () => sessionAdmissionService.admitSession(
             sessionId: any(named: 'sessionId'),
@@ -1425,11 +1401,11 @@ void main() {
             ),
           ),
         );
-        verify(
-          () => storage.save(
-            Fixtures.buildPersistedClientState(clientId: 'client-1'),
-          ),
-        ).called(1);
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
         verify(() => sessionService.connect(any())).called(2);
         verify(
           () => requestService.sendAndAwait(
@@ -1488,11 +1464,11 @@ void main() {
             ),
           ),
         );
-        verify(
-          () => storage.save(
-            Fixtures.buildPersistedClientState(clientId: 'client-1'),
-          ),
-        ).called(1);
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
         verify(() => sessionService.connect(any())).called(2);
         verify(
           () => requestService.sendAndAwait(
@@ -1513,19 +1489,18 @@ void main() {
     test(
       'Method authenticate recovers from a revoked credential rejection by forgetting it and retrying as unpaired',
       () async {
-        // storage.load() must reflect forgetCredential()'s own storage.save() before the retry
-        // attempt's hello() re-reads it, so the retry actually presents unpaired -- a static stub
-        // would keep returning the stale credential regardless of the intervening save().
+        // The retry's hello() must read the state produced by the preceding update.
         PersistedClientState persisted = Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'stale-cred',
         );
         when(() => storage.load()).thenAnswer((_) async => persisted);
-        when(() => storage.save(any())).thenAnswer((
-          Invocation invocation,
-        ) async {
-          persisted =
-              invocation.positionalArguments.single as PersistedClientState;
+        when(() => storage.updateState(any())).thenAnswer((invocation) async {
+          final PersistedClientState Function(PersistedClientState) update =
+              invocation.positionalArguments.single
+                  as PersistedClientState Function(PersistedClientState);
+          persisted = update(persisted);
+          updatedState = persisted;
         });
         int callCount = 0;
         when(
@@ -1562,11 +1537,11 @@ void main() {
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
         expect(result.hostName, 'Soneka-Desktop');
         expect(result.trustState, DovahLinkTrustState.unpaired);
-        verify(
-          () => storage.save(
-            Fixtures.buildPersistedClientState(clientId: 'client-1'),
-          ),
-        ).called(1);
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
         verify(() => sessionService.connect(any())).called(2);
         final List<Object?> sentPayloads = verify(
           () => requestService.sendAndAwait(
@@ -1625,11 +1600,11 @@ void main() {
           CredentialRejectionReason.unrecognized,
         );
         expect(result.trustState, DovahLinkTrustState.unpaired);
-        verify(
-          () => storage.save(
-            Fixtures.buildPersistedClientState(clientId: 'client-1'),
-          ),
-        ).called(1);
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
         verify(() => sessionService.connect(any())).called(2);
       },
     );
@@ -1676,11 +1651,11 @@ void main() {
           CredentialRejectionReason.blocked,
         );
         expect(result.trustState, DovahLinkTrustState.unpaired);
-        verify(
-          () => storage.save(
-            Fixtures.buildPersistedClientState(clientId: 'client-1'),
-          ),
-        ).called(1);
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
         verify(() => sessionService.connect(any())).called(2);
       },
     );
@@ -1720,7 +1695,7 @@ void main() {
           ),
         );
         verify(() => sessionService.connect(any())).called(1);
-        verifyNever(() => storage.save(any()));
+        verifyNever(() => storage.updateState(any()));
       },
     );
   });
@@ -1745,11 +1720,11 @@ void main() {
 
         await service.forgetCredential();
 
-        verify(
-          () => storage.save(
-            PersistedClientState(clientId: 'client-1', knownHost: knownHost),
-          ),
-        ).called(1);
+        verify(() => storage.updateState(any())).called(1);
+        expect(
+          updatedState,
+          PersistedClientState(clientId: 'client-1', knownHost: knownHost),
+        );
       },
     );
   });

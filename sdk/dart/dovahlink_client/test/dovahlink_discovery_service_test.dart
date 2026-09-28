@@ -276,7 +276,7 @@ void main() {
         expect(saveCount, 0);
         expect(clearCount, 0);
         expect(await consumer.loadKnownHost(), knownHost);
-        expect(loadCount, loadsBeforeDiscovery + 1);
+        expect(loadCount, loadsBeforeDiscovery);
         expect(consumerState.credential, 'private-credential');
         expect(consumerState.recoveryState, PairingRecoveryState.confirming);
       },

@@ -477,6 +477,55 @@ void main() {
     });
   });
 
+  group('Property knownHostChanges behaves correctly', () {
+    test(
+      'Property knownHostChanges first emits null for a new client',
+      () async {
+        expect(await client.knownHostChanges.first, isNull);
+      },
+    );
+
+    test(
+      'Property knownHostChanges refreshes metadata after trusted hello',
+      () async {
+        final DovahLinkHost oldHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'OLD-NAME',
+          endpoint: Uri.parse('ws://127.0.0.1:58230/'),
+        );
+        await storage.save(
+          PersistedClientState(clientId: 'client-1', knownHost: oldHost),
+        );
+        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        final StreamIterator<DovahLinkHost?> changes = StreamIterator(
+          client.knownHostChanges,
+        );
+        addTearDown(changes.cancel);
+
+        expect(await changes.moveNext(), isTrue);
+        expect(changes.current, oldHost);
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+
+        await client.hello();
+
+        expect(await changes.moveNext(), isTrue);
+        expect(
+          changes.current,
+          DovahLinkHost(
+            hostId: oldHost.hostId,
+            hostName: 'Soneka-Desktop',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        );
+      },
+    );
+  });
+
   group('Property character state streams behave correctly', () {
     test(
       'Property character state streams replay notSubscribed views',
@@ -1714,10 +1763,12 @@ void main() {
       'Method hello a malformed JSON response throws malformed_message',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        final Future<HelloResult> hello = client.hello();
+        await pumpEventQueue();
         transport.queueResponse('not valid json');
 
         await expectLater(
-          client.hello(),
+          hello,
           throwsA(
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException error) => error.code,
@@ -1955,6 +2006,12 @@ void main() {
           Fixtures.buildPersistedClientState(clientId: 'client-1'),
         );
         await _connectAndHello(transport, client);
+        final StreamIterator<DovahLinkHost?> changes = StreamIterator(
+          client.knownHostChanges,
+        );
+        addTearDown(changes.cancel);
+        expect(await changes.moveNext(), isTrue);
+        expect(changes.current, isNull);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
         );
@@ -1962,6 +2019,16 @@ void main() {
         final String credential = await client.confirmPairingCode(
           code: '123456',
           displayName: 'My PC',
+        );
+
+        expect(await changes.moveNext(), isTrue);
+        expect(
+          changes.current,
+          DovahLinkHost(
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            hostName: 'Soneka-Desktop',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
         );
 
         expect(credential, 'a1b2c3d4e5f6');
@@ -2188,6 +2255,33 @@ void main() {
   });
 
   group('Method forgetCredential behaves correctly', () {
+    test('Method forgetCredential preserves the observed Known Host', () async {
+      final DovahLinkHost knownHost = DovahLinkHost(
+        hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        hostName: 'KNOWN-HOST',
+        endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      await storage.save(
+        PersistedClientState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+          knownHost: knownHost,
+        ),
+      );
+      final List<DovahLinkHost?> values = <DovahLinkHost?>[];
+      final StreamSubscription<DovahLinkHost?> subscription = client
+          .knownHostChanges
+          .listen(values.add);
+      addTearDown(subscription.cancel);
+      await pumpEventQueue();
+
+      await client.forgetCredential();
+      await pumpEventQueue();
+
+      expect(values, <DovahLinkHost?>[knownHost]);
+      expect((await storage.load()).knownHost, knownHost);
+    });
+
     test(
       'Method forgetCredential a later hello presents unpaired instead of the forgotten credential',
       () async {

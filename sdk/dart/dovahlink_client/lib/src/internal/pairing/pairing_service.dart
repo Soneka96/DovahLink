@@ -2,6 +2,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
@@ -9,7 +10,6 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
-import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_ack_payload.dart';
@@ -89,25 +89,24 @@ class PairingService implements IPairingService {
   /// Sends a pairing message and awaits its correlated reply.
   final IRequestService _requestService;
 
-  /// The SDK-owned persistence boundary for this client's credential, recovery state, and Known
-  /// Host.
-  final IClientStorage _storage;
+  /// The owner of persisted credentials, recovery state, and Known Host metadata.
+  final IClientStateService _clientStateService;
 
   /// Creates a pairing service over [sessionService], [sessionTrustService], [requestService], and
-  /// [storage].
+  /// [clientStateService].
   /// @param sessionService Reads the current Host context from the admitted session.
   /// @param sessionTrustService Upgrades the session after a successful pairing acknowledgement.
   /// @param requestService Sends pairing messages.
-  /// @param storage Persists client credentials and Host association.
+  /// @param clientStateService Atomically persists client credentials and Host association.
   PairingService({
     required ISessionService sessionService,
     required ISessionTrustService sessionTrustService,
     required IRequestService requestService,
-    required IClientStorage storage,
+    required IClientStateService clientStateService,
   }) : _sessionService = sessionService,
        _sessionTrustService = sessionTrustService,
        _requestService = requestService,
-       _storage = storage;
+       _clientStateService = clientStateService;
 
   /// Implements [IPairingService.requestPairing].
   @override
@@ -257,9 +256,8 @@ class PairingService implements IPairingService {
         'The current Host context is unavailable.',
       );
     }
-    final PersistedClientState state = await _storage.load();
-    await _storage.save(
-      state.copyWith(
+    await _clientStateService.updateState(
+      (PersistedClientState state) => state.copyWith(
         credential: credential,
         recoveryState: PairingRecoveryState.confirming,
         knownHost: currentHost,
@@ -315,12 +313,10 @@ class PairingService implements IPairingService {
     }
     _sessionTrustService.markTrusted();
 
-    final PersistedClientState state = await _storage.load();
-    final DovahLinkHost? knownHost = state.knownHost;
-    await _storage.save(
-      state.copyWith(
+    await _clientStateService.updateState(
+      (PersistedClientState state) => state.copyWith(
         recoveryState: PairingRecoveryState.none,
-        knownHost: knownHost ?? currentHost,
+        knownHost: state.knownHost ?? currentHost,
       ),
     );
   }
@@ -328,7 +324,7 @@ class PairingService implements IPairingService {
   /// Implements [IPairingService.recoverPendingPairing].
   @override
   Future<DovahLinkTrustState> recoverPendingPairing() async {
-    final PersistedClientState state = await _storage.load();
+    final PersistedClientState state = await _clientStateService.load();
     if (state.recoveryState != PairingRecoveryState.confirming ||
         state.credential == null) {
       return DovahLinkTrustState.unpaired;
@@ -340,10 +336,10 @@ class PairingService implements IPairingService {
     } on DovahLinkPairingException catch (error) {
       if (error.outcome == PairingOutcome.pendingNotFound ||
           error.outcome == PairingOutcome.pairingInvalidated) {
-        await _storage.save(
-          PersistedClientState(
-            clientId: state.clientId,
-            knownHost: state.knownHost,
+        await _clientStateService.updateState(
+          (PersistedClientState current) => PersistedClientState(
+            clientId: current.clientId,
+            knownHost: current.knownHost,
           ),
         );
         return DovahLinkTrustState.unpaired;
