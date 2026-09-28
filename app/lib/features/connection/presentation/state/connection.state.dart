@@ -15,6 +15,9 @@ class ConnectionState extends Equatable {
   /// selection.
   final Host? selectedHost;
 
+  /// The latest app-mapped projection emitted by the SDK's authoritative Known Host state.
+  final Host? knownHost;
+
   /// The latest discovery operation's state.
   final ConnectionDiscoveryStatus discoveryStatus;
 
@@ -22,9 +25,11 @@ class ConnectionState extends Equatable {
   final ConnectionFailureReason? discoveryFailure;
 
   /// Creates connection state with an explicit Host list and an optional selected Host.
+  /// @param knownHost The latest SDK-observed Known Host projection.
   const ConnectionState({
     this.hosts = const <Host>[],
     this.selectedHost,
+    this.knownHost,
     this.discoveryStatus = ConnectionDiscoveryStatus.idle,
     this.discoveryFailure,
   });
@@ -34,9 +39,11 @@ class ConnectionState extends Equatable {
 
   /// Returns a copy with selected values replaced. [selectedHost] is an [Option] so an omitted,
   /// cleared, and set value stay distinct.
+  /// @param knownHost The observed Known Host to set or clear, or `null` to keep it.
   ConnectionState copyWith({
     List<Host>? hosts,
     Option<Host>? selectedHost,
+    Option<Host>? knownHost,
     ConnectionDiscoveryStatus? discoveryStatus,
     Option<ConnectionFailureReason>? discoveryFailure,
   }) => ConnectionState(
@@ -44,6 +51,7 @@ class ConnectionState extends Equatable {
     selectedHost: selectedHost == null
         ? this.selectedHost
         : selectedHost.toNullable(),
+    knownHost: knownHost == null ? this.knownHost : knownHost.toNullable(),
     discoveryStatus: discoveryStatus ?? this.discoveryStatus,
     discoveryFailure: discoveryFailure == null
         ? this.discoveryFailure
@@ -55,6 +63,7 @@ class ConnectionState extends Equatable {
   List<Object?> get props => [
     hosts,
     selectedHost,
+    knownHost,
     discoveryStatus,
     discoveryFailure,
   ];

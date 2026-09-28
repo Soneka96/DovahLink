@@ -8,6 +8,26 @@ import '../../../../fixtures/fixtures.dart';
 /// Exercises the values carried by connection discovery actions.
 void main() {
   group(
+    'Behavior equality in ConnectionKnownHostChangedAction behaves correctly',
+    () {
+      test(
+        'ConnectionKnownHostChangedAction values compare by Host projection',
+        () {
+          final Host host = Fixtures.buildHost();
+          final ConnectionKnownHostChangedAction first =
+              ConnectionKnownHostChangedAction(host);
+          final ConnectionKnownHostChangedAction second =
+              ConnectionKnownHostChangedAction(Fixtures.buildHost());
+
+          expect(first, second);
+          expect(first.hashCode, second.hashCode);
+          expect(const ConnectionKnownHostChangedAction(null), isNot(first));
+        },
+      );
+    },
+  );
+
+  group(
     'Behavior equality in ConnectionDiscoveryRequestedAction behaves correctly',
     () {
       test('ConnectionDiscoveryRequestedAction values compare equal', () {

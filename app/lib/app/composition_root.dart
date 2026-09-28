@@ -38,9 +38,11 @@ class AppCompositionRoot {
       (Failure _) => defaultThemePreset,
       (DovahThemePreset preset) => preset,
     );
-    return const CreateStore()(
+    final IConnectionMiddleware connectionMiddleware =
+        sl<IConnectionMiddleware>();
+    final Store<AppState> store = const CreateStore()(
       middleware: [
-        sl<IConnectionMiddleware>().call,
+        connectionMiddleware.call,
         sl<IPairingMiddleware>().call,
         AppearanceMiddleware().call,
       ],
@@ -51,5 +53,7 @@ class AppCompositionRoot {
             : PairingSupport.available,
       ),
     );
+    connectionMiddleware.initialize(store);
+    return store;
   }
 }

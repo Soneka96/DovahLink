@@ -1,10 +1,13 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/host.mapper.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
@@ -20,17 +23,26 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
         DovahLinkCompatibilityException,
         DovahLinkConnectionException,
+        DovahLinkClient,
         DovahLinkHost,
         DovahLinkProtocolException,
         DovahLinkTrustState,
         HelloResult,
         HostVersionCompatibilityFailure,
+        IClientStorage,
         IDovahLinkDiscoveryService,
-        ProtocolErrorCode;
+        ProtocolErrorCode,
+        UnsupportedClientStorage;
 
 /// Mocks SDK local discovery for [ConnectionMiddleware] tests.
 class MockDovahLinkDiscoveryService extends Mock
     implements IDovahLinkDiscoveryService {}
+
+/// Mocks the SDK client that owns Known Host state.
+class MockDovahLinkClient extends Mock implements DovahLinkClient {}
+
+/// Mocks supported client storage for subscription initialization.
+class MockClientStorage extends Mock implements IClientStorage {}
 
 /// Mocks Redux dispatch for [ConnectionMiddleware] tests.
 class MockStore extends Mock implements Store<AppState> {}
@@ -38,20 +50,191 @@ class MockStore extends Mock implements Store<AppState> {}
 /// Exercises discovery action orchestration by [ConnectionMiddleware].
 void main() {
   late MockDovahLinkDiscoveryService mockDiscoveryService;
+  late MockDovahLinkClient mockClient;
+  late MockClientStorage mockStorage;
+  late StreamController<DovahLinkHost?> knownHostController;
+  late Stream<DovahLinkHost?> knownHostChanges;
+  late int knownHostListenerCount;
+  late int knownHostCancellationCount;
   late MockStore store;
   late ConnectionMiddleware middleware;
 
   setUp(() async {
     await sl.reset();
     mockDiscoveryService = MockDovahLinkDiscoveryService();
+    mockClient = MockDovahLinkClient();
+    mockStorage = MockClientStorage();
+    knownHostController = StreamController<DovahLinkHost?>.broadcast();
+    knownHostListenerCount = 0;
+    knownHostCancellationCount = 0;
+    knownHostChanges = Stream<DovahLinkHost?>.multi((sink) {
+      knownHostListenerCount++;
+      final StreamSubscription<DovahLinkHost?> subscription =
+          knownHostController.stream.listen(sink.add, onError: sink.addError);
+      sink.onCancel = () async {
+        knownHostCancellationCount++;
+        await subscription.cancel();
+      };
+    }, isBroadcast: true);
+    when(() => mockClient.knownHostChanges).thenAnswer((_) => knownHostChanges);
     store = MockStore();
     when(() => store.state).thenReturn(AppState.initial());
     middleware = ConnectionMiddleware();
     sl.registerSingleton<IDovahLinkDiscoveryService>(mockDiscoveryService);
+    sl.registerSingleton<DovahLinkClient>(mockClient);
+    sl.registerSingleton<IClientStorage>(mockStorage);
   });
 
   tearDown(() async {
+    await middleware.shutdown();
+    await knownHostController.close();
     await sl.reset();
+  });
+
+  group('ConnectionMiddleware Known Host observation behaves correctly', () {
+    test('initialize dispatches the SDK-reported null Known Host', () async {
+      final List<Object?> actions = <Object?>[];
+      final Store<AppState> integrationStore = const CreateStore()(
+        middleware: [
+          (Store<AppState> _, dynamic action, NextDispatcher next) {
+            actions.add(action);
+            next(action);
+          },
+          middleware.call,
+        ],
+      );
+
+      middleware.initialize(integrationStore);
+      knownHostController.add(null);
+      await pumpEventQueue();
+
+      expect(knownHostListenerCount, 1);
+      expect(actions.whereType<ConnectionKnownHostChangedAction>(), [
+        const ConnectionKnownHostChangedAction(null),
+      ]);
+      expect(integrationStore.state.connection.knownHost, isNull);
+    });
+
+    test(
+      'initialize maps SDK Hosts and replaces the Redux projection',
+      () async {
+        final Store<AppState> integrationStore = const CreateStore()(
+          middleware: [middleware.call],
+        );
+        final DovahLinkHost first = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'HOST-A',
+          endpoint: defaultHostUri,
+        );
+        final DovahLinkHost second = DovahLinkHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          hostName: 'HOST-B',
+          endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+
+        middleware.initialize(integrationStore);
+        middleware.initialize(integrationStore);
+        knownHostController.add(first);
+        await pumpEventQueue();
+        expect(
+          integrationStore.state.connection.knownHost,
+          HostMapper.fromSdk(first),
+        );
+        knownHostController.add(second);
+        await pumpEventQueue();
+
+        expect(knownHostListenerCount, 1);
+        expect(
+          integrationStore.state.connection.knownHost,
+          HostMapper.fromSdk(second),
+        );
+      },
+    );
+
+    test('shutdown cancels observation and ignores later SDK values', () async {
+      final Store<AppState> integrationStore = const CreateStore()(
+        middleware: [middleware.call],
+      );
+      final DovahLinkHost first = DovahLinkHost(
+        hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        hostName: 'HOST-A',
+        endpoint: defaultHostUri,
+      );
+      final DovahLinkHost second = DovahLinkHost(
+        hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+        hostName: 'HOST-B',
+        endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+      );
+      middleware.initialize(integrationStore);
+      knownHostController.add(first);
+      await pumpEventQueue();
+
+      await middleware.shutdown();
+      knownHostController.add(second);
+      await pumpEventQueue();
+
+      expect(knownHostCancellationCount, 1);
+      expect(
+        integrationStore.state.connection.knownHost,
+        HostMapper.fromSdk(first),
+      );
+    });
+
+    test('initialize stays inert after shutdown', () async {
+      final Store<AppState> integrationStore = const CreateStore()(
+        middleware: [middleware.call],
+      );
+      await middleware.shutdown();
+
+      middleware.initialize(integrationStore);
+
+      expect(knownHostListenerCount, 0);
+    });
+
+    test(
+      'initialize skips SDK construction when secure storage is unsupported',
+      () async {
+        await sl.unregister<IClientStorage>();
+        sl.registerSingleton<IClientStorage>(const UnsupportedClientStorage());
+        await sl.unregister<DovahLinkClient>();
+        final Store<AppState> integrationStore = const CreateStore()(
+          middleware: [middleware.call],
+        );
+
+        middleware.initialize(integrationStore);
+
+        expect(knownHostListenerCount, 0);
+      },
+    );
+
+    test('stream errors are reported and observation continues', () async {
+      final originalHandler = FlutterError.onError;
+      final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+      FlutterError.onError = reported.add;
+      addTearDown(() => FlutterError.onError = originalHandler);
+      final Store<AppState> integrationStore = const CreateStore()(
+        middleware: [middleware.call],
+      );
+      final DovahLinkHost host = DovahLinkHost(
+        hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        hostName: 'KNOWN-HOST',
+        endpoint: defaultHostUri,
+      );
+      middleware.initialize(integrationStore);
+
+      knownHostController.addError(StateError('storage read failed'));
+      await pumpEventQueue();
+      knownHostController.add(host);
+      await pumpEventQueue();
+
+      expect(reported, hasLength(1));
+      expect(reported.single.exception, isA<StateError>());
+      expect(knownHostListenerCount, 1);
+      expect(
+        integrationStore.state.connection.knownHost,
+        HostMapper.fromSdk(host),
+      );
+    });
   });
 
   group(

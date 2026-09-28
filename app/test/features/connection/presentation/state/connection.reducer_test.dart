@@ -4,11 +4,69 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.reducer.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection reducer transitions.
 void main() {
+  group('Action ConnectionKnownHostChangedAction behaves correctly', () {
+    test('ConnectionKnownHostChangedAction replaces the SDK projection', () {
+      final Host first = Fixtures.buildHost(displayName: 'First Host');
+      final Host second = Fixtures.buildHost(displayName: 'Second Host');
+      final ConnectionState state = ConnectionState(knownHost: first);
+
+      final ConnectionState result = connectionReducer(
+        state,
+        ConnectionKnownHostChangedAction(second),
+      );
+
+      expect(result.knownHost, second);
+    });
+
+    test(
+      'ConnectionKnownHostChangedAction clears the SDK projection on null',
+      () {
+        final ConnectionState state = ConnectionState(
+          knownHost: Fixtures.buildHost(),
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionKnownHostChangedAction(null),
+        );
+
+        expect(result.knownHost, isNull);
+      },
+    );
+  });
+
+  group('Action lifecycle inference behaves correctly', () {
+    test(
+      'PairingConfirmedAction alone does not create a Known Host projection',
+      () {
+        final ConnectionState state = ConnectionState.initial();
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const PairingConfirmedAction(),
+        );
+
+        expect(identical(result, state), isTrue);
+        expect(result.knownHost, isNull);
+      },
+    );
+
+    test('Discovery success alone does not create a Known Host projection', () {
+      final ConnectionState result = connectionReducer(
+        ConnectionState.initial(),
+        ConnectionDiscoverySucceededAction([Fixtures.buildHost()]),
+      );
+
+      expect(result.knownHost, isNull);
+    });
+  });
+
   group('Action ConnectionHostSelectedAction behaves correctly', () {
     test('ConnectionHostSelectedAction stores the selected Host in state', () {
       final Host host = Fixtures.buildHost();

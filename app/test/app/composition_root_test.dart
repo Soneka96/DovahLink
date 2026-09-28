@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart' show PlatformException;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -20,8 +22,10 @@ import 'package:flutter/foundation.dart'
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
         DovahLinkHost,
+        DovahLinkClient,
         DovahLinkTrustState,
         HelloResult,
+        IClientStorage,
         IDovahLinkDiscoveryService;
 
 /// Mocks async preference reads for composition-root tests.
@@ -31,6 +35,12 @@ class MockSharedPreferencesAsync extends Mock
 /// Mocks SDK local discovery for composition-root tests.
 class MockDovahLinkDiscoveryService extends Mock
     implements IDovahLinkDiscoveryService {}
+
+/// Mocks the SDK client that supplies Known Host state during store creation.
+class MockDovahLinkClient extends Mock implements DovahLinkClient {}
+
+/// Mocks supported client storage for Known Host store-composition coverage.
+class MockClientStorage extends Mock implements IClientStorage {}
 
 /// Exercises independent store creation by [AppCompositionRoot] through the real dependency
 /// graph [initDependencies] wires -- a composition test proving the production graph resolves
@@ -59,6 +69,39 @@ void main() {
   });
 
   group('Method createStore behaves correctly', () {
+    test(
+      'Method createStore subscribes to and maps SDK Known Host state',
+      () async {
+        final DovahLinkHost sdkHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'KNOWN-HOST',
+          endpoint: defaultHostUri,
+        );
+        final MockDovahLinkClient client = MockDovahLinkClient();
+        when(
+          () => client.knownHostChanges,
+        ).thenAnswer((_) => Stream<DovahLinkHost?>.value(sdkHost));
+        await sl.unregister<IClientStorage>();
+        sl.registerSingleton<IClientStorage>(MockClientStorage());
+        await sl.unregister<DovahLinkClient>();
+        sl.registerSingleton<DovahLinkClient>(client);
+
+        final Store<AppState> store = await const AppCompositionRoot()
+            .createStore();
+        final AppState observed = await store.onChange.firstWhere(
+          (AppState state) => state.connection.knownHost != null,
+        );
+
+        expect(
+          observed.connection.knownHost,
+          Fixtures.buildHost(
+            hostId: sdkHost.hostId,
+            displayName: sdkHost.hostName,
+          ),
+        );
+      },
+    );
+
     test(
       'marks pairing unavailable when secure storage is unsupported',
       () async {

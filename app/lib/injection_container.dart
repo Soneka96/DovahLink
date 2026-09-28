@@ -56,7 +56,11 @@ Future<void> initDependencies() async {
   initConnectionDependencies();
   initPairingDependencies();
   sl.registerLazySingleton<IAppShutdownService>(
-    () => AppShutdownService(pairingMiddleware: sl(), existingClient: sl()),
+    () => AppShutdownService(
+      connectionMiddleware: sl(),
+      pairingMiddleware: sl(),
+      existingClient: sl(),
+    ),
   );
   initAppearanceDependencies();
   if (defaultTargetPlatform == TargetPlatform.windows) {
