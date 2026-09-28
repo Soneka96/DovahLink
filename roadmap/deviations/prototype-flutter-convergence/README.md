@@ -2,7 +2,8 @@
 
 **Status:** Active — design and visual foundation complete; connection/pairing convergence partial;
 remaining historical steps require re-planning. The Local Host discovery foundation is a separate
-approved scope; canonical discovery UI convergence remains a follow-up.
+approved scope. Known Host lifecycle integration is next; canonical discovery / Connections UI
+convergence follows it.
 
 ## Why this deviation exists
 
@@ -79,15 +80,31 @@ application operation, not an SDK exception type. Add another converter only whe
 needs one; do not create one method per SDK exception or a global enum for every possible DovahLink
 failure. Localization can replace the centralized copy when the app adopts localization.
 
-## Next PR — Canonical Discovery UI Convergence
+## Next PR — Known Host Lifecycle + Discovery Integration
 
-The next UI-only convergence PR will reproduce the approved prototype discovery presentation and
-interaction using the contracts above. It owns exact copy, surfaces, modal/state composition,
-responsive behavior, and prototype-equivalent transitions. It must use the existing discovery
-states and selected Host flow, let real authentication/pairing state determine outcomes, and add no
-fake delays. It should leave discovery infrastructure unchanged unless review finds a real missing
-application contract. This follow-up does not complete the broader historical 03.6 Discovery / Trust
-UI slice, which remains paused pending re-planning.
+The SDK already persists Known Host metadata, publicly loads it through
+`DovahLinkClient.loadKnownHost()`, and records it during successful pairing according to its existing
+persistence rules. Discovery uses isolated transient storage and does not persist a Known Host. The
+next PR integrates these existing behaviors end to end: load the saved Host at startup, keep Known
+Hosts separate from discovery candidates, persist association through the existing SDK flow, and
+show the saved Host after restart.
+
+For the current localhost-only route, an already-associated local Host should not reappear as a new
+candidate. Treat this as local product/routing correlation, not identity verification: discovery
+claims such as `hostId` remain untrusted. The UI must not depend on how this correlation is done.
+A Known Host remains known while offline, revoked, blocked, unrecognized, or in need of repair;
+forgetting it requires explicit remove/forget behavior. A Known Host record does not represent live
+trust. This PR integrates and exercises the existing SDK persistence; it does not invent Known Host
+persistence from scratch.
+
+## After that — Canonical Discovery / Connections UI Convergence
+
+The canonical UI convergence follows Known Host lifecycle integration so the final UI can be built
+and tested against real saved/discovered Host behavior rather than temporary assumptions. It will
+reproduce the approved prototype's structure, copy, interactions, and responsive presentation using
+real Known Hosts, discovery candidates/status, selected Host, and existing connection/pairing state.
+It owns presentation and handoff, adds no fake delays, and should need little or no discovery/SDK
+architecture change. Historical slice 03.6 remains paused and is not marked complete by this work.
 
 ## Future — production discovery mechanism
 
@@ -96,9 +113,14 @@ are expected to stay stable when a separately designed production mechanism repl
 loopback probe beneath the SDK. This split keeps today's known local endpoint replaceable while
 allowing the better-understood product interaction to converge independently.
 
-Production LAN discovery, mDNS/DNS-SD, secure first-contact pairing, `sas-pairing`, WSS/TLS migration,
-and Pair / Reject / Block authorization remain out of scope. Unknown non-loopback peers remain
-gated.
+Today's path is candidate → connect → current loopback development pairing → successful association
+→ Known Host. Later, a reviewed and approved SAS/secure bootstrap may replace that initial pairing
+ceremony, followed by Pair / Reject / Block and successful association. Replacing the initial pairing
+ceremony later with SAS should not require rebuilding discovery, Known Host lifecycle, or the
+Connections UI; it also leaves saved Host presentation, reconnect, and offline/repair presentation in
+place. No SAS profile is selected or production-ready today. Production LAN discovery, mDNS/DNS-SD,
+secure first contact, WSS/TLS migration, and non-loopback pairing remain gated by the security
+requirements and integration evidence.
 
 ## Related deviation
 

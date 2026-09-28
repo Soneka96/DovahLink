@@ -45,10 +45,23 @@ The current branch establishes the local Host discovery foundation: a real SDK l
 middleware/Redux states, and a candidate containing only the fixed display label and endpoint. Its
 temporary state presentation does not complete or resume historical slice 03.6.
 
-The next separate PR is **Canonical Discovery UI Convergence**. It will implement the approved
-prototype presentation with the existing states and selected Host flow, use real authentication and
-pairing outcomes, and avoid fake delays or discovery infrastructure changes unless a real contract
-gap is found. Production discovery remains a separate future design decision.
+The next separate PR is **Known Host Lifecycle + Discovery Integration**. It will connect the SDK's
+existing Known Host loading and pairing persistence to app state, keep saved Hosts distinct from
+discovery candidates, and prove the first-run, association, restart, and already-known-local-route
+flows. Discovery identity claims remain untrusted; local de-duplication is product/routing
+correlation, not authentication. Known Host metadata remains saved through offline, revoked,
+blocked, unrecognized, or repair-required states, until a future explicit forget/remove action.
+
+After that, **Canonical Discovery / Connections UI Convergence** will present the tested Known Host
+lifecycle, discovery state, selected Host, and real connection/pairing state in the approved
+prototype UI. The canonical UI convergence follows Known Host lifecycle integration so the final UI
+can be built and tested against real saved/discovered Host behavior rather than temporary
+assumptions. Historical slice 03.6 remains paused and is not completed by either follow-up.
+
+Production LAN discovery and an approved SAS/secure initial-pairing ceremony remain later work. SAS
+is intended to replace the initial pairing ceremony only; it should not require rebuilding discovery,
+Known Host lifecycle, or the Connections UI. Production security remains gated by its reviewed
+profile and integration evidence.
 
 Re-plan 03.4–03.10 against current DovahLink security and SDK architecture before resuming those
 slices. The exact schedule belongs to future reviewed work; this historical index assigns no new

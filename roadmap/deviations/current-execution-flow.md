@@ -14,50 +14,66 @@ active deviations.
    candidates, selected Host, and semantic failure reasons. The temporary candidate uses only the
    fixed “Local Host” label and endpoint; discovery claims are not identity or trust. Temporary UI
    exercises the states but does not claim canonical prototype parity.
-2. **Next PR — Canonical Discovery UI Convergence.** Reproduce the approved prototype presentation
-   using the current discovery Redux/ViewModel contract and existing selected Host flow. Real
-   authentication/pairing state determines outcomes. Add no fake delays and make no discovery
-   infrastructure changes unless a real contract gap is found. This is a UI-only follow-up and does
-   not complete historical slice 03.6.
-3. **Future — design production discovery separately.** The final discovery transport is not chosen.
-   Once designed and approved, replace the current probe beneath the existing application contract
-   so discovery states, ViewModels, and the converged UI stay stable.
-4. **Re-plan historical connection/pairing slices 03.4–03.10 before resuming them.** Compare each
-   slice with current SDK, Host, and security architecture; work already completed; the closed PR
-   #100 findings; the SAS
-   research extraction; and the selected DovahLink authorization direction. The old sequence is
-   history, not implementation authorization. For each slice, decide whether to keep, narrow,
-   reorder, combine, defer, or remove it; this document makes none of those decisions.
-5. **Implement only the work that survives that review.** Schedule the DovahLink-owned pairing
-   authorization boundary at the reviewed point where it naturally belongs. The selected direction
-   is:
+2. **Next PR — Known Host Lifecycle + Discovery Integration.** Connect the existing SDK-owned
+   Known Host loading and persistence to application state so saved Hosts and discovery candidates
+   are represented separately. Prove first-run discovery and pairing, persistence, loading after
+   restart, and local-route correlation that prevents an already-associated localhost Host from
+   appearing as new. Discovery claims, including a claimed `hostId`, remain untrusted; this local
+   correlation is product routing behavior, not authentication. Known Host metadata remains known
+   when the Host is offline, revoked, blocked, unrecognized, or needs repair. Only a future explicit
+   forget/remove action clears the association. Existing SDK persistence is the foundation; this
+   work integrates and verifies it end to end rather than inventing it again.
+3. **Then — Canonical Discovery / Connections UI Convergence.** Reproduce the approved prototype
+   presentation using the tested Known Host lifecycle, discovery candidates/status, selected Host,
+   and real connection/pairing state. Keep presentation faithful to the prototype and add no fake
+   delays. This follows Known Host lifecycle integration so the final UI can be built and tested
+   against real saved/discovered Host behavior rather than temporary assumptions. It does not mark
+   historical slice 03.6 complete.
+4. **Later — production LAN discovery and secure initial pairing.** Keep today's localhost flow as
+   candidate → connect → loopback development pairing → successful association → Known Host. When
+   an approved SAS/secure bootstrap is ready, the production flow becomes candidate → connect →
+   secure bootstrap → Pair / Reject / Block → successful association → Known Host. That security
+   work replaces the initial pairing ceremony; it should not require rebuilding discovery, Known
+   Host lifecycle, saved Host presentation, reconnect behavior, offline/repair presentation, or the
+   Connections UI. Production LAN exposure and secure first contact remain gated by the security
+   requirements and integration evidence.
+## Remaining convergence planning
 
-   ```text
-   pairing/bootstrap evidence
-       -> pending authorization for one exact attempt
-       -> Skyrim user chooses Pair / Reject / Block
-       -> durable application trust where applicable, only after Pair
-   ```
+- **Re-plan historical connection/pairing slices 03.4–03.10 before resuming them.** Compare each
+  slice with current SDK, Host, and security architecture; work already completed; the closed PR
+  #100 findings; the SAS research extraction; and the selected DovahLink authorization direction.
+  The old sequence is history, not implementation authorization. For each slice, decide whether to
+  keep, narrow, reorder, combine, defer, or remove it; this document makes none of those decisions.
+- **Implement only the work that survives that review.** Schedule the DovahLink-owned pairing
+  authorization boundary at the reviewed point where it naturally belongs. The selected direction
+  is:
 
-   The architecture is selected; runtime implementation is deferred. Do not assign it to a numbered
-   historical slice here. Its eventual approval must identify the exact pairing attempt so stale
-   approval cannot authorize a later ceremony. DovahLink owns this application boundary; it does not
-   define generic SAS cryptography or a new protocol schema.
-6. **Close or explicitly defer remaining connection/pairing convergence work.** Keep its disposition
-   in the [prototype convergence deviation](prototype-flutter-convergence/README.md) and its
-   [connection/pairing index](prototype-flutter-convergence/03-connection-pairing-convergence/README.md).
-7. **Return to the normal roadmap:** [Phase 5.4 — Flutter Middleware and Minimal Live-State
-   Proof](../05-dart-client-sdk-foundation.md); [Phase 5.5 — Version-Impact Audit and Stage 5
-   Closure](../05-dart-client-sdk-foundation.md#55-version-impact-audit-and-stage-5-closure);
-   [Stage 6 — PC / Second-Screen Baseline](../06-pc-second-screen-baseline.md); [Stage 7 — Core UI
-   Theme System](../07-core-ui-theme-system.md); then [Stage 8 — Live Player State](../08-live-player-state.md).
+  ```text
+  pairing/bootstrap evidence
+      -> pending authorization for one exact attempt
+      -> Skyrim user chooses Pair / Reject / Block
+      -> durable application trust where applicable, only after Pair
+  ```
+
+  The architecture is selected; runtime implementation is deferred. Do not assign it to a numbered
+  historical slice here. Its eventual approval must identify the exact pairing attempt so stale
+  approval cannot authorize a later ceremony. DovahLink owns this application boundary; it does not
+  define generic SAS cryptography or a new protocol schema.
+- **Close or explicitly defer remaining connection/pairing convergence work.** Keep its disposition
+  in the [prototype convergence deviation](prototype-flutter-convergence/README.md) and its
+  [connection/pairing index](prototype-flutter-convergence/03-connection-pairing-convergence/README.md).
+- **Return to the normal roadmap:** [Phase 5.4 — Flutter Middleware and Minimal Live-State
+  Proof](../05-dart-client-sdk-foundation.md); [Phase 5.5 — Version-Impact Audit and Stage 5
+  Closure](../05-dart-client-sdk-foundation.md#55-version-impact-audit-and-stage-5-closure);
+  [Stage 6 — PC / Second-Screen Baseline](../06-pc-second-screen-baseline.md); [Stage 7 — Core UI
+  Theme System](../07-core-ui-theme-system.md); then [Stage 8 — Live Player State](../08-live-player-state.md).
 
 ## Return condition
 
-Resume normal roadmap progression once the discovery foundation and separate canonical UI convergence
-are complete, remaining connection/pairing slices have been re-planned, necessary work has been
-completed or explicitly deferred, and no active deviation still has a justified reason to precede
-Phase 5.4.
+Resume normal roadmap progression once the discovery foundation, Known Host lifecycle integration,
+and separate canonical UI convergence are complete, remaining connection/pairing slices have been
+re-planned, necessary work has been completed or explicitly deferred, and no active deviation still
+has a justified reason to precede Phase 5.4.
 
 ## Stage 7 remains planned
 
