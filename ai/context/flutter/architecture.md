@@ -7,14 +7,16 @@ These conventions apply to the DovahLink Flutter client. They are adapted from t
 Presentation depends on domain, and data depends on domain. Domain remains independent of
 presentation, data, frameworks, and transport implementations.
 
-- `data` performs external I/O and maps external representations to domain entities.
+- `data` handles external I/O, persistence, and representation mapping owned by the Flutter app.
 - `domain` contains pure Dart entities, repository interfaces, and use cases.
 - `presentation` contains screens, sections, widgets, ViewModels, ViewData, and client state.
 - Imports may point from `presentation` to `domain`, and from `data` to `domain`.
 - Domain must not import `data`, `presentation`, Flutter, or transport implementations.
 - Presentation may consume domain interfaces and client-state outputs, but never construct infrastructure.
 - Redux middleware may call a registered SDK contract directly for a complete SDK-owned operation.
-  It remains orchestration and does not own protocol rules or application-domain decisions.
+  Translate its typed result into app-owned values at the application boundary before it enters
+  domain, Redux state, or presentation. Middleware remains orchestration and does not own protocol
+  rules or application-domain decisions.
 - Domain dependencies are constructor-injected interfaces. Domain code never imports or resolves
   the `GetIt` container.
 
@@ -26,14 +28,15 @@ These four names have separate meanings in the Flutter app:
   type uses its domain concept's bare name. It has no dependency on Flutter, the SDK, JSON,
   storage, transport, protocol DTOs, `data`, or `presentation`.
 - **Model:** A data-layer representation of structured external data in `data/models/`, in a
-  `*.model.dart` file. It extends its corresponding Entity and maps an actual representation
-  crossing an SDK, API, protocol, JSON, database, or persisted-data boundary.
-  The DataSource communicates with the SDK, API, or storage system; the Model is the Flutter
-  application's typed representation of structured data crossing that boundary. Domain
-  repository interfaces, use cases, Redux state, and presentation code use Entities, not Models.
-  A Model exists only when an actual external representation exists; do not manufacture
-  Model/Entity pairs merely for structural symmetry. A Model owns external
-  mapping or serialization where appropriate.
+  `*.model.dart` file. It extends its corresponding Entity and maps an actual external
+  representation crossing a data boundary owned by the Flutter app, such as an API, protocol,
+  JSON, database, or persisted-data boundary. The DataSource performs that app-owned external I/O;
+  the Model maps its structured representation. Domain repository interfaces, use cases, Redux
+  state, and presentation code use app-owned values, not Models. A Model exists only for a real
+  external representation the Flutter app must map; an already-decoded typed result from a
+  complete SDK-owned operation does not by itself require a DataSource or Model. Do not
+  manufacture Model/Entity pairs merely for structural symmetry. A Model owns external mapping or
+  serialization where appropriate.
 - **ViewModel:** A presentation-layer Redux adapter named for exactly one Screen, Section, Widget,
   or application presentation owner. It maps Redux state through selectors, creates Redux dispatch
   callbacks, exposes what its owner requires, and contains no domain or business logic. A
@@ -42,8 +45,13 @@ These four names have separate meanings in the Flutter app:
   `*.viewdata.dart` file, passed between UI components. It has no Store, selectors, dispatching, or
   DI registration.
 
-Structured data from an SDK, API, or storage boundary enters through a DataSource and Model before
-the corresponding Entity is used by domain logic.
+When the Flutter app owns external I/O or external-representation mapping, structured data crosses
+the appropriate data boundary and is mapped to app-owned values before entering domain or
+application state. A complete SDK-owned operation may be invoked directly through its public typed
+contract; translate its typed result at the SDK/application boundary before it enters app-owned
+domain, Redux state, ViewModels, or widgets. This translation does not by itself require a
+DataSource or Model. Domain and Redux/presentation code must not depend on SDK transport/protocol
+DTOs or raw wire representations.
 
 “Model” is reserved for the data layer and must not be used as a generic suffix for immutable
 classes. Domain Entity classes use the bare concept name: the `.entity.dart` suffix identifies the
@@ -110,12 +118,15 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Keep use cases to one public operation.
 - Keep ViewModels as Redux-backed presentation connectors; business logic belongs in domain or
   state logic.
-- Keep Flutter and DovahLink protocol types separate. Map protocol DTOs at the client boundary.
+- Keep Flutter and DovahLink protocol types separate. When Flutter owns protocol decoding, map
+  protocol DTOs at its data boundary.
 - Protocol DTOs must not cross into widgets or domain entities.
-- Protocol wire DTOs, encoding/decoding, session validation, and transport-facing adapters belong
-  in the feature's `data` boundary or an explicitly approved client-infrastructure area. Map
-  structured external data to data Models before it enters domain code; pass Entities and ViewData
-  to presentation code.
+- Protocol wire DTOs, encoding/decoding, session validation, and transport-facing adapters owned by
+  Flutter belong in the feature's `data` boundary or an explicitly approved client-infrastructure
+  area. Map structured external representations owned by Flutter to data Models before they enter
+  domain code. Translate typed results from complete SDK-owned operations into app-owned values at
+  the SDK/application boundary; do not add a Model solely to copy fields. Pass Entities and
+  ViewData to presentation code.
 
 ## Screens, sections, and widgets
 
@@ -181,20 +192,27 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - When only one instance of an operation is valid at a time, use the authoritative application
   lifecycle or capability model to prevent competing work where possible. Do not duplicate that
   invariant with separate mutable in-progress state or concurrency machinery.
-- Middleware maps each typed use-case outcome to the corresponding success or failure action.
+- Middleware maps each typed use-case or SDK-owned operation result to the corresponding success or
+  failure action.
 - Share handler work through explicit typed actions rather than untyped raw-parameter helper calls.
 
 ## Feature call chain
 
-Middleware calls the SDK contract directly for a complete SDK-owned operation. When the app owns a
-domain decision or coordinates multiple sources, the operation follows the appropriate domain and
-data boundaries.
+Middleware may call the SDK contract directly when it owns the complete operation. Translate the
+typed result into app-owned values at that boundary before dispatching it into Redux or passing it
+into domain or presentation code. When the Flutter app owns external I/O, external-representation
+mapping, a domain decision, or coordination of multiple sources, use the appropriate data or domain
+boundaries.
 
 Use a use case when the app owns a domain decision. Use a repository when the app coordinates
-multiple sources, persistence, cache, or domain aggregation. Use a datasource when the Flutter app
-owns external I/O. Do not add a UseCase, Repository, Datasource, Entity/Model pair, or other layer
-whose only responsibility is forwarding an SDK operation unchanged. Use the SDK's registered
-contract directly when it already owns the complete operation.
+multiple sources, persistence, cache, or domain aggregation. Use the appropriate data boundary when
+the Flutter app owns external I/O, persistence, structured data infrastructure, or protocol/API
+decoding or external-representation mapping. Use a Model when a real structured external
+representation crosses that boundary and must be mapped. Do not add a UseCase, Repository,
+Datasource, Model, or other layer whose only responsibility is forwarding an SDK operation
+unchanged or copying fields from its already-decoded typed result. Use the SDK's registered public
+contract directly when it already owns the complete operation, and translate its typed result into
+app-owned values before it enters app state or other layers.
 
 ## Dependency injection
 
