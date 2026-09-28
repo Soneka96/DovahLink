@@ -140,12 +140,14 @@ void main() {
         final HelloResult reportedHello = Fixtures.buildSdkHelloResult(
           trustState: DovahLinkTrustState.unpaired,
         );
-        when(() => discoveryService.discoverLocalHost()).thenAnswer(
-          (_) async => DovahLinkHost(
-            hostId: reportedHello.hostId,
-            hostName: reportedHello.hostName,
-            endpoint: defaultHostUri,
-          ),
+        when(() => discoveryService.discover()).thenAnswer(
+          (_) async => <DovahLinkHost>[
+            DovahLinkHost(
+              hostId: reportedHello.hostId,
+              hostName: reportedHello.hostName,
+              endpoint: defaultHostUri,
+            ),
+          ],
         );
         const AppCompositionRoot root = AppCompositionRoot();
         final Store<AppState> store = await root.createStore();
@@ -160,8 +162,13 @@ void main() {
         final AppState result = await availableState.timeout(
           const Duration(seconds: 1),
         );
-        expect(result.connection.hosts, [Fixtures.buildHost()]);
-        verify(() => discoveryService.discoverLocalHost()).called(1);
+        expect(result.connection.hosts, [
+          Fixtures.buildHost(
+            hostId: reportedHello.hostId,
+            displayName: reportedHello.hostName,
+          ),
+        ]);
+        verify(() => discoveryService.discover()).called(1);
       },
     );
   });

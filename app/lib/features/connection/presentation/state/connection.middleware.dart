@@ -1,6 +1,6 @@
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/host.mapper.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -43,15 +43,11 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
 
     store.dispatch(const ConnectionDiscoveryStartedAction());
     try {
-      final DovahLinkHost? discoveredHost =
-          await sl<IDovahLinkDiscoveryService>().discoverLocalHost();
+      final List<DovahLinkHost> discoveredHosts =
+          await sl<IDovahLinkDiscoveryService>().discover();
       store.dispatch(
         ConnectionDiscoverySucceededAction(
-          discoveredHost == null
-              ? const <Host>[]
-              : <Host>[
-                  Host(displayName: 'Local Host', uri: discoveredHost.endpoint),
-                ],
+          discoveredHosts.map(HostMapper.fromSdk).toList(growable: false),
         ),
       );
     } on Object catch (error) {

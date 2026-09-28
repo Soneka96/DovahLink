@@ -12,18 +12,20 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// The SDK's current loopback endpoint for the public Host listener.
 final Uri _localHostEndpoint = Uri.parse('ws://127.0.0.1:58231/');
 
-/// Defines the SDK's local Host discovery capability.
+/// Defines the SDK's Host discovery capability.
 abstract interface class IDovahLinkDiscoveryService {
-  /// Probes the local endpoint and returns the responding peer's Host claim after protocol and
-  /// compatibility validation, or `null` when WebSocket setup fails without an HTTP status code.
+  /// Returns every discovered Host candidate after protocol and compatibility validation.
+  ///
+  /// An empty list means no candidate was found. A candidate's claimed identity does not
+  /// authenticate it or prove ownership of a previously known identity.
   /// @throws [DovahLinkConnectionException] if an HTTP response rejects the WebSocket upgrade, or a
   ///     connected peer drops the connection or does not answer `hello` before the request timeout.
   /// @throws [DovahLinkProtocolException] if a reachable peer violates the DovahLink protocol.
   /// @throws [DovahLinkCompatibilityException] if a reachable Host version is unsupported.
-  Future<DovahLinkHost?> discoverLocalHost();
+  Future<List<DovahLinkHost>> discover();
 }
 
-/// Finds a local Host candidate by validating an unpaired `hello_ack` with the normal SDK stack.
+/// Finds Host candidates by validating unpaired `hello_ack` responses with the normal SDK stack.
 /// Discovery validates a peer's Host claim; it does not authenticate Host identity.
 class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
   /// The candidate location this service probes.
@@ -32,7 +34,7 @@ class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
   /// Central SDK request bounds, overridable only by the internal test factory.
   final Map<TimeoutClass, Duration> _timeoutDurations;
 
-  /// Creates a local loopback discovery service.
+  /// Creates the discovery service with its current local probe strategy.
   DovahLinkDiscoveryService()
     : this._(
         endpoint: _localHostEndpoint,
@@ -46,23 +48,23 @@ class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
   }) : _endpoint = endpoint,
        _timeoutDurations = timeoutDurations;
 
-  /// Probes the local endpoint and returns the Host values asserted by the peer's validated
-  /// `hello_ack`. Protocol and compatibility validation do not authenticate that peer as an
+  /// Returns the Host values asserted by each validated `hello_ack`. The current strategy probes
+  /// the local endpoint. Protocol and compatibility validation do not authenticate a peer as an
   /// installation previously known under [DovahLinkHost.hostId].
   ///
   /// The endpoint is the current location, not part of identity. This probe uses transient storage,
   /// sends an unpaired `hello`, and never presents consumer credentials, pairs, or reconnects. A
   /// discovered `hostId` alone must not authorize trust, credential disclosure, pairing bypass, or
   /// another security-sensitive decision.
-  /// @return The peer-asserted Host values, or `null` when WebSocket setup fails without an HTTP
-  ///     status code.
+  /// @return The validated Host candidates, or an empty list when WebSocket setup fails without an
+  ///     HTTP status code.
   /// @throws [DovahLinkConnectionException] if an HTTP response rejects the WebSocket upgrade, or a
   ///     connected peer drops the connection or does not answer `hello` before the request timeout.
   /// @throws [DovahLinkProtocolException] if a reachable peer violates the DovahLink protocol.
   /// @throws [DovahLinkCompatibilityException] if a reachable peer reports an unsupported Host
   ///     version.
   @override
-  Future<DovahLinkHost?> discoverLocalHost() async {
+  Future<List<DovahLinkHost>> discover() async {
     final DovahLinkClient client = buildDovahLinkClientForDiscovery(
       timeoutDurations: _timeoutDurations,
     );
@@ -73,14 +75,16 @@ class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
         if (error.httpStatusCode != null) {
           rethrow;
         }
-        return null;
+        return const <DovahLinkHost>[];
       }
       final HelloResult hello = await client.hello();
-      return DovahLinkHost(
-        hostId: hello.hostId,
-        hostName: hello.hostName,
-        endpoint: _endpoint,
-      );
+      return <DovahLinkHost>[
+        DovahLinkHost(
+          hostId: hello.hostId,
+          hostName: hello.hostName,
+          endpoint: _endpoint,
+        ),
+      ];
     } finally {
       await client.disconnect();
     }

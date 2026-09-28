@@ -58,17 +58,19 @@ void main() {
     'ConnectionMiddleware processes ConnectionDiscoveryRequestedAction correctly',
     () {
       test(
-        'ConnectionDiscoveryRequestedAction dispatches the endpoint-only candidate after the request',
+        'ConnectionDiscoveryRequestedAction maps the discovered Host after the request',
         () async {
           final HelloResult reportedHello = Fixtures.buildSdkHelloResult(
             trustState: DovahLinkTrustState.unpaired,
           );
-          when(() => mockDiscoveryService.discoverLocalHost()).thenAnswer(
-            (_) async => DovahLinkHost(
-              hostId: reportedHello.hostId,
-              hostName: reportedHello.hostName,
-              endpoint: defaultHostUri,
-            ),
+          when(() => mockDiscoveryService.discover()).thenAnswer(
+            (_) async => <DovahLinkHost>[
+              DovahLinkHost(
+                hostId: reportedHello.hostId,
+                hostName: reportedHello.hostName,
+                endpoint: defaultHostUri,
+              ),
+            ],
           );
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
@@ -89,9 +91,14 @@ void main() {
           expect(actions, [
             action,
             const ConnectionDiscoveryStartedAction(),
-            ConnectionDiscoverySucceededAction([Fixtures.buildHost()]),
+            ConnectionDiscoverySucceededAction([
+              Fixtures.buildHost(
+                hostId: reportedHello.hostId,
+                displayName: reportedHello.hostName,
+              ),
+            ]),
           ]);
-          verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
+          verify(() => mockDiscoveryService.discover()).called(1);
         },
       );
 
@@ -99,8 +106,8 @@ void main() {
         'ConnectionDiscoveryRequestedAction dispatches an empty list when no Host responds',
         () async {
           when(
-            () => mockDiscoveryService.discoverLocalHost(),
-          ).thenAnswer((_) async => null);
+            () => mockDiscoveryService.discover(),
+          ).thenAnswer((_) async => const <DovahLinkHost>[]);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -122,7 +129,7 @@ void main() {
             const ConnectionDiscoveryStartedAction(),
             const ConnectionDiscoverySucceededAction(<Host>[]),
           ]);
-          verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
+          verify(() => mockDiscoveryService.discover()).called(1);
         },
       );
 
@@ -131,9 +138,7 @@ void main() {
         () async {
           const DovahLinkConnectionException exception =
               DovahLinkConnectionException('diagnostic');
-          when(
-            () => mockDiscoveryService.discoverLocalHost(),
-          ).thenThrow(exception);
+          when(() => mockDiscoveryService.discover()).thenThrow(exception);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -157,7 +162,7 @@ void main() {
               ConnectionFailureReason.hostUnavailable,
             ),
           ]);
-          verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
+          verify(() => mockDiscoveryService.discover()).called(1);
         },
       );
 
@@ -170,9 +175,7 @@ void main() {
                 message: 'diagnostic',
                 retryable: false,
               );
-          when(
-            () => mockDiscoveryService.discoverLocalHost(),
-          ).thenThrow(exception);
+          when(() => mockDiscoveryService.discover()).thenThrow(exception);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -196,7 +199,7 @@ void main() {
               ConnectionFailureReason.invalidResponse,
             ),
           ]);
-          verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
+          verify(() => mockDiscoveryService.discover()).called(1);
         },
       );
 
@@ -209,9 +212,7 @@ void main() {
                 supportedHostVersionRange: 'supported',
                 failure: HostVersionCompatibilityFailure.hostTooNew,
               );
-          when(
-            () => mockDiscoveryService.discoverLocalHost(),
-          ).thenThrow(exception);
+          when(() => mockDiscoveryService.discover()).thenThrow(exception);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -235,7 +236,7 @@ void main() {
               ConnectionFailureReason.incompatibleHost,
             ),
           ]);
-          verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
+          verify(() => mockDiscoveryService.discover()).called(1);
         },
       );
 
@@ -243,7 +244,7 @@ void main() {
         'ConnectionDiscoveryRequestedAction maps unexpected errors to unknown',
         () async {
           final StateError error = StateError('diagnostic');
-          when(() => mockDiscoveryService.discoverLocalHost()).thenThrow(error);
+          when(() => mockDiscoveryService.discover()).thenThrow(error);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -267,7 +268,7 @@ void main() {
               ConnectionFailureReason.unknown,
             ),
           ]);
-          verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
+          verify(() => mockDiscoveryService.discover()).called(1);
         },
       );
 
@@ -289,7 +290,7 @@ void main() {
           middleware.call(store, action, actions.add);
 
           expect(actions, [action]);
-          verifyNever(() => mockDiscoveryService.discoverLocalHost());
+          verifyNever(() => mockDiscoveryService.discover());
           verifyNever(() => store.dispatch(any()));
         },
       );
@@ -297,13 +298,13 @@ void main() {
       test(
         'ConnectionDiscoveryRequestedAction allows only one pending SDK operation',
         () async {
-          final Completer<DovahLinkHost?> discovery =
-              Completer<DovahLinkHost?>();
+          final Completer<List<DovahLinkHost>> discovery =
+              Completer<List<DovahLinkHost>>();
           when(
-            () => mockDiscoveryService.discoverLocalHost(),
+            () => mockDiscoveryService.discover(),
           ).thenAnswer((_) => discovery.future);
           final List<Object?> actions = [];
-          final Completer<void> resultDispatched = Completer<void>();
+          Completer<void> resultDispatched = Completer<void>();
           void recordActions(
             Store<AppState> store,
             dynamic action,
@@ -340,27 +341,47 @@ void main() {
             const ConnectionDiscoveryStartedAction(),
             request,
           ]);
-          verify(() => mockDiscoveryService.discoverLocalHost()).called(1);
+          verify(() => mockDiscoveryService.discover()).called(1);
 
-          discovery.complete(
+          discovery.complete(<DovahLinkHost>[
             DovahLinkHost(
-              hostId: 'local-host',
-              hostName: 'Local Host',
+              hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              hostName: 'SKYRIM-PC',
               endpoint: defaultHostUri,
             ),
-          );
+          ]);
           await resultDispatched.future.timeout(const Duration(seconds: 1));
 
           expect(actions, [
             request,
             const ConnectionDiscoveryStartedAction(),
             request,
-            ConnectionDiscoverySucceededAction([Fixtures.buildHost()]),
+            ConnectionDiscoverySucceededAction([
+              Fixtures.buildHost(displayName: 'SKYRIM-PC'),
+            ]),
           ]);
           expect(
             integrationStore.state.connection.discoveryStatus,
             ConnectionDiscoveryStatus.available,
           );
+
+          when(
+            () => mockDiscoveryService.discover(),
+          ).thenAnswer((_) async => const <DovahLinkHost>[]);
+          resultDispatched = Completer<void>();
+          integrationStore.dispatch(request);
+          await resultDispatched.future.timeout(const Duration(seconds: 1));
+
+          expect(actions.skip(4), [
+            request,
+            const ConnectionDiscoveryStartedAction(),
+            const ConnectionDiscoverySucceededAction(<Host>[]),
+          ]);
+          expect(
+            integrationStore.state.connection.discoveryStatus,
+            ConnectionDiscoveryStatus.empty,
+          );
+          verify(() => mockDiscoveryService.discover()).called(1);
         },
       );
     },
@@ -376,7 +397,7 @@ void main() {
         middleware.call(store, action, actions.add);
 
         expect(actions, [action]);
-        verifyNever(() => mockDiscoveryService.discoverLocalHost());
+        verifyNever(() => mockDiscoveryService.discover());
         verifyNever(() => store.dispatch(any()));
       },
     );

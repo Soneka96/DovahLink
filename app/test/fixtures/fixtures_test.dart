@@ -23,13 +23,21 @@ void main() {
 
       expect(host.displayName, isA<String>());
       expect(host.displayName, 'Local Host');
+      expect(host.hostId, isA<String>());
+      expect(host.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
       expect(host.uri, defaultHostUri);
     });
 
     test('Method buildHost preserves named overrides', () {
       final Uri uri = Uri.parse('ws://127.0.0.1:1/');
-      final Host host = Fixtures.buildHost(displayName: 'Test Host', uri: uri);
+      final Host host = Fixtures.buildHost(
+        hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        displayName: 'Test Host',
+        uri: uri,
+      );
 
+      expect(host.hostId, isA<String>());
+      expect(host.hostId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
       expect(host.displayName, isA<String>());
       expect(host.displayName, 'Test Host');
       expect(host.uri, uri);

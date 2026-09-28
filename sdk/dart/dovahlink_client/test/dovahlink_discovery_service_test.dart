@@ -24,7 +24,12 @@ class MockConsumerStorage extends Mock implements IClientStorage {}
 /// Starts a discovery probe, reads its hello and optionally sends a synthetic `hello_ack`.
 /// Returns futures for the probe result, captured request, and peer-observed socket closure.
 Future<
-  (Future<DovahLinkHost?>, Future<JsonMap>, Future<void>, Future<List<JsonMap>>)
+  (
+    Future<List<DovahLinkHost>>,
+    Future<JsonMap>,
+    Future<void>,
+    Future<List<JsonMap>>,
+  )
 >
 startDiscoveryExchange({
   required FakeWebSocketServer server,
@@ -41,7 +46,7 @@ startDiscoveryExchange({
         endpoint: endpoint,
         timeoutDurations: timeoutDurations,
       );
-  final Future<DovahLinkHost?> discovery = service.discoverLocalHost();
+  final Future<List<DovahLinkHost>> discovery = service.discover();
   final WebSocket socket = await acceptedConnection.timeout(_socketTimeout);
   final Completer<void> socketClosed = Completer<void>();
   final Completer<JsonMap> helloReceived = Completer<JsonMap>();
@@ -112,13 +117,13 @@ JsonMap helloAckPayloadWith(String field, Object? value) => <String, Object?>{
 /// @param service The service probing that Host.
 /// @param hostName The current computer name to report in `hello_ack`.
 /// @return The discovered Host and a future completed when the probe socket closes.
-Future<(DovahLinkHost?, Future<void>)> discoverHostWithName({
+Future<(DovahLinkHost, Future<void>)> discoverHostWithName({
   required FakeWebSocketServer server,
   required DovahLinkDiscoveryService service,
   required String hostName,
 }) async {
   final Future<WebSocket> accepted = server.connections.first;
-  final Future<DovahLinkHost?> discovery = service.discoverLocalHost();
+  final Future<List<DovahLinkHost>> discovery = service.discover();
   final WebSocket socket = await accepted.timeout(_socketTimeout);
   final Completer<void> socketClosed = Completer<void>();
   final Completer<JsonMap> helloReceived = Completer<JsonMap>();
@@ -148,7 +153,10 @@ Future<(DovahLinkHost?, Future<void>)> discoverHostWithName({
       ).toJson(),
     ),
   );
-  return (await discovery.timeout(_socketTimeout), socketClosed.future);
+  return (
+    (await discovery.timeout(_socketTimeout)).single,
+    socketClosed.future,
+  );
 }
 
 void main() {
@@ -156,15 +164,15 @@ void main() {
     registerFallbackValue(const PersistedClientState());
   });
 
-  group('Method discoverLocalHost behaves correctly', () {
+  group('Method discover behaves correctly', () {
     test(
-      'Method discoverLocalHost uses an unpaired one-shot probe and returns the Host claim',
+      'Method discover uses an unpaired one-shot probe and returns the Host claim',
       () async {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
 
         final (
-          Future<DovahLinkHost?> discovery,
+          Future<List<DovahLinkHost>> discovery,
           Future<JsonMap> request,
           Future<void> socketClosed,
           Future<List<JsonMap>> peerMessages,
@@ -172,16 +180,19 @@ void main() {
           server: server,
           endpoint: server.uri,
         );
-        final DovahLinkHost? host = await discovery.timeout(_socketTimeout);
+        final List<DovahLinkHost> hosts = await discovery.timeout(
+          _socketTimeout,
+        );
         final JsonMap hello = await request;
         await socketClosed.timeout(_socketTimeout);
         final List<JsonMap> messages = await peerMessages.timeout(
           _socketTimeout,
         );
 
-        expect(host?.hostId, _validHelloAckPayload['hostId']);
-        expect(host?.hostName, _validHelloAckPayload['hostName']);
-        expect(host?.endpoint, server.uri);
+        expect(hosts, hasLength(1));
+        expect(hosts.single.hostId, _validHelloAckPayload['hostId']);
+        expect(hosts.single.hostName, _validHelloAckPayload['hostName']);
+        expect(hosts.single.endpoint, server.uri);
         expect((hello['payload'] as JsonMap)['auth'], <String, Object?>{
           'method': 'unpaired',
         });
@@ -197,7 +208,7 @@ void main() {
     );
 
     test(
-      'Method discoverLocalHost leaves consumer credential and Known Host storage untouched',
+      'Method discover leaves consumer credential and Known Host storage untouched',
       () async {
         final DovahLinkHost knownHost = DovahLinkHost(
           hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
@@ -233,7 +244,7 @@ void main() {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
         final (
-          Future<DovahLinkHost?> discovery,
+          Future<List<DovahLinkHost>> discovery,
           Future<JsonMap> request,
           Future<void> socketClosed,
           Future<List<JsonMap>> peerMessages,
@@ -245,14 +256,17 @@ void main() {
             'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
           ),
         );
-        final DovahLinkHost? candidate = await discovery;
+        final List<DovahLinkHost> candidates = await discovery;
         final JsonMap hello = await request;
         await socketClosed.timeout(_socketTimeout);
         final List<JsonMap> messages = await peerMessages.timeout(
           _socketTimeout,
         );
 
-        expect(candidate?.hostId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
+        expect(
+          candidates.single.hostId,
+          'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
         expect(
           ((hello['payload'] as JsonMap)['auth'] as JsonMap),
           <String, Object?>{'method': 'unpaired'},
@@ -269,13 +283,13 @@ void main() {
     );
 
     test(
-      'Method discoverLocalHost returns the same values for repeated discovery',
+      'Method discover returns the same values for repeated discovery',
       () async {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
 
         final (
-          Future<DovahLinkHost?> firstDiscovery,
+          Future<List<DovahLinkHost>> firstDiscovery,
           Future<JsonMap> firstRequest,
           Future<void> firstClosed,
           _,
@@ -283,12 +297,12 @@ void main() {
           server: server,
           endpoint: server.uri,
         );
-        final DovahLinkHost? firstHost = await firstDiscovery;
+        final List<DovahLinkHost> firstHosts = await firstDiscovery;
         await firstRequest;
         await firstClosed.timeout(_socketTimeout);
 
         final (
-          Future<DovahLinkHost?> secondDiscovery,
+          Future<List<DovahLinkHost>> secondDiscovery,
           Future<JsonMap> secondRequest,
           Future<void> secondClosed,
           _,
@@ -296,30 +310,30 @@ void main() {
           server: server,
           endpoint: server.uri,
         );
-        final DovahLinkHost? secondHost = await secondDiscovery;
+        final List<DovahLinkHost> secondHosts = await secondDiscovery;
         await secondRequest;
         await secondClosed.timeout(_socketTimeout);
 
-        expect(secondHost?.hostId, firstHost?.hostId);
-        expect(secondHost?.hostName, firstHost?.hostName);
-        expect(secondHost?.endpoint, firstHost?.endpoint);
+        expect(secondHosts.single.hostId, firstHosts.single.hostId);
+        expect(secondHosts.single.hostName, firstHosts.single.hostName);
+        expect(secondHosts.single.endpoint, firstHosts.single.endpoint);
       },
     );
 
     test(
-      'Method discoverLocalHost returns null when the candidate has no listener',
+      'Method discover returns no candidates when the endpoint has no listener',
       () async {
         final DovahLinkDiscoveryService service =
             buildDovahLinkDiscoveryServiceForTesting(
               endpoint: Uri.parse('ws://127.0.0.1:1/'),
             );
 
-        expect(await service.discoverLocalHost(), isNull);
+        expect(await service.discover(), isEmpty);
       },
     );
 
     test(
-      'Method discoverLocalHost throws with the HTTP status from a reachable non-WebSocket service',
+      'Method discover throws with the HTTP status from a reachable non-WebSocket service',
       () async {
         final HttpServer server = await HttpServer.bind(
           InternetAddress.loopbackIPv4,
@@ -340,7 +354,7 @@ void main() {
             );
 
         await expectLater(
-          service.discoverLocalHost(),
+          service.discover(),
           throwsA(
             isA<DovahLinkConnectionException>().having(
               (DovahLinkConnectionException error) => error.httpStatusCode,
@@ -354,7 +368,7 @@ void main() {
     );
 
     test(
-      'Method discoverLocalHost preserves Host identity across different endpoints',
+      'Method discover preserves Host identity across different endpoints',
       () async {
         final FakeWebSocketServer firstServer =
             await FakeWebSocketServer.start();
@@ -364,7 +378,7 @@ void main() {
         addTearDown(secondServer.close);
 
         final (
-          Future<DovahLinkHost?> firstDiscovery,
+          Future<List<DovahLinkHost>> firstDiscovery,
           Future<JsonMap> firstRequest,
           Future<void> firstClosed,
           _,
@@ -372,12 +386,12 @@ void main() {
           server: firstServer,
           endpoint: firstServer.uri,
         );
-        final DovahLinkHost? firstHost = await firstDiscovery;
+        final List<DovahLinkHost> firstHosts = await firstDiscovery;
         await firstRequest;
         await firstClosed.timeout(_socketTimeout);
 
         final (
-          Future<DovahLinkHost?> secondDiscovery,
+          Future<List<DovahLinkHost>> secondDiscovery,
           Future<JsonMap> secondRequest,
           Future<void> secondClosed,
           _,
@@ -385,17 +399,17 @@ void main() {
           server: secondServer,
           endpoint: secondServer.uri,
         );
-        final DovahLinkHost? secondHost = await secondDiscovery;
+        final List<DovahLinkHost> secondHosts = await secondDiscovery;
         await secondRequest;
         await secondClosed.timeout(_socketTimeout);
 
-        expect(firstHost?.hostId, secondHost?.hostId);
-        expect(firstHost?.endpoint, isNot(secondHost?.endpoint));
+        expect(firstHosts.single.hostId, secondHosts.single.hostId);
+        expect(firstHosts.single.endpoint, isNot(secondHosts.single.endpoint));
       },
     );
 
     test(
-      'Method discoverLocalHost treats a changed computer name as metadata',
+      'Method discover treats a changed computer name as metadata',
       () async {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
@@ -404,7 +418,7 @@ void main() {
             buildDovahLinkDiscoveryServiceForTesting(endpoint: endpoint);
 
         final (
-          DovahLinkHost? oldHost,
+          DovahLinkHost oldHost,
           Future<void> oldClosed,
         ) = await discoverHostWithName(
           server: server,
@@ -413,7 +427,7 @@ void main() {
         );
         await oldClosed.timeout(_socketTimeout);
         final (
-          DovahLinkHost? newHost,
+          DovahLinkHost newHost,
           Future<void> newClosed,
         ) = await discoverHostWithName(
           server: server,
@@ -422,14 +436,14 @@ void main() {
         );
         await newClosed.timeout(_socketTimeout);
 
-        expect(oldHost?.hostId, newHost?.hostId);
-        expect(oldHost?.hostName, 'OLD-DESKTOP');
-        expect(newHost?.hostName, 'NEW-DESKTOP');
+        expect(oldHost.hostId, newHost.hostId);
+        expect(oldHost.hostName, 'OLD-DESKTOP');
+        expect(newHost.hostName, 'NEW-DESKTOP');
       },
     );
 
     test(
-      'Method discoverLocalHost preserves malformed responder and Host identity failures',
+      'Method discover preserves malformed responder and Host identity failures',
       () async {
         for (final MapEntry<String, Object?> invalidField
             in <MapEntry<String, Object?>>[
@@ -439,7 +453,7 @@ void main() {
           final FakeWebSocketServer server = await FakeWebSocketServer.start();
           addTearDown(server.close);
           final (
-            Future<DovahLinkHost?> discovery,
+            Future<List<DovahLinkHost>> discovery,
             Future<JsonMap> request,
             Future<void> socketClosed,
             _,
@@ -464,7 +478,7 @@ void main() {
             await FakeWebSocketServer.start();
         addTearDown(malformedServer.close);
         final (
-          Future<DovahLinkHost?> malformedDiscovery,
+          Future<List<DovahLinkHost>> malformedDiscovery,
           Future<JsonMap> malformedRequest,
           Future<void> malformedClosed,
           _,
@@ -483,12 +497,12 @@ void main() {
     );
 
     test(
-      'Method discoverLocalHost preserves an incompatible Host failure and closes the probe',
+      'Method discover preserves an incompatible Host failure and closes the probe',
       () async {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
         final (
-          Future<DovahLinkHost?> discovery,
+          Future<List<DovahLinkHost>> discovery,
           Future<JsonMap> request,
           Future<void> socketClosed,
           _,
@@ -508,12 +522,12 @@ void main() {
     );
 
     test(
-      'Method discoverLocalHost times out a silent peer and closes the probe',
+      'Method discover times out a silent peer and closes the probe',
       () async {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
         final (
-          Future<DovahLinkHost?> discovery,
+          Future<List<DovahLinkHost>> discovery,
           Future<JsonMap> request,
           Future<void> socketClosed,
           _,
@@ -538,7 +552,7 @@ void main() {
     );
 
     test(
-      'Method discoverLocalHost closes a dropped probe without reconnecting',
+      'Method discover closes a dropped probe without reconnecting',
       () async {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
@@ -548,7 +562,7 @@ void main() {
             .listen((WebSocket _) => acceptedConnectionCount++);
         addTearDown(connectionObserver.cancel);
         final (
-          Future<DovahLinkHost?> discovery,
+          Future<List<DovahLinkHost>> discovery,
           Future<JsonMap> request,
           Future<void> socketClosed,
           _,

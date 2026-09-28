@@ -2,8 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
-import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import '../../../../fixtures/fixtures.dart';
 
 /// Exercises the values carried by connection discovery actions.
 void main() {
@@ -44,8 +44,9 @@ void main() {
         'ConnectionDiscoverySucceededAction carries multiple candidates in order',
         () {
           final List<Host> hosts = [
-            Host(displayName: 'Local Host', uri: defaultHostUri),
-            Host(
+            Fixtures.buildHost(displayName: 'Local Host'),
+            Fixtures.buildHost(
+              hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
               displayName: 'Second Host',
               uri: Uri.parse('ws://192.168.1.11:58231/'),
             ),

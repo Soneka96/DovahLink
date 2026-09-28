@@ -18,12 +18,19 @@ abstract final class Fixtures {
 
   /// Builds a Host identity with the representative local endpoint.
   static Host buildHost({
+    /// The stable Host installation identity.
+    String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
+
     /// The user-facing Host name.
     String displayName = 'Local Host',
 
     /// The Host endpoint, or the representative local endpoint when omitted.
     Uri? uri,
-  }) => Host(displayName: displayName, uri: uri ?? defaultHostUri);
+  }) => Host(
+    hostId: hostId,
+    displayName: displayName,
+    uri: uri ?? defaultHostUri,
+  );
 
   /// Builds a Host card's display data for the representative local Host.
   static HostCardViewData buildHostCardViewData({
