@@ -22,7 +22,7 @@ class AppShutdownService implements IAppShutdownService {
   /// Pairing middleware whose retry timer and connection subscription belong to the app.
   final IPairingMiddleware _pairingMiddleware;
 
-  /// Accesses only an SDK client already created by pairing composition.
+  /// Accesses only an SDK client already created by app composition.
   final IExistingDovahLinkClient _existingClient;
 
   /// The shared cleanup operation returned to every shutdown caller.

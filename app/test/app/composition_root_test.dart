@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/app/composition_root.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
+import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
@@ -17,7 +18,11 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 import '../fixtures/fixtures.dart';
 
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugDefaultTargetPlatformOverride;
+    show
+        FlutterError,
+        FlutterErrorDetails,
+        TargetPlatform,
+        debugDefaultTargetPlatformOverride;
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
@@ -70,6 +75,28 @@ void main() {
 
   group('Method createStore behaves correctly', () {
     test(
+      'createStore and Pairing resolve the same SDK client registration',
+      () async {
+        final MockDovahLinkClient client = MockDovahLinkClient();
+        int knownHostsSubscriptionReads = 0;
+        when(() => client.knownHostsChanges).thenAnswer((_) {
+          knownHostsSubscriptionReads++;
+          return const Stream<List<DovahLinkHost>>.empty();
+        });
+        when(() => client.disconnect()).thenAnswer((_) async {});
+        await sl.unregister<DovahLinkClient>();
+        sl.registerSingleton<DovahLinkClient>(client);
+
+        await const AppCompositionRoot().createStore();
+        expect(knownHostsSubscriptionReads, 1);
+        final result = await sl<IPairingRemoteDataSource>().disconnect();
+
+        expect(result.isRight(), isTrue);
+        verify(() => client.disconnect()).called(1);
+      },
+    );
+
+    test(
       'Method createStore subscribes to and maps SDK Known Host state',
       () async {
         final DovahLinkHost sdkHost = DovahLinkHost(
@@ -104,16 +131,23 @@ void main() {
     test(
       'marks pairing unavailable when secure storage is unsupported',
       () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
         addTearDown(() => debugDefaultTargetPlatformOverride = null);
         const AppCompositionRoot root = AppCompositionRoot();
 
         final store = await root.createStore();
+        await pumpEventQueue();
 
         expect(
           store.state.pairing.support,
           PairingSupport.secureStorageUnavailable,
         );
+        expect(reported, hasLength(1));
+        expect(reported.single.exception, isA<UnsupportedError>());
       },
     );
 

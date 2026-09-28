@@ -166,7 +166,7 @@ void main() {
     );
   });
 
-  group('injection_container — pairing registrations', () {
+  group('injection_container — app and pairing registrations', () {
     test(
       'initDependencies registers app shutdown and both lifecycle middlewares',
       () async {
@@ -178,7 +178,7 @@ void main() {
       },
     );
 
-    test('initDependencies registers the SDK client', () async {
+    test('app composition registers the shared SDK client', () async {
       await initDependencies();
 
       expect(sl.isRegistered<DovahLinkClient>(), isTrue);
@@ -227,7 +227,7 @@ void main() {
     );
 
     test(
-      'initDependencies tracks a client created for pairing so shutdown can disconnect it',
+      'app composition tracks its shared SDK client so shutdown can disconnect it',
       () async {
         debugDefaultTargetPlatformOverride = TargetPlatform.windows;
 
@@ -242,6 +242,7 @@ void main() {
         expect(client.connectionState, DovahLinkConnectionState.disconnected);
       },
     );
+
     test('initDependencies registers the pairing remote data source', () async {
       await initDependencies();
 

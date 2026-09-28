@@ -12,12 +12,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show
-        DovahLinkClient,
-        DovahLinkHost,
-        IClientStorage,
-        IDovahLinkDiscoveryService,
-        UnsupportedClientStorage;
+    show DovahLinkClient, DovahLinkHost, IDovahLinkDiscoveryService;
 
 /// Defines the connection feature's Redux middleware contract.
 abstract interface class IConnectionMiddleware {
@@ -63,9 +58,7 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
   /// Implements [IConnectionMiddleware.initialize].
   @override
   void initialize(Store<AppState> store) {
-    if (_isShuttingDown ||
-        _knownHostSubscriptions.containsKey(store) ||
-        sl<IClientStorage>() is UnsupportedClientStorage) {
+    if (_isShuttingDown || _knownHostSubscriptions.containsKey(store)) {
       return;
     }
     _knownHostSubscriptions[store] = sl<DovahLinkClient>().knownHostsChanges

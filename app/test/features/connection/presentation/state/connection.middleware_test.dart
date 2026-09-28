@@ -29,10 +29,8 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         DovahLinkTrustState,
         HelloResult,
         HostVersionCompatibilityFailure,
-        IClientStorage,
         IDovahLinkDiscoveryService,
-        ProtocolErrorCode,
-        UnsupportedClientStorage;
+        ProtocolErrorCode;
 
 /// Mocks SDK local discovery for [ConnectionMiddleware] tests.
 class MockDovahLinkDiscoveryService extends Mock
@@ -41,9 +39,6 @@ class MockDovahLinkDiscoveryService extends Mock
 /// Mocks the SDK client that owns Known Host state.
 class MockDovahLinkClient extends Mock implements DovahLinkClient {}
 
-/// Mocks supported client storage for subscription initialization.
-class MockClientStorage extends Mock implements IClientStorage {}
-
 /// Mocks Redux dispatch for [ConnectionMiddleware] tests.
 class MockStore extends Mock implements Store<AppState> {}
 
@@ -51,7 +46,6 @@ class MockStore extends Mock implements Store<AppState> {}
 void main() {
   late MockDovahLinkDiscoveryService mockDiscoveryService;
   late MockDovahLinkClient mockClient;
-  late MockClientStorage mockStorage;
   late StreamController<List<DovahLinkHost>> knownHostsController;
   late Stream<List<DovahLinkHost>> knownHostsChanges;
   late int knownHostListenerCount;
@@ -63,7 +57,6 @@ void main() {
     await sl.reset();
     mockDiscoveryService = MockDovahLinkDiscoveryService();
     mockClient = MockDovahLinkClient();
-    mockStorage = MockClientStorage();
     knownHostsController = StreamController<List<DovahLinkHost>>.broadcast();
     knownHostListenerCount = 0;
     knownHostCancellationCount = 0;
@@ -84,7 +77,6 @@ void main() {
     middleware = ConnectionMiddleware();
     sl.registerSingleton<IDovahLinkDiscoveryService>(mockDiscoveryService);
     sl.registerSingleton<DovahLinkClient>(mockClient);
-    sl.registerSingleton<IClientStorage>(mockStorage);
   });
 
   tearDown(() async {
@@ -159,6 +151,53 @@ void main() {
       },
     );
 
+    test(
+      'initialize observes each store and shutdown cancels every subscription',
+      () async {
+        final Store<AppState> firstStore = const CreateStore()(
+          middleware: [middleware.call],
+        );
+        final Store<AppState> secondStore = const CreateStore()(
+          middleware: [middleware.call],
+        );
+        final DovahLinkHost first = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'HOST-A',
+          endpoint: defaultHostUri,
+        );
+        final DovahLinkHost second = DovahLinkHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          hostName: 'HOST-B',
+          endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        middleware
+          ..initialize(firstStore)
+          ..initialize(secondStore);
+        knownHostsController.add(<DovahLinkHost>[first]);
+        await pumpEventQueue();
+
+        expect(knownHostListenerCount, 2);
+        expect(firstStore.state.connection.knownHosts, <Host>[
+          HostMapper.fromSdk(first),
+        ]);
+        expect(secondStore.state.connection.knownHosts, <Host>[
+          HostMapper.fromSdk(first),
+        ]);
+
+        await middleware.shutdown();
+        knownHostsController.add(<DovahLinkHost>[second]);
+        await pumpEventQueue();
+
+        expect(knownHostCancellationCount, 2);
+        expect(firstStore.state.connection.knownHosts, <Host>[
+          HostMapper.fromSdk(first),
+        ]);
+        expect(secondStore.state.connection.knownHosts, <Host>[
+          HostMapper.fromSdk(first),
+        ]);
+      },
+    );
+
     test('shutdown cancels observation and ignores later SDK values', () async {
       final Store<AppState> integrationStore = const CreateStore()(
         middleware: [middleware.call],
@@ -199,18 +238,15 @@ void main() {
     });
 
     test(
-      'initialize skips SDK construction when secure storage is unsupported',
+      'initialize subscribes without resolving a storage implementation',
       () async {
-        await sl.unregister<IClientStorage>();
-        sl.registerSingleton<IClientStorage>(const UnsupportedClientStorage());
-        await sl.unregister<DovahLinkClient>();
         final Store<AppState> integrationStore = const CreateStore()(
           middleware: [middleware.call],
         );
 
         middleware.initialize(integrationStore);
 
-        expect(knownHostListenerCount, 0);
+        expect(knownHostListenerCount, 1);
       },
     );
 
