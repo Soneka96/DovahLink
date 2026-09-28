@@ -1,6 +1,12 @@
 /// Every enum in the app lives here, regardless of which feature uses it.
 library;
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show
+        DovahLinkCompatibilityException,
+        DovahLinkConnectionException,
+        DovahLinkProtocolException;
+
 /// Describes the current lifecycle of the local device pairing flow.
 enum PairingPhase {
   /// Sentinel value indicating that no phase was selected.
@@ -83,6 +89,61 @@ enum PairingConnectionStatus {
   /// The host administratively ended this session (revoked, blocked, trust reset, or factory
   /// reset). Terminal for the current session; recovery is always an explicit user action.
   invalidated,
+}
+
+/// The state of the latest Host discovery operation.
+enum ConnectionDiscoveryStatus {
+  /// Discovery has not been requested during this app session.
+  idle,
+
+  /// A discovery request is in progress.
+  discovering,
+
+  /// Discovery completed with one or more candidates.
+  available,
+
+  /// Discovery completed without candidates.
+  empty,
+
+  /// Discovery failed with an app-owned semantic reason.
+  failed,
+}
+
+/// An application-owned meaning for a Host discovery failure.
+enum ConnectionFailureReason {
+  /// The local Host could not be reached.
+  hostUnavailable,
+
+  /// The local Host uses an incompatible version.
+  incompatibleHost,
+
+  /// The local Host returned an invalid response.
+  invalidResponse,
+
+  /// Discovery failed for an unclassified reason.
+  unknown;
+
+  /// Maps an SDK discovery error to its application meaning without inspecting diagnostic text.
+  static ConnectionFailureReason fromDiscoveryError(Object error) =>
+      switch (error) {
+        DovahLinkConnectionException _ =>
+          ConnectionFailureReason.hostUnavailable,
+        DovahLinkCompatibilityException _ =>
+          ConnectionFailureReason.incompatibleHost,
+        DovahLinkProtocolException _ => ConnectionFailureReason.invalidResponse,
+        _ => ConnectionFailureReason.unknown,
+      };
+
+  /// Returns the centralized user-facing copy for this discovery failure.
+  String get message => switch (this) {
+    ConnectionFailureReason.hostUnavailable =>
+      'Could not reach the local Host. Check that it is running and try again.',
+    ConnectionFailureReason.incompatibleHost =>
+      'This local Host version is not compatible with the app.',
+    ConnectionFailureReason.invalidResponse =>
+      'The local Host returned an invalid response. Try again.',
+    ConnectionFailureReason.unknown => 'Host discovery failed. Try again.',
+  };
 }
 
 /// One of DovahLink's three visual themes. Every value fully determines a concrete theme.

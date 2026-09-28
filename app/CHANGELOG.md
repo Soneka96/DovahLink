@@ -13,6 +13,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Added
 
+- The Connections screen discovers the local Host on demand and shows searching, available, empty, and failure states.
+- Discovery failures use app-owned semantic reasons in Redux, with user-facing copy beside the enum.
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
 - Connection cards rise and take the raised material when hovered, and wear each theme's
   decoration: Frostbound's fracture lines and available edge, Dovah's ember-to-ice link line, and

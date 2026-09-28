@@ -15,7 +15,8 @@ void main() {
 
       expect(state, isA<AppState>());
       expect(state.connection, isA<ConnectionState>());
-      expect(state.connection.hosts, isNotEmpty);
+      expect(state.connection.hosts, isEmpty);
+      expect(state.connection.discoveryStatus, ConnectionDiscoveryStatus.idle);
     });
 
     test('Method initial creates the pairing state', () {

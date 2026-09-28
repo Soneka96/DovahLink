@@ -6,10 +6,22 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 /// Static selectors over [AppState] for connection presentation state.
 abstract final class ConnectionSelectors {
   /// The secondary line every Host card shows.
-  static const String hostCardSubtitle = 'DovahLink Host';
+  static const String hostCardSubtitle = 'DovahLink · Ready to connect';
 
   /// Returns the Hosts available to select.
   static List<Host> hostsSelector(AppState state) => state.connection.hosts;
+
+  /// Returns the latest Host discovery operation's state.
+  static ConnectionDiscoveryStatus discoveryStatusSelector(AppState state) =>
+      state.connection.discoveryStatus;
+
+  /// Returns whether a Host discovery operation may begin in the current state.
+  static bool canDiscoverSelector(AppState state) =>
+      discoveryStatusSelector(state) != ConnectionDiscoveryStatus.discovering;
+
+  /// Returns the semantic reason the latest discovery operation failed, or `null` when it did not.
+  static ConnectionFailureReason? discoveryFailureSelector(AppState state) =>
+      state.connection.discoveryFailure;
 
   /// Returns the Host the user most recently selected, or `null` before any selection.
   static Host? selectedHostSelector(AppState state) =>

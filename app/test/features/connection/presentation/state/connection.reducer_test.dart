@@ -4,6 +4,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.reducer.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection reducer transitions.
@@ -21,14 +22,21 @@ void main() {
     });
 
     test('ConnectionHostSelectedAction preserves the Host list', () {
-      final ConnectionState state = ConnectionState.initial();
+      final List<Host> hosts = [
+        Fixtures.buildHost(),
+        Fixtures.buildHost(
+          displayName: 'Second Host',
+          uri: Uri.parse('ws://192.168.1.11:58231/'),
+        ),
+      ];
+      final ConnectionState state = ConnectionState(hosts: hosts);
 
       final ConnectionState result = connectionReducer(
         state,
         ConnectionHostSelectedAction(Fixtures.buildHost()),
       );
 
-      expect(result.hosts, state.hosts);
+      expect(result.hosts, hosts);
     });
 
     test('ConnectionHostSelectedAction replaces an earlier selection', () {
@@ -85,5 +93,116 @@ void main() {
 
       expect(identical(connectionReducer(state, Object()), state), isTrue);
     });
+  });
+
+  group('Action ConnectionDiscoveryRequestedAction behaves correctly', () {
+    test(
+      'ConnectionDiscoveryRequestedAction leaves lifecycle state unchanged',
+      () {
+        final ConnectionState state = ConnectionState(
+          hosts: [Fixtures.buildHost()],
+          discoveryStatus: ConnectionDiscoveryStatus.failed,
+          discoveryFailure: ConnectionFailureReason.hostUnavailable,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionDiscoveryRequestedAction(),
+        );
+
+        expect(identical(result, state), isTrue);
+      },
+    );
+  });
+
+  group('Action ConnectionDiscoveryStartedAction behaves correctly', () {
+    test(
+      'ConnectionDiscoveryStartedAction clears candidates and prior failure',
+      () {
+        final Host selectedHost = Fixtures.buildHost(displayName: 'Selected');
+        final ConnectionState state = ConnectionState(
+          hosts: [Fixtures.buildHost()],
+          selectedHost: selectedHost,
+          discoveryStatus: ConnectionDiscoveryStatus.failed,
+          discoveryFailure: ConnectionFailureReason.hostUnavailable,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionDiscoveryStartedAction(),
+        );
+
+        expect(result.hosts, isEmpty);
+        expect(result.selectedHost, selectedHost);
+        expect(result.discoveryStatus, ConnectionDiscoveryStatus.discovering);
+        expect(result.discoveryFailure, isNull);
+      },
+    );
+  });
+
+  group('Action ConnectionDiscoverySucceededAction behaves correctly', () {
+    test(
+      'ConnectionDiscoverySucceededAction stores every candidate in order',
+      () {
+        const ConnectionState state = ConnectionState(
+          discoveryStatus: ConnectionDiscoveryStatus.failed,
+          discoveryFailure: ConnectionFailureReason.hostUnavailable,
+        );
+        final List<Host> hosts = [
+          Fixtures.buildHost(),
+          Fixtures.buildHost(
+            displayName: 'Second Host',
+            uri: Uri.parse('ws://192.168.1.11:58231/'),
+          ),
+        ];
+
+        final ConnectionState result = connectionReducer(
+          state,
+          ConnectionDiscoverySucceededAction(hosts),
+        );
+
+        expect(result.hosts, hosts);
+        expect(result.discoveryStatus, ConnectionDiscoveryStatus.available);
+        expect(result.discoveryFailure, isNull);
+      },
+    );
+
+    test(
+      'ConnectionDiscoverySucceededAction records an empty discovery result',
+      () {
+        final ConnectionState result = connectionReducer(
+          ConnectionState.initial(),
+          const ConnectionDiscoverySucceededAction(<Host>[]),
+        );
+
+        expect(result.hosts, isEmpty);
+        expect(result.discoveryStatus, ConnectionDiscoveryStatus.empty);
+      },
+    );
+  });
+
+  group('Action ConnectionDiscoveryFailedAction behaves correctly', () {
+    test(
+      'ConnectionDiscoveryFailedAction stores the semantic failure reason',
+      () {
+        final ConnectionState state = ConnectionState(
+          hosts: [Fixtures.buildHost()],
+          discoveryStatus: ConnectionDiscoveryStatus.available,
+        );
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionDiscoveryFailedAction(
+            ConnectionFailureReason.hostUnavailable,
+          ),
+        );
+
+        expect(result.hosts, isEmpty);
+        expect(result.discoveryStatus, ConnectionDiscoveryStatus.failed);
+        expect(
+          result.discoveryFailure,
+          ConnectionFailureReason.hostUnavailable,
+        );
+      },
+    );
   });
 }

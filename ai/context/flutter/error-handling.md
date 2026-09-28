@@ -8,7 +8,10 @@ never catches raw exceptions from transport, persistence, or `dart:io`.
 
 `Either` flows from datasource to repository to use case and stops at Redux middleware. Middleware
 folds the result into a plain success or failure action. Reducers, Redux state, and widgets never
-see an `Either`.
+see an `Either`. A complete SDK-owned operation may instead be called directly by middleware using
+its registered SDK contract. At that boundary, middleware maps SDK exceptions by type to an
+app-owned semantic failure reason before dispatching a Redux action. Raw SDK exceptions and
+localized/display Strings do not enter Redux state.
 
 All `Failure` subclasses live in `lib/shared/failures/failures.dart`. Add only the categories a
 real feature needs; do not create a speculative hierarchy.
@@ -30,8 +33,20 @@ not be treated as valid. Document the choice on the repository method.
 ## UI error surfaces
 
 - User-visible error, disconnected, stale, and recovery states expose typed, user-safe status
-  models or localized messages.
+  models or localized messages. SDK-owned operations use app-owned semantic failure reasons in
+  Redux; conversion methods name the operation (for example, `fromDiscoveryError`) when one SDK
+  exception can mean different things in different operations. Do not create one converter per SDK
+  exception type or one global enum for every possible SDK failure.
+- Middleware, datasources, repositories, use cases, selectors, and ViewModels carry typed failure
+  information without constructing, inspecting, or reformatting display text. Redux never stores
+  localized Strings.
+- Keep one centralized user-facing copy mapping with the app-owned semantic failure reason; when
+  project conventions place enums in a shared enum file, the reason may expose that copy there.
+  Widgets render the mapping and do not switch on SDK exception types or inspect error text. When
+  localization is introduced, the mapping can resolve generated localization entries; do not add a
+  localization framework for a feature that does not have one.
+- Never display diagnostic `.message`/`toString()` text, stack traces, tokens, or protocol payloads.
 - Inline validation belongs in the native field error affordance.
 - Unexpected or blocking failures go through the approved logging/popup boundary once one exists.
 - Background failures that should not interrupt the user remain silent.
-- Never expose raw exceptions, stack traces, tokens, or protocol payloads to the UI.
+- Never expose generic raw exceptions, stack traces, tokens, or protocol payloads to the UI.

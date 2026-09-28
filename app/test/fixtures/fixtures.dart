@@ -34,7 +34,7 @@ abstract final class Fixtures {
     String title = 'Local Host',
 
     /// The card's secondary line.
-    String subtitle = 'DovahLink Host',
+    String subtitle = 'DovahLink · Ready to connect',
 
     /// The card's trailing detail.
     String detail = '127.0.0.1:58231',

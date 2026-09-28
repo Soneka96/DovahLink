@@ -30,6 +30,7 @@ import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
@@ -65,6 +66,7 @@ void main() {
   late MockPairingSectionViewModel pairingViewModel;
   late MockPairingDialogViewModel pairingDialogViewModel;
   late List<String> pairingCalls;
+  late List<String> discoveryCalls;
   late List<Host> selectedHosts;
   late List<DovahThemePreset> selectedPresets;
 
@@ -77,6 +79,7 @@ void main() {
     pairingDialogViewModel = MockPairingDialogViewModel();
     when(() => pairingDialogViewModel.title).thenReturn('Pair with Local Host');
     pairingCalls = [];
+    discoveryCalls = [];
     selectedHosts = [];
     selectedPresets = [];
 
@@ -87,6 +90,14 @@ void main() {
     when(
       () => viewModel.hostCards,
     ).thenReturn([Fixtures.buildHostCardViewData()]);
+    when(
+      () => viewModel.discoveryStatus,
+    ).thenReturn(ConnectionDiscoveryStatus.idle);
+    when(() => viewModel.canDiscover).thenReturn(true);
+    when(() => viewModel.discoveryFailure).thenReturn(null);
+    when(
+      () => viewModel.onDiscover,
+    ).thenReturn(() => discoveryCalls.add('discover'));
     when(() => viewModel.onSelectHost).thenReturn(selectedHosts.add);
     when(
       () => appearanceViewModel.activePreset,
@@ -178,7 +189,7 @@ void main() {
         Size(1600, 900),
       ]) {
         testWidgets(
-          'ConnectionsScreen contains the prototype hierarchy under $preset at $size without overflow',
+          'ConnectionsScreen contains its current page structure under $preset at $size without overflow',
           (WidgetTester tester) async {
             await useSurface(tester, size);
             await tester.pumpWidget(buildWidget(preset: preset));
@@ -431,7 +442,7 @@ void main() {
     });
 
     testWidgets(
-      'ConnectionsScreen does not select a Host when Discover Skyrim is tapped',
+      'ConnectionsScreen calls discovery when Discover Skyrim is tapped',
       (WidgetTester tester) async {
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
@@ -440,6 +451,23 @@ void main() {
         await tester.pump();
 
         expect(selectedHosts, isEmpty);
+        expect(discoveryCalls, ['discover']);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen disables discovery when the semantic capability is unavailable',
+      (WidgetTester tester) async {
+        when(
+          () => viewModel.discoveryStatus,
+        ).thenReturn(ConnectionDiscoveryStatus.available);
+        when(() => viewModel.canDiscover).thenReturn(false);
+
+        await tester.pumpWidget(buildWidget());
+        await tester.tap(find.text('Discover Skyrim'), warnIfMissed: false);
+        await tester.pump();
+
+        expect(discoveryCalls, isEmpty);
       },
     );
   });
@@ -477,7 +505,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen selects the Host before the pairing section starts',
+      'ConnectionsScreen selects the Host before existing pairing flow starts',
       (WidgetTester tester) async {
         useWindow(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
@@ -728,6 +756,90 @@ void main() {
     );
   });
 
+  group('ConnectionsScreen wires temporary discovery state', () {
+    testWidgets('ConnectionsScreen presents the available candidate state', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => viewModel.discoveryStatus,
+      ).thenReturn(ConnectionDiscoveryStatus.available);
+      await useSurface(tester, const Size(1280, 720));
+
+      await tester.pumpWidget(buildWidget());
+
+      expect(find.text('AVAILABLE'), findsOneWidget);
+      expect(find.text('Local Host'), findsOneWidget);
+    });
+
+    testWidgets('ConnectionsScreen presents the empty discovery state', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => viewModel.discoveryStatus,
+      ).thenReturn(ConnectionDiscoveryStatus.empty);
+      when(() => viewModel.hostCards).thenReturn(const <HostCardViewData>[]);
+      await useSurface(tester, const Size(1280, 720));
+
+      await tester.pumpWidget(buildWidget());
+
+      expect(find.text('No local Hosts found.'), findsOneWidget);
+      expect(find.byType(DovahConnectionCard), findsNothing);
+    });
+
+    testWidgets('ConnectionsScreen presents the failed discovery state', (
+      WidgetTester tester,
+    ) async {
+      when(
+        () => viewModel.discoveryStatus,
+      ).thenReturn(ConnectionDiscoveryStatus.failed);
+      when(
+        () => viewModel.discoveryFailure,
+      ).thenReturn(ConnectionFailureReason.hostUnavailable);
+      when(() => viewModel.hostCards).thenReturn(const <HostCardViewData>[]);
+      await useSurface(tester, const Size(1280, 720));
+
+      await tester.pumpWidget(buildWidget());
+
+      expect(
+        find.text(
+          'Could not reach the local Host. Check that it is running and try again.',
+        ),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('ConnectionsScreen presents searching as a live status', (
+      WidgetTester tester,
+    ) async {
+      final SemanticsHandle semantics = tester.ensureSemantics();
+      try {
+        when(
+          () => viewModel.discoveryStatus,
+        ).thenReturn(ConnectionDiscoveryStatus.discovering);
+        when(() => viewModel.canDiscover).thenReturn(false);
+        await useSurface(tester, const Size(1280, 720));
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(
+          find.text('Searching for DovahLink on this PC…'),
+          findsOneWidget,
+        );
+        expect(
+          tester.getSemantics(
+            find.byKey(const Key('connection-discovery-status')),
+          ),
+          isSemantics(
+            label: 'Searching for DovahLink on this PC…',
+            isLiveRegion: true,
+          ),
+        );
+      } finally {
+        semantics.dispose();
+      }
+    });
+  });
+
   group('ConnectionsScreen opens the appearance UI', () {
     testWidgets(
       'ConnectionsScreen displays the appearance picker in a dialog when the appearance action is tapped',
@@ -769,7 +881,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen moves keyboard focus from Appearance to the Host card, skipping disabled Discover',
+      'ConnectionsScreen moves keyboard focus from Appearance through Discover to the Host card',
       (WidgetTester tester) async {
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
@@ -789,11 +901,15 @@ void main() {
 
         expect(
           find.descendant(
-            of: find.byType(DovahIconButton),
+            of: find.byType(DovahButton),
             matching: find.byKey(DovahFocusRing.ringKey),
           ),
-          findsNothing,
+          findsOneWidget,
         );
+
+        await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+        await tester.pump();
+
         expect(
           find.descendant(
             of: find.byType(DovahConnectionCard),
@@ -915,7 +1031,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen exposes the title as a header, the host as a button, and Discover as disabled',
+      'ConnectionsScreen exposes the title, Host, and enabled Discover action semantically',
       (WidgetTester tester) async {
         final SemanticsHandle handle = tester.ensureSemantics();
         try {
@@ -928,7 +1044,7 @@ void main() {
           final SemanticsData host = tester
               .getSemantics(
                 find.bySemanticsLabel(
-                  'Local Host, DovahLink Host, 127.0.0.1:58231, Not connected',
+                  'Local Host, DovahLink · Ready to connect, 127.0.0.1:58231, Not connected',
                 ),
               )
               .getSemanticsData();
@@ -942,7 +1058,7 @@ void main() {
           expect(title.flagsCollection.isHeader, isTrue);
           expect(host.flagsCollection.isButton, isTrue);
           expect(host.flagsCollection.isEnabled, Tristate.isTrue);
-          expect(discover.flagsCollection.isEnabled, Tristate.isFalse);
+          expect(discover.flagsCollection.isEnabled, Tristate.isTrue);
           expect(appearance.flagsCollection.isButton, isTrue);
           expect(appearance.hasAction(SemanticsAction.tap), isTrue);
         } finally {
@@ -952,7 +1068,7 @@ void main() {
     );
   });
 
-  group('ConnectionsScreen applies the prototype responsive spacing', () {
+  group('ConnectionsScreen applies shared responsive spacing', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final Size size in const [
         Size(1280, 720),

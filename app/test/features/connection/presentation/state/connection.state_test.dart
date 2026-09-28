@@ -3,15 +3,17 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection-state initialization and copying.
 void main() {
   group('ConnectionState — initial', () {
-    test('creates a state with the static default Host', () {
+    test('creates an idle state without discovered Hosts', () {
       final ConnectionState state = ConnectionState.initial();
 
-      expect(state.hosts, [Fixtures.buildHost()]);
+      expect(state.hosts, isEmpty);
+      expect(state.discoveryStatus, ConnectionDiscoveryStatus.idle);
     });
 
     test('ConnectionState initial has no selected Host', () {
@@ -79,6 +81,53 @@ void main() {
       );
 
       expect(selected, isNot(unselected));
+    });
+  });
+
+  group('Property discoveryStatus in ConnectionState behaves correctly', () {
+    test('ConnectionState starts discovery in idle state', () {
+      expect(
+        ConnectionState.initial().discoveryStatus,
+        ConnectionDiscoveryStatus.idle,
+      );
+    });
+
+    test('ConnectionState copyWith replaces discovery status', () {
+      final ConnectionState result = ConnectionState.initial().copyWith(
+        discoveryStatus: ConnectionDiscoveryStatus.discovering,
+      );
+
+      expect(result.discoveryStatus, ConnectionDiscoveryStatus.discovering);
+    });
+
+    test('ConnectionState copyWith preserves discovery state when omitted', () {
+      const ConnectionState state = ConnectionState(
+        discoveryStatus: ConnectionDiscoveryStatus.failed,
+        discoveryFailure: ConnectionFailureReason.incompatibleHost,
+      );
+
+      final ConnectionState result = state.copyWith();
+
+      expect(result.discoveryStatus, ConnectionDiscoveryStatus.failed);
+      expect(result.discoveryFailure, ConnectionFailureReason.incompatibleHost);
+    });
+  });
+
+  group('Property discoveryFailure in ConnectionState behaves correctly', () {
+    test('ConnectionState has no failure reason before a failure occurs', () {
+      expect(ConnectionState.initial().discoveryFailure, isNull);
+    });
+
+    test('ConnectionState copyWith sets and clears the semantic failure', () {
+      final ConnectionState failed = ConnectionState.initial().copyWith(
+        discoveryFailure: const Some(ConnectionFailureReason.hostUnavailable),
+      );
+      final ConnectionState cleared = failed.copyWith(
+        discoveryFailure: const None(),
+      );
+
+      expect(failed.discoveryFailure, ConnectionFailureReason.hostUnavailable);
+      expect(cleared.discoveryFailure, isNull);
     });
   });
 }

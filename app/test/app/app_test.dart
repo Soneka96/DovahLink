@@ -69,20 +69,19 @@ void main() {
     TestWidgetsFlutterBinding.ensureInitialized();
   });
 
-  group('DovahLinkApp renders the initial Host list', () {
-    testWidgets(
-      'DovahLinkApp renders the Host list before a connection exists',
-      (WidgetTester tester) async {
-        await initDependencies();
-        await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
+  group('DovahLinkApp renders the initial discovery state', () {
+    testWidgets('DovahLinkApp renders no Host cards before discovery', (
+      WidgetTester tester,
+    ) async {
+      await initDependencies();
+      await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
-        expect(
-          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
-          findsOneWidget,
-        );
-        expect(find.text('Local Host'), findsOneWidget);
-      },
-    );
+      expect(
+        find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+        findsNothing,
+      );
+      expect(find.text('Discover Skyrim'), findsOneWidget);
+    });
   });
 
   group('DovahLinkApp opens pairing from Connections', () {

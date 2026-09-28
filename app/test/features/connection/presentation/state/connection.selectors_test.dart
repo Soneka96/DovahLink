@@ -11,8 +11,18 @@ import '../../../../fixtures/fixtures.dart';
 
 /// Exercises connection selectors over root application state.
 void main() {
-  AppState stateWith(List<Host> hosts, {Host? selectedHost}) => AppState(
-    connection: ConnectionState(hosts: hosts, selectedHost: selectedHost),
+  AppState stateWith(
+    List<Host> hosts, {
+    Host? selectedHost,
+    ConnectionDiscoveryStatus discoveryStatus = ConnectionDiscoveryStatus.idle,
+    ConnectionFailureReason? discoveryFailure,
+  }) => AppState(
+    connection: ConnectionState(
+      hosts: hosts,
+      selectedHost: selectedHost,
+      discoveryStatus: discoveryStatus,
+      discoveryFailure: discoveryFailure,
+    ),
     pairing: PairingState.initial(),
   );
 
@@ -22,6 +32,101 @@ void main() {
 
       expect(ConnectionSelectors.hostsSelector(stateWith([host])), [host]);
     });
+  });
+
+  group('Selector discoveryStatusSelector behaves correctly', () {
+    test(
+      'discoveryStatusSelector selects the current Host discovery state',
+      () {
+        expect(
+          ConnectionSelectors.discoveryStatusSelector(
+            stateWith(
+              const <Host>[],
+              discoveryStatus: ConnectionDiscoveryStatus.discovering,
+            ),
+          ),
+          ConnectionDiscoveryStatus.discovering,
+        );
+      },
+    );
+  });
+
+  group('Selector canDiscoverSelector behaves correctly', () {
+    test('Selector canDiscoverSelector allows idle discovery', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith(
+            const <Host>[],
+            discoveryStatus: ConnectionDiscoveryStatus.idle,
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('Selector canDiscoverSelector rejects discovering state', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith(
+            const <Host>[],
+            discoveryStatus: ConnectionDiscoveryStatus.discovering,
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('Selector canDiscoverSelector allows available state', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith([
+            Fixtures.buildHost(),
+          ], discoveryStatus: ConnectionDiscoveryStatus.available),
+        ),
+        isTrue,
+      );
+    });
+
+    test('Selector canDiscoverSelector allows empty state', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith(
+            const <Host>[],
+            discoveryStatus: ConnectionDiscoveryStatus.empty,
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('Selector canDiscoverSelector allows failed state', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith(
+            const <Host>[],
+            discoveryStatus: ConnectionDiscoveryStatus.failed,
+          ),
+        ),
+        isTrue,
+      );
+    });
+  });
+
+  group('Selector discoveryFailureSelector behaves correctly', () {
+    test(
+      'discoveryFailureSelector selects the semantic reason for presentation',
+      () {
+        expect(
+          ConnectionSelectors.discoveryFailureSelector(
+            stateWith(
+              const <Host>[],
+              discoveryFailure: ConnectionFailureReason.invalidResponse,
+            ),
+          ),
+          ConnectionFailureReason.invalidResponse,
+        );
+      },
+    );
   });
 
   group('Selector selectedHostSelector behaves correctly', () {

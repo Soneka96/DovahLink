@@ -72,10 +72,16 @@ class ConnectionsScreen extends StatelessWidget {
                                       ),
                                 ),
                                 SizedBox(height: metrics.contentTopPadding),
-                                const ConnectionsHero(onDiscover: null),
+                                ConnectionsHero(
+                                  onDiscover: viewModel.canDiscover
+                                      ? viewModel.onDiscover
+                                      : null,
+                                ),
                                 SizedBox(height: metrics.heroBottomGap),
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
+                                  discoveryStatus: viewModel.discoveryStatus,
+                                  discoveryFailure: viewModel.discoveryFailure,
                                   onSelectHost: (Host host) {
                                     viewModel.onSelectHost(host);
                                     PairingDialog.show(context);
