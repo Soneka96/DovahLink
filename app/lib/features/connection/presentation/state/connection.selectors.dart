@@ -15,6 +15,10 @@ abstract final class ConnectionSelectors {
   static ConnectionDiscoveryStatus discoveryStatusSelector(AppState state) =>
       state.connection.discoveryStatus;
 
+  /// Returns whether a Host discovery operation may begin in the current state.
+  static bool canDiscoverSelector(AppState state) =>
+      discoveryStatusSelector(state) != ConnectionDiscoveryStatus.discovering;
+
   /// Returns the semantic reason the latest discovery operation failed, or `null` when it did not.
   static ConnectionFailureReason? discoveryFailureSelector(AppState state) =>
       state.connection.discoveryFailure;

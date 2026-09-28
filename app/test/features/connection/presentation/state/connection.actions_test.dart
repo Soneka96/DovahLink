@@ -23,6 +23,21 @@ void main() {
   );
 
   group(
+    'Behavior equality in ConnectionDiscoveryStartedAction behaves correctly',
+    () {
+      test('ConnectionDiscoveryStartedAction values compare equal', () {
+        const ConnectionDiscoveryStartedAction first =
+            ConnectionDiscoveryStartedAction();
+        const ConnectionDiscoveryStartedAction second =
+            ConnectionDiscoveryStartedAction();
+
+        expect(first, second);
+        expect(first.hashCode, second.hashCode);
+      });
+    },
+  );
+
+  group(
     'Property hosts in ConnectionDiscoverySucceededAction behaves correctly',
     () {
       test(

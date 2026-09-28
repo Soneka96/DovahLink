@@ -51,6 +51,67 @@ void main() {
     );
   });
 
+  group('Selector canDiscoverSelector behaves correctly', () {
+    test('Selector canDiscoverSelector allows idle discovery', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith(
+            const <Host>[],
+            discoveryStatus: ConnectionDiscoveryStatus.idle,
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('Selector canDiscoverSelector rejects discovering state', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith(
+            const <Host>[],
+            discoveryStatus: ConnectionDiscoveryStatus.discovering,
+          ),
+        ),
+        isFalse,
+      );
+    });
+
+    test('Selector canDiscoverSelector allows available state', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith([
+            Fixtures.buildHost(),
+          ], discoveryStatus: ConnectionDiscoveryStatus.available),
+        ),
+        isTrue,
+      );
+    });
+
+    test('Selector canDiscoverSelector allows empty state', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith(
+            const <Host>[],
+            discoveryStatus: ConnectionDiscoveryStatus.empty,
+          ),
+        ),
+        isTrue,
+      );
+    });
+
+    test('Selector canDiscoverSelector allows failed state', () {
+      expect(
+        ConnectionSelectors.canDiscoverSelector(
+          stateWith(
+            const <Host>[],
+            discoveryStatus: ConnectionDiscoveryStatus.failed,
+          ),
+        ),
+        isTrue,
+      );
+    });
+  });
+
   group('Selector discoveryFailureSelector behaves correctly', () {
     test(
       'discoveryFailureSelector selects the semantic reason for presentation',

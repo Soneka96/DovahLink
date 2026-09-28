@@ -11,8 +11,8 @@ Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
   TypedReducer<ConnectionState, ConnectionHostSelectedAction>(
     connectionHostSelectedReducer,
   ).call,
-  TypedReducer<ConnectionState, ConnectionDiscoveryRequestedAction>(
-    connectionDiscoveryRequestedReducer,
+  TypedReducer<ConnectionState, ConnectionDiscoveryStartedAction>(
+    connectionDiscoveryStartedReducer,
   ).call,
   TypedReducer<ConnectionState, ConnectionDiscoverySucceededAction>(
     connectionDiscoverySucceededReducer,
@@ -30,11 +30,11 @@ ConnectionState connectionHostSelectedReducer(
   ConnectionHostSelectedAction action,
 ) => state.copyWith(selectedHost: Some(action.host));
 
-/// Handles [ConnectionDiscoveryRequestedAction].
+/// Handles [ConnectionDiscoveryStartedAction].
 /// Clears prior candidates and records that discovery is in progress.
-ConnectionState connectionDiscoveryRequestedReducer(
+ConnectionState connectionDiscoveryStartedReducer(
   ConnectionState state,
-  ConnectionDiscoveryRequestedAction action,
+  ConnectionDiscoveryStartedAction action,
 ) => state.copyWith(
   hosts: const <Host>[],
   discoveryStatus: ConnectionDiscoveryStatus.discovering,

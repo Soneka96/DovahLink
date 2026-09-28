@@ -2,6 +2,7 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -36,6 +37,11 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     ConnectionDiscoveryRequestedAction action,
   ) async {
+    if (!ConnectionSelectors.canDiscoverSelector(store.state)) {
+      return;
+    }
+
+    store.dispatch(const ConnectionDiscoveryStartedAction());
     try {
       final DovahLinkHost? discoveredHost =
           await sl<IDovahLinkDiscoveryService>().discoverLocalHost();

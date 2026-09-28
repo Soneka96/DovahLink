@@ -26,6 +26,16 @@ class ConnectionDiscoveryRequestedAction extends Equatable {
   List<Object?> get props => [];
 }
 
+/// Marks an accepted Host discovery operation as started.
+class ConnectionDiscoveryStartedAction extends Equatable {
+  /// Creates a discovery-started action.
+  const ConnectionDiscoveryStartedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
 /// Carries every Host candidate returned by discovery.
 class ConnectionDiscoverySucceededAction extends Equatable {
   /// The candidates returned by discovery.

@@ -97,7 +97,7 @@ void main() {
 
   group('Action ConnectionDiscoveryRequestedAction behaves correctly', () {
     test(
-      'ConnectionDiscoveryRequestedAction clears old candidates and enters discovering state',
+      'ConnectionDiscoveryRequestedAction leaves lifecycle state unchanged',
       () {
         final ConnectionState state = ConnectionState(
           hosts: [Fixtures.buildHost()],
@@ -110,7 +110,30 @@ void main() {
           const ConnectionDiscoveryRequestedAction(),
         );
 
+        expect(identical(result, state), isTrue);
+      },
+    );
+  });
+
+  group('Action ConnectionDiscoveryStartedAction behaves correctly', () {
+    test(
+      'ConnectionDiscoveryStartedAction clears candidates and prior failure',
+      () {
+        final Host selectedHost = Fixtures.buildHost(displayName: 'Selected');
+        final ConnectionState state = ConnectionState(
+          hosts: [Fixtures.buildHost()],
+          selectedHost: selectedHost,
+          discoveryStatus: ConnectionDiscoveryStatus.failed,
+          discoveryFailure: ConnectionFailureReason.hostUnavailable,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const ConnectionDiscoveryStartedAction(),
+        );
+
         expect(result.hosts, isEmpty);
+        expect(result.selectedHost, selectedHost);
         expect(result.discoveryStatus, ConnectionDiscoveryStatus.discovering);
         expect(result.discoveryFailure, isNull);
       },
