@@ -4,10 +4,8 @@ These conventions apply to the DovahLink Flutter client. They are adapted from t
 
 ## Layer direction
 
-```text
-data -> domain <- presentation
-presentation -> domain
-```
+Presentation depends on domain, and data depends on domain. Domain remains independent of
+presentation, data, frameworks, and transport implementations.
 
 - `data` performs external I/O and maps external representations to domain entities.
 - `domain` contains pure Dart entities, repository interfaces, and use cases.
@@ -25,11 +23,11 @@ presentation -> domain
 These four names have separate meanings in the Flutter app:
 
 - **Entity:** A pure Dart domain concept in `domain/entities/`, in a `*.entity.dart` file. Its
-  class uses the bare concept name, such as `Host`, `Character`, or `Quest`. It has no dependency
-  on Flutter, the SDK, JSON, storage, transport, protocol DTOs, `data`, or `presentation`.
+  type uses its domain concept's bare name. It has no dependency on Flutter, the SDK, JSON,
+  storage, transport, protocol DTOs, `data`, or `presentation`.
 - **Model:** A data-layer representation of structured external data in `data/models/`, in a
-  `*.model.dart` file. A `<Concept>Model` extends its corresponding Entity and maps an actual
-  representation crossing an SDK, API, protocol, JSON, database, or persisted-data boundary.
+  `*.model.dart` file. It extends its corresponding Entity and maps an actual representation
+  crossing an SDK, API, protocol, JSON, database, or persisted-data boundary.
   The DataSource communicates with the SDK, API, or storage system; the Model is the Flutter
   application's typed representation of structured data crossing that boundary. Domain
   repository interfaces, use cases, Redux state, and presentation code use Entities, not Models.
@@ -37,25 +35,15 @@ These four names have separate meanings in the Flutter app:
   Model/Entity pairs merely for structural symmetry. A Model owns external
   mapping or serialization where appropriate.
 - **ViewModel:** A presentation-layer Redux adapter named for exactly one Screen, Section, Widget,
-  or application presentation owner, such as `ConnectionsScreenViewModel`. It maps Redux state
-  through selectors, creates Redux dispatch callbacks, exposes what its owner requires, and
-  contains no domain or business logic. A Redux-backed ViewModel is registered through `sl` with
-  `registerFactoryParam`.
+  or application presentation owner. It maps Redux state through selectors, creates Redux dispatch
+  callbacks, exposes what its owner requires, and contains no domain or business logic. A
+  Redux-backed ViewModel is registered through `sl` with `registerFactoryParam`.
 - **ViewData:** An immutable presentation-only value in `presentation/viewdata/`, in a
   `*.viewdata.dart` file, passed between UI components. It has no Store, selectors, dispatching, or
   DI registration.
 
-```text
-SDK / API / storage
-        ↓
-    DataSource
-        ↓
-      Model
-        ↓ extends
-      Entity
-        ↓
-      Domain
-```
+Structured data from an SDK, API, or storage boundary enters through a DataSource and Model before
+the corresponding Entity is used by domain logic.
 
 “Model” is reserved for the data layer and must not be used as a generic suffix for immutable
 classes. Domain Entity classes use the bare concept name: the `.entity.dart` suffix identifies the
@@ -63,54 +51,10 @@ file's architectural role, not an `Entity` suffix on the class. Primitive or enu
 including the existing theme preset setting, does not by itself justify an Entity/Model pair; add
 one only for a structured domain concept with an external representation.
 
-Correct:
-
-```dart
-class Host extends Equatable {}
-class HostModel extends Host {}
-class ConnectionsScreenViewModel extends Equatable {}
-class HostCardViewData extends Equatable {}
-```
-
-Incorrect:
-
-```dart
-class HostEntity extends Equatable {}
-class HostCardModel extends Equatable {} // immutable presentation-only data
-// presentation/models/
-// No Redux ownership: do not create HostCardViewModel.
-// No external Host representation: do not create HostModel.
-```
-
 ## Feature structure
 
-```text
-lib/
-  features/<feature>/
-    data/
-      datasources/
-      models/
-      repositories/
-    domain/
-      entities/
-      repositories/
-      usecases/
-        params/
-    presentation/
-      screens/
-      widgets/
-      state/
-      viewdata/ # optional; add when presentation-only values are needed
-  shared/
-    constants/
-    failures/
-    navigation/
-    state/
-    theme/
-    usecase/
-  injection_container.dart
-  main.dart
-```
+Feature-owned data, domain, and presentation code lives under its feature boundary. Application-wide
+plumbing and shared presentation concerns live in the app's shared area.
 
 Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a folder when the first file that belongs there exists.
 
@@ -135,15 +79,10 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   `feature_remote.datasource.dart` (always feature-first, snake_case with underscores). Every
   datasource file requires both an abstract interface and a concrete implementation, per
   `ai/context/dart/dart-style.md`'s "Interface naming": the interface takes the `I`-prefix and the
-  implementation keeps the bare capability name, no `Impl` suffix. Example:
-  `connection_local.datasource.dart` contains both `IConnectionLocalDataSource` (abstract) and
-  `ConnectionLocalDataSource` (concrete). For multi-word feature names, use continuous snake_case in
-  filenames and PascalCase in class names: `user_auth_local.datasource.dart` →
-  `IUserAuthLocalDataSource` (abstract) and `UserAuthLocalDataSource` (concrete). When a feature
-  requires multiple local or remote datasources, suffix the datasource name:
-  `feature_cache_local.datasource.dart` contains `IFeatureCacheLocalDataSource` (abstract) and
-  `FeatureCacheLocalDataSource` (concrete). This follows the same feature-first pattern as
-  `feature.repository.dart`.
+  implementation keeps the bare capability name, with no implementation suffix. For multi-word
+  feature names, use continuous snake_case in filenames and PascalCase in class names. When a
+  feature requires multiple local or remote datasources, distinguish their capabilities in the
+  datasource name using the same feature-first convention as repositories.
 - **Repository files and classes:** the domain interface and its data-layer implementation live in
   different layers, so they cannot share one file the way a datasource pair does -- this is the
   domain/data layer-boundary carve-out `dart-style.md`'s "Interface naming" documents. The
@@ -158,9 +97,9 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   merely because an Entity exists. Models own external mapping or serialization where appropriate;
   Entities remain pure Dart and infrastructure-independent.
 - When a generated JSON Model extends a concrete Entity and needs typed Model fields for nested
-  serialization, its constructor forwards those fields through an explicit `super(...)` initializer
-  (for example, `: super(level: level, health: health, ...)`). This is intentional model-boundary
-  boilerplate required by `json_serializable`; it is not a general constructor pattern.
+  serialization, its constructor explicitly passes those fields to the Entity constructor as
+  required by the generated mapping. This is model-boundary boilerplate, not a general constructor
+  pattern.
 - The `<feature>.actions.dart` exception in `ai/context/common.md` is one Flutter-specific grouping
   exception: action declarations and their closely related action value types are intentionally
   grouped there. The datasource interface/implementation pairing above and the `StatefulWidget`/
@@ -194,16 +133,8 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   `Store<AppState>` to `fromStore`.
 - An owner that has a ViewModel uses this connector pattern:
 
-  ```dart
-  StoreConnector<AppState, OwnerNameViewModel>(
-    distinct: true,
-    converter: (Store<AppState> store) =>
-        sl<OwnerNameViewModel>(param1: store),
-    builder: ...,
-  )
-  ```
-
-  The converter only resolves the ViewModel through `sl`.
+  The connector converter only resolves the ViewModel through `sl`; it does not map state or create
+  callbacks.
 - An owner with a ViewModel does not call selectors, read `store.state`, derive Redux-backed
   values, call `store.dispatch`, create Redux callbacks, or perform Redux mapping in its converter.
 - Widgets without Redux-backed state or actions receive values, Entities, ViewData, and callbacks
@@ -216,47 +147,48 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
   widget rebuild. Purely local presentation state stays in the smallest widget's `State`.
 - Keep shared presentation state in its owning widget's ViewModel and pass it to child widgets
   through props. Keep purely local presentation state in the smallest widget's `State`.
-- The normal chain is `Widget -> ViewModel -> Selectors / Store / Actions -> Middleware -> Reducer`.
+- Widgets use ViewModels for selector-derived presentation values and dispatch callbacks; middleware
+  coordinates accepted operations, and reducers own state transitions.
 - Widgets do not call selectors or `store.dispatch`, read `store.state`, or map Redux state.
 - ViewModels read Redux state through selectors and create dispatch callbacks. State extraction and
   feature-level state decisions belong in selectors; ViewModels map selector results to their
   single owner's presentation contract.
-- Redux state is read only through selectors and changed only through reducers. Never read state
-  fields directly. Widgets that own a ViewModel keep Redux reads and dispatches in that ViewModel,
-  including work associated with connector lifecycle callbacks.
-- The store is built exactly once through `CreateStore`; every `StoreConnector` uses
-  `distinct: true`.
-- Reducers use `combineReducers` and typed reducers, never an `if (action is ...)` chain.
-- One `<Feature>Middleware extends MiddlewareClass<AppState>` class per feature owns that feature's
-  middleware; it is added to `CreateStore`'s `middleware:` list as `<Feature>Middleware().call`, one
-  entry per feature, growing as each feature adds middleware.
-- Its `call(Store<AppState> store, dynamic action, NextDispatcher next)` calls `next(action)` exactly
-  once, before handling the action, so handlers see reduced state -- then dispatches to a private
-  handler through a `switch (action)` with one `case <Action> _:` per handled action type. Unhandled
-  action types fall through with no default case.
-- Each `case` calls exactly one private handler named after its action, with the trailing `Action`
-  removed and the result lowerCamelCased. Do not name the handler after what it does instead; the
-  action name is the contract.
-- Handler methods are private, take `Store<AppState>` and the specific typed Action -- even when the
-  action carries no fields or the handler does not read `store`, for a uniform, self-documenting
-  signature -- and resolve use cases and services through `sl<Type>()` directly rather than through
-  injected constructor/parameter dependencies; raw values and `BuildContext` are not handler
-  parameters. These narrowly prescribed framework handlers resolve already-registered contracts;
-  they are the Flutter exception to
-  `ai/context/dart/dart-style.md`'s rule against private methods with independent responsibilities;
-  do not extend that exception to ordinary feature or infrastructure code.
-- Fold a use case's `Either<Failure, T>` result with `.fold((Failure failure) => ..., (T value) =>
-  ...)`, dispatching a result or failure action from each branch.
-- To share handler logic, dispatch a dedicated action rather than calling a raw-parameter helper.
+- Consumers outside reducers read Redux state through selectors. Reducers operate directly on the
+  state slice they own.
+- When consumers share an interpretation or capability derived from state, one semantic selector
+  owns that meaning. Presentation and middleware do not independently reproduce it.
+- When state determines whether a user command is available, presentation consumes a semantic
+  capability and does not offer the unavailable command. Keep that capability separate from status
+  and data used to present the operation.
+- Middleware may re-check the same semantic capability before starting asynchronous work. This
+  defensive check prevents invalid or repeated dispatch from starting conflicting work; it does not
+  transfer responsibility for normal command availability from presentation to middleware.
+- The Redux store is created once during application composition. Store connectors suppress
+  redundant rebuilds when their mapped presentation values remain equal.
+- Reducers compose typed action-specific transitions; they do not inspect arbitrary actions in a
+  broad conditional chain.
+- Each feature owns its middleware and registers it through shared store composition.
+- The public middleware entry point forwards actions through the chain and routes handled actions to
+  private typed operation handlers. Keep operation policy, asynchronous orchestration, and result
+  mapping in those handlers instead of growing the entry point into a central policy method.
+- Private operation handlers receive only the store and the typed action they handle. They do not
+  receive chain-forwarding callbacks or unrelated infrastructure arguments. This narrow framework
+  boundary may resolve already-registered contracts as prescribed here; do not extend it to
+  ordinary feature or infrastructure code.
+- A request expresses intent. When asynchronous work must be admitted or validated first, the
+  request alone does not claim that work has started; publish a separate lifecycle transition only
+  after acceptance.
+- When only one instance of an operation is valid at a time, use the authoritative application
+  lifecycle or capability model to prevent competing work where possible. Do not duplicate that
+  invariant with separate mutable in-progress state or concurrency machinery.
+- Middleware maps each typed use-case outcome to the corresponding success or failure action.
+- Share handler work through explicit typed actions rather than untyped raw-parameter helper calls.
 
 ## Feature call chain
 
-Two call paths are valid, depending on who owns the behavior:
-
-```text
-SDK-owned operation:          Middleware -> SDK contract
-App-owned domain behavior:   Middleware -> UseCase -> Repository -> Datasource
-```
+Middleware calls the SDK contract directly for a complete SDK-owned operation. When the app owns a
+domain decision or coordinates multiple sources, the operation follows the appropriate domain and
+data boundaries.
 
 Use a use case when the app owns a domain decision. Use a repository when the app coordinates
 multiple sources, persistence, cache, or domain aggregation. Use a datasource when the Flutter app

@@ -70,6 +70,11 @@ active deviations.
 
 ## Return condition
 
+This condition sets the maintainer's chosen return point for the normal ordered roadmap; it is a
+scheduling decision, not a technical or security dependency for unrelated work. Phase 5.4 work that
+does not depend on hostile-network first contact remains technically permitted, but is not currently
+scheduled ahead of this deviation unless the maintainer explicitly reprioritizes it.
+
 Resume normal roadmap progression once the discovery foundation, Known Host lifecycle integration,
 and separate canonical UI convergence are complete, remaining connection/pairing slices have been
 re-planned, necessary work has been completed or explicitly deferred, and no active deviation still
@@ -86,12 +91,12 @@ presentation stays with the feature that owns it. See [Stage 7](../07-core-ui-th
 ## Security boundary
 
 Generic secure initial-pairing research continues in
-[`Soneka96/sas-pairing`](https://github.com/Soneka96/sas-pairing). DovahLink does not wait for that
-research to continue unrelated local or product work, including Phase 5.4 when the current deviations
-have fulfilled their purpose. Production secure first contact, unknown non-loopback pairing, Stage
-5A secure Android/Wi-Fi, and production LAN exposure remain blocked until the required security
-profiles and integration gates pass. `sas-pairing` remains research; it is not claimed complete or
-production-ready. See the [initial-pairing security deviation](initial-pairing-security/README.md)
+[`Soneka96/sas-pairing`](https://github.com/Soneka96/sas-pairing). Phase 5.4 work independent of
+hostile-network first contact remains technically permitted; current maintainer scheduling keeps it
+behind this deviation unless explicitly reprioritized. Production secure first contact, unknown
+non-loopback pairing, Stage 5A secure Android/Wi-Fi, and production LAN exposure remain blocked until
+the required security profiles and integration gates pass. `sas-pairing` remains research; it is not
+claimed complete or production-ready. See the [initial-pairing security deviation](initial-pairing-security/README.md)
 and the [DovahLink identity and transport security architecture](../../ai/context/security/identity-and-transport.md).
 
 ## Maintainer rules
