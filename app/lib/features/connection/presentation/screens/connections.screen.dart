@@ -14,7 +14,6 @@ import 'package:dovahlink_client/features/connection/presentation/widgets/connec
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
-import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
@@ -74,11 +73,9 @@ class ConnectionsScreen extends StatelessWidget {
                                 ),
                                 SizedBox(height: metrics.contentTopPadding),
                                 ConnectionsHero(
-                                  onDiscover:
-                                      viewModel.discoveryStatus ==
-                                          ConnectionDiscoveryStatus.discovering
-                                      ? null
-                                      : viewModel.onDiscover,
+                                  onDiscover: viewModel.canDiscover
+                                      ? viewModel.onDiscover
+                                      : null,
                                 ),
                                 SizedBox(height: metrics.heroBottomGap),
                                 ConnectionsHostSection(

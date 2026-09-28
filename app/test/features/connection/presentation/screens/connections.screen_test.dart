@@ -93,6 +93,7 @@ void main() {
     when(
       () => viewModel.discoveryStatus,
     ).thenReturn(ConnectionDiscoveryStatus.idle);
+    when(() => viewModel.canDiscover).thenReturn(true);
     when(() => viewModel.discoveryFailure).thenReturn(null);
     when(
       () => viewModel.onDiscover,
@@ -455,11 +456,12 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen disables discovery while a request is active',
+      'ConnectionsScreen disables discovery when the semantic capability is unavailable',
       (WidgetTester tester) async {
         when(
           () => viewModel.discoveryStatus,
-        ).thenReturn(ConnectionDiscoveryStatus.discovering);
+        ).thenReturn(ConnectionDiscoveryStatus.available);
+        when(() => viewModel.canDiscover).thenReturn(false);
 
         await tester.pumpWidget(buildWidget());
         await tester.tap(find.text('Discover Skyrim'), warnIfMissed: false);
@@ -814,6 +816,7 @@ void main() {
         when(
           () => viewModel.discoveryStatus,
         ).thenReturn(ConnectionDiscoveryStatus.discovering);
+        when(() => viewModel.canDiscover).thenReturn(false);
         await useSurface(tester, const Size(1280, 720));
 
         await tester.pumpWidget(buildWidget());

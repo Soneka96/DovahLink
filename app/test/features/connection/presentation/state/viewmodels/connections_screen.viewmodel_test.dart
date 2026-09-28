@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
@@ -22,8 +23,37 @@ void main() {
 
       expect(viewModel.hostCards, isEmpty);
       expect(viewModel.discoveryStatus, ConnectionDiscoveryStatus.idle);
+      expect(viewModel.canDiscover, isTrue);
       expect(viewModel.discoveryFailure, isNull);
     });
+
+    test(
+      'fromStore exposes selector capability and discovery status separately',
+      () {
+        for (final ConnectionDiscoveryStatus status
+            in ConnectionDiscoveryStatus.values) {
+          final Store<AppState> store = const CreateStore()(
+            initialState: AppState(
+              connection: ConnectionState(discoveryStatus: status),
+              pairing: PairingState.initial(),
+            ),
+          );
+
+          final ConnectionsScreenViewModel viewModel =
+              ConnectionsScreenViewModel.fromStore(store);
+
+          expect(
+            viewModel.canDiscover,
+            ConnectionSelectors.canDiscoverSelector(store.state),
+          );
+          expect(
+            viewModel.canDiscover,
+            status != ConnectionDiscoveryStatus.discovering,
+          );
+          expect(viewModel.discoveryStatus, status);
+        }
+      },
+    );
 
     test('fromStore projects the current discovery failure reason', () {
       final Store<AppState> store = const CreateStore()(
@@ -117,6 +147,7 @@ void main() {
       final ConnectionsScreenViewModel first = ConnectionsScreenViewModel(
         hostCards: [Fixtures.buildHostCardViewData()],
         discoveryStatus: ConnectionDiscoveryStatus.idle,
+        canDiscover: true,
         discoveryFailure: null,
         onDiscover: () {},
         onSelectHost: (Host host) {},
@@ -124,6 +155,28 @@ void main() {
       final ConnectionsScreenViewModel second = ConnectionsScreenViewModel(
         hostCards: [Fixtures.buildHostCardViewData(title: 'Other')],
         discoveryStatus: ConnectionDiscoveryStatus.idle,
+        canDiscover: true,
+        discoveryFailure: null,
+        onDiscover: () {},
+        onSelectHost: (Host host) {},
+      );
+
+      expect(first, isNot(second));
+    });
+
+    test('canDiscover participates in ViewModel equality', () {
+      final ConnectionsScreenViewModel first = ConnectionsScreenViewModel(
+        hostCards: [Fixtures.buildHostCardViewData()],
+        discoveryStatus: ConnectionDiscoveryStatus.idle,
+        canDiscover: true,
+        discoveryFailure: null,
+        onDiscover: () {},
+        onSelectHost: (Host host) {},
+      );
+      final ConnectionsScreenViewModel second = ConnectionsScreenViewModel(
+        hostCards: [Fixtures.buildHostCardViewData()],
+        discoveryStatus: ConnectionDiscoveryStatus.idle,
+        canDiscover: false,
         discoveryFailure: null,
         onDiscover: () {},
         onSelectHost: (Host host) {},
@@ -135,16 +188,25 @@ void main() {
 
   group('ConnectionsScreenViewModel onDiscover behaves correctly', () {
     test('onDiscover dispatches ConnectionDiscoveryRequestedAction', () {
-      final Store<AppState> store = const CreateStore()();
+      final List<Object?> actions = [];
+      void recordActions(
+        Store<AppState> store,
+        dynamic action,
+        NextDispatcher next,
+      ) {
+        actions.add(action);
+        next(action);
+      }
+
+      final Store<AppState> store = const CreateStore()(
+        middleware: [recordActions],
+      );
       final ConnectionsScreenViewModel viewModel =
           ConnectionsScreenViewModel.fromStore(store);
 
       viewModel.onDiscover();
 
-      expect(
-        store.state.connection.discoveryStatus,
-        ConnectionDiscoveryStatus.discovering,
-      );
+      expect(actions, [const ConnectionDiscoveryRequestedAction()]);
     });
   });
 }
