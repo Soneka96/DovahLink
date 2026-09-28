@@ -572,9 +572,15 @@ void main() {
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
         addTearDown(server.close);
         int acceptedConnectionCount = 0;
+        final Completer<void> firstConnectionObserved = Completer<void>();
         final StreamSubscription<WebSocket> connectionObserver = server
             .connections
-            .listen((WebSocket _) => acceptedConnectionCount++);
+            .listen((WebSocket _) {
+              acceptedConnectionCount++;
+              if (!firstConnectionObserved.isCompleted) {
+                firstConnectionObserved.complete();
+              }
+            });
         addTearDown(connectionObserver.cancel);
         final (
           Future<List<DovahLinkHost>> discovery,
@@ -594,6 +600,7 @@ void main() {
         );
         await request;
         await socketClosed.timeout(_socketTimeout);
+        await firstConnectionObserved.future.timeout(_socketTimeout);
         await Future<void>.delayed(const Duration(milliseconds: 100));
 
         expect(acceptedConnectionCount, 1);
