@@ -78,13 +78,13 @@ may report acceptance, rejection, an error, or operation-specific metadata, but 
 fabricate the resulting authoritative Host, session, trust, pairing, or game state from command
 success.
 
-For the connection feature, `ConnectionState.knownHost` is only the latest app-mapped projection
-emitted by the SDK's authoritative Known Host stream. `ConnectionKnownHostChangedAction` is its
-replacement path; pairing actions and discovery results do not derive or change it. `ConnectionMiddleware`
-owns the stream subscription and `HostMapper.fromSdk` is the sole SDK `DovahLinkHost` to app `Host`
-conversion. Discovery remains a command/result that returns reachable Host candidates. A candidate,
-including one whose claimed `hostId` matches the Known Host, does not establish identity, trust, or
-authorization and does not mutate Known Host state.
+For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
+emitted by the SDK's authoritative Known Hosts stream. `ConnectionKnownHostsChangedAction` replaces
+the entire list; pairing actions and discovery results do not derive or change it.
+`ConnectionMiddleware` owns the stream subscription and `HostMapper.fromSdk` is the sole SDK
+`DovahLinkHost` to app `Host` conversion. Discovery remains a command/result that returns reachable
+Host candidates. A candidate, including one whose claimed `hostId` matches a Known Host, does not
+establish identity, trust, or authorization and does not mutate Known Hosts state.
 
 ## Feature structure
 

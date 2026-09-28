@@ -8,6 +8,8 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_discovery_service.dart'
     show buildDovahLinkDiscoveryServiceForTesting;
+import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart'
@@ -161,7 +163,7 @@ Future<(DovahLinkHost, Future<void>)> discoverHostWithName({
 
 void main() {
   setUpAll(() {
-    registerFallbackValue(const PersistedClientState());
+    registerFallbackValue(PersistedClientState());
   });
 
   group('Method discover behaves correctly', () {
@@ -217,9 +219,16 @@ void main() {
         );
         final PersistedClientState consumerState = PersistedClientState(
           clientId: 'client-1',
-          credential: 'private-credential',
-          recoveryState: PairingRecoveryState.confirming,
-          knownHost: knownHost,
+          knownHosts: <String, PersistedKnownHost>{
+            knownHost.hostId: PersistedKnownHost(
+              host: knownHost,
+              credential: 'private-credential',
+            ),
+          },
+          pendingPairingRecovery: PendingPairingRecovery(
+            hostId: knownHost.hostId,
+            state: PairingRecoveryState.confirming,
+          ),
         );
         final MockConsumerStorage consumerStorage = MockConsumerStorage();
         int loadCount = 0;
@@ -238,7 +247,7 @@ void main() {
         final DovahLinkClient consumer = DovahLinkClient(
           storage: consumerStorage,
         );
-        expect(await consumer.loadKnownHost(), knownHost);
+        expect(await consumer.loadKnownHosts(), <DovahLinkHost>[knownHost]);
         final int loadsBeforeDiscovery = loadCount;
 
         final FakeWebSocketServer server = await FakeWebSocketServer.start();
@@ -275,10 +284,16 @@ void main() {
         expect(loadCount, loadsBeforeDiscovery);
         expect(saveCount, 0);
         expect(clearCount, 0);
-        expect(await consumer.loadKnownHost(), knownHost);
+        expect(await consumer.loadKnownHosts(), <DovahLinkHost>[knownHost]);
         expect(loadCount, loadsBeforeDiscovery);
-        expect(consumerState.credential, 'private-credential');
-        expect(consumerState.recoveryState, PairingRecoveryState.confirming);
+        expect(
+          consumerState.knownHosts[knownHost.hostId]?.credential,
+          'private-credential',
+        );
+        expect(
+          consumerState.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
       },
     );
 

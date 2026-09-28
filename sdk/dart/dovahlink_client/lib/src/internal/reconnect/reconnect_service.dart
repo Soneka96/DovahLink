@@ -127,7 +127,7 @@ class ReconnectService implements IReconnectService {
         if (recoveryGeneration != _recoveryGeneration) {
           return;
         }
-        await _authenticationService.hello();
+        await _authenticationService.helloLastKnownHost();
         return;
       } on DovahLinkProtocolException catch (error) {
         if (recoveryGeneration != _recoveryGeneration) {
@@ -137,7 +137,7 @@ class ReconnectService implements IReconnectService {
           if (CredentialRejectionReason.fromProtocolErrorCode(error.code) !=
               null) {
             try {
-              await _authenticationService.forgetCredential();
+              await _authenticationService.forgetLastKnownCredential();
             } on Object {
               // Best-effort cleanup must not prevent the recovery cycle from finalizing with a
               // disconnect. A later explicit authentication can retry this cleanup.

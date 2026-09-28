@@ -32,15 +32,18 @@ merely because an expert API exists, unless a later explicit low-level API decis
 mutable computer-name display metadata. Neither represents the endpoint. A peer's assertion of
 `hostId` is not cryptographic proof that it owns a previously trusted identity.
 
-`DovahLinkClient.loadKnownHost()` reads the SDK-owned persisted Known Host as a `DovahLinkHost`, or
-returns `null` when the client has not established one. `knownHostChanges` emits that current
-persisted value to each subscriber, then every subsequent committed semantic change. A load failure
-is a stream error, never a fabricated `null`. The value contains identity and last-known metadata
-only; it exposes no credential and does not claim the Host currently trusts this client. Trusted
-sessions may refresh its name and endpoint only when the reported Host ID matches the stored ID. A
-mismatch is a typed failure; discovery claims never refresh persisted metadata.
+`DovahLinkClient.loadKnownHosts()` returns the complete immutable Known Hosts collection, ordered by
+`hostId`; `knownHostsChanges` emits that same complete view on listen and after each committed
+semantic change. A load failure is reported as a stream error, never converted to an empty
+collection. The same subscriber remains attached and receives state after a later successful SDK
+load or mutation. Each public `DovahLinkHost` contains identity and last-known metadata only; it
+exposes no credential and does not claim the Host currently trusts this client. Known Host
+authentication takes a `DovahLinkHostId`; the SDK resolves its current endpoint and Host-scoped
+credential. Candidate authentication takes an endpoint and never selects Known Host credentials.
+Trusted sessions may refresh metadata only for the matching Known Host ID; discovery claims never
+refresh persisted metadata.
 
-`DovahLinkDiscoveryService.discoverLocalHost()` proposes the local endpoint. The responding peer's
+`DovahLinkDiscoveryService.discover()` proposes reachable endpoints. The responding peer's
 `hello_ack` asserts `hostId` and `hostName`, which the SDK validates for protocol shape and Host
 version compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the peer
 claims, `hostName` is mutable display metadata, and `endpoint` is the current location. Discovery

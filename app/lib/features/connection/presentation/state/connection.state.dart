@@ -15,8 +15,8 @@ class ConnectionState extends Equatable {
   /// selection.
   final Host? selectedHost;
 
-  /// The latest app-mapped projection emitted by the SDK's authoritative Known Host state.
-  final Host? knownHost;
+  /// The app-mapped complete projection emitted by the SDK's authoritative Known Host state.
+  final List<Host> knownHosts;
 
   /// The latest discovery operation's state.
   final ConnectionDiscoveryStatus discoveryStatus;
@@ -25,11 +25,11 @@ class ConnectionState extends Equatable {
   final ConnectionFailureReason? discoveryFailure;
 
   /// Creates connection state with an explicit Host list and an optional selected Host.
-  /// @param knownHost The latest SDK-observed Known Host projection.
+  /// @param knownHosts The latest complete SDK-observed Known Host projection.
   const ConnectionState({
     this.hosts = const <Host>[],
     this.selectedHost,
-    this.knownHost,
+    this.knownHosts = const <Host>[],
     this.discoveryStatus = ConnectionDiscoveryStatus.idle,
     this.discoveryFailure,
   });
@@ -38,12 +38,12 @@ class ConnectionState extends Equatable {
   factory ConnectionState.initial() => const ConnectionState();
 
   /// Returns a copy with selected values replaced. [selectedHost] is an [Option] so an omitted,
-  /// cleared, and set value stay distinct.
-  /// @param knownHost The observed Known Host to set or clear, or `null` to keep it.
+  /// cleared, and set value stay distinct; Known Hosts are replaced as a complete list.
+  /// @param knownHosts The complete observed Known Hosts collection, or `null` to keep it.
   ConnectionState copyWith({
     List<Host>? hosts,
     Option<Host>? selectedHost,
-    Option<Host>? knownHost,
+    List<Host>? knownHosts,
     ConnectionDiscoveryStatus? discoveryStatus,
     Option<ConnectionFailureReason>? discoveryFailure,
   }) => ConnectionState(
@@ -51,7 +51,7 @@ class ConnectionState extends Equatable {
     selectedHost: selectedHost == null
         ? this.selectedHost
         : selectedHost.toNullable(),
-    knownHost: knownHost == null ? this.knownHost : knownHost.toNullable(),
+    knownHosts: knownHosts ?? this.knownHosts,
     discoveryStatus: discoveryStatus ?? this.discoveryStatus,
     discoveryFailure: discoveryFailure == null
         ? this.discoveryFailure
@@ -63,7 +63,7 @@ class ConnectionState extends Equatable {
   List<Object?> get props => [
     hosts,
     selectedHost,
-    knownHost,
+    knownHosts,
     discoveryStatus,
     discoveryFailure,
   ];

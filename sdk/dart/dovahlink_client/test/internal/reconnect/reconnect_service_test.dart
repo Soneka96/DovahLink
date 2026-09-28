@@ -60,7 +60,7 @@ void main() {
       ),
     ).thenAnswer((_) async {});
     when(
-      () => authenticationService.forgetCredential(),
+      () => authenticationService.forgetLastKnownCredential(),
     ).thenAnswer((_) async {});
   });
 
@@ -81,7 +81,7 @@ void main() {
     test(
       'Method onOrdinaryTransportLoss succeeds on the first attempt without disconnecting',
       () async {
-        when(() => authenticationService.hello()).thenAnswer(
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer(
           (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
@@ -93,7 +93,7 @@ void main() {
         await pumpEventQueue();
 
         verify(() => sessionService.connect(_uri)).called(1);
-        verify(() => authenticationService.hello()).called(1);
+        verify(() => authenticationService.helloLastKnownHost()).called(1);
         verifyNever(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
@@ -121,7 +121,7 @@ void main() {
         await pumpEventQueue();
 
         expect(connectCallCount, 1);
-        verifyNever(() => authenticationService.hello());
+        verifyNever(() => authenticationService.helloLastKnownHost());
         verifyNever(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
@@ -145,7 +145,7 @@ void main() {
         connectCompleter.complete();
         await pumpEventQueue();
 
-        verifyNever(() => authenticationService.hello());
+        verifyNever(() => authenticationService.helloLastKnownHost());
         verifyNever(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
@@ -160,7 +160,7 @@ void main() {
       () async {
         final Completer<HelloResult> helloCompleter = Completer<HelloResult>();
         when(
-          () => authenticationService.hello(),
+          () => authenticationService.helloLastKnownHost(),
         ).thenAnswer((_) => helloCompleter.future);
         final ReconnectService service = buildService();
 
@@ -177,8 +177,8 @@ void main() {
         await pumpEventQueue();
 
         verify(() => sessionService.connect(_uri)).called(1);
-        verify(() => authenticationService.hello()).called(1);
-        verifyNever(() => authenticationService.forgetCredential());
+        verify(() => authenticationService.helloLastKnownHost()).called(1);
+        verifyNever(() => authenticationService.forgetLastKnownCredential());
         verifyNever(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
@@ -191,7 +191,7 @@ void main() {
     test(
       'Method onOrdinaryTransportLoss starts a later recovery after stopRecovery',
       () async {
-        when(() => authenticationService.hello()).thenAnswer(
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer(
           (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
@@ -204,7 +204,7 @@ void main() {
         await pumpEventQueue();
 
         verify(() => sessionService.connect(_uri)).called(1);
-        verify(() => authenticationService.hello()).called(1);
+        verify(() => authenticationService.helloLastKnownHost()).called(1);
       },
     );
 
@@ -219,7 +219,7 @@ void main() {
             throw const DovahLinkConnectionException('unreachable');
           }
         });
-        when(() => authenticationService.hello()).thenAnswer(
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer(
           (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
@@ -231,7 +231,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         expect(connectCallCount, 3);
-        verify(() => authenticationService.hello()).called(1);
+        verify(() => authenticationService.helloLastKnownHost()).called(1);
         verifyNever(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
@@ -245,7 +245,7 @@ void main() {
       'Method onOrdinaryTransportLoss stops immediately on a typed rejection from hello() '
       'instead of consuming the remaining attempt budget',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.revoked,
             message: 'rejected',
@@ -257,7 +257,7 @@ void main() {
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        verify(() => authenticationService.hello()).called(1);
+        verify(() => authenticationService.helloLastKnownHost()).called(1);
         verify(() => sessionService.connect(_uri)).called(1);
         verify(
           () => sessionService.disconnect(
@@ -271,7 +271,7 @@ void main() {
     test(
       'Method onOrdinaryTransportLoss stops after an incompatible Host instead of retrying it',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkCompatibilityException(
             hostVersion: '0.6.0',
             supportedHostVersionRange: '0.5.x',
@@ -283,7 +283,7 @@ void main() {
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        verify(() => authenticationService.hello()).called(1);
+        verify(() => authenticationService.helloLastKnownHost()).called(1);
         verify(() => sessionService.connect(_uri)).called(1);
         final Exception reason =
             verify(
@@ -305,15 +305,17 @@ void main() {
               knownHostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
               reportedHostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
             );
-        when(() => authenticationService.hello()).thenThrow(mismatch);
+        when(
+          () => authenticationService.helloLastKnownHost(),
+        ).thenThrow(mismatch);
         final ReconnectService service = buildService();
 
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(() => sessionService.connect(_uri)).called(1);
-        verify(() => authenticationService.hello()).called(1);
-        verifyNever(() => authenticationService.forgetCredential());
+        verify(() => authenticationService.helloLastKnownHost()).called(1);
+        verifyNever(() => authenticationService.forgetLastKnownCredential());
         final Exception reason =
             verify(
                   () => sessionService.disconnect(
@@ -329,7 +331,7 @@ void main() {
     test(
       'Method onOrdinaryTransportLoss stops after an older Host instead of retrying it',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkCompatibilityException(
             hostVersion: '0.3.9',
             supportedHostVersionRange: '0.5.x',
@@ -341,7 +343,7 @@ void main() {
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        verify(() => authenticationService.hello()).called(1);
+        verify(() => authenticationService.helloLastKnownHost()).called(1);
         verify(() => sessionService.connect(_uri)).called(1);
         verify(
           () => sessionService.disconnect(
@@ -361,7 +363,9 @@ void main() {
           connectCallCount++;
         });
         int helloCallCount = 0;
-        when(() => authenticationService.hello()).thenAnswer((_) async {
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer((
+          _,
+        ) async {
           helloCallCount++;
           if (helloCallCount == 1) {
             throw const DovahLinkConnectionException('unreachable');
@@ -392,7 +396,7 @@ void main() {
       'Method onOrdinaryTransportLoss forgets the credential on a terminal revoked rejection '
       'from hello(), so a later automatic attempt never presents it again',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.revoked,
             message: 'rejected',
@@ -404,7 +408,9 @@ void main() {
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        verify(() => authenticationService.forgetCredential()).called(1);
+        verify(
+          () => authenticationService.forgetLastKnownCredential(),
+        ).called(1);
       },
     );
 
@@ -412,7 +418,7 @@ void main() {
       'Method onOrdinaryTransportLoss forgets the credential on a terminal blocked rejection '
       'from hello() the same way',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.blocked,
             message: 'blocked',
@@ -424,7 +430,9 @@ void main() {
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        verify(() => authenticationService.forgetCredential()).called(1);
+        verify(
+          () => authenticationService.forgetLastKnownCredential(),
+        ).called(1);
       },
     );
 
@@ -432,7 +440,7 @@ void main() {
       'Method onOrdinaryTransportLoss forgets the credential on a terminal unauthenticated '
       'rejection from hello() the same way',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.unauthenticated,
             message: 'invalid token',
@@ -444,7 +452,9 @@ void main() {
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        verify(() => authenticationService.forgetCredential()).called(1);
+        verify(
+          () => authenticationService.forgetLastKnownCredential(),
+        ).called(1);
       },
     );
 
@@ -452,7 +462,7 @@ void main() {
       'Method onOrdinaryTransportLoss does not forget the credential on a terminal rejection '
       'that is not about this credential specifically',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.unauthorized,
             message: 'not authorized',
@@ -464,7 +474,7 @@ void main() {
         service.onOrdinaryTransportLoss(_uri);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        verifyNever(() => authenticationService.forgetCredential());
+        verifyNever(() => authenticationService.forgetLastKnownCredential());
       },
     );
 
@@ -472,7 +482,7 @@ void main() {
       'Method onOrdinaryTransportLoss forgets the credential before the final disconnect on a '
       'terminal credential rejection, not concurrently with or after it',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.revoked,
             message: 'rejected',
@@ -485,7 +495,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verifyInOrder([
-          () => authenticationService.forgetCredential(),
+          () => authenticationService.forgetLastKnownCredential(),
           () => sessionService.disconnect(
             orphanRetrySafeOperations: false,
             reason: any(named: 'reason'),
@@ -497,7 +507,7 @@ void main() {
     test(
       'Method onOrdinaryTransportLoss still reaches the final disconnect when credential cleanup fails',
       () async {
-        when(() => authenticationService.hello()).thenThrow(
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.revoked,
             message: 'rejected',
@@ -505,7 +515,7 @@ void main() {
           ),
         );
         when(
-          () => authenticationService.forgetCredential(),
+          () => authenticationService.forgetLastKnownCredential(),
         ).thenThrow(const DovahLinkStorageException('storage unavailable'));
         final ReconnectService service = buildService();
 
@@ -513,7 +523,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verifyInOrder([
-          () => authenticationService.forgetCredential(),
+          () => authenticationService.forgetLastKnownCredential(),
           () => sessionService.disconnect(
             orphanRetrySafeOperations: false,
             reason: any(named: 'reason'),
@@ -527,7 +537,9 @@ void main() {
       'protocol rejection from hello(), succeeding on a later attempt',
       () async {
         int helloCallCount = 0;
-        when(() => authenticationService.hello()).thenAnswer((_) async {
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer((
+          _,
+        ) async {
           helloCallCount++;
           if (helloCallCount == 1) {
             throw const DovahLinkProtocolException(
@@ -564,7 +576,7 @@ void main() {
         when(
           () => sessionService.connect(any()),
         ).thenThrow(const DovahLinkConnectionException('unreachable'));
-        when(() => authenticationService.hello()).thenAnswer(
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer(
           (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
@@ -576,7 +588,7 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(() => sessionService.connect(_uri)).called(_shortDelays.length);
-        verifyNever(() => authenticationService.hello());
+        verifyNever(() => authenticationService.helloLastKnownHost());
         final VerificationResult verification = verify(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: false,
@@ -597,7 +609,7 @@ void main() {
       when(
         () => sessionService.connect(any()),
       ).thenThrow(const DovahLinkConnectionException('unreachable'));
-      when(() => authenticationService.hello()).thenAnswer(
+      when(() => authenticationService.helloLastKnownHost()).thenAnswer(
         (_) async => Fixtures.buildHelloResult(
           hostVersion: '1.0',
           trustState: DovahLinkTrustState.trusted,
@@ -641,7 +653,9 @@ void main() {
         connectCallCount++;
       });
       int helloCallCount = 0;
-      when(() => authenticationService.hello()).thenAnswer((_) async {
+      when(() => authenticationService.helloLastKnownHost()).thenAnswer((
+        _,
+      ) async {
         helloCallCount++;
         if (helloCallCount == 1) {
           throw const DovahLinkConnectionException('unreachable');
@@ -694,7 +708,7 @@ void main() {
         when(
           () => sessionService.connectionState,
         ).thenReturn(DovahLinkConnectionState.disconnected);
-        when(() => authenticationService.hello()).thenAnswer(
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer(
           (_) async => Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
@@ -706,7 +720,7 @@ void main() {
         await pumpEventQueue();
 
         verifyNever(() => sessionService.connect(any()));
-        verifyNever(() => authenticationService.hello());
+        verifyNever(() => authenticationService.helloLastKnownHost());
         verifyNever(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),

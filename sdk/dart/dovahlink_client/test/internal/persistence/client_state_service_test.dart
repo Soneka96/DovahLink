@@ -7,32 +7,41 @@ import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
-import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Mocks durable SDK storage for client-state owner tests.
 class MockClientStorage extends Mock implements IClientStorage {}
 
-/// Builds a representative persisted Host.
-/// @param name The mutable display name to include.
-DovahLinkHost buildHost({String name = 'HOST-A'}) => DovahLinkHost(
-  hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
-  hostName: name,
-  endpoint: Uri.parse('ws://127.0.0.1:58231/'),
-);
-
 /// Runs persisted client-state ownership behavior tests.
 void main() {
+  const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+  const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
   late MockClientStorage storage;
   late PersistedClientState persisted;
   late ClientStateService service;
 
+  /// Builds a Host relationship for one test scenario.
+  /// @param id The stable Host UUID.
+  /// @param name The scenario-specific display name, or the ID by default.
+  /// @param credential The credential owned by this Host, if any.
+  /// @return A persisted relationship value.
+  PersistedKnownHost relationship(
+    String id, {
+    String? name,
+    String? credential,
+  }) => PersistedKnownHost(
+    host: Fixtures.buildDovahLinkHost(hostId: id, hostName: name ?? id),
+    credential: credential,
+  );
+
   setUpAll(() {
-    registerFallbackValue(const PersistedClientState());
+    registerFallbackValue(PersistedClientState());
   });
 
   setUp(() {
     storage = MockClientStorage();
-    persisted = const PersistedClientState(clientId: 'client-1');
+    persisted = PersistedClientState(clientId: 'client-1');
     when(() => storage.load()).thenAnswer((_) async => persisted);
     when(() => storage.save(any())).thenAnswer((invocation) async {
       persisted = invocation.positionalArguments.single as PersistedClientState;
@@ -41,26 +50,79 @@ void main() {
     service = ClientStateService(storage: storage);
   });
 
-  group('Property knownHostChanges behaves correctly', () {
+  group('Property knownHostsChanges behaves correctly', () {
     test(
-      'Property knownHostChanges first emits null when no Host is persisted',
+      'Property knownHostsChanges emits an empty immutable collection',
       () async {
-        expect(await service.knownHostChanges.first, isNull);
-        verify(() => storage.load()).called(1);
+        final List<DovahLinkHost> hosts = await service.knownHostsChanges.first;
+
+        expect(hosts, isEmpty);
+        expect(
+          () => hosts.add(Fixtures.buildDovahLinkHost()),
+          throwsUnsupportedError,
+        );
       },
     );
 
-    test('Property knownHostChanges first emits the persisted Host', () async {
-      persisted = PersistedClientState(
-        clientId: 'client-1',
-        knownHost: buildHost(),
-      );
+    test(
+      'Property knownHostsChanges emits a sorted complete collection',
+      () async {
+        persisted = PersistedClientState(
+          clientId: 'client-1',
+          knownHosts: <String, PersistedKnownHost>{
+            hostBId: relationship(hostBId),
+            hostAId: relationship(hostAId),
+          },
+        );
+        final List<List<DovahLinkHost>> emitted = [];
+        final StreamSubscription<List<DovahLinkHost>> subscription = service
+            .knownHostsChanges
+            .listen(emitted.add);
+        await Future<void>.delayed(Duration.zero);
 
-      expect(await service.knownHostChanges.first, buildHost());
-    });
+        expect(emitted.single.map((host) => host.hostId), <String>[
+          hostAId,
+          hostBId,
+        ]);
+        await subscription.cancel();
+      },
+    );
 
     test(
-      'Property knownHostChanges reports a load error and retries on a later subscription',
+      'Property knownHostsChanges reports a load error and recovers the same listener',
+      () async {
+        final StateError failure = StateError('storage unavailable');
+        int loadCount = 0;
+        when(() => storage.load()).thenAnswer((_) async {
+          loadCount++;
+          if (loadCount == 1) {
+            throw failure;
+          }
+          return PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: relationship(hostAId),
+            },
+          );
+        });
+        final List<Object> errors = [];
+        final List<List<DovahLinkHost>> values = [];
+        final StreamSubscription<List<DovahLinkHost>> subscription = service
+            .knownHostsChanges
+            .listen(values.add, onError: (Object error) => errors.add(error));
+        await Future<void>.delayed(Duration.zero);
+        await service.load();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(errors, <Object>[failure]);
+        expect(values.single, <DovahLinkHost>[relationship(hostAId).host]);
+        expect(loadCount, 2);
+        await subscription.cancel();
+      },
+    );
+
+    test(
+      'Property knownHostsChanges emits empty only after a successful retry',
       () async {
         int loadCount = 0;
         when(() => storage.load()).thenAnswer((_) async {
@@ -68,143 +130,178 @@ void main() {
           if (loadCount == 1) {
             throw StateError('storage unavailable');
           }
-          return PersistedClientState(
-            clientId: 'client-1',
-            knownHost: buildHost(),
-          );
+          return PersistedClientState(clientId: 'client-1');
         });
+        final List<Object> errors = [];
+        final List<List<DovahLinkHost>> values = [];
+        final StreamSubscription<List<DovahLinkHost>> subscription = service
+            .knownHostsChanges
+            .listen(values.add, onError: (Object error) => errors.add(error));
+        await Future<void>.delayed(Duration.zero);
 
-        await expectLater(
-          service.knownHostChanges.first,
-          throwsA(isA<StateError>()),
-        );
-        expect(await service.knownHostChanges.first, buildHost());
-        expect(loadCount, 2);
+        expect(values, isEmpty);
+        await service.load();
+        await Future<void>.delayed(Duration.zero);
+
+        expect(errors, hasLength(1));
+        expect(values, <List<DovahLinkHost>>[const <DovahLinkHost>[]]);
+        await subscription.cancel();
       },
     );
 
     test(
-      'Property knownHostChanges replays to multiple subscribers and publishes a commit',
+      'Property knownHostsChanges does not attach after cancellation during initial load',
       () async {
-        persisted = PersistedClientState(
-          clientId: 'client-1',
-          knownHost: buildHost(),
+        final Completer<PersistedClientState> loadGate =
+            Completer<PersistedClientState>();
+        final Completer<void> loadStarted = Completer<void>();
+        when(() => storage.load()).thenAnswer((_) {
+          loadStarted.complete();
+          return loadGate.future;
+        });
+        final List<List<DovahLinkHost>> values = [];
+        final StreamSubscription<List<DovahLinkHost>> subscription = service
+            .knownHostsChanges
+            .listen(values.add);
+        await loadStarted.future;
+        await subscription.cancel();
+        loadGate.complete(
+          PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: relationship(hostAId),
+            },
+          ),
         );
-        final List<DovahLinkHost?> first = <DovahLinkHost?>[];
-        final List<DovahLinkHost?> second = <DovahLinkHost?>[];
-        final StreamSubscription<DovahLinkHost?> firstSubscription = service
-            .knownHostChanges
-            .listen(first.add);
-        final StreamSubscription<DovahLinkHost?> secondSubscription = service
-            .knownHostChanges
-            .listen(second.add);
         await Future<void>.delayed(Duration.zero);
 
-        await service.updateState(
-          (PersistedClientState state) =>
-              state.copyWith(knownHost: buildHost(name: 'HOST-B')),
-        );
-        await Future<void>.delayed(Duration.zero);
-
-        expect(first, <DovahLinkHost?>[buildHost(), buildHost(name: 'HOST-B')]);
-        expect(second, first);
-        await firstSubscription.cancel();
-        await secondSubscription.cancel();
+        expect(values, isEmpty);
+        verify(() => storage.load()).called(1);
       },
     );
 
     test(
-      'Property knownHostChanges publishes nothing when persistence fails',
+      'Property knownHostsChanges publishes only after persistence succeeds',
       () async {
-        final List<DovahLinkHost?> values = <DovahLinkHost?>[];
-        final StreamSubscription<DovahLinkHost?> subscription = service
-            .knownHostChanges
+        final List<List<DovahLinkHost>> values = [];
+        final StreamSubscription<List<DovahLinkHost>> subscription = service
+            .knownHostsChanges
             .listen(values.add);
         await Future<void>.delayed(Duration.zero);
         when(() => storage.save(any())).thenThrow(StateError('save failed'));
 
         await expectLater(
           service.updateState(
-            (PersistedClientState state) =>
-                state.copyWith(knownHost: buildHost()),
+            (PersistedClientState state) => state.copyWith(
+              knownHosts: <String, PersistedKnownHost>{
+                hostAId: relationship(hostAId),
+              },
+            ),
           ),
           throwsA(isA<StateError>()),
         );
-        await Future<void>.delayed(Duration.zero);
 
-        expect(values, <DovahLinkHost?>[null]);
-        expect(persisted.knownHost, isNull);
+        expect(values, <List<DovahLinkHost>>[const <DovahLinkHost>[]]);
+        expect(persisted.knownHosts, isEmpty);
         await subscription.cancel();
       },
     );
 
     test(
-      'Property knownHostChanges does not emit for an equivalent state update',
+      'Property knownHostsChanges skips an equivalent public projection',
       () async {
         persisted = PersistedClientState(
-          clientId: 'client-1',
-          knownHost: buildHost(),
+          knownHosts: <String, PersistedKnownHost>{
+            hostAId: relationship(hostAId, credential: 'credential-a'),
+          },
         );
-        final List<DovahLinkHost?> values = <DovahLinkHost?>[];
-        final StreamSubscription<DovahLinkHost?> subscription = service
-            .knownHostChanges
+        final List<List<DovahLinkHost>> values = [];
+        final StreamSubscription<List<DovahLinkHost>> subscription = service
+            .knownHostsChanges
             .listen(values.add);
         await Future<void>.delayed(Duration.zero);
 
         await service.updateState(
-          (PersistedClientState state) =>
-              state.copyWith(knownHost: buildHost()),
+          (PersistedClientState state) => state.copyWith(
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: relationship(hostAId, credential: 'rotated-credential'),
+            },
+          ),
         );
 
-        expect(values, <DovahLinkHost?>[buildHost()]);
-        verifyNever(() => storage.save(any()));
+        expect(values, <List<DovahLinkHost>>[
+          <DovahLinkHost>[
+            relationship(hostAId, credential: 'credential-a').host,
+          ],
+        ]);
         await subscription.cancel();
       },
     );
-  });
 
-  group('Method load behaves correctly', () {
     test(
-      'Method load shares the committed state across concurrent callers',
+      'Property knownHostsChanges gives each subscriber the same complete view',
       () async {
-        final List<PersistedClientState> states = await Future.wait(
-          <Future<PersistedClientState>>[service.load(), service.load()],
+        final List<List<DovahLinkHost>> first = [];
+        final List<List<DovahLinkHost>> second = [];
+        final StreamSubscription<List<DovahLinkHost>> firstSubscription =
+            service.knownHostsChanges.listen(first.add);
+        final StreamSubscription<List<DovahLinkHost>> secondSubscription =
+            service.knownHostsChanges.listen(second.add);
+        await Future<void>.delayed(Duration.zero);
+        await service.updateState(
+          (PersistedClientState state) => state.copyWith(
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: relationship(hostAId, credential: 'credential-a'),
+              hostBId: relationship(hostBId, credential: 'credential-b'),
+            },
+          ),
         );
+        await Future<void>.delayed(Duration.zero);
 
-        expect(states, <PersistedClientState>[persisted, persisted]);
-        verify(() => storage.load()).called(1);
+        expect(first, second);
+        expect(first.last.map((host) => host.hostId), <String>[
+          hostAId,
+          hostBId,
+        ]);
+        await firstSubscription.cancel();
+        await secondSubscription.cancel();
       },
     );
   });
 
-  group('Method updateState behaves correctly', () {
-    test('Method updateState serializes complete-state transactions', () async {
-      final Completer<void> saveGate = Completer<void>();
-      final Completer<void> saveStarted = Completer<void>();
-      when(() => storage.save(any())).thenAnswer((invocation) async {
-        if (!saveStarted.isCompleted) {
-          saveStarted.complete();
-        }
-        await saveGate.future;
-        persisted =
-            invocation.positionalArguments.single as PersistedClientState;
-      });
-
-      final Future<void> first = service.updateState(
-        (PersistedClientState state) =>
-            state.copyWith(credential: 'credential-1'),
-      );
-      await saveStarted.future;
-      final Future<void> second = service.updateState(
-        (PersistedClientState state) => state.copyWith(knownHost: buildHost()),
-      );
-      saveGate.complete();
-      await Future.wait(<Future<void>>[first, second]);
-
-      expect(persisted.credential, 'credential-1');
-      expect(persisted.knownHost, buildHost());
-      expect(persisted.recoveryState, PairingRecoveryState.none);
-      verify(() => storage.save(any())).called(2);
+  test('Method updateState serializes complete-state transactions', () async {
+    final Completer<void> saveGate = Completer<void>();
+    final Completer<void> saveStarted = Completer<void>();
+    when(() => storage.save(any())).thenAnswer((invocation) async {
+      if (!saveStarted.isCompleted) {
+        saveStarted.complete();
+      }
+      await saveGate.future;
+      persisted = invocation.positionalArguments.single as PersistedClientState;
     });
+
+    final Future<void> first = service.updateState(
+      (PersistedClientState state) => state.copyWith(
+        knownHosts: <String, PersistedKnownHost>{
+          hostAId: relationship(hostAId, credential: 'credential-a'),
+        },
+      ),
+    );
+    await saveStarted.future;
+    final Future<void> second = service.updateState(
+      (PersistedClientState state) => state.copyWith(
+        knownHosts: <String, PersistedKnownHost>{
+          ...state.knownHosts,
+          hostBId: relationship(hostBId, credential: 'credential-b'),
+        },
+      ),
+    );
+    saveGate.complete();
+    await Future.wait(<Future<void>>[first, second]);
+
+    expect(persisted.knownHosts.keys.toSet(), <String>{hostAId, hostBId});
+    expect(persisted.knownHosts[hostAId]?.credential, 'credential-a');
+    expect(persisted.knownHosts[hostBId]?.credential, 'credential-b');
+    verify(() => storage.save(any())).called(2);
   });
 }

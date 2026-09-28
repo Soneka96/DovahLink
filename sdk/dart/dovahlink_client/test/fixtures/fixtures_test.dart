@@ -190,8 +190,8 @@ void main() {
       final PersistedClientState state = Fixtures.buildPersistedClientState();
 
       expect(state.clientId, 'client-1');
-      expect(state.credential, isNull);
-      expect(state.recoveryState, PairingRecoveryState.none);
+      expect(state.knownHosts, isEmpty);
+      expect(state.pendingPairingRecovery, isNull);
     });
 
     test(
@@ -204,8 +204,11 @@ void main() {
         );
 
         expect(state.clientId, isNull);
-        expect(state.credential, 'credential-1');
-        expect(state.recoveryState, PairingRecoveryState.confirming);
+        expect(state.knownHosts.values.single.credential, 'credential-1');
+        expect(
+          state.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
       },
     );
 

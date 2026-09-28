@@ -78,9 +78,9 @@ void main() {
           endpoint: defaultHostUri,
         );
         final MockDovahLinkClient client = MockDovahLinkClient();
-        when(
-          () => client.knownHostChanges,
-        ).thenAnswer((_) => Stream<DovahLinkHost?>.value(sdkHost));
+        when(() => client.knownHostsChanges).thenAnswer(
+          (_) => Stream<List<DovahLinkHost>>.value(<DovahLinkHost>[sdkHost]),
+        );
         await sl.unregister<IClientStorage>();
         sl.registerSingleton<IClientStorage>(MockClientStorage());
         await sl.unregister<DovahLinkClient>();
@@ -89,16 +89,15 @@ void main() {
         final Store<AppState> store = await const AppCompositionRoot()
             .createStore();
         final AppState observed = await store.onChange.firstWhere(
-          (AppState state) => state.connection.knownHost != null,
+          (AppState state) => state.connection.knownHosts.isNotEmpty,
         );
 
-        expect(
-          observed.connection.knownHost,
+        expect(observed.connection.knownHosts, [
           Fixtures.buildHost(
             hostId: sdkHost.hostId,
             displayName: sdkHost.hostName,
           ),
-        );
+        ]);
       },
     );
 

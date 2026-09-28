@@ -2,7 +2,6 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
@@ -31,7 +30,7 @@ class DpapiClientStorage implements IClientStorage {
   Future<PersistedClientState> load() async {
     final File file = File(_filePath);
     if (!file.existsSync()) {
-      return const PersistedClientState();
+      return PersistedClientState();
     }
 
     final Uint8List encrypted = await file.readAsBytes();
@@ -57,18 +56,24 @@ class DpapiClientStorage implements IClientStorage {
   /// target, so a crash mid-write cannot leave a partially written state file.
   @override
   Future<void> save(PersistedClientState state) async {
-    final DovahLinkHost? knownHost = state.knownHost;
+    final Map<String, dynamic> knownHosts = <String, dynamic>{};
+    for (final String hostId in state.knownHosts.keys.toList()..sort()) {
+      final relationship = state.knownHosts[hostId]!;
+      knownHosts[hostId] = <String, dynamic>{
+        'hostName': relationship.host.hostName,
+        'endpoint': relationship.host.endpoint.toString(),
+        'credential': relationship.credential,
+      };
+    }
     final Map<String, dynamic> json = <String, dynamic>{
       'formatVersion': PersistedClientState.currentFormatVersion,
       'clientId': state.clientId,
-      'credential': state.credential,
-      'recoveryState': state.recoveryState.name,
-      'knownHost': knownHost == null
+      'knownHosts': knownHosts,
+      'pendingPairingRecovery': state.pendingPairingRecovery == null
           ? null
           : <String, dynamic>{
-              'hostId': knownHost.hostId,
-              'hostName': knownHost.hostName,
-              'endpoint': knownHost.endpoint.toString(),
+              'hostId': state.pendingPairingRecovery!.hostId,
+              'state': state.pendingPairingRecovery!.state.name,
             },
     };
     final Uint8List plaintext = Uint8List.fromList(

@@ -17,10 +17,11 @@ abstract interface class IClientStateService {
     PersistedClientState Function(PersistedClientState state) update,
   );
 
-  /// Emits the persisted Known Host on listen and after each committed Host change. A failure to
-  /// load the initial persisted state is sent to the stream as an error.
-  /// @return A broadcast stream that replays the current Host to each listener.
-  Stream<DovahLinkHost?> get knownHostChanges;
+  /// Emits the complete persisted Host collection on listen and after each committed change. An
+  /// initial read failure is reported and the listener can recover after a later successful SDK
+  /// load or mutation.
+  /// @return A broadcast stream of immutable, Host-ID-sorted collections.
+  Stream<List<DovahLinkHost>> get knownHostsChanges;
 }
 
 /// Implements [IClientStateService] as the single owner of persisted client-state changes.
@@ -28,9 +29,9 @@ class ClientStateService implements IClientStateService {
   /// The platform storage used for complete client-state transactions.
   final IClientStorage _storage;
 
-  /// Replays the latest committed Known Host to each subscriber.
-  final CurrentValueStream<DovahLinkHost?> _knownHost =
-      CurrentValueStream<DovahLinkHost?>(null);
+  /// Replays the latest committed Known Hosts to each subscriber.
+  final CurrentValueStream<List<DovahLinkHost>?> _knownHosts =
+      CurrentValueStream<List<DovahLinkHost>?>(null);
 
   /// The last committed full client state, once loaded.
   PersistedClientState? _state;
@@ -61,16 +62,17 @@ class ClientStateService implements IClientStateService {
     }
     await _storage.save(next);
     _state = next;
-    _knownHost.update(next.knownHost);
+    _updateKnownHosts(next);
   });
 
-  /// Implements [IClientStateService.knownHostChanges].
+  /// Implements [IClientStateService.knownHostsChanges].
   @override
-  Stream<DovahLinkHost?> get knownHostChanges => Stream<DovahLinkHost?>.multi((
-    MultiStreamController<DovahLinkHost?> sink,
-  ) {
-    unawaited(_subscribeToKnownHost(sink));
-  }, isBroadcast: true);
+  Stream<List<DovahLinkHost>> get knownHostsChanges =>
+      Stream<List<DovahLinkHost>>.multi((
+        MultiStreamController<List<DovahLinkHost>> sink,
+      ) {
+        unawaited(_subscribeToKnownHosts(sink));
+      }, isBroadcast: true);
 
   /// Loads once, retaining the failed load only until its error is returned.
   /// @return The loaded persisted client state.
@@ -84,7 +86,7 @@ class ClientStateService implements IClientStateService {
     try {
       final PersistedClientState loaded = await loading;
       _state = loaded;
-      _knownHost.update(loaded.knownHost);
+      _updateKnownHosts(loaded);
       return loaded;
     } on Object {
       if (identical(_loadFuture, loading)) {
@@ -94,18 +96,55 @@ class ClientStateService implements IClientStateService {
     }
   }
 
-  /// Waits for initialization, then attaches to the replaying Host stream.
-  Future<void> _subscribeToKnownHost(
-    MultiStreamController<DovahLinkHost?> sink,
+  /// Emits load errors while keeping the subscriber for a later successful SDK load.
+  /// @param sink The subscriber receiving complete Known Hosts views and storage errors.
+  Future<void> _subscribeToKnownHosts(
+    MultiStreamController<List<DovahLinkHost>> sink,
   ) async {
+    bool cancelled = false;
+    StreamSubscription<List<DovahLinkHost>?>? subscription;
+    sink.onCancel = () async {
+      cancelled = true;
+      await subscription?.cancel();
+    };
     try {
       await _run(_loadState);
-      final StreamSubscription<DovahLinkHost?> subscription = _knownHost.stream
-          .listen(sink.add, onError: sink.addError);
-      sink.onCancel = subscription.cancel;
     } on Object catch (error, stackTrace) {
       sink.addError(error, stackTrace);
     }
+    if (cancelled) {
+      return;
+    }
+    subscription = _knownHosts.stream.listen((List<DovahLinkHost>? hosts) {
+      if (_state != null && hosts != null) {
+        sink.add(hosts);
+      }
+    }, onError: sink.addError);
+  }
+
+  /// Returns a sorted immutable projection of the Host relationships.
+  /// @param state The persisted relationship snapshot to project.
+  /// @return The immutable Known Hosts list in stable Host-ID order.
+  static List<DovahLinkHost> _hosts(PersistedClientState state) {
+    final List<DovahLinkHost> hosts =
+        state.knownHosts.values
+            .map((relationship) => relationship.host)
+            .toList()
+          ..sort((left, right) => left.hostId.compareTo(right.hostId));
+    return List<DovahLinkHost>.unmodifiable(hosts);
+  }
+
+  /// Publishes only when the public Host projection changed.
+  /// @param state The persisted state whose public Known Hosts view may have changed.
+  void _updateKnownHosts(PersistedClientState state) {
+    final List<DovahLinkHost> next = _hosts(state);
+    final List<DovahLinkHost>? current = _knownHosts.value;
+    if (current != null &&
+        next.length == current.length &&
+        next.indexed.every((entry) => entry.$2 == current[entry.$1])) {
+      return;
+    }
+    _knownHosts.update(next);
   }
 
   /// Runs [operation] after prior state work and keeps the queue usable after failure.

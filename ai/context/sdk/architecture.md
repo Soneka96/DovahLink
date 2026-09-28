@@ -35,11 +35,11 @@ Host:               "These clients are trusted."
 SDK on a client:    "This is my clientId and credential."
 ```
 
-The SDK owns its local `clientId`, credential, pairing `CONFIRMING` recovery state, Known Host
-metadata, and other client-side authentication persistence. Known Host records which Host the
-client previously paired with; it does not establish current trust. `SessionState` owns the current
-session's `DovahLinkHost` context, while the persistence layer owns its last-known durable copy. The
-SDK may expose typed APIs for Host trust-administration
+The SDK owns its local `clientId`, per-Host bearer credentials, the single Host-owned pairing
+`CONFIRMING` recovery operation, Known Host metadata, and other client-side authentication
+persistence. Known Hosts records the Hosts this client previously paired with; it does not establish
+current trust. `SessionState` owns the current session's `DovahLinkHost` context, while persistence
+owns the last-known durable collection. The SDK may expose typed APIs for Host trust-administration
 capabilities (list/revoke/reset), but the authoritative mutation always happens on the Host; see
 `ai/context/protocol/security.md` for the trust model itself.
 
@@ -50,9 +50,10 @@ The Host remains authoritative for live game values and server-side trust; exist
 health, magicka, stamina, level, and XP are examples of typed live-state views. Keep separate SDK
 streams per domain rather than combining unrelated state into a global stream.
 
-This describes the current singleton Known Host and bearer-credential implementation. The target
-multiple-KnownHost, key-based authentication, and pairing ownership contract is in
-[`../security/identity-and-transport.md`](../security/identity-and-transport.md).
+The current SDK stores multiple Known Hosts and scopes the current bearer credential and pending
+pairing recovery to their owning Host IDs. This does not authenticate a discovered Host-ID claim;
+the current wire authentication remains the loopback development protocol. Future cryptographic
+identity decisions remain in [`../security/identity-and-transport.md`](../security/identity-and-transport.md).
 
 ## App independence
 
@@ -170,7 +171,7 @@ When a supporting collaborator's dependency shape does not already match a real 
 with its own contract and depend on that contract. Never let a `ServiceImpl` implement the
 collaborator's own dependency port and pass `this`.
 
-The eight Services:
+The nine Services:
 
 - `ISessionService`/`SessionService` — owns transport lifecycle, connection state, and stream
   ownership: `connect`, `disconnect`, reads (`connectionState`, `currentSessionId`,
@@ -188,9 +189,11 @@ The eight Services:
   envelope decoding, correlation, and unsolicited routing: `sendAndAwait`, `handleIncoming`,
   `failAll`, `retryOrphanedOperations`. Privately owns `MessageRouter` and
   `PendingOperationTransmitter`.
-- `IAuthenticationService`/`AuthenticationService` — `hello`/authentication and credential
-  recovery.
+- `IAuthenticationService`/`AuthenticationService` — candidate authentication, Known Host
+  authentication by ID, Host-scoped credential recovery, and `hello`.
 - `IPairingService`/`PairingService` — pairing operations.
+- `IClientStateService`/`ClientStateService` — the sole owner of persisted client-state loads and
+  serialized complete-state mutations, with save-before-publish Known Hosts projections.
 - `IReconnectService`/`ReconnectService` — bounded automatic recovery from ordinary transport
   loss, reconnecting and re-authenticating up to an attempt budget and a hard deadline without
   taking over transport or authentication state from `ISessionService`/`IAuthenticationService`.

@@ -52,8 +52,8 @@ void main() {
   late MockDovahLinkDiscoveryService mockDiscoveryService;
   late MockDovahLinkClient mockClient;
   late MockClientStorage mockStorage;
-  late StreamController<DovahLinkHost?> knownHostController;
-  late Stream<DovahLinkHost?> knownHostChanges;
+  late StreamController<List<DovahLinkHost>> knownHostsController;
+  late Stream<List<DovahLinkHost>> knownHostsChanges;
   late int knownHostListenerCount;
   late int knownHostCancellationCount;
   late MockStore store;
@@ -64,19 +64,21 @@ void main() {
     mockDiscoveryService = MockDovahLinkDiscoveryService();
     mockClient = MockDovahLinkClient();
     mockStorage = MockClientStorage();
-    knownHostController = StreamController<DovahLinkHost?>.broadcast();
+    knownHostsController = StreamController<List<DovahLinkHost>>.broadcast();
     knownHostListenerCount = 0;
     knownHostCancellationCount = 0;
-    knownHostChanges = Stream<DovahLinkHost?>.multi((sink) {
+    knownHostsChanges = Stream<List<DovahLinkHost>>.multi((sink) {
       knownHostListenerCount++;
-      final StreamSubscription<DovahLinkHost?> subscription =
-          knownHostController.stream.listen(sink.add, onError: sink.addError);
+      final StreamSubscription<List<DovahLinkHost>> subscription =
+          knownHostsController.stream.listen(sink.add, onError: sink.addError);
       sink.onCancel = () async {
         knownHostCancellationCount++;
         await subscription.cancel();
       };
     }, isBroadcast: true);
-    when(() => mockClient.knownHostChanges).thenAnswer((_) => knownHostChanges);
+    when(
+      () => mockClient.knownHostsChanges,
+    ).thenAnswer((_) => knownHostsChanges);
     store = MockStore();
     when(() => store.state).thenReturn(AppState.initial());
     middleware = ConnectionMiddleware();
@@ -87,12 +89,12 @@ void main() {
 
   tearDown(() async {
     await middleware.shutdown();
-    await knownHostController.close();
+    await knownHostsController.close();
     await sl.reset();
   });
 
   group('ConnectionMiddleware Known Host observation behaves correctly', () {
-    test('initialize dispatches the SDK-reported null Known Host', () async {
+    test('initialize dispatches the SDK-reported empty collection', () async {
       final List<Object?> actions = <Object?>[];
       final Store<AppState> integrationStore = const CreateStore()(
         middleware: [
@@ -105,14 +107,14 @@ void main() {
       );
 
       middleware.initialize(integrationStore);
-      knownHostController.add(null);
+      knownHostsController.add(const <DovahLinkHost>[]);
       await pumpEventQueue();
 
       expect(knownHostListenerCount, 1);
-      expect(actions.whereType<ConnectionKnownHostChangedAction>(), [
-        const ConnectionKnownHostChangedAction(null),
+      expect(actions.whereType<ConnectionKnownHostsChangedAction>(), [
+        ConnectionKnownHostsChangedAction(const <Host>[]),
       ]);
-      expect(integrationStore.state.connection.knownHost, isNull);
+      expect(integrationStore.state.connection.knownHosts, isEmpty);
     });
 
     test(
@@ -134,20 +136,26 @@ void main() {
 
         middleware.initialize(integrationStore);
         middleware.initialize(integrationStore);
-        knownHostController.add(first);
+        knownHostsController.add(<DovahLinkHost>[first]);
         await pumpEventQueue();
-        expect(
-          integrationStore.state.connection.knownHost,
+        expect(integrationStore.state.connection.knownHosts, <Host>[
           HostMapper.fromSdk(first),
-        );
-        knownHostController.add(second);
+        ]);
+        knownHostsController.add(<DovahLinkHost>[first, second]);
         await pumpEventQueue();
 
         expect(knownHostListenerCount, 1);
-        expect(
-          integrationStore.state.connection.knownHost,
+        expect(integrationStore.state.connection.knownHosts, <Host>[
+          HostMapper.fromSdk(first),
           HostMapper.fromSdk(second),
-        );
+        ]);
+
+        knownHostsController.add(<DovahLinkHost>[second]);
+        await pumpEventQueue();
+
+        expect(integrationStore.state.connection.knownHosts, <Host>[
+          HostMapper.fromSdk(second),
+        ]);
       },
     );
 
@@ -166,18 +174,17 @@ void main() {
         endpoint: Uri.parse('ws://127.0.0.1:58232/'),
       );
       middleware.initialize(integrationStore);
-      knownHostController.add(first);
+      knownHostsController.add(<DovahLinkHost>[first]);
       await pumpEventQueue();
 
       await middleware.shutdown();
-      knownHostController.add(second);
+      knownHostsController.add(<DovahLinkHost>[second]);
       await pumpEventQueue();
 
       expect(knownHostCancellationCount, 1);
-      expect(
-        integrationStore.state.connection.knownHost,
+      expect(integrationStore.state.connection.knownHosts, <Host>[
         HostMapper.fromSdk(first),
-      );
+      ]);
     });
 
     test('initialize stays inert after shutdown', () async {
@@ -222,18 +229,17 @@ void main() {
       );
       middleware.initialize(integrationStore);
 
-      knownHostController.addError(StateError('storage read failed'));
+      knownHostsController.addError(StateError('storage read failed'));
       await pumpEventQueue();
-      knownHostController.add(host);
+      knownHostsController.add(<DovahLinkHost>[host]);
       await pumpEventQueue();
 
       expect(reported, hasLength(1));
       expect(reported.single.exception, isA<StateError>());
       expect(knownHostListenerCount, 1);
-      expect(
-        integrationStore.state.connection.knownHost,
+      expect(integrationStore.state.connection.knownHosts, <Host>[
         HostMapper.fromSdk(host),
-      );
+      ]);
     });
   });
 

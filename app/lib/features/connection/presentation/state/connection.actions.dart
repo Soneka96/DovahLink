@@ -16,18 +16,19 @@ class ConnectionHostSelectedAction extends Equatable {
   List<Object?> get props => [host];
 }
 
-/// Carries the latest SDK-owned Known Host projection into Redux.
-class ConnectionKnownHostChangedAction extends Equatable {
-  /// The app-mapped Known Host, or `null` when the SDK reports no persisted Host.
-  final Host? knownHost;
+/// Carries the complete SDK-owned Known Hosts projection into Redux.
+class ConnectionKnownHostsChangedAction extends Equatable {
+  /// The complete app-mapped Known Hosts collection.
+  final List<Host> knownHosts;
 
-  /// Creates a Known Host observation action.
-  /// @param knownHost The current SDK-reported Host after app-boundary mapping.
-  const ConnectionKnownHostChangedAction(this.knownHost);
+  /// Creates an immutable Known Hosts observation action.
+  /// @param knownHosts The complete SDK-reported collection after app-boundary mapping.
+  ConnectionKnownHostsChangedAction(List<Host> knownHosts)
+    : knownHosts = List<Host>.unmodifiable(knownHosts);
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [knownHost];
+  List<Object?> get props => [knownHosts];
 }
 
 /// Requests a fresh Host discovery operation.

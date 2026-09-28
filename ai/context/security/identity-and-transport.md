@@ -53,12 +53,19 @@ LAN/mDNS discovery, Host selection UI, automatic Host ranking or failover, alias
 | Host identity | Persistent `hostId`; mutable OS-derived `hostName`; both appear in `hello_ack`. | Retain those semantics and bind `hostId` to a pinned persistent Host key. |
 | Client identity | Stable persisted `clientId`. | Retain it and bind it to a persistent Client key. |
 | Endpoint | Routing information, separate from Host identity. | Routing information only; never a trust anchor. |
-| Client Host persistence | One optional `PersistedClientState.knownHost`. | `knownHosts`, keyed by `hostId`, with an independent pin and endpoint per Host. |
+| Client Host persistence | `knownHosts`, keyed by `hostId`, with each bearer credential scoped to its Host and one Host-owned pending recovery operation. | `knownHosts`, keyed by `hostId`, with an independent pin and endpoint per Host. |
 | Trusted reconnect | `hello.auth` sends a persisted bearer `trusted_device_credential`. | TLS Host verification and Client proof-of-possession; no reusable bearer secret. |
 | Pairing | The current loopback implementation uses a six-digit code and issues a reusable credential. | A future successful bootstrap proof feeds a DovahLink-owned pending authorization decision; user approval, not the proof alone, may establish durable trust. The production bootstrap remains unresolved after S2.2 STOP. |
 | Transport | Current loopback WebSocket behavior is defined by `ai/context/protocol/security.md`. | WSS/TLS 1.3, pinned Host identity, and mutual cryptographic authentication for trusted clients. |
 
 The current wire schema remains current until the migration changes it. Do not edit `protocol/schema/README.md` or fixtures to describe target messages as implemented during S1.
+
+The SDK's format-3 persistence correction keeps the current bearer protocol but stores multiple
+Known Host relationships, each with its own current credential and endpoint metadata, plus one
+pending recovery record owned by a Host ID. Known Host operations resolve that relationship inside
+the SDK. This prevents selecting one Host's stored credential for another Host-ID request. The
+current `hostId` report is still a peer claim, not cryptographic proof of Host identity; future Host
+pinning and Client proof-of-possession remain unimplemented.
 
 ## 5. Host identity
 
@@ -121,9 +128,9 @@ A KnownHost means “this Client previously established a relationship with this
 
 The S1 plan for a transitional singleton bearer binding was superseded by the maintainer's S2.1
 legacy rule. Do not add a singleton bearer migration service, dual-authentication mode, bearer
-fallback, or compatibility negotiation. Existing bearer/PIN state is unreleased development state;
-a later authorized cutover may invalidate it and require re-pairing. The current production baseline
-remains unchanged while S2.2 is STOP.
+fallback, or compatibility negotiation. The SDK's format-3 persistence cutover preserved `clientId`
+and invalidated unreleased format-1/format-2 bearer state, requiring re-pairing. The current wire
+and cryptographic security baseline remains unchanged while S2.2 is STOP.
 
 There may be at most one active/persisted pairing recovery operation per Client installation. It must record its owning `hostId`; a pairing operation or recovery for AAA must never resume against BBB. Multiple concurrent pairing operations are not required.
 
@@ -234,11 +241,19 @@ If a Host reset changes `hostId` from AAA to BBB, the Client treats BBB as a dif
 
 ## 17. Migration from bearer credentials
 
-Current state is a singleton KnownHost record, a persisted trusted-device bearer credential, a `hello` containing `trusted_device_credential` and `auth.token`, and pairing that issues then acknowledges that credential. S1 documents a future replacement only; it does not patch `AuthenticationService`, `PairingService`, persistence, Host startup, or wire behavior.
+Current wire state still uses a persisted trusted-device bearer credential, a `hello` containing
+`trusted_device_credential` and `auth.token`, and pairing that issues then acknowledges that
+credential. The SDK persists multiple Known Host relationships and selects a credential by the
+requested Host ID. This data ownership correction does not add cryptographic Host authentication or
+change Host, Adapter, protocol, or wire behavior.
 
 PR #100's experimental sequence — identify a Host on one connection, disconnect, reconnect to the same endpoint, then send that Host's bearer credential — is rejected. Endpoint ownership can change between the two connections, so a different Host can receive the credential after the first connection verified the expected `hostId`. More reconnects or another `AuthenticationService` guard do not close that TOCTOU gap. The replacement verifies the pinned Host key and proves Client-key possession on one cryptographically bound transport. Preserve the useful regression cases from that experiment: a wrong Host does not mutate KnownHost; endpoint/name changes do not change Host identity; and Host mismatch remains typed.
 
-The S1 target proposed multiple KnownHosts, a persistent Client key, Host-key pinning, PAKE pairing, certificate-based Client authentication, and removal of reusable bearer credentials. The certificate-based Client-authentication direction has been superseded by the selected application-level fresh ECDSA P-256 PoP architecture for v1; its exact S7 protocol remains unspecified. S2.2 did not select an initial-pairing profile. No legacy migration or dual-authentication machinery is approved; when a future passing initial-pairing profile reaches its authorized cutover, unreleased development trust may be invalidated and require re-pairing. Current wire fields remain current until their migration PR lands.
+The future security target includes Host-key pinning, a passing initial-pairing construction, and
+application-level fresh ECDSA P-256 PoP for v1; its exact S7 protocol remains unspecified. S2.2 did
+not select an initial-pairing profile. The current format-3 persistence cutover preserves `clientId`
+and invalidates unreleased format-1/format-2 singleton bearer state, requiring re-pairing. It adds
+no dual-authentication machinery. Current wire fields remain current until their migration PR lands.
 
 DovahLink has no supported public release that requires compatibility with unshipped protocol generations. Follow `ai/context/common.md`'s pre-release compatibility policy: update the baseline cleanly instead of adding legacy protocol negotiation or a compatibility shim. Existing unreleased bearer/PIN development state may be invalidated and require re-pairing; do not add migration machinery to preserve it.
 
@@ -267,7 +282,7 @@ Every security migration PR must leave the merged baseline internally coherent. 
 | **S2.2** | Pasini–Vaudenay SAS-AKE production-profile feasibility. **STOP — post-SAS application composition is unproven; no production profile selected; S3 remains blocked.** See `crypto-stack-selection.md`. |
 | **S3** | Persistent Host cryptographic identity and protected Host private-key storage. |
 | **S4** | Persistent Client cryptographic identity abstraction and platform key storage. |
-| **S5** | Multi-Host persistence: `knownHosts` keyed by `hostId`, each pinned Host identity, endpoint and name metadata, and Host-scoped pairing recovery. The old singleton bearer format is unreleased development state; do not add compatibility or migration machinery to preserve it. A later approved cutover may require reset and re-pairing. |
+| **S5** | Future Host pinning and authenticated identity binding for the existing `knownHosts` collection. SDK persistence cardinality and bearer/recovery ownership now use Host IDs, but no cryptographic pin or peer authentication is implemented. The format-3 cutover invalidates unreleased singleton state and requires re-pairing; do not add compatibility machinery to preserve it. |
 | **S6** | WSS/TLS 1.3 transport, normal Host-key verification, and provisional initial-pair plumbing, only after the profile passes. Disable resumption and 0-RTT. |
 | **S7** | Specify and implement the selected application-level fresh ECDSA P-256 Client PoP architecture: exact transcript/encoding, challenge and consumption rules, replay behavior, independent C#↔Dart vectors, and Host mapping of proven public identity plus `clientId` to KnownDevice. This does not select mTLS. |
 | **S8** | Implement the selected initial-pairing construction and key binding, only after a future complete profile and retry policy pass review. |

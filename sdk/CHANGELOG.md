@@ -13,15 +13,17 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Added
 
-- `DovahLinkClient.knownHostChanges` emits the current persisted Known Host and each committed change.
-- The SDK persists the previously paired Host with client state and exposes it through
-  `DovahLinkClient.loadKnownHost()` without treating it as current trust.
+- `DovahLinkClient.knownHostsChanges` emits the complete persisted Known Hosts view after commits.
+- The SDK keeps each Host's current bearer credential and pending pairing recovery scoped to that Host ID.
+- Known Host authentication resolves its endpoint and credential inside the SDK from `DovahLinkHostId`.
 - The SDK handshake result exposes the stable Host installation ID and current OS computer name.
 - The Dart SDK discovers the local loopback Host with an isolated unpaired handshake and returns the responding peer's validated Host ID and name claims with its endpoint; discovery does not authenticate Host identity.
 - DovahLinkConnectionException preserves an HTTP status when a peer rejects the WebSocket upgrade during discovery.
 
 ### Changed
 
+- Pairing credentials no longer leave the SDK API, and candidate authentication never selects a Known Host credential.
+- Persisted client state moves to format 3; unreleased singleton bearer state requires pairing again.
 - The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
 - Windows DPAPI storage is available through a Windows-specific entry point, while the shared SDK entry point stays platform-neutral.
 

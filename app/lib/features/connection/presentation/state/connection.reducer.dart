@@ -11,7 +11,7 @@ Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
   TypedReducer<ConnectionState, ConnectionHostSelectedAction>(
     connectionHostSelectedReducer,
   ).call,
-  TypedReducer<ConnectionState, ConnectionKnownHostChangedAction>(
+  TypedReducer<ConnectionState, ConnectionKnownHostsChangedAction>(
     connectionKnownHostChangedReducer,
   ).call,
   TypedReducer<ConnectionState, ConnectionDiscoveryStartedAction>(
@@ -25,15 +25,13 @@ Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
   ).call,
 ]);
 
-/// Replaces the Redux projection with the Known Host value reported by the SDK.
+/// Replaces the Redux projection with the complete Known Hosts collection reported by the SDK.
 /// @param state The current connection projection.
-/// @param action The SDK-observed Known Host value to mirror.
+/// @param action The complete SDK-observed collection to mirror.
 ConnectionState connectionKnownHostChangedReducer(
   ConnectionState state,
-  ConnectionKnownHostChangedAction action,
-) => state.copyWith(
-  knownHost: action.knownHost == null ? const None() : Some(action.knownHost!),
-);
+  ConnectionKnownHostsChangedAction action,
+) => state.copyWith(knownHosts: action.knownHosts);
 
 /// Handles [ConnectionHostSelectedAction].
 /// Updates [ConnectionState.selectedHost] to the Host the user selected, replacing any earlier

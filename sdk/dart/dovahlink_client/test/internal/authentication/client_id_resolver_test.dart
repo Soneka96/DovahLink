@@ -24,7 +24,7 @@ void main() {
   setUp(() {
     clientStateService = MockClientStateService();
     savedState = null;
-    currentState = const PersistedClientState();
+    currentState = PersistedClientState();
     when(() => clientStateService.updateState(any())).thenAnswer((
       invocation,
     ) async {
@@ -85,8 +85,11 @@ void main() {
           ),
         );
         expect(persisted.clientId, clientId);
-        expect(persisted.credential, 'credential-1');
-        expect(persisted.recoveryState, PairingRecoveryState.confirming);
+        expect(persisted.knownHosts.values.single.credential, 'credential-1');
+        expect(
+          persisted.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
       },
     );
 
@@ -107,8 +110,11 @@ void main() {
       expect(clientId, isNotEmpty);
       final PersistedClientState persisted = savedState!;
       expect(persisted.clientId, clientId);
-      expect(persisted.credential, 'credential-1');
-      expect(persisted.recoveryState, PairingRecoveryState.confirming);
+      expect(persisted.knownHosts.values.single.credential, 'credential-1');
+      expect(
+        persisted.pendingPairingRecovery?.state,
+        PairingRecoveryState.confirming,
+      );
     });
 
     test(

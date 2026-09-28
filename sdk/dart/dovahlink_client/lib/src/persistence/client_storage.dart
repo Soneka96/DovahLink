@@ -2,7 +2,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 
 /// The SDK-owned persistence boundary for [PersistedClientState]: the stable local client ID,
-/// pairing credential, and `CONFIRMING` recovery state. Implementations own where and how this is
+/// Host-keyed relationships and credentials, and Host-owned `CONFIRMING` recovery state. Implementations own where and how this is
 /// durably stored (see `ai/context/sdk/persistence.md`'s "Storage abstraction" and
 /// `ai/context/sdk/architecture.md`'s "Platform ports"); the client engine depends only on this
 /// interface, never on a concrete storage mechanism.

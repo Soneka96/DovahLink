@@ -1,7 +1,9 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_not_found_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
@@ -12,7 +14,9 @@ import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart'
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
+import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_ack_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/hello_payload.dart';
@@ -28,21 +32,35 @@ abstract interface class IAuthenticationService {
   String? get clientId;
 
   /// Sends `hello` and admits the returned session. Resolves and persists this installation's
-  /// [IAuthenticationService.clientId] on first use. A saved credential is presented unless
-  /// [PairingRecoveryState.confirming] is pending; the Host has not trusted that credential yet.
+  /// [IAuthenticationService.clientId] on first use. Does not select a Known Host credential.
   /// After admission, retries any orphaned operation whose trust requirement the new session meets.
+  /// @return The current Host handshake and trust result.
   /// @throws [DovahLinkProtocolException] if the Host rejects authentication.
   /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
   ///     pairing recovery reports a different Host ID from the stored Known Host.
+  /// @throws [DovahLinkKnownHostNotFoundException] if [hostId] is not in the persisted collection.
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   /// @throws [DovahLinkConnectionException] if disconnect cancels an in-flight authentication.
   Future<HelloResult> hello();
 
+  /// Authenticates a reconnect using the relationship most recently established by this client.
+  /// @return The result of the admitted reconnect session.
+  Future<HelloResult> helloLastKnownHost();
+
   /// Invalidates any authentication continuation waiting on storage or Host I/O.
   void cancelPendingAuthentication();
 
-  /// Connects to [uri] and authenticates. If the Host rejects a saved credential as
+  /// Connects to an untrusted candidate at [uri] without using Known Host credentials.
+  /// @param uri The candidate endpoint to probe or pair with.
+  /// @return The Host identity claim and trust outcome reported by the candidate.
+  /// @throws [DovahLinkConnectionException] if the candidate endpoint cannot connect.
+  /// @throws [DovahLinkProtocolException] if the candidate returns a malformed or rejected hello.
+  /// @throws [DovahLinkCompatibilityException] if the Host version is unsupported.
+  Future<HelloResult> authenticateCandidate(Uri uri);
+
+  /// Connects to the persisted endpoint and uses only the credential owned by [hostId]. If the
+  /// Host rejects it as
   /// [CredentialRejectionReason.revoked] or [CredentialRejectionReason.unrecognized], discards it
   /// and retries once with [AuthMethod.unpaired].
   /// [HelloResult.recoveredFromRejectedCredential] reports that recovery. Transport failures,
@@ -58,12 +76,17 @@ abstract interface class IAuthenticationService {
   ///     range.
   /// @throws [DovahLinkHostIdentityMismatchException] if a trusted session or an outstanding
   ///     pairing recovery reports a different Host ID from the stored Known Host.
-  Future<HelloResult> authenticate(Uri uri);
+  /// @param hostId The stable identifier of the Known Host to authenticate.
+  /// @return The connected Host's handshake and trust result.
+  Future<HelloResult> authenticateKnownHost(DovahLinkHostId hostId);
 
-  /// Discards the stored credential and pairing-recovery state while preserving
-  /// [IAuthenticationService.clientId]. The next [IAuthenticationService.hello] authenticates as
-  /// [AuthMethod.unpaired]. Does not alter the transport or session state.
-  Future<void> forgetCredential();
+  /// Discards the named Host's credential and its owned recovery state, preserving Host metadata
+  /// and [IAuthenticationService.clientId].
+  /// @param hostId The stable identifier of the Known Host to update.
+  Future<void> forgetCredential(DovahLinkHostId hostId);
+
+  /// Clears the credential for the Host most recently authenticated by this client.
+  Future<void> forgetLastKnownCredential();
 }
 
 /// Implements [IAuthenticationService] by coordinating credential loading, Host hello requests,
@@ -125,18 +148,50 @@ class AuthenticationService implements IAuthenticationService {
   @override
   Future<HelloResult> hello() => _hello(_authenticationGeneration);
 
+  /// Resolves the previous relationship for automatic reconnect, if it still exists.
+  /// @return The result of the admitted reconnect session.
+  @override
+  Future<HelloResult> helloLastKnownHost() async {
+    final PersistedClientState state = await _clientStateService.load();
+    final String? hostId =
+        state.pendingPairingRecovery?.hostId ?? _lastHelloResult?.hostId;
+    return _hello(
+      _authenticationGeneration,
+      knownHostId:
+          hostId != null && state.knownHosts.containsKey(hostId.toLowerCase())
+          ? hostId
+          : null,
+      stateSnapshot: state,
+    );
+  }
+
   /// Sends hello while [generation] remains the active authentication generation.
-  Future<HelloResult> _hello(int generation) async {
+  /// @param generation The authentication generation that owns this handshake.
+  /// @param knownHostId The selected Known Host ID, or `null` for candidate/unpaired hello.
+  /// @param stateSnapshot The coherent state snapshot selected with the endpoint, if already read.
+  /// @return The result of the admitted handshake.
+  Future<HelloResult> _hello(
+    int generation, {
+    String? knownHostId,
+    PersistedClientState? stateSnapshot,
+  }) async {
     bool disconnectAfterFailure = false;
     try {
-      final PersistedClientState state = await _clientStateService.load();
+      final PersistedClientState state =
+          stateSnapshot ?? await _clientStateService.load();
       _ensureAuthenticationCurrent(generation);
       final String clientId = await _clientIdResolver.resolve(state);
       _ensureAuthenticationCurrent(generation);
+      final PersistedKnownHost? knownRelationship = knownHostId == null
+          ? null
+          : state.knownHosts[knownHostId];
+      if (knownHostId != null && knownRelationship == null) {
+        throw DovahLinkKnownHostNotFoundException(knownHostId);
+      }
       final String? credential =
-          state.recoveryState == PairingRecoveryState.none
-          ? state.credential
-          : null;
+          state.pendingPairingRecovery?.hostId == knownHostId
+          ? null
+          : knownRelationship?.credential;
       _clientIdCache.set(clientId);
 
       final HelloPayload payload = HelloPayload(
@@ -189,37 +244,49 @@ class AuthenticationService implements IAuthenticationService {
         hostName: ack.hostName,
         endpoint: currentEndpoint,
       );
-      final DovahLinkHost? pendingPairingHost =
-          state.recoveryState == PairingRecoveryState.confirming
-          ? state.knownHost
-          : null;
-      if (pendingPairingHost != null &&
-          pendingPairingHost.hostId.toLowerCase() !=
+      final String? pendingPairingHostId = state.pendingPairingRecovery?.hostId;
+      if (pendingPairingHostId != null &&
+          pendingPairingHostId.toLowerCase() !=
               currentHost.hostId.toLowerCase()) {
         throw DovahLinkHostIdentityMismatchException(
-          knownHostId: pendingPairingHost.hostId,
+          knownHostId: pendingPairingHostId,
+          reportedHostId: currentHost.hostId,
+        );
+      }
+      if (knownHostId != null &&
+          knownHostId.toLowerCase() != currentHost.hostId.toLowerCase()) {
+        throw DovahLinkHostIdentityMismatchException(
+          knownHostId: knownHostId,
           reportedHostId: currentHost.hostId,
         );
       }
       if (trustState == DovahLinkTrustState.trusted) {
+        if (knownHostId == null) {
+          throw const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message:
+                'The Host reported a paired session without Known Host authentication.',
+            retryable: false,
+          );
+        }
         await _clientStateService.updateState((PersistedClientState state) {
-          final DovahLinkHost? knownHost = state.knownHost;
-          if (knownHost != null &&
-              knownHost.hostId.toLowerCase() !=
-                  currentHost.hostId.toLowerCase()) {
-            throw DovahLinkHostIdentityMismatchException(
-              knownHostId: knownHost.hostId,
-              reportedHostId: currentHost.hostId,
-            );
+          final PersistedKnownHost? relationship =
+              state.knownHosts[currentHost.hostId.toLowerCase()];
+          if (relationship == null) {
+            throw DovahLinkKnownHostNotFoundException(currentHost.hostId);
           }
           return state.copyWith(
-            knownHost: knownHost == null
-                ? currentHost
-                : DovahLinkHost(
-                    hostId: knownHost.hostId,
-                    hostName: currentHost.hostName,
-                    endpoint: currentHost.endpoint,
-                  ),
+            knownHosts: <String, PersistedKnownHost>{
+              ...state.knownHosts,
+              currentHost.hostId.toLowerCase(): PersistedKnownHost(
+                host: DovahLinkHost(
+                  hostId: relationship.host.hostId,
+                  hostName: currentHost.hostName,
+                  endpoint: currentHost.endpoint,
+                ),
+                credential: relationship.credential,
+              ),
+            },
           );
         });
         _ensureAuthenticationCurrent(generation);
@@ -266,14 +333,47 @@ class AuthenticationService implements IAuthenticationService {
     }
   }
 
-  /// Implements [IAuthenticationService.authenticate].
+  /// Implements [IAuthenticationService.authenticateCandidate].
   @override
-  Future<HelloResult> authenticate(Uri uri) async {
+  Future<HelloResult> authenticateCandidate(Uri uri) =>
+      _authenticate(uri, null);
+
+  /// Implements [IAuthenticationService.authenticateKnownHost].
+  @override
+  Future<HelloResult> authenticateKnownHost(DovahLinkHostId hostId) async {
+    final String id = hostId.value;
+    final PersistedClientState state = await _clientStateService.load();
+    final PersistedKnownHost? relationship = state.knownHosts[id];
+    if (relationship == null) {
+      throw DovahLinkKnownHostNotFoundException(id);
+    }
+    final PendingPairingRecovery? recovery = state.pendingPairingRecovery;
+    if (recovery != null && recovery.hostId.toLowerCase() != id.toLowerCase()) {
+      throw DovahLinkHostIdentityMismatchException(
+        knownHostId: recovery.hostId,
+        reportedHostId: id,
+      );
+    }
+    return _authenticate(relationship.host.endpoint, id, state);
+  }
+
+  /// Connects and authenticates with only the explicitly selected relationship.
+  /// @param uri The SDK-resolved endpoint for the operation.
+  /// @param knownHostId The selected relationship owner, or `null` for an untrusted candidate.
+  /// @param stateSnapshot The relationship snapshot selected with [uri], if any.
+  /// @return The result of the admitted handshake.
+  Future<HelloResult> _authenticate(
+    Uri uri,
+    String? knownHostId, [
+    PersistedClientState? stateSnapshot,
+  ]) async {
     final int generation = _authenticationGeneration;
     final HelloResult? cachedHelloResult = _lastHelloResult;
-    if (_sessionService.connectionState == DovahLinkConnectionState.connected &&
+    if (knownHostId != null &&
+        _sessionService.connectionState == DovahLinkConnectionState.connected &&
         _sessionService.currentTrustState == DovahLinkTrustState.trusted &&
-        cachedHelloResult != null) {
+        cachedHelloResult != null &&
+        cachedHelloResult.hostId.toLowerCase() == knownHostId.toLowerCase()) {
       return HelloResult(
         hostId: cachedHelloResult.hostId,
         hostName: cachedHelloResult.hostName,
@@ -292,17 +392,21 @@ class AuthenticationService implements IAuthenticationService {
     await _sessionService.connect(uri);
     _ensureAuthenticationCurrent(generation);
     try {
-      final HelloResult result = await _hello(generation);
+      final HelloResult result = await _hello(
+        generation,
+        knownHostId: knownHostId,
+        stateSnapshot: stateSnapshot,
+      );
       _ensureAuthenticationCurrent(generation);
       return result;
     } on DovahLinkProtocolException catch (error) {
       _ensureAuthenticationCurrent(generation);
       final CredentialRejectionReason? reason =
           CredentialRejectionReason.fromProtocolErrorCode(error.code);
-      if (reason == null) {
+      if (reason == null || knownHostId == null) {
         rethrow;
       }
-      await _forgetCredential(generation);
+      await _forgetCredential(knownHostId, generation);
       _ensureAuthenticationCurrent(generation);
       await _sessionService.connect(uri);
       _ensureAuthenticationCurrent(generation);
@@ -335,17 +439,40 @@ class AuthenticationService implements IAuthenticationService {
 
   /// Implements [IAuthenticationService.forgetCredential].
   @override
-  Future<void> forgetCredential() => _forgetCredential(null);
+  Future<void> forgetCredential(DovahLinkHostId hostId) =>
+      _forgetCredential(hostId.value, null);
+
+  /// Implements [IAuthenticationService.forgetLastKnownCredential].
+  @override
+  Future<void> forgetLastKnownCredential() async {
+    final String? hostId = _lastHelloResult?.hostId;
+    if (hostId != null) {
+      await _forgetCredential(hostId, null);
+    }
+  }
 
   /// Clears persisted trust only while [generation] remains current.
-  Future<void> _forgetCredential(int? generation) async {
+  /// @param hostId The relationship whose credential is being cleared.
+  /// @param generation The owning authentication generation, or `null` for explicit cleanup.
+  Future<void> _forgetCredential(String hostId, int? generation) async {
     await _clientStateService.updateState((PersistedClientState current) {
       if (generation != null) {
         _ensureAuthenticationCurrent(generation);
       }
-      return PersistedClientState(
-        clientId: current.clientId,
-        knownHost: current.knownHost,
+      final String normalizedHostId = hostId.toLowerCase();
+      final PersistedKnownHost? relationship =
+          current.knownHosts[normalizedHostId];
+      if (relationship == null) {
+        return current;
+      }
+      return current.copyWith(
+        knownHosts: <String, PersistedKnownHost>{
+          ...current.knownHosts,
+          normalizedHostId: PersistedKnownHost(host: relationship.host),
+        },
+        clearPendingPairingRecovery:
+            current.pendingPairingRecovery?.hostId.toLowerCase() ==
+            normalizedHostId,
       );
     });
   }

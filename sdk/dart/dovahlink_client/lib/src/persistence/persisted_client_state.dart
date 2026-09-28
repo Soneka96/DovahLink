@@ -1,61 +1,129 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
-import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 
-/// The SDK-owned persisted client identity, credential, recovery state, and Known Host. Versioned
-/// so an [IClientStorage] implementation can detect unsupported formats instead of misinterpreting
-/// them. See `ai/context/sdk/persistence.md`.
+/// The SDK-owned client identity and Host relationships.
 class PersistedClientState {
-  /// The current persisted-state format version this SDK writes; supported legacy formats are also
-  /// read.
-  static const int currentFormatVersion = 2;
+  /// The current persisted-state format version this SDK writes.
+  static const int currentFormatVersion = 3;
 
-  /// Creates a persisted client state. The defaults describe the empty state a fresh install
-  /// starts from, before any client ID has been generated.
-  const PersistedClientState({
-    this.clientId,
-    this.credential,
-    this.recoveryState = PairingRecoveryState.none,
-    this.knownHost,
-  });
-
-  /// The stable local client/installation identity, or `null` before one has been generated.
+  /// The stable local client identity, or `null` before one has been generated.
   final String? clientId;
 
-  /// The trusted-device credential a completed pairing issued, or `null` before pairing.
-  final String? credential;
+  /// Known Host relationships keyed by the stable Host ID.
+  final Map<String, PersistedKnownHost> knownHosts;
 
-  /// The current pairing recovery standing.
-  final PairingRecoveryState recoveryState;
+  /// The single active pairing recovery operation, if any.
+  final PendingPairingRecovery? pendingPairingRecovery;
 
-  /// The Host previously associated with this client, or `null` before pairing establishes one.
-  final DovahLinkHost? knownHost;
+  /// Creates client state with immutable, Host-ID-keyed relationships.
+  /// @param clientId The stable local Client ID, or `null` before it is generated.
+  /// @param knownHosts The Host relationships to own, keyed by stable Host ID.
+  /// @param pendingPairingRecovery The single active Host-owned recovery operation, if any.
+  /// @throws [ArgumentError] if a relationship key is invalid or recovery has no Known Host.
+  PersistedClientState({
+    this.clientId,
+    Map<String, PersistedKnownHost> knownHosts = const {},
+    this.pendingPairingRecovery,
+  }) : knownHosts = _normalizeKnownHosts(knownHosts) {
+    if (pendingPairingRecovery != null &&
+        !this.knownHosts.containsKey(
+          pendingPairingRecovery!.hostId.toLowerCase(),
+        )) {
+      throw ArgumentError.value(
+        pendingPairingRecovery,
+        'pendingPairingRecovery',
+        'must belong to a Known Host',
+      );
+    }
+  }
 
-  /// Returns a copy of this state with the given fields replaced. To explicitly clear a field to
-  /// `null` (for example discarding a stale credential), construct a new [PersistedClientState]
-  /// directly instead -- this only supports additive field replacement.
+  /// Returns a copy with selected values replaced.
+  /// @param clientId The replacement local Client ID, or `null` to retain the current value.
+  /// @param knownHosts The replacement complete Host map, or `null` to retain it.
+  /// @param pendingPairingRecovery The recovery operation to set, if supplied.
+  /// @param clearPendingPairingRecovery Whether to clear the current recovery operation.
+  /// @return A new immutable persisted-state value.
   PersistedClientState copyWith({
     String? clientId,
-    String? credential,
-    PairingRecoveryState? recoveryState,
-    DovahLinkHost? knownHost,
+    Map<String, PersistedKnownHost>? knownHosts,
+    PendingPairingRecovery? pendingPairingRecovery,
+    bool clearPendingPairingRecovery = false,
   }) => PersistedClientState(
     clientId: clientId ?? this.clientId,
-    credential: credential ?? this.credential,
-    recoveryState: recoveryState ?? this.recoveryState,
-    knownHost: knownHost ?? this.knownHost,
+    knownHosts: knownHosts ?? this.knownHosts,
+    pendingPairingRecovery: clearPendingPairingRecovery
+        ? null
+        : pendingPairingRecovery ?? this.pendingPairingRecovery,
   );
 
-  /// Compares persisted identity, credential, and recovery state values.
+  /// Compares client identity, Host relationships, and pending recovery.
   @override
   bool operator ==(Object other) =>
       other is PersistedClientState &&
       other.clientId == clientId &&
-      other.credential == credential &&
-      other.recoveryState == recoveryState &&
-      other.knownHost == knownHost;
+      _sameMap(other.knownHosts, knownHosts) &&
+      other.pendingPairingRecovery == pendingPairingRecovery;
 
-  /// Combines persisted identity, credential, and recovery state values.
+  /// Combines the state values.
   @override
-  int get hashCode =>
-      Object.hash(clientId, credential, recoveryState, knownHost);
+  int get hashCode => Object.hash(
+    clientId,
+    Object.hashAllUnordered(
+      knownHosts.entries.map(
+        (MapEntry<String, PersistedKnownHost> entry) =>
+            Object.hash(entry.key, entry.value),
+      ),
+    ),
+    pendingPairingRecovery,
+  );
+
+  /// Compares two host-keyed relationship maps by key and value.
+  /// @param left The first relationship map.
+  /// @param right The second relationship map.
+  /// @return Whether both maps contain equal records under the same Host IDs.
+  static bool _sameMap(
+    Map<String, PersistedKnownHost> left,
+    Map<String, PersistedKnownHost> right,
+  ) {
+    if (left.length != right.length) {
+      return false;
+    }
+    return left.entries.every(
+      (MapEntry<String, PersistedKnownHost> entry) =>
+          right[entry.key] == entry.value,
+    );
+  }
+
+  /// Normalizes UUID-key casing and verifies each key matches its Host record.
+  /// @param hosts The Host relationships to validate and normalize.
+  /// @return An immutable map keyed by lowercase Host UUID.
+  static Map<String, PersistedKnownHost> _normalizeKnownHosts(
+    Map<String, PersistedKnownHost> hosts,
+  ) {
+    final Map<String, PersistedKnownHost> normalized = {};
+    for (final MapEntry<String, PersistedKnownHost> entry in hosts.entries) {
+      final String key = entry.key.toLowerCase();
+      if (key != entry.value.host.hostId.toLowerCase() ||
+          normalized.containsKey(key)) {
+        throw ArgumentError.value(
+          hosts,
+          'knownHosts',
+          'keys must uniquely match Host IDs',
+        );
+      }
+      final DovahLinkHost host = entry.value.host;
+      normalized[key] = PersistedKnownHost(
+        host: host.hostId == key
+            ? host
+            : DovahLinkHost(
+                hostId: key,
+                hostName: host.hostName,
+                endpoint: host.endpoint,
+              ),
+        credential: entry.value.credential,
+      );
+    }
+    return Map<String, PersistedKnownHost>.unmodifiable(normalized);
+  }
 }

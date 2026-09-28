@@ -23,7 +23,7 @@ void main() {
     });
 
     test('ConnectionState initial has no SDK Known Host projection', () {
-      expect(ConnectionState.initial().knownHost, isNull);
+      expect(ConnectionState.initial().knownHosts, isEmpty);
     });
   });
 
@@ -77,16 +77,18 @@ void main() {
     });
 
     test(
-      'ConnectionState copyWith sets and clears the SDK Known Host projection',
+      'ConnectionState copyWith replaces the full SDK Known Hosts projection',
       () {
         final Host host = Fixtures.buildHost();
         final ConnectionState set = ConnectionState.initial().copyWith(
-          knownHost: Some(host),
+          knownHosts: <Host>[host],
         );
-        final ConnectionState cleared = set.copyWith(knownHost: const None());
+        final ConnectionState cleared = set.copyWith(
+          knownHosts: const <Host>[],
+        );
 
-        expect(set.knownHost, host);
-        expect(cleared.knownHost, isNull);
+        expect(set.knownHosts, <Host>[host]);
+        expect(cleared.knownHosts, isEmpty);
       },
     );
   });

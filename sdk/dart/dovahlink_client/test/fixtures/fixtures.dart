@@ -1,6 +1,9 @@
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
+import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
@@ -10,6 +13,21 @@ import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
 /// Central test-owned catalog of representative SDK values.
 abstract final class Fixtures {
+  /// Builds a representative Host identity and endpoint.
+  /// @param hostId The stable Host UUID.
+  /// @param hostName The display name reported by the Host.
+  /// @param endpoint The WebSocket endpoint URI.
+  /// @return A representative Host metadata value.
+  static DovahLinkHost buildDovahLinkHost({
+    String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
+    String hostName = 'GONCALO-DESKTOP',
+    String endpoint = 'ws://127.0.0.1:58231/',
+  }) => DovahLinkHost(
+    hostId: hostId,
+    hostName: hostName,
+    endpoint: Uri.parse(endpoint),
+  );
+
   // ---- Request ----
 
   /// Builds a request policy with retry-safe-unpaired-by-default fields.
@@ -88,16 +106,52 @@ abstract final class Fixtures {
 
   // ---- Persistence ----
 
-  /// Builds a persisted client state with a representative resolved client ID.
+  /// Builds persisted client state with one optional Host relationship.
+  /// @param clientId The stable client identity, or `null` before it is generated.
+  /// @param hostId The Host UUID used when no explicit [host] is supplied.
+  /// @param hostName The representative Host display name.
+  /// @param endpoint The representative WebSocket endpoint.
+  /// @param host An explicit Host value for a scenario-specific relationship.
+  /// @param credential The current credential owned by this Host, if any.
+  /// @param recoveryState The pending pairing recovery phase to represent.
+  /// @return A fresh persisted state with credentials associated with their Host.
   static PersistedClientState buildPersistedClientState({
     String? clientId = 'client-1',
+    String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
+    String hostName = 'GONCALO-DESKTOP',
+    String endpoint = 'ws://127.0.0.1:58231/',
+    DovahLinkHost? host,
     String? credential,
     PairingRecoveryState recoveryState = PairingRecoveryState.none,
-  }) => PersistedClientState(
-    clientId: clientId,
-    credential: credential,
-    recoveryState: recoveryState,
-  );
+  }) {
+    final Map<String, PersistedKnownHost> knownHosts =
+        credential == null &&
+            recoveryState == PairingRecoveryState.none &&
+            host == null
+        ? <String, PersistedKnownHost>{}
+        : <String, PersistedKnownHost>{
+            (host?.hostId ?? hostId): PersistedKnownHost(
+              host:
+                  host ??
+                  DovahLinkHost(
+                    hostId: hostId,
+                    hostName: hostName,
+                    endpoint: Uri.parse(endpoint),
+                  ),
+              credential: credential,
+            ),
+          };
+    return PersistedClientState(
+      clientId: clientId,
+      knownHosts: knownHosts,
+      pendingPairingRecovery: recoveryState == PairingRecoveryState.confirming
+          ? PendingPairingRecovery(
+              hostId: host?.hostId ?? hostId,
+              state: PairingRecoveryState.confirming,
+            )
+          : null,
+    );
+  }
 
   // ---- State synchronization ----
 

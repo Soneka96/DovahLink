@@ -1,5 +1,6 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
@@ -10,7 +11,9 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
+import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_ack_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_confirm_payload.dart';
@@ -40,38 +43,37 @@ abstract interface class IPairingService {
   Future<PairingCancelOutcome> cancelPairing();
 
   /// Submits the six-digit code the user read from Skyrim. Durably persists the issued credential,
-  /// current Host, and a `CONFIRMING` recovery state in one write before returning it, per
+  /// current Host relationship, and Host-owned `CONFIRMING` recovery record in one write, per
   /// `ai/context/protocol/security.md`'s "client durably persists its issued credential and its
   /// `CONFIRMING` recovery state before sending final confirmation."
-  /// @return The issued credential, already persisted.
+  /// The credential remains inside its Host relationship in SDK-owned state.
+  /// @param code The six-digit code shown by Skyrim.
+  /// @param displayName The optional Client display name for Host pairing metadata.
   /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, hit
   ///     the hard wrong-attempt limit, or an administrative mutation invalidated the challenge
   ///     after it began but before this call was evaluated.
   /// @throws [DovahLinkConnectionException] if the active session has no current Host context.
-  Future<String> confirmPairingCode({
-    required String code,
-    String? displayName,
-  });
+  Future<void> confirmPairingCode({required String code, String? displayName});
 
-  /// Echoes back a [credential] durably saved from [confirmPairingCode], completing pairing.
-  /// The session's trust state becomes trusted on success, and the persisted recovery state
-  /// clears back to `PairingRecoveryState.none` while keeping the credential and Known Host. When
-  /// migrating a legacy confirming state without a Known Host, binds the current session Host.
+  /// Echoes back the pending Host-scoped credential internally, completing pairing. The session's
+  /// trust state becomes trusted on success, and the recovery record clears while the relationship
+  /// and credential remain persisted.
   /// @throws [DovahLinkPairingException] if the Host has no matching pending confirmation or
   ///     an administrative mutation invalidated the pending credential.
-  Future<void> acknowledgeTrustedCredential(String credential);
+  Future<void> acknowledgeTrustedCredential();
 
   /// Resumes an interrupted pairing confirmation after a crash or relaunch, per
   /// `ai/context/protocol/security.md`'s "a client that saves the credential but crashes before
   /// confirming retries confirmation on restart." Call after `hello` admits an `unpaired` session.
   ///
   /// A no-op returning [DovahLinkTrustState.unpaired] when no confirmation is outstanding. When
-  /// one is, retries [acknowledgeTrustedCredential] with the stored credential: a
+  /// one is, retries [acknowledgeTrustedCredential] with its owning Host credential: a
   /// `pending_not_found` outcome (the Host restarted and lost the pending credential) or
   /// `pairing_invalidated` outcome (an administrative mutation rejected the pending credential)
-  /// discards the local credential and resets to unpaired rather than treating that as a fatal
-  /// error; any other failure leaves the `CONFIRMING` state untouched so a later relaunch can retry
-  /// again. Invalidated confirmation clears the credential while preserving Known Host metadata.
+  /// discards the owning Host's credential and recovery record rather than treating that as a fatal
+  /// error; any other failure leaves the `CONFIRMING` recovery record untouched so a later relaunch
+  /// can retry. Invalidated confirmation clears that Host's credential while preserving its
+  /// Known Host metadata.
   Future<DovahLinkTrustState> recoverPendingPairing();
 }
 
@@ -196,7 +198,7 @@ class PairingService implements IPairingService {
 
   /// Implements [IPairingService.confirmPairingCode].
   @override
-  Future<String> confirmPairingCode({
+  Future<void> confirmPairingCode({
     required String code,
     String? displayName,
   }) async {
@@ -256,19 +258,56 @@ class PairingService implements IPairingService {
         'The current Host context is unavailable.',
       );
     }
-    await _clientStateService.updateState(
-      (PersistedClientState state) => state.copyWith(
-        credential: credential,
-        recoveryState: PairingRecoveryState.confirming,
-        knownHost: currentHost,
-      ),
-    );
-    return credential;
+    await _clientStateService.updateState((PersistedClientState state) {
+      final PendingPairingRecovery? pending = state.pendingPairingRecovery;
+      if (pending != null &&
+          pending.hostId.toLowerCase() != currentHost.hostId.toLowerCase()) {
+        throw DovahLinkHostIdentityMismatchException(
+          knownHostId: pending.hostId,
+          reportedHostId: currentHost.hostId,
+        );
+      }
+      return state.copyWith(
+        knownHosts: <String, PersistedKnownHost>{
+          ...state.knownHosts,
+          currentHost.hostId.toLowerCase(): PersistedKnownHost(
+            host: currentHost,
+            credential: credential,
+          ),
+        },
+        pendingPairingRecovery: PendingPairingRecovery(
+          hostId: currentHost.hostId,
+          state: PairingRecoveryState.confirming,
+        ),
+      );
+    });
   }
 
   /// Implements [IPairingService.acknowledgeTrustedCredential].
   @override
-  Future<void> acknowledgeTrustedCredential(String credential) async {
+  Future<void> acknowledgeTrustedCredential() async {
+    final DovahLinkHost? currentHost = _sessionService.currentHost;
+    if (currentHost == null) {
+      throw const DovahLinkConnectionException(
+        'The current Host context is unavailable.',
+      );
+    }
+    final PersistedClientState state = await _clientStateService.load();
+    final PendingPairingRecovery? recovery = state.pendingPairingRecovery;
+    if (recovery == null) {
+      throw const DovahLinkPairingException(PairingOutcome.pendingNotFound);
+    }
+    if (recovery.hostId.toLowerCase() != currentHost.hostId.toLowerCase()) {
+      throw DovahLinkHostIdentityMismatchException(
+        knownHostId: recovery.hostId,
+        reportedHostId: currentHost.hostId,
+      );
+    }
+    final String? credential =
+        state.knownHosts[currentHost.hostId.toLowerCase()]?.credential;
+    if (credential == null) {
+      throw const DovahLinkPairingException(PairingOutcome.pendingNotFound);
+    }
     final PairingAckPayload payload = PairingAckPayload(credential: credential);
     final Envelope response = await _requestService.sendAndAwait(
       messageType: ProtocolMessageType.pairingAck,
@@ -305,43 +344,66 @@ class PairingService implements IPairingService {
         retryAfterSeconds: outcome.retryAfterSeconds,
       );
     }
-    final DovahLinkHost? currentHost = _sessionService.currentHost;
-    if (currentHost == null) {
-      throw const DovahLinkConnectionException(
-        'The current Host context is unavailable.',
+    await _clientStateService.updateState((PersistedClientState state) {
+      final PersistedKnownHost? relationship =
+          state.knownHosts[currentHost.hostId.toLowerCase()];
+      if (relationship == null) {
+        throw const DovahLinkPairingException(PairingOutcome.pendingNotFound);
+      }
+      return state.copyWith(
+        knownHosts: <String, PersistedKnownHost>{
+          ...state.knownHosts,
+          currentHost.hostId.toLowerCase(): PersistedKnownHost(
+            host: relationship.host,
+            credential: relationship.credential,
+          ),
+        },
+        clearPendingPairingRecovery: true,
       );
-    }
+    });
     _sessionTrustService.markTrusted();
-
-    await _clientStateService.updateState(
-      (PersistedClientState state) => state.copyWith(
-        recoveryState: PairingRecoveryState.none,
-        knownHost: state.knownHost ?? currentHost,
-      ),
-    );
   }
 
   /// Implements [IPairingService.recoverPendingPairing].
   @override
   Future<DovahLinkTrustState> recoverPendingPairing() async {
     final PersistedClientState state = await _clientStateService.load();
-    if (state.recoveryState != PairingRecoveryState.confirming ||
-        state.credential == null) {
+    final PendingPairingRecovery? recovery = state.pendingPairingRecovery;
+    if (recovery == null) {
       return DovahLinkTrustState.unpaired;
+    }
+    final String? currentHostId = _sessionService.currentHost?.hostId;
+    if (currentHostId == null) {
+      throw const DovahLinkConnectionException(
+        'The current Host context is unavailable.',
+      );
+    }
+    if (currentHostId.toLowerCase() != recovery.hostId.toLowerCase()) {
+      throw DovahLinkHostIdentityMismatchException(
+        knownHostId: recovery.hostId,
+        reportedHostId: currentHostId,
+      );
     }
 
     try {
-      await acknowledgeTrustedCredential(state.credential!);
+      await acknowledgeTrustedCredential();
       return DovahLinkTrustState.trusted;
     } on DovahLinkPairingException catch (error) {
       if (error.outcome == PairingOutcome.pendingNotFound ||
           error.outcome == PairingOutcome.pairingInvalidated) {
-        await _clientStateService.updateState(
-          (PersistedClientState current) => PersistedClientState(
-            clientId: current.clientId,
-            knownHost: current.knownHost,
-          ),
-        );
+        await _clientStateService.updateState((PersistedClientState current) {
+          final PersistedKnownHost relationship =
+              current.knownHosts[recovery.hostId.toLowerCase()]!;
+          return current.copyWith(
+            knownHosts: <String, PersistedKnownHost>{
+              ...current.knownHosts,
+              recovery.hostId.toLowerCase(): PersistedKnownHost(
+                host: relationship.host,
+              ),
+            },
+            clearPendingPairingRecovery: true,
+          );
+        });
         return DovahLinkTrustState.unpaired;
       }
       rethrow;

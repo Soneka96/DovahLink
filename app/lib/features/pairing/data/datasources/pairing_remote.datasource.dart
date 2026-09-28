@@ -70,7 +70,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     required Uri hostUri,
   }) async {
     try {
-      final HelloResult hello = await _client.authenticate(hostUri);
+      final HelloResult hello = await _client.authenticateCandidate(hostUri);
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
       if (!trusted) {
         final DovahLinkTrustState recovered = await _client
@@ -143,11 +143,8 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     String? displayName,
   }) async {
     try {
-      final String credential = await _client.confirmPairingCode(
-        code: code,
-        displayName: displayName,
-      );
-      await _client.acknowledgeTrustedCredential(credential);
+      await _client.confirmPairingCode(code: code, displayName: displayName);
+      await _client.acknowledgeTrustedCredential();
       return const Right(unit);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));

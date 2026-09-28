@@ -16,6 +16,7 @@ import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -73,9 +74,37 @@ class GatedClientStateService implements IClientStateService {
 
   /// Emits the current Known Host to a new subscriber.
   @override
-  Stream<DovahLinkHost?> get knownHostChanges =>
-      Stream<DovahLinkHost?>.value(_state.knownHost);
+  Stream<List<DovahLinkHost>> get knownHostsChanges =>
+      Stream<List<DovahLinkHost>>.value(
+        _state.knownHosts.values
+            .map((PersistedKnownHost relationship) => relationship.host)
+            .toList(growable: false),
+      );
 }
+
+/// Builds a persisted relationship for pairing tests through the central fixture catalog.
+PersistedClientState _state({
+  String? clientId = 'client-1',
+  String? credential,
+  PairingRecoveryState recoveryState = PairingRecoveryState.none,
+  DovahLinkHost? knownHost,
+}) => Fixtures.buildPersistedClientState(
+  clientId: clientId,
+  credential: credential,
+  recoveryState: recoveryState,
+  host: knownHost,
+);
+
+/// Builds the current Host's persisted confirmation state.
+/// @param credential The Host-issued credential to store.
+/// @return A persisted state owned by the current Host.
+PersistedClientState _confirmingState({String? credential = 'credential-a'}) =>
+    _state(
+      clientId: 'client-1',
+      credential: credential,
+      recoveryState: PairingRecoveryState.confirming,
+      knownHost: _currentHost(),
+    );
 
 /// Builds the Host associated with the session used by pairing tests.
 DovahLinkHost _currentHost() => DovahLinkHost(
@@ -141,6 +170,11 @@ void verifyNoStorageCalls(MockClientStateService storage) {
   verifyNever(() => storage.updateState(any()));
 }
 
+/// Verifies that a failed acknowledgement did not commit client state.
+void verifyNoStateMutations(MockClientStateService storage) {
+  verifyNever(() => storage.updateState(any()));
+}
+
 /// Runs pairing service behavior tests.
 void main() {
   late MockRequestService requestService;
@@ -172,8 +206,7 @@ void main() {
     when(() => sessionTrustService.markTrusted()).thenReturn(null);
     when(() => sessionService.currentHost).thenReturn(_currentHost());
     when(() => storage.load()).thenAnswer(
-      (_) async =>
-          PersistedClientState(clientId: 'client-1', knownHost: _currentHost()),
+      (_) async => _state(clientId: 'client-1', knownHost: _currentHost()),
     );
     when(() => storage.updateState(any())).thenAnswer((invocation) async {
       final PersistedClientState Function(PersistedClientState) update =
@@ -678,6 +711,79 @@ void main() {
 
   group('Method confirmPairingCode behaves correctly', () {
     test(
+      'Method confirmPairingCode keeps three paired Host records independent',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        const String hostCId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final DovahLinkHost hostA = _currentHost();
+        final DovahLinkHost hostB = DovahLinkHost(
+          hostId: hostBId,
+          hostName: 'HOST-B',
+          endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        final DovahLinkHost hostC = DovahLinkHost(
+          hostId: hostCId,
+          hostName: 'HOST-C',
+          endpoint: Uri.parse('ws://127.0.0.1:58233/'),
+        );
+        DovahLinkHost activeHost = hostA;
+        PersistedClientState current = _state(clientId: 'client-1');
+        when(() => sessionService.currentHost).thenAnswer((_) => activeHost);
+        when(() => storage.load()).thenAnswer((_) async => current);
+        when(() => storage.updateState(any())).thenAnswer((invocation) async {
+          final PersistedClientState Function(PersistedClientState) update =
+              invocation.positionalArguments.single
+                  as PersistedClientState Function(PersistedClientState);
+          current = update(current);
+        });
+        int issuedCredential = 0;
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((invocation) async {
+          final ProtocolMessageType type =
+              invocation.namedArguments[#messageType] as ProtocolMessageType;
+          if (type == ProtocolMessageType.pairingConfirm) {
+            issuedCredential++;
+            return buildPairingOutcomeEnvelope(
+              outcome: PairingOutcome.credentialIssued,
+              credential: 'credential-$issuedCredential',
+            );
+          }
+          final String credential =
+              (invocation.namedArguments[#payload] as JsonMap)['credential']
+                  as String;
+          return buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.trusted,
+            credential: credential,
+            shortId: '12345',
+          );
+        });
+
+        for (final DovahLinkHost host in <DovahLinkHost>[hostA, hostB, hostC]) {
+          activeHost = host;
+          await service.confirmPairingCode(code: '123456');
+          await service.acknowledgeTrustedCredential();
+        }
+
+        expect(current.knownHosts.keys.toSet(), <String>{
+          hostAId,
+          hostBId,
+          hostCId,
+        });
+        expect(current.knownHosts[hostAId]?.credential, 'credential-1');
+        expect(current.knownHosts[hostBId]?.credential, 'credential-2');
+        expect(current.knownHosts[hostCId]?.credential, 'credential-3');
+        expect(current.pendingPairingRecovery, isNull);
+      },
+    );
+
+    test(
       'Method confirmPairingCode persists credential, current Host, and CONFIRMING in one write',
       () async {
         stubSendAndAwait(
@@ -688,15 +794,12 @@ void main() {
           ),
         );
 
-        final String credential = await service.confirmPairingCode(
-          code: '123456',
-        );
+        await service.confirmPairingCode(code: '123456');
 
-        expect(credential, 'new-cred');
         verify(() => storage.updateState(any())).called(1);
         expect(
           updatedState,
-          PersistedClientState(
+          _state(
             clientId: 'client-1',
             credential: 'new-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -719,7 +822,7 @@ void main() {
         when(() => sessionService.currentHost).thenAnswer((_) => currentHost);
         final Completer<void> updateGate = Completer<void>();
         final GatedClientStateService gatedStorage = GatedClientStateService(
-          loadedState: const PersistedClientState(clientId: 'client-1'),
+          loadedState: _state(clientId: 'client-1'),
           updateGate: updateGate,
         );
         service = PairingService(
@@ -736,17 +839,17 @@ void main() {
           ),
         );
 
-        final Future<String> confirmation = service.confirmPairingCode(
+        final Future<void> confirmation = service.confirmPairingCode(
           code: '123456',
         );
         await gatedStorage.updateStarted.future;
         currentHost = hostB;
         updateGate.complete();
 
-        expect(await confirmation, 'new-cred');
+        await confirmation;
         expect(
           await gatedStorage.load(),
-          PersistedClientState(
+          _state(
             clientId: 'client-1',
             credential: 'new-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -973,7 +1076,7 @@ void main() {
       'Method acknowledgeTrustedCredential marks the session trusted and clears the recovery state on a trusted outcome',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => PersistedClientState(
+          (_) async => _state(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -989,7 +1092,7 @@ void main() {
           ),
         );
 
-        await service.acknowledgeTrustedCredential('cred');
+        await service.acknowledgeTrustedCredential();
 
         verify(
           () => requestService.sendAndAwait(
@@ -1003,7 +1106,7 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(
           updatedState,
-          PersistedClientState(
+          _state(
             clientId: 'client-1',
             credential: 'cred',
             knownHost: _currentHost(),
@@ -1016,7 +1119,7 @@ void main() {
       'Method acknowledgeTrustedCredential also marks the session trusted on an already_trusted outcome',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => PersistedClientState(
+          (_) async => _state(
             clientId: 'client-1',
             credential: 'cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -1032,13 +1135,13 @@ void main() {
           ),
         );
 
-        await service.acknowledgeTrustedCredential('cred');
+        await service.acknowledgeTrustedCredential();
 
         verify(() => sessionTrustService.markTrusted()).called(1);
         verify(() => storage.updateState(any())).called(1);
         expect(
           updatedState,
-          PersistedClientState(
+          _state(
             clientId: 'client-1',
             credential: 'cred',
             knownHost: _currentHost(),
@@ -1048,13 +1151,14 @@ void main() {
     );
 
     test(
-      'Method acknowledgeTrustedCredential binds an unbound legacy confirmation to the session Host',
+      'Method acknowledgeTrustedCredential keeps the owning Host metadata',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => const PersistedClientState(
+          (_) async => _state(
             clientId: 'client-1',
             credential: 'legacy-credential',
             recoveryState: PairingRecoveryState.confirming,
+            knownHost: _currentHost(),
           ),
         );
         stubSendAndAwait(
@@ -1066,15 +1170,14 @@ void main() {
           ),
         );
 
-        await service.acknowledgeTrustedCredential('legacy-credential');
+        await service.acknowledgeTrustedCredential();
 
         verify(() => storage.updateState(any())).called(1);
         expect(
           updatedState,
-          PersistedClientState(
+          _state(
             clientId: 'client-1',
             credential: 'legacy-credential',
-            recoveryState: PairingRecoveryState.none,
             knownHost: _currentHost(),
           ),
         );
@@ -1095,7 +1198,7 @@ void main() {
         );
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
+          service.acknowledgeTrustedCredential(),
           throwsA(isA<DovahLinkConnectionException>()),
         );
 
@@ -1108,13 +1211,14 @@ void main() {
       'Method acknowledgeTrustedCredential never marks the session trusted and throws '
       'DovahLinkPairingException for a rejected acknowledgement',
       () async {
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
         stubSendAndAwait(
           requestService,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.pendingNotFound),
         );
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
+          service.acknowledgeTrustedCredential(),
           throwsA(
             isA<DovahLinkPairingException>().having(
               (DovahLinkPairingException e) => e.outcome,
@@ -1124,13 +1228,14 @@ void main() {
           ),
         );
         verifyNever(() => sessionTrustService.markTrusted());
-        verifyNoStorageCalls(storage);
+        verifyNoStateMutations(storage);
       },
     );
 
     test(
       'Method acknowledgeTrustedCredential exposes pairing_invalidated without marking trust',
       () async {
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
         stubSendAndAwait(
           requestService,
           buildPairingOutcomeEnvelope(
@@ -1139,7 +1244,7 @@ void main() {
         );
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
+          service.acknowledgeTrustedCredential(),
           throwsA(
             isA<DovahLinkPairingException>().having(
               (DovahLinkPairingException e) => e.outcome,
@@ -1149,20 +1254,21 @@ void main() {
           ),
         );
         verifyNever(() => sessionTrustService.markTrusted());
-        verifyNoStorageCalls(storage);
+        verifyNoStateMutations(storage);
       },
     );
 
     test(
       'Method acknowledgeTrustedCredential throws malformed_message for an outcome from another exchange',
       () async {
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
         stubSendAndAwait(
           requestService,
           buildPairingOutcomeEnvelope(outcome: PairingOutcome.expired),
         );
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
+          service.acknowledgeTrustedCredential(),
           throwsA(
             isA<DovahLinkProtocolException>()
                 .having(
@@ -1183,13 +1289,14 @@ void main() {
           ),
         );
         verifyNever(() => sessionTrustService.markTrusted());
-        verifyNoStorageCalls(storage);
+        verifyNoStateMutations(storage);
       },
     );
 
     test(
       'Method acknowledgeTrustedCredential throws malformed_message when pairing_outcome fails to decode',
       () async {
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
         stubSendAndAwait(
           requestService,
           Fixtures.buildEnvelope(
@@ -1199,7 +1306,7 @@ void main() {
         );
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
+          service.acknowledgeTrustedCredential(),
           throwsA(
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException e) => e.code,
@@ -1209,7 +1316,7 @@ void main() {
           ),
         );
         verifyNever(() => sessionTrustService.markTrusted());
-        verifyNoStorageCalls(storage);
+        verifyNoStateMutations(storage);
       },
     );
 
@@ -1217,6 +1324,7 @@ void main() {
       'Method acknowledgeTrustedCredential propagates a connection failure without marking trust or '
       'touching storage',
       () async {
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
         when(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -1227,11 +1335,11 @@ void main() {
         ).thenThrow(const DovahLinkConnectionException('lost'));
 
         await expectLater(
-          service.acknowledgeTrustedCredential('cred'),
+          service.acknowledgeTrustedCredential(),
           throwsA(isA<DovahLinkConnectionException>()),
         );
         verifyNever(() => sessionTrustService.markTrusted());
-        verifyNoStorageCalls(storage);
+        verifyNoStateMutations(storage);
       },
     );
   });
@@ -1284,7 +1392,7 @@ void main() {
       'Method recoverPendingPairing retries the stored credential and returns trusted on success',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => PersistedClientState(
+          (_) async => _state(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -1316,7 +1424,7 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(
           updatedState,
-          PersistedClientState(
+          _state(
             clientId: 'client-1',
             credential: 'stored-cred',
             knownHost: _currentHost(),
@@ -1330,7 +1438,7 @@ void main() {
       'reports pending_not_found',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => PersistedClientState(
+          (_) async => _state(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -1349,7 +1457,7 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(
           updatedState,
-          PersistedClientState(clientId: 'client-1', knownHost: _currentHost()),
+          _state(clientId: 'client-1', knownHost: _currentHost()),
         );
       },
     );
@@ -1359,7 +1467,7 @@ void main() {
       'reports pairing_invalidated',
       () async {
         when(() => storage.load()).thenAnswer(
-          (_) async => PersistedClientState(
+          (_) async => _state(
             clientId: 'client-1',
             credential: 'stored-cred',
             recoveryState: PairingRecoveryState.confirming,
@@ -1380,7 +1488,7 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(
           updatedState,
-          PersistedClientState(clientId: 'client-1', knownHost: _currentHost()),
+          _state(clientId: 'client-1', knownHost: _currentHost()),
         );
       },
     );
@@ -1388,7 +1496,7 @@ void main() {
     test(
       'Method recoverPendingPairing leaves the CONFIRMING state untouched and rethrows for any other failure',
       () async {
-        final PersistedClientState confirmingState = PersistedClientState(
+        final PersistedClientState confirmingState = _state(
           clientId: 'client-1',
           credential: 'stored-cred',
           recoveryState: PairingRecoveryState.confirming,
@@ -1410,9 +1518,15 @@ void main() {
         );
         verifyNever(() => storage.updateState(any()));
         final PersistedClientState stored = await storage.load();
-        expect(stored.credential, confirmingState.credential);
-        expect(stored.recoveryState, PairingRecoveryState.confirming);
-        expect(stored.knownHost, _currentHost());
+        expect(
+          stored.knownHosts.values.single.credential,
+          confirmingState.knownHosts.values.single.credential,
+        );
+        expect(
+          stored.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
+        expect(stored.knownHosts.values.single.host, _currentHost());
       },
     );
   });
