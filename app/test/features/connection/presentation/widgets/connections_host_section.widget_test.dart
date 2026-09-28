@@ -333,7 +333,7 @@ void main() {
     );
   });
 
-  group('ConnectionsHostSection presents discovery status', () {
+  group('ConnectionsHostSection renders temporary discovery states', () {
     testWidgets(
       'ConnectionsHostSection shows the candidate without status feedback when available',
       (WidgetTester tester) async {

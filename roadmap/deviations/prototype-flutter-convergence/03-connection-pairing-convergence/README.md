@@ -41,9 +41,14 @@ The detailed security analysis stays in the linked deviation and
 
 ## Current next action
 
-Proceed with the separately approved local discovery UI foundation: expose the existing loopback
-candidate as routing information only and connect it through the existing SDK flow. This does not
-resume or complete historical slice 03.6's broader discovery / Known Host presentation plan.
+The current branch establishes the local Host discovery foundation: a real SDK loopback probe, typed
+middleware/Redux states, and a candidate containing only the fixed display label and endpoint. Its
+temporary state presentation does not complete or resume historical slice 03.6.
+
+The next separate PR is **Canonical Discovery UI Convergence**. It will implement the approved
+prototype presentation with the existing states and selected Host flow, use real authentication and
+pairing outcomes, and avoid fake delays or discovery infrastructure changes unless a real contract
+gap is found. Production discovery remains a separate future design decision.
 
 Re-plan 03.4–03.10 against current DovahLink security and SDK architecture before resuming those
 slices. The exact schedule belongs to future reviewed work; this historical index assigns no new

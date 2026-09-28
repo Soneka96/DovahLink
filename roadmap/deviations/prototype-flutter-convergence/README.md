@@ -1,8 +1,8 @@
 # Prototype → Flutter Convergence
 
 **Status:** Active — design and visual foundation complete; connection/pairing convergence partial;
-remaining historical steps require re-planning. A narrow local discovery UI continuation is
-approved independently of those paused steps.
+remaining historical steps require re-planning. The Local Host discovery foundation is a separate
+approved scope; canonical discovery UI convergence remains a follow-up.
 
 ## Why this deviation exists
 
@@ -47,41 +47,58 @@ Remaining connection/pairing steps must be reconciled with current DovahLink sec
 before implementation. Ordinary product work that does not depend on hostile-network first contact
 may continue from Phase 5.4. Stage 5A and production LAN pairing remain gated.
 
-## Approved local discovery continuation
+## Local Host discovery foundation — current branch
 
-The final production discovery mechanism is intentionally undecided. The development environment
-already has a known local Host endpoint, so the app can implement the approved Connections
-experience now without prematurely choosing a network discovery protocol. The current SDK discovery
-operation may check that endpoint; the app-facing candidate retains only the fixed “Local Host” label
-and endpoint. The peer's Host ID/name claims do not become candidate identity, trust, authentication,
-or persisted Known Host metadata. Real Host identity and connection outcome continue to come from
-the selected Host's normal SDK connection flow.
+This branch establishes the production-quality local discovery application contract:
 
-The canonical prototype remains the presentation and interaction authority. Searching, available,
-empty, failure, selection, and connection presentation are product states that remain valid when
-the discovery implementation changes. Future discovery should replace the implementation below the
-app-facing boundary without redesigning the Connections UI, Redux state, ViewModels, or card
-composition.
+```text
+SDK local probe -> ConnectionMiddleware -> typed discovery actions/state -> Redux -> ViewModel
+```
 
-The current surface uses the **Discover Skyrim** action, announces “Searching for DovahLink on this
-PC…” as a live status, and labels a discovered candidate **AVAILABLE**. Selecting **Local Host**
-opens the existing pairing flow: its in-progress state and outcome come from real pairing/SDK state,
-with no simulated discovery delay or implied trust result.
+The middleware calls the SDK discovery contract directly. The SDK checks the current known loopback
+endpoint with its real `hello` and protocol validation. Redux exposes `idle`, `discovering`,
+`available`, `empty`, and `failed`, plus discovered candidates, the selected Host, and an
+app-owned semantic failure reason. No forwarding use case, repository, datasource, or service is
+added for the SDK-owned operation.
+
+The temporary app candidate keeps the fixed display name **Local Host** and the discovered endpoint
+for routing. Peer-asserted Host ID and name are not candidate identity, trust, authentication, or
+persisted Known Host metadata. Endpoint means location only. The selected Host continues into the
+existing authentication/pairing flow, which owns the real outcome.
+
+The current screen retains just enough temporary presentation to exercise these states: a Discover
+action, visible search/candidate/empty/failure feedback, and selection into the existing flow. This
+is foundation-state presentation, not the final canonical discovery UI. It does not claim exact
+visual, modal, trust-check, transition, or connection-card parity, and it adds no simulated delay.
 
 At the Redux boundary, middleware maps SDK discovery exceptions to the app-owned
 `ConnectionFailureReason`; Redux carries that reason, not the exception or display text. The enum's
-`message` getter owns the centralized user-facing copy, and widgets render it without SDK exception
-switches. Operation-specific conversions such as `fromDiscoveryError` can be added when needed; do
-not add one method per SDK exception or a global enum for every possible DovahLink failure. The
-current app-wide enum file follows repository convention and can be split by feature if that file
-later becomes difficult to navigate. Localization can replace the centralized copy when the app
-adopts localization.
+`message` getter owns the centralized user-facing failure copy, and widgets render it without SDK
+exception switches. Operation-specific converters such as `fromDiscoveryError` are named for the
+application operation, not an SDK exception type. Add another converter only when another operation
+needs one; do not create one method per SDK exception or a global enum for every possible DovahLink
+failure. Localization can replace the centralized copy when the app adopts localization.
 
-This continuation is local / loopback development behavior, not production-secure discovery or
-pairing. It does not choose or implement LAN discovery, mDNS/DNS-SD, secure first-contact pairing,
-`sas-pairing`, WSS/TLS migration, or future Pair / Reject / Block authorization behavior. Unknown
-non-loopback peers remain gated. It does not complete the broader historical 03.6 plan or choose a
-production discovery mechanism.
+## Next PR — Canonical Discovery UI Convergence
+
+The next UI-only convergence PR will reproduce the approved prototype discovery presentation and
+interaction using the contracts above. It owns exact copy, surfaces, modal/state composition,
+responsive behavior, and prototype-equivalent transitions. It must use the existing discovery
+states and selected Host flow, let real authentication/pairing state determine outcomes, and add no
+fake delays. It should leave discovery infrastructure unchanged unless review finds a real missing
+application contract. This follow-up does not complete the broader historical 03.6 Discovery / Trust
+UI slice, which remains paused pending re-planning.
+
+## Future — production discovery mechanism
+
+The final transport is not designed yet. The app-facing discovery contract and Redux/ViewModel states
+are expected to stay stable when a separately designed production mechanism replaces the current
+loopback probe beneath the SDK. This split keeps today's known local endpoint replaceable while
+allowing the better-understood product interaction to converge independently.
+
+Production LAN discovery, mDNS/DNS-SD, secure first-contact pairing, `sas-pairing`, WSS/TLS migration,
+and Pair / Reject / Block authorization remain out of scope. Unknown non-loopback peers remain
+gated.
 
 ## Related deviation
 

@@ -188,7 +188,7 @@ void main() {
         Size(1600, 900),
       ]) {
         testWidgets(
-          'ConnectionsScreen contains the prototype hierarchy under $preset at $size without overflow',
+          'ConnectionsScreen contains its current page structure under $preset at $size without overflow',
           (WidgetTester tester) async {
             await useSurface(tester, size);
             await tester.pumpWidget(buildWidget(preset: preset));
@@ -503,9 +503,8 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen selects the Host before the pairing section starts',
+      'ConnectionsScreen selects the Host before existing pairing flow starts',
       (WidgetTester tester) async {
-        when(() => pairingViewModel.phase).thenReturn(PairingPhase.connecting);
         useWindow(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
 
@@ -513,8 +512,6 @@ void main() {
 
         expect(selectedHosts, [Fixtures.buildHost()]);
         expect(pairingCalls, ['start']);
-        expect(find.text('Connecting…'), findsOneWidget);
-        expect(find.text('Connected'), findsNothing);
       },
     );
 
@@ -757,7 +754,7 @@ void main() {
     );
   });
 
-  group('ConnectionsScreen presents discovery state', () {
+  group('ConnectionsScreen wires temporary discovery state', () {
     testWidgets('ConnectionsScreen presents the available candidate state', (
       WidgetTester tester,
     ) async {
@@ -1068,7 +1065,7 @@ void main() {
     );
   });
 
-  group('ConnectionsScreen applies the prototype responsive spacing', () {
+  group('ConnectionsScreen applies shared responsive spacing', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final Size size in const [
         Size(1280, 720),

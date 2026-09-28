@@ -9,22 +9,26 @@ active deviations.
 
 ## Work order
 
-1. **Implement the approved local Host discovery foundation.** Use the existing loopback discovery
-   operation behind a narrow app-facing boundary. The app candidate exposes only the fixed display
-   label and endpoint; discovery claims are not app Host identity or trust. The approved prototype
-   remains the presentation authority, and the existing SDK connection path owns the outcome after
-   selection. The discovery UI follows real state without simulated waits and remains stable if the
-   discovery implementation changes. This advances the Connections experience without choosing
-   production discovery.
-2. **Record this convergence continuation.** Keep the candidate-only scope distinct from the
-   broader historical 03.6 discovery / trust UI plan. Do not mark the broader step complete.
-3. **Re-plan historical connection/pairing slices 03.4–03.10 before resuming them.** Compare each
+1. **Complete the Local Host discovery foundation in the current branch.** Keep the SDK-owned loopback
+   probe behind the direct middleware boundary. Redux/ViewModels expose typed discovery states,
+   candidates, selected Host, and semantic failure reasons. The temporary candidate uses only the
+   fixed “Local Host” label and endpoint; discovery claims are not identity or trust. Temporary UI
+   exercises the states but does not claim canonical prototype parity.
+2. **Next PR — Canonical Discovery UI Convergence.** Reproduce the approved prototype presentation
+   using the current discovery Redux/ViewModel contract and existing selected Host flow. Real
+   authentication/pairing state determines outcomes. Add no fake delays and make no discovery
+   infrastructure changes unless a real contract gap is found. This is a UI-only follow-up and does
+   not complete historical slice 03.6.
+3. **Future — design production discovery separately.** The final discovery transport is not chosen.
+   Once designed and approved, replace the current probe beneath the existing application contract
+   so discovery states, ViewModels, and the converged UI stay stable.
+4. **Re-plan historical connection/pairing slices 03.4–03.10 before resuming them.** Compare each
    slice with current SDK, Host, and security architecture; work already completed; the closed PR
    #100 findings; the SAS
    research extraction; and the selected DovahLink authorization direction. The old sequence is
    history, not implementation authorization. For each slice, decide whether to keep, narrow,
    reorder, combine, defer, or remove it; this document makes none of those decisions.
-4. **Implement only the work that survives that review.** Schedule the DovahLink-owned pairing
+5. **Implement only the work that survives that review.** Schedule the DovahLink-owned pairing
    authorization boundary at the reviewed point where it naturally belongs. The selected direction
    is:
 
@@ -39,10 +43,10 @@ active deviations.
    historical slice here. Its eventual approval must identify the exact pairing attempt so stale
    approval cannot authorize a later ceremony. DovahLink owns this application boundary; it does not
    define generic SAS cryptography or a new protocol schema.
-5. **Close or explicitly defer remaining connection/pairing convergence work.** Keep its disposition
+6. **Close or explicitly defer remaining connection/pairing convergence work.** Keep its disposition
    in the [prototype convergence deviation](prototype-flutter-convergence/README.md) and its
    [connection/pairing index](prototype-flutter-convergence/03-connection-pairing-convergence/README.md).
-6. **Return to the normal roadmap:** [Phase 5.4 — Flutter Middleware and Minimal Live-State
+7. **Return to the normal roadmap:** [Phase 5.4 — Flutter Middleware and Minimal Live-State
    Proof](../05-dart-client-sdk-foundation.md); [Phase 5.5 — Version-Impact Audit and Stage 5
    Closure](../05-dart-client-sdk-foundation.md#55-version-impact-audit-and-stage-5-closure);
    [Stage 6 — PC / Second-Screen Baseline](../06-pc-second-screen-baseline.md); [Stage 7 — Core UI
@@ -50,9 +54,10 @@ active deviations.
 
 ## Return condition
 
-Resume normal roadmap progression once this approved discovery foundation is complete, remaining
-connection/pairing slices have been re-planned, necessary work has been completed or explicitly
-deferred, and no active deviation still has a justified reason to precede Phase 5.4.
+Resume normal roadmap progression once the discovery foundation and separate canonical UI convergence
+are complete, remaining connection/pairing slices have been re-planned, necessary work has been
+completed or explicitly deferred, and no active deviation still has a justified reason to precede
+Phase 5.4.
 
 ## Stage 7 remains planned
 
