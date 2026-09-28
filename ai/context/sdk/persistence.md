@@ -59,6 +59,13 @@ recovery state, and Known Host metadata
 `ai/context/protocol/security.md` requires and failing closed on corrupt or undecryptable state rather
 than substituting a plausible default.
 
+`ClientStateService` is the single SDK owner of persisted client-state reads and mutations. It
+serializes updates to the complete `PersistedClientState`, preserving multi-value writes such as the
+credential, `CONFIRMING` recovery state, and Known Host established during pairing. It updates its
+in-memory state and publishes semantic projections such as `knownHostChanges` only after storage
+success; a failed save publishes no speculative state. Equivalent Known Host values do not produce
+duplicate stream events.
+
 The standard SDK entry point does not expose or import Windows storage. Windows consumers import
 `dovahlink_client_windows.dart` for `DpapiClientStorage` and inject it through `IClientStorage`.
 Until secure storage is implemented on another platform, composition may use

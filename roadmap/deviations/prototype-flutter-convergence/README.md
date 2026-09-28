@@ -1,9 +1,8 @@
 # Prototype → Flutter Convergence
 
 **Status:** Active — design and visual foundation complete; connection/pairing convergence partial;
-remaining historical steps require re-planning. The Local Host discovery foundation is a separate
-approved scope. Known Host lifecycle integration is next; canonical discovery / Connections UI
-convergence follows it.
+remaining historical steps require re-planning. Local Host discovery and Known Host lifecycle
+integration are established; canonical discovery / Connections UI convergence follows them.
 
 ## Why this deviation exists
 
@@ -44,13 +43,15 @@ identity-check race. That security detour is recorded separately in the
 [Initial Pairing Security Investigation and Extraction](../initial-pairing-security/README.md);
 generic SAS research continues in `Soneka96/sas-pairing`.
 
-Remaining connection/pairing steps must be reconciled with current DovahLink security architecture
-before implementation. Ordinary product work that does not depend on hostile-network first contact
-may continue from Phase 5.4. Stage 5A and production LAN pairing remain gated.
+The current `feature/known-host-lifecycle-discovery-integration` branch establishes SDK-owned Known
+Host observation and its app projection without resuming historical slices 03.4–03.10. Those
+remaining connection/pairing steps must still be reconciled with current DovahLink security
+architecture before implementation. Ordinary product work that does not depend on hostile-network
+first contact may continue from Phase 5.4. Stage 5A and production LAN pairing remain gated.
 
-## Local Host discovery foundation — current branch
+## Local Host discovery foundation — established
 
-This branch establishes the production-quality local discovery application contract:
+The local discovery foundation established the production-quality application contract:
 
 ```text
 SDK local probe -> ConnectionMiddleware -> typed discovery actions/state -> Redux -> ViewModel
@@ -80,31 +81,45 @@ application operation, not an SDK exception type. Add another converter only whe
 needs one; do not create one method per SDK exception or a global enum for every possible DovahLink
 failure. Localization can replace the centralized copy when the app adopts localization.
 
-## Next PR — Known Host Lifecycle + Discovery Integration
+## Known Host lifecycle + discovery integration — current branch
 
-The SDK already persists Known Host metadata, publicly loads it through
-`DovahLinkClient.loadKnownHost()`, and records it during successful pairing according to its existing
-persistence rules. Discovery uses isolated transient storage and does not persist a Known Host. The
-next PR integrates these existing behaviors end to end: load the saved Host at startup, keep Known
-Hosts separate from discovery candidates, persist association through the existing SDK flow, and
-show the saved Host after restart.
+The SDK owns complete persisted client-state mutations and exposes the current Known Host plus every
+committed change through `DovahLinkClient.knownHostChanges`. Its state owner publishes only after
+storage succeeds and preserves pairing's atomic credential, recovery-state, and Known Host write.
+Pairing, trusted-session metadata refresh, credential removal, and failed pairing recovery continue
+to use SDK-owned lifecycle rules.
 
-For the current localhost-only route, an already-associated local Host should not reappear as a new
-candidate. Treat this as local product/routing correlation, not identity verification: discovery
-claims such as `hostId` remain untrusted. The UI must not depend on how this correlation is done.
-A Known Host remains known while offline, revoked, blocked, unrecognized, or in need of repair;
-forgetting it requires explicit remove/forget behavior. A Known Host record does not represent live
-trust. This PR integrates and exercises the existing SDK persistence; it does not invent Known Host
-persistence from scratch.
+The app mirrors that state through this boundary:
+
+```text
+SDK persisted state -> knownHostChanges -> ConnectionMiddleware -> HostMapper
+  -> ConnectionKnownHostChangedAction -> ConnectionState.knownHost -> ViewModel / UI
+```
+
+Redux stores app `Host` values only. Its Known Host field is the latest projection emitted by the
+SDK; pairing actions and discovery success do not create or update it. Middleware starts the
+subscription with the store and cancels it at app shutdown. When secure client storage is
+unsupported, the app does not construct an SDK client just to observe a Host that cannot be
+persisted on that platform.
+
+Discovery remains a separate command/result that returns reachable candidates. Discovery claims,
+including `hostId`, do not refresh Known Host metadata, establish trust, bypass pairing, or authorize
+credential disclosure.
+
+If a later Connections UI correlates a reachable candidate with the saved Host, that is local
+product/routing behavior; it is not identity verification. A Known Host remains known while offline,
+revoked, blocked, unrecognized, or in need of repair; forgetting it requires explicit remove/forget
+behavior. A Known Host record does not represent live trust. The SDK's saved Host after restart is
+its initial stream value; Flutter does not load and subscribe separately or reconcile a startup
+race.
 
 ## After that — Canonical Discovery / Connections UI Convergence
 
-The canonical UI convergence follows Known Host lifecycle integration so the final UI can be built
-and tested against real saved/discovered Host behavior rather than temporary assumptions. It will
-reproduce the approved prototype's structure, copy, interactions, and responsive presentation using
-real Known Hosts, discovery candidates/status, selected Host, and existing connection/pairing state.
-It owns presentation and handoff, adds no fake delays, and should need little or no discovery/SDK
-architecture change. Historical slice 03.6 remains paused and is not marked complete by this work.
+The next UI work uses the SDK-owned Known Host projection alongside discovery candidates/status,
+selected Host, and real connection/pairing state. It will reproduce the approved prototype's
+structure, copy, interactions, and responsive presentation, add no fake delays, and should need
+little or no discovery/SDK architecture change. Historical slice 03.6 remains paused and is not
+marked complete by this work.
 
 ## Future — production discovery mechanism
 
@@ -114,13 +129,13 @@ loopback probe beneath the SDK. This split keeps today's known local endpoint re
 allowing the better-understood product interaction to converge independently.
 
 Today's path is candidate → connect → current loopback development pairing → successful association
-→ Known Host. Later, a reviewed and approved SAS/secure bootstrap may replace that initial pairing
-ceremony, followed by Pair / Reject / Block and successful association. Replacing the initial pairing
-ceremony later with SAS should not require rebuilding discovery, Known Host lifecycle, or the
-Connections UI; it also leaves saved Host presentation, reconnect, and offline/repair presentation in
-place. No SAS profile is selected or production-ready today. Production LAN discovery, mDNS/DNS-SD,
-secure first contact, WSS/TLS migration, and non-loopback pairing remain gated by the security
-requirements and integration evidence.
+→ Known Host. If an approved SAS profile preserves the current human interaction, pairing
+implementation changes should be able to stay behind the SDK boundary and use the same Flutter app.
+If SAS eventually needs materially different human interaction, Flutter pairing presentation may
+change while SDK-owned Host, session, and trust lifecycle remains reusable. No SAS profile or UX is
+selected or production-ready today. Production LAN discovery, mDNS/DNS-SD, secure first contact,
+WSS/TLS migration, and non-loopback pairing remain gated by the security requirements and integration
+evidence.
 
 ## Related deviation
 

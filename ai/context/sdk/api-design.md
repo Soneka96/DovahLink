@@ -33,10 +33,12 @@ mutable computer-name display metadata. Neither represents the endpoint. A peer'
 `hostId` is not cryptographic proof that it owns a previously trusted identity.
 
 `DovahLinkClient.loadKnownHost()` reads the SDK-owned persisted Known Host as a `DovahLinkHost`, or
-returns `null` when the client has not established one. The value contains identity and last-known
-metadata only; it exposes no credential and does not claim the Host currently trusts this client.
-Trusted sessions may refresh its name and endpoint only when the reported Host ID matches the stored
-ID. A mismatch is a typed failure; discovery claims never refresh persisted metadata.
+returns `null` when the client has not established one. `knownHostChanges` emits that current
+persisted value to each subscriber, then every subsequent committed semantic change. A load failure
+is a stream error, never a fabricated `null`. The value contains identity and last-known metadata
+only; it exposes no credential and does not claim the Host currently trusts this client. Trusted
+sessions may refresh its name and endpoint only when the reported Host ID matches the stored ID. A
+mismatch is a typed failure; discovery claims never refresh persisted metadata.
 
 `DovahLinkDiscoveryService.discoverLocalHost()` proposes the local endpoint. The responding peer's
 `hello_ack` asserts `hostId` and `hostName`, which the SDK validates for protocol shape and Host
@@ -177,3 +179,8 @@ immediately when one is already known — this applies to lifecycle state and fu
 current-state-bearing domain views. It does not imply replaying historical events on Event-mode
 streams; a late subscriber to an Event-mode domain still synchronizes through that domain's normal
 initial-snapshot path, not through event replay.
+
+Commands and authoritative state are separate API views. A command may report whether its operation
+was accepted or rejected and return operation-specific metadata, while the resulting persistent,
+session, trust, pairing, or game state is observed through its owning typed API or stream. Consumers
+must not invent the expected state transition from command success.

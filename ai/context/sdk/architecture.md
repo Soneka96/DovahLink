@@ -43,6 +43,13 @@ SDK may expose typed APIs for Host trust-administration
 capabilities (list/revoke/reset), but the authoritative mutation always happens on the Host; see
 `ai/context/protocol/security.md` for the trust model itself.
 
+Client-side semantic facts have one SDK owner and are exposed through typed, domain-specific state
+streams. The app may map those values into Redux for presentation but must not infer Known Host,
+connection, trust, pairing lifecycle, or game-state transitions from its own commands or actions.
+The Host remains authoritative for live game values and server-side trust; existing SDK streams for
+health, magicka, stamina, level, and XP are examples of typed live-state views. Keep separate SDK
+streams per domain rather than combining unrelated state into a global stream.
+
 This describes the current singleton Known Host and bearer-credential implementation. The target
 multiple-KnownHost, key-based authentication, and pairing ownership contract is in
 [`../security/identity-and-transport.md`](../security/identity-and-transport.md).

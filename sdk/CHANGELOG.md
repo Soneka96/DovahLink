@@ -13,6 +13,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Added
 
+- `DovahLinkClient.knownHostChanges` emits the current persisted Known Host and each committed change.
 - The SDK persists the previously paired Host with client state and exposes it through
   `DovahLinkClient.loadKnownHost()` without treating it as current trust.
 - The SDK handshake result exposes the stable Host installation ID and current OS computer name.

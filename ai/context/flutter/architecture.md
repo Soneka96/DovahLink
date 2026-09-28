@@ -59,6 +59,33 @@ file's architectural role, not an `Entity` suffix on the class. Primitive or enu
 including the existing theme preset setting, does not by itself justify an Entity/Model pair; add
 one only for a structured domain concept with an external representation.
 
+## Semantic state ownership
+
+The SDK owns client-side facts about DovahLink Hosts, sessions, trust, pairing protocol lifecycle,
+and live game-state views. The Host remains authoritative for live Skyrim values and server-side
+trust decisions. Flutter mirrors SDK-owned state for presentation; it does not reproduce the rules
+that derive that state.
+
+| State | Owner | Flutter role |
+| --- | --- | --- |
+| Known Host metadata; connection, current Host/session, and trust lifecycle; pairing challenge validity, expiry, attempts, cooldown, and trusted outcome | SDK, subject to Host authority | Observe typed SDK state, map to app-owned values, and render it |
+| Health, magicka, stamina, level/XP, and future live game state | Host authority, exposed through SDK typed domain streams | Mirror SDK values for presentation |
+| Theme, selected screen/tab, dialog visibility, typed code-entry text and focus, map zoom, search/filter values, and presentation animations | Flutter app | Own as local or shared presentation state |
+
+Pairing therefore has both owners: the SDK reports challenge and trust facts; Flutter owns the
+digits being typed, focused input, dialog visibility, and error or shake animation. A command result
+may report acceptance, rejection, an error, or operation-specific metadata, but Flutter does not
+fabricate the resulting authoritative Host, session, trust, pairing, or game state from command
+success.
+
+For the connection feature, `ConnectionState.knownHost` is only the latest app-mapped projection
+emitted by the SDK's authoritative Known Host stream. `ConnectionKnownHostChangedAction` is its
+replacement path; pairing actions and discovery results do not derive or change it. `ConnectionMiddleware`
+owns the stream subscription and `HostMapper.fromSdk` is the sole SDK `DovahLinkHost` to app `Host`
+conversion. Discovery remains a command/result that returns reachable Host candidates. A candidate,
+including one whose claimed `hostId` matches the Known Host, does not establish identity, trust, or
+authorization and does not mutate Known Host state.
+
 ## Feature structure
 
 Feature-owned data, domain, and presentation code lives under its feature boundary. Application-wide
