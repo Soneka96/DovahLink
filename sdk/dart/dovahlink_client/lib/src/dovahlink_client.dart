@@ -7,12 +7,14 @@ import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_not_found_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
@@ -83,6 +85,9 @@ class DovahLinkClient {
     Duration reconnectDeadline = kReconnectDeadline,
     DateTime Function() reconnectNow = DateTime.now,
   }) : _clientStateService = ClientStateService(storage: storage) {
+    _hostAvailabilityService = HostAvailabilityService(
+      clientStateService: _clientStateService,
+    );
     final SessionState state = SessionState();
     final LifecycleOperationQueue lifecycleQueue = LifecycleOperationQueue();
     // The callback closes over the session service before it is assigned; it is only invoked by
@@ -295,6 +300,9 @@ class DovahLinkClient {
   /// session's late-bound callbacks.
   late final SessionService _sessionService;
 
+  /// Owns the runtime availability map and complete Known Host projection.
+  late final IHostAvailabilityService _hostAvailabilityService;
+
   /// Owns pending requests, timeouts, and retry behavior for this client's session.
   late final IRequestService _requestService;
 
@@ -373,6 +381,12 @@ class DovahLinkClient {
   /// @return A broadcast stream of immutable, Host-ID-sorted collections.
   Stream<List<DovahLinkHost>> get knownHostsChanges =>
       _clientStateService.knownHostsChanges;
+
+  /// Emits complete runtime Known Host snapshots, replaying the current projection to each
+  /// subscriber. Storage failures are reported while the listener remains available for recovery.
+  /// @return An immutable, Host-ID-sorted projection of durable Known Hosts and runtime availability.
+  Stream<List<DovahLinkKnownHostState>> get knownHostStatesChanges =>
+      _hostAvailabilityService.knownHostStatesChanges;
 
   /// The reason [DovahLinkClient.connectionState] is
   /// [DovahLinkConnectionState.administrativelyInvalidated], or

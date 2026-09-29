@@ -1,4 +1,5 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
@@ -13,6 +14,8 @@ import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
 /// Central test-owned catalog of representative SDK values.
 abstract final class Fixtures {
+  // ---- Known Host ----
+
   /// Builds a representative Host identity and endpoint.
   /// @param hostId The stable Host UUID.
   /// @param hostName The display name reported by the Host.
@@ -26,6 +29,18 @@ abstract final class Fixtures {
     hostId: hostId,
     hostName: hostName,
     endpoint: Uri.parse(endpoint),
+  );
+
+  /// Builds a Known Host runtime state with representative defaults.
+  /// @param host The Host metadata to project.
+  /// @param availability The runtime reachability evidence to project.
+  /// @return A fresh Known Host runtime state.
+  static DovahLinkKnownHostState buildDovahLinkKnownHostState({
+    DovahLinkHost? host,
+    DovahLinkHostAvailability availability = DovahLinkHostAvailability.unknown,
+  }) => DovahLinkKnownHostState(
+    host: host ?? buildDovahLinkHost(),
+    availability: availability,
   );
 
   // ---- Request ----

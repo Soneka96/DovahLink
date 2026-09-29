@@ -187,8 +187,10 @@ initial-snapshot path, not through event replay.
 `DovahLinkClient.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts
 and their `DovahLinkHostAvailability`. When storage provides a snapshot, it immediately provides the
 current immutable collection, ordered deterministically by Host ID, then emits a complete replacement
-when either Host metadata or availability changes. Equivalent snapshots are not emitted twice. An
-initial storage failure is reported to the subscriber, which remains attached for later recovery.
+when either Host metadata or availability changes. Equivalent snapshots are suppressed, except the
+first complete snapshot after a stream error, which signals recovery even if its values are
+unchanged. An initial storage failure is reported to the subscriber, which remains attached for
+later recovery.
 Availability starts as `unknown` for every persisted Host after process startup and is runtime-only;
 it is not part of `DovahLinkHost` or persisted client state. Keep `knownHostsChanges` for consumers
 that need durable Host metadata without runtime availability.

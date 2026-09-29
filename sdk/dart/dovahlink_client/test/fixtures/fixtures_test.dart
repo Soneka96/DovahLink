@@ -1,5 +1,7 @@
 import 'package:test/test.dart';
 
+import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
@@ -12,6 +14,40 @@ import 'fixtures.dart';
 
 /// Runs SDK fixture-catalog behavior tests.
 void main() {
+  group('Method buildDovahLinkKnownHostState behaves correctly', () {
+    test(
+      'Method buildDovahLinkKnownHostState builds a fresh unknown state by default',
+      () {
+        final DovahLinkKnownHostState first =
+            Fixtures.buildDovahLinkKnownHostState();
+        final DovahLinkKnownHostState second =
+            Fixtures.buildDovahLinkKnownHostState();
+
+        expect(first.host, Fixtures.buildDovahLinkHost());
+        expect(first.availability, DovahLinkHostAvailability.unknown);
+        expect(first, second);
+        expect(identical(first, second), isFalse);
+      },
+    );
+
+    test(
+      'Method buildDovahLinkKnownHostState applies Host and availability overrides',
+      () {
+        final DovahLinkHost host = Fixtures.buildDovahLinkHost(
+          hostName: 'EXPLICIT-HOST',
+        );
+        final DovahLinkKnownHostState state =
+            Fixtures.buildDovahLinkKnownHostState(
+              host: host,
+              availability: DovahLinkHostAvailability.online,
+            );
+
+        expect(state.host, host);
+        expect(state.availability, DovahLinkHostAvailability.online);
+      },
+    );
+  });
+
   group('Method buildRequestPolicy behaves correctly', () {
     test('Method buildRequestPolicy builds representative defaults', () {
       final RequestPolicy policy = Fixtures.buildRequestPolicy();

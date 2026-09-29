@@ -74,7 +74,8 @@ transport failure to connect during an explicit Known Host attempt, or terminal 
 Host's bounded reconnect cycle, reports `offline`. Preserve the previous value during reconnect
 attempts, and report `online` after recovery succeeds. Explicit `DovahLinkClient.disconnect()`
 reports `unknown` for its admitted Known Host because observation was deliberately stopped.
-Administrative invalidation preserves the previous availability: its typed event requires an admitted session and
+Administrative invalidation preserves the previous availability: its typed event requires an
+admitted session and
 does not establish that the Host became unreachable. Compatibility, malformed-protocol, identity,
 credential, and trust outcomes are not blanket transport-failure signals.
 
@@ -83,6 +84,10 @@ Host ID. Recovery must carry the verified Known Host relationship ID from the ad
 do not infer it from an endpoint, display metadata, or discovery. Future TTL or other liveness policy
 belongs inside this SDK availability owner. No timer, polling, or discovery-based liveness policy
 exists today.
+
+The owner suppresses equivalent successive projections. After a stream error, it emits the next
+valid complete snapshot even if the projection is unchanged, so subscribers can observe recovery
+without losing the prior snapshot.
 
 ## App independence
 

@@ -592,6 +592,58 @@ void main() {
     );
   });
 
+  group('Property knownHostStatesChanges behaves correctly', () {
+    test(
+      'Property knownHostStatesChanges starts persisted Hosts unknown without connecting',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+        );
+        final DovahLinkHost hostB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostBId: PersistedKnownHost(host: hostB, credential: 'secret-b'),
+              hostAId: PersistedKnownHost(host: hostA, credential: 'secret-a'),
+            },
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+
+        final List<DovahLinkKnownHostState> states =
+            await runtimeClient.knownHostStatesChanges.first;
+
+        expect(states.map((state) => state.host.hostId), <String>[
+          hostAId,
+          hostBId,
+        ]);
+        expect(
+          states.map((state) => state.availability),
+          <DovahLinkHostAvailability>[
+            DovahLinkHostAvailability.unknown,
+            DovahLinkHostAvailability.unknown,
+          ],
+        );
+        expect(
+          () => states.add(Fixtures.buildDovahLinkKnownHostState()),
+          throwsUnsupportedError,
+        );
+        expect(runtimeTransport.connectCalls, isEmpty);
+      },
+    );
+  });
+
   group('Property character state streams behave correctly', () {
     test(
       'Property character state streams replay notSubscribed views',
