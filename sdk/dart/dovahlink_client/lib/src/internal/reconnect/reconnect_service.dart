@@ -2,9 +2,11 @@ import 'dart:async';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_rejection_classifier.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
@@ -14,7 +16,9 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 abstract interface class IReconnectService {
   /// Reports that ordinary transport loss finished tearing down the connection previously
   /// established at [uri], starting bounded automatic recovery.
-  void onOrdinaryTransportLoss(Uri uri);
+  /// @param uri The last endpoint used by the interrupted session.
+  /// @param knownHostId The relationship selected for the lost session, or `null` for a candidate.
+  void onOrdinaryTransportLoss(Uri uri, [DovahLinkHostId? knownHostId]);
 
   /// Stops the active recovery cycle without preventing a later cycle from starting.
   void stopRecovery();
@@ -33,6 +37,9 @@ class ReconnectService implements IReconnectService {
 
   /// Re-authenticates the reconnected transport, admitting a fresh session on success.
   final IAuthenticationService _authenticationService;
+
+  /// Reports the final availability transition for the Host owned by a recovery cycle.
+  final IHostAvailabilityService _hostAvailabilityService;
 
   /// The delay before each attempt after the first, and the attempt budget. Defaults to the
   /// centrally tuned [kReconnectAttemptDelays]; overridable so a test can exercise the retry loop
@@ -58,25 +65,30 @@ class ReconnectService implements IReconnectService {
   Completer<void>? _retryDelayCompleter;
 
   /// Creates a reconnect service recovering through [sessionService], re-authenticating through
-  /// [authenticationService].
+  /// [authenticationService], and reporting outcomes to [hostAvailabilityService].
+  /// @param sessionService Owns the connection lifecycle.
+  /// @param authenticationService Re-authenticates each restored transport.
+  /// @param hostAvailabilityService Owns runtime Known Host availability.
   ReconnectService({
     required ISessionService sessionService,
     required IAuthenticationService authenticationService,
+    required IHostAvailabilityService hostAvailabilityService,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration deadline = kReconnectDeadline,
     DateTime Function() now = DateTime.now,
   }) : _sessionService = sessionService,
        _authenticationService = authenticationService,
+       _hostAvailabilityService = hostAvailabilityService,
        _attemptDelays = attemptDelays,
        _deadline = deadline,
        _now = now;
 
   /// Implements [IReconnectService.onOrdinaryTransportLoss].
   @override
-  void onOrdinaryTransportLoss(Uri uri) {
+  void onOrdinaryTransportLoss(Uri uri, [DovahLinkHostId? knownHostId]) {
     _cancelRetryDelay();
     final int recoveryGeneration = ++_recoveryGeneration;
-    unawaited(_recover(uri, recoveryGeneration));
+    unawaited(_recover(uri, knownHostId, recoveryGeneration));
   }
 
   /// Implements [IReconnectService.stopRecovery].
@@ -97,10 +109,17 @@ class ReconnectService implements IReconnectService {
   /// preserved during recovery are failed.
   /// Runs the bounded recovery cycle while [recoveryGeneration] is still current.
   /// @param uri The last endpoint used by the interrupted session.
+  /// @param knownHostId The authenticated Known Host relationship for this cycle, if any.
   /// @param recoveryGeneration The generation that invalidates this cycle when recovery is stopped.
-  Future<void> _recover(Uri uri, int recoveryGeneration) async {
+  Future<void> _recover(
+    Uri uri,
+    DovahLinkHostId? knownHostId,
+    int recoveryGeneration,
+  ) async {
     final DateTime deadline = _now().add(_deadline);
     Exception? terminalFailure;
+    DovahLinkHostAvailability giveUpAvailability =
+        DovahLinkHostAvailability.unknown;
     for (int attempt = 0; attempt < _attemptDelays.length; attempt++) {
       if (attempt > 0) {
         final Duration untilDeadline = deadline.difference(_now());
@@ -128,11 +147,31 @@ class ReconnectService implements IReconnectService {
           return;
         }
         await _authenticationService.helloLastKnownHost();
+        if (recoveryGeneration != _recoveryGeneration ||
+            _sessionService.connectionState !=
+                DovahLinkConnectionState.connected) {
+          return;
+        }
+        if (knownHostId != null) {
+          _hostAvailabilityService.setAvailability(
+            knownHostId,
+            DovahLinkHostAvailability.online,
+          );
+        }
         return;
+      } on DovahLinkConnectionException catch (error) {
+        if (recoveryGeneration != _recoveryGeneration) {
+          return;
+        }
+        terminalFailure = error;
+        giveUpAvailability = DovahLinkHostAvailability.offline;
+        continue;
       } on DovahLinkProtocolException catch (error) {
         if (recoveryGeneration != _recoveryGeneration) {
           return;
         }
+        terminalFailure = error;
+        giveUpAvailability = DovahLinkHostAvailability.unknown;
         if (ReconnectRejectionClassifier.isTerminal(error)) {
           if (CredentialRejectionReason.fromProtocolErrorCode(error.code) !=
               null) {
@@ -151,21 +190,31 @@ class ReconnectService implements IReconnectService {
           return;
         }
         terminalFailure = error;
+        giveUpAvailability = DovahLinkHostAvailability.unknown;
         break;
       } on DovahLinkHostIdentityMismatchException catch (error) {
         if (recoveryGeneration != _recoveryGeneration) {
           return;
         }
         terminalFailure = error;
+        giveUpAvailability = DovahLinkHostAvailability.unknown;
         break;
-      } on Object {
+      } on Object catch (error) {
         if (recoveryGeneration != _recoveryGeneration) {
           return;
         }
+        if (error is Exception) {
+          terminalFailure = error;
+        }
+        giveUpAvailability = DovahLinkHostAvailability.unknown;
         continue;
       }
     }
     if (recoveryGeneration != _recoveryGeneration) {
+      return;
+    }
+    if (_sessionService.connectionState ==
+        DovahLinkConnectionState.administrativelyInvalidated) {
       return;
     }
     await _sessionService.disconnect(
@@ -175,6 +224,14 @@ class ReconnectService implements IReconnectService {
             'Reconnect could not restore the connection.',
           ),
     );
+    if (recoveryGeneration != _recoveryGeneration ||
+        _sessionService.connectionState ==
+            DovahLinkConnectionState.administrativelyInvalidated) {
+      return;
+    }
+    if (knownHostId != null) {
+      _hostAvailabilityService.setAvailability(knownHostId, giveUpAvailability);
+    }
   }
 
   /// Waits for [delay], allowing [stopRecovery] to release the pending wait immediately.

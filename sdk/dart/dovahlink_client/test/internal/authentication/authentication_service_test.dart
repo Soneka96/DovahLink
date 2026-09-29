@@ -142,6 +142,11 @@ void main() {
     ).thenReturn(DovahLinkConnectionState.disconnected);
     when(() => sessionService.currentTrustState).thenReturn(null);
     when(
+      () => sessionService.currentHost,
+    ).thenReturn(Fixtures.buildDovahLinkHost());
+    when(() => sessionService.currentKnownHostId).thenReturn(null);
+    when(() => sessionService.associateKnownHost(any())).thenReturn(null);
+    when(
       () => sessionService.currentEndpoint,
     ).thenReturn(Uri.parse('ws://127.0.0.1:58231/'));
     when(
@@ -535,6 +540,9 @@ void main() {
         await service.authenticateKnownHost(DovahLinkHostId(hostId));
 
         verify(() => storage.updateState(any())).called(1);
+        verify(
+          () => sessionService.associateKnownHost(DovahLinkHostId(hostId)),
+        ).called(1);
         verify(
           () => hostAvailabilityService.setAvailability(
             DovahLinkHostId(hostId),
@@ -1325,6 +1333,95 @@ void main() {
     );
   });
 
+  group('Method helloLastKnownHost behaves correctly', () {
+    test(
+      'Method helloLastKnownHost uses the relationship retained for recovery',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final DovahLinkHostId knownHostId = DovahLinkHostId(hostId);
+        when(() => storage.load()).thenAnswer(
+          (_) async => Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-a',
+          ),
+        );
+        when(() => sessionService.currentKnownHostId).thenReturn(knownHostId);
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: hostId,
+            kind: ClientIdentityKind.paired,
+          ),
+        );
+
+        final HelloResult result = await service.helloLastKnownHost();
+
+        expect(result.trustState, DovahLinkTrustState.trusted);
+        final JsonMap sentHello =
+            verify(
+                  () => requestService.sendAndAwait(
+                    messageType: ProtocolMessageType.hello,
+                    payload: captureAny(named: 'payload'),
+                    expectedType: ProtocolMessageType.helloAck,
+                    policy: any(named: 'policy'),
+                  ),
+                ).captured.single
+                as JsonMap;
+        expect(sentHello['auth'], <String, dynamic>{
+          'method': 'trusted_device_credential',
+          'token': 'credential-a',
+        });
+        verify(() => sessionService.associateKnownHost(knownHostId)).called(1);
+      },
+    );
+
+    test(
+      'Method helloLastKnownHost does not infer a Known Host from a candidate claim',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        PersistedClientState persisted = Fixtures.buildPersistedClientState(
+          clientId: 'client-1',
+        );
+        when(() => storage.load()).thenAnswer((_) async => persisted);
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: hostId,
+            kind: ClientIdentityKind.unpaired,
+          ),
+        );
+        await service.authenticateCandidate(Uri.parse('ws://127.0.0.1:58231/'));
+
+        persisted = Fixtures.buildPersistedClientState(
+          clientId: 'client-1',
+          credential: 'existing-known-host-credential',
+        );
+        when(() => sessionService.currentKnownHostId).thenReturn(null);
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: hostId,
+            kind: ClientIdentityKind.unpaired,
+          ),
+        );
+        await service.helloLastKnownHost();
+
+        final List<JsonMap> sentHellos = verify(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.hello,
+            payload: captureAny(named: 'payload'),
+            expectedType: ProtocolMessageType.helloAck,
+            policy: any(named: 'policy'),
+          ),
+        ).captured.cast<JsonMap>();
+        expect(sentHellos.last['auth'], <String, dynamic>{
+          'method': 'unpaired',
+        });
+        verifyNever(() => sessionService.associateKnownHost(any()));
+      },
+    );
+  });
+
   group('Method authenticate behaves correctly', () {
     test(
       'Method authenticateKnownHost cannot resume another Host recovery',
@@ -1632,6 +1729,7 @@ void main() {
         verifyNever(
           () => hostAvailabilityService.setAvailability(any(), any()),
         );
+        verifyNever(() => sessionService.associateKnownHost(any()));
       },
     );
 
@@ -1999,6 +2097,11 @@ void main() {
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
         expect(result.hostName, 'Soneka-Desktop');
         expect(result.trustState, DovahLinkTrustState.unpaired);
+        verify(
+          () => sessionService.associateKnownHost(
+            DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+          ),
+        ).called(1);
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
         expect(updatedState?.pendingPairingRecovery, isNull);

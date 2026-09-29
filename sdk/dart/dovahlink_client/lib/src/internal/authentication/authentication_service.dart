@@ -156,23 +156,22 @@ class AuthenticationService implements IAuthenticationService {
   @override
   Future<HelloResult> hello() => _hello(_authenticationGeneration);
 
-  /// Resolves the previous relationship for automatic reconnect, if it still exists.
+  /// Resolves the relationship captured from the session being recovered, if it still exists.
   /// @return The result of the admitted reconnect session.
   @override
   Future<HelloResult> helloLastKnownHost() async {
+    final int generation = _authenticationGeneration;
     final PersistedClientState state = await _clientStateService.load();
-    final String? hostId =
-        state.pendingPairingRecovery?.hostId ?? _lastHelloResult?.hostId;
-    final String? normalizedHostId = hostId == null
-        ? null
-        : DovahLinkHostId(hostId).value;
+    _ensureAuthenticationCurrent(generation);
+    final DovahLinkHostId? knownHostId = _sessionService.currentKnownHostId;
+    final String? normalizedHostId = knownHostId?.value;
+    if (normalizedHostId != null &&
+        !state.knownHosts.containsKey(normalizedHostId)) {
+      throw DovahLinkKnownHostNotFoundException(normalizedHostId);
+    }
     return _hello(
-      _authenticationGeneration,
-      knownHostId:
-          normalizedHostId != null &&
-              state.knownHosts.containsKey(normalizedHostId)
-          ? normalizedHostId
-          : null,
+      generation,
+      knownHostId: normalizedHostId,
       stateSnapshot: state,
     );
   }
@@ -314,6 +313,11 @@ class AuthenticationService implements IAuthenticationService {
         trustState: trustState,
         currentHost: currentHost,
       );
+      if (normalizedKnownHostId != null) {
+        _sessionService.associateKnownHost(
+          DovahLinkHostId(normalizedKnownHostId),
+        );
+      }
       final HelloResult result = HelloResult(
         hostId: currentHost.hostId,
         hostName: ack.hostName,
@@ -437,7 +441,10 @@ class AuthenticationService implements IAuthenticationService {
       _ensureAuthenticationCurrent(generation);
       await _connect(uri, knownHostId, generation);
       _ensureAuthenticationCurrent(generation);
-      final HelloResult result = await _hello(generation);
+      final HelloResult result = await _hello(
+        generation,
+        knownHostId: knownHostId,
+      );
       _ensureAuthenticationCurrent(generation);
       return HelloResult(
         hostId: result.hostId,

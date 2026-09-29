@@ -231,6 +231,7 @@ void main() {
     when(
       () => hostAvailabilityService.setAvailability(any(), any()),
     ).thenReturn(null);
+    when(() => sessionService.associateKnownHost(any())).thenReturn(null);
     service = PairingService(
       sessionService: sessionService,
       sessionTrustService: sessionTrustService,
@@ -861,6 +862,9 @@ void main() {
 
         verifyInOrder([
           () => storage.updateState(any()),
+          () => sessionService.associateKnownHost(
+            DovahLinkHostId(_currentHost().hostId),
+          ),
           () => hostAvailabilityService.setAvailability(
             DovahLinkHostId(_currentHost().hostId),
             DovahLinkHostAvailability.online,
@@ -974,6 +978,10 @@ void main() {
             DovahLinkHostId(hostB.hostId),
             DovahLinkHostAvailability.online,
           ),
+        );
+        verifyNever(
+          () =>
+              sessionService.associateKnownHost(DovahLinkHostId(hostA.hostId)),
         );
       },
     );
@@ -1257,6 +1265,15 @@ void main() {
         ).called(1);
         verify(() => sessionTrustService.markTrusted()).called(1);
         verify(() => storage.updateState(any())).called(1);
+        verifyInOrder([
+          () => sessionService.associateKnownHost(
+            DovahLinkHostId(_currentHost().hostId),
+          ),
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(_currentHost().hostId),
+            DovahLinkHostAvailability.online,
+          ),
+        ]);
         expect(
           updatedState,
           _state(

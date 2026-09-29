@@ -686,8 +686,71 @@ void main() {
           snapshots.last.single.availability,
           DovahLinkHostAvailability.online,
         );
-        await subscription.cancel();
         await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        await subscription.cancel();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges preserves availability through administrative invalidation',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+            ),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        runtimeTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await runtimeClient.authenticateKnownHost(DovahLinkHostId(hostId));
+        await Future<void>.delayed(Duration.zero);
+
+        runtimeTransport.queueResponse(
+          _rawSessionInvalidated('revoked', sessionId: 'session-paired-1'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          runtimeClient.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.online,
+        );
+        await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.online,
+        );
+        await subscription.cancel();
       },
     );
 
@@ -793,8 +856,13 @@ void main() {
             availability: DovahLinkHostAvailability.online,
           ),
         ]);
-        await subscription.cancel();
         await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        await subscription.cancel();
       },
     );
 
@@ -839,8 +907,10 @@ void main() {
           snapshots.single.single.availability,
           DovahLinkHostAvailability.unknown,
         );
-        await subscription.cancel();
         await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(snapshots, hasLength(1));
+        await subscription.cancel();
       },
     );
   });
@@ -3260,7 +3330,16 @@ void main() {
       );
       transport.failMessagesWith(const SocketException('dropped'));
 
-      await expectLater(pending, throwsA(isA<DovahLinkConnectionException>()));
+      await expectLater(
+        pending,
+        throwsA(
+          isA<DovahLinkProtocolException>().having(
+            (error) => error.code,
+            'code',
+            ProtocolErrorCode.malformedMessage,
+          ),
+        ),
+      );
       expect(client.connectionState, DovahLinkConnectionState.disconnected);
       // hello#1, pairing_request#1 (orphaned, already sent before the drop), hello#2
       // (automatic) -- no pairing_request#2: the orphaned request was never retransmitted.
@@ -3367,6 +3446,203 @@ void main() {
   });
 
   group('Behavior reconnect re-authentication sequencing behaves correctly', () {
+    test(
+      'Known Host reconnect preserves its availability while retrying and marks only that Host offline after exhaustion',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+          hostName: 'Soneka-Desktop',
+        );
+        final DovahLinkHost hostB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final PersistedClientState state = PersistedClientState(
+          clientId: 'client-1',
+          knownHosts: <String, PersistedKnownHost>{
+            hostAId: PersistedKnownHost(
+              host: hostA,
+              credential: 'credential-a',
+            ),
+            hostBId: PersistedKnownHost(
+              host: hostB,
+              credential: 'credential-b',
+            ),
+          },
+        );
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        await reconnectStorage.save(state);
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await reconnectClient.authenticateKnownHost(DovahLinkHostId(hostAId));
+        await Future<void>.delayed(Duration.zero);
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: hostA,
+            availability: DovahLinkHostAvailability.online,
+          ),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 30; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.connected,
+        );
+        expect(
+          snapshots.every((List<DovahLinkKnownHostState> snapshot) {
+            return snapshot.first.availability !=
+                DovahLinkHostAvailability.offline;
+          }),
+          isTrue,
+        );
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: hostA,
+            availability: DovahLinkHostAvailability.online,
+          ),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+
+        reconnectTransport.failConnectWith = const SocketException(
+          'unreachable',
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 40; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: hostA,
+            availability: DovahLinkHostAvailability.offline,
+          ),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+        await subscription.cancel();
+        await reconnectClient.disconnect();
+      },
+    );
+
+    test(
+      'Known Host reconnect identity mismatch returns that Host to unknown',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+          hostName: 'Soneka-Desktop',
+        );
+        final DovahLinkHost hostB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        await reconnectStorage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: PersistedKnownHost(
+                host: hostA,
+                credential: 'credential-a',
+              ),
+              hostBId: PersistedKnownHost(
+                host: hostB,
+                credential: 'credential-b',
+              ),
+            },
+          ),
+        );
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await reconnectClient.authenticateKnownHost(DovahLinkHostId(hostAId));
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.first.availability,
+          DovahLinkHostAvailability.online,
+        );
+
+        final Map<String, dynamic> hostBHelloAck =
+            jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                as Map<String, dynamic>;
+        (hostBHelloAck['payload'] as Map<String, dynamic>)['hostId'] = hostBId;
+        reconnectTransport.queueResponse(jsonEncode(hostBHelloAck));
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+        for (
+          int attempt = 0;
+          attempt < 40 &&
+              reconnectClient.connectionState !=
+                  DovahLinkConnectionState.disconnected;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(host: hostA),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+        expect(
+          snapshots.every(
+            (List<DovahLinkKnownHostState> snapshot) =>
+                snapshot.first.availability !=
+                DovahLinkHostAvailability.offline,
+          ),
+          isTrue,
+        );
+        await subscription.cancel();
+        await reconnectClient.disconnect();
+      },
+    );
+
     test('Behavior automatic reconnect passes through reauthenticating before resolving to '
         'connected, never exposing connected before hello succeeds', () async {
       final FakeDovahLinkTransport reconnectTransport =
@@ -3804,6 +4080,94 @@ void main() {
       // above.
       await client.disconnect();
     });
+  });
+
+  group('Behavior Known Host disconnect during recovery behaves correctly', () {
+    test(
+      'Behavior Known Host disconnect during reauthentication reports unknown and ignores a late hello reply',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        await reconnectStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+            ),
+          ),
+        );
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await reconnectClient.authenticateKnownHost(DovahLinkHostId(hostId));
+        await Future<void>.delayed(Duration.zero);
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.reauthenticating,
+        );
+
+        final int closeCountBeforeDisconnect =
+            reconnectTransport.closeCallCount;
+        final Completer<void> closeGate = Completer<void>();
+        reconnectTransport.closeGate = closeGate;
+        final Future<void> disconnect = reconnectClient.disconnect();
+        for (
+          int i = 0;
+          i < 20 &&
+              reconnectTransport.closeCallCount == closeCountBeforeDisconnect;
+          i++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(
+          reconnectTransport.closeCallCount,
+          greaterThan(closeCountBeforeDisconnect),
+        );
+
+        reconnectTransport.queueRawResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        closeGate.complete();
+        await disconnect;
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+            ),
+            availability: DovahLinkHostAvailability.unknown,
+          ),
+        ]);
+        await subscription.cancel();
+      },
+    );
   });
 
   group('Behavior reconnect-disabled client composition behaves correctly', () {

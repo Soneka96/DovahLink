@@ -70,10 +70,16 @@ value. Do not duplicate Host metadata or persistence ownership in the availabili
 
 Apply only these transitions: successful `authenticateKnownHost` admission and successful pairing
 that durably creates or updates a Known Host in the active session report `online`; an actual
-transport failure to connect during an explicit Known Host attempt, or terminal exhaustion of that
-Host's bounded reconnect cycle, reports `offline`. Preserve the previous value during reconnect
-attempts, and report `online` after recovery succeeds. Explicit `DovahLinkClient.disconnect()`
-reports `unknown` for its admitted Known Host because observation was deliberately stopped.
+transport failure to connect during an explicit Known Host attempt reports `offline`. Preserve the
+previous value during reconnect attempts, and report `online` after recovery succeeds. Reconnect
+exhaustion reports `offline` only when typed reconnect failures establish that connection or
+transport reachability failed. Identity mismatch, compatibility failure, protocol response or
+rejection (including retryable protocol errors that exhaust the retry budget), and other semantic
+termination report `unknown`: reconnect `terminal` means stop retrying, not that the Known Host is
+unreachable. Reachability alone also does not authenticate the expected Known Host; if its endpoint
+responds as a different Host, the expected Known Host returns to `unknown`. Explicit
+`DovahLinkClient.disconnect()` reports `unknown` for its admitted Known Host because observation
+was deliberately stopped.
 Administrative invalidation preserves the previous availability: its typed event requires an
 admitted session and
 does not establish that the Host became unreachable. Compatibility, malformed-protocol, identity,
@@ -325,7 +331,9 @@ implementations.
 2. **Ordinary transport-loss notification** → drives `ReconnectService`'s recovery start. Same
    reasoning: `ReconnectService` needs `ISessionService` and `IAuthenticationService` as
    constructor dependencies, so `SessionService` cannot hold a matching `IReconnectService`
-   reference without a cycle.
+   reference without a cycle. The callback carries the session's selected Known Host relationship ID
+   captured through teardown; a candidate session carries `null`, even if it reported an ID that
+   matches a durable Known Host.
 3. **Incoming-message forwarding** → `IRequestService.handleIncoming`. `SessionService` owns
    starting the transport's inbound subscription (`connect()`'s own implementation, per "Request/
    session boundary" below) and is the only class that ever sees a raw inbound message land, but
@@ -404,10 +412,13 @@ the recovery request area, tracker, decoder, and unavailable-value rule come fro
 
 `SessionState` is created exactly once, by the composition root (`DovahLinkClient`), and is the
 single authoritative owner of every session-scoped mutable fact this engine has: connection state,
-`sessionId`, trust state, the administrative invalidation reason, the connection generation, the
-last-connected URI, and the transport's message subscription. Direct `SessionState` access is
-limited to the session subsystem's own internal components that legitimately participate in
-maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustService`, and
+`sessionId`, trust state, the optional Known Host relationship selected for the session, the
+administrative invalidation reason, the connection generation, the last-connected URI, and the
+transport's message subscription. A candidate session has no Known Host relationship until pairing
+durably creates one in that active session. The relationship ID stays separate from
+`DovahLinkHost` metadata and is retained only for the bounded recovery cycle. Direct `SessionState`
+access is limited to the session subsystem's own internal components that legitimately participate
+in maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustService`, and
 `ConnectionTeardownCoordinator` (`SessionService`'s own supporting collaborator, per
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
@@ -420,7 +431,10 @@ whose durable source of truth is `IClientStorage`, refreshed every `hello()` —
 of anything `SessionState` owns.
 
 `SessionAdmissionService` exposes the one write command that admits a newly authenticated
-session (`admitSession`, called once by `AuthenticationService` after a successful `hello`);
+session (`admitSession`, called once by `AuthenticationService` after a successful `hello`).
+`AuthenticationService` then associates the explicitly selected Known Host relationship through
+`SessionService.associateKnownHost`; candidate authentication leaves it unset. Pairing calls that
+same command only after the relationship is durable and the same session remains active.
 `SessionTrustService` exposes the one write command that upgrades trust standing (`markTrusted`,
 called by `PairingService` after a successful pairing acknowledgement). No other class assigns
 `sessionId` or trust state directly.

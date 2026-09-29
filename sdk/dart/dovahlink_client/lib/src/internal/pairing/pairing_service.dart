@@ -289,6 +289,7 @@ class PairingService implements IPairingService {
       );
     });
     if (_sessionService.currentHost?.hostId == currentHost.hostId) {
+      _sessionService.associateKnownHost(DovahLinkHostId(currentHost.hostId));
       _hostAvailabilityService.setAvailability(
         DovahLinkHostId(currentHost.hostId),
         DovahLinkHostAvailability.online,
@@ -373,7 +374,14 @@ class PairingService implements IPairingService {
         clearPendingPairingRecovery: true,
       );
     });
-    _sessionTrustService.markTrusted();
+    if (_sessionService.currentHost?.hostId == currentHost.hostId) {
+      _sessionTrustService.markTrusted();
+      _sessionService.associateKnownHost(DovahLinkHostId(currentHost.hostId));
+      _hostAvailabilityService.setAvailability(
+        DovahLinkHostId(currentHost.hostId),
+        DovahLinkHostAvailability.online,
+      );
+    }
   }
 
   /// Implements [IPairingService.recoverPendingPairing].

@@ -287,6 +287,7 @@ class DovahLinkClient {
     _reconnectService = ReconnectService(
       sessionService: _sessionService,
       authenticationService: _authenticationService,
+      hostAvailabilityService: _hostAvailabilityService,
       attemptDelays: attemptDelays,
       deadline: reconnectDeadline,
       now: reconnectNow,
@@ -566,12 +567,22 @@ class DovahLinkClient {
   /// [DovahLinkConnectionState.disconnected] rather than
   /// letting that recovery keep running. Repeated calls remain safe because transport close and
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
-  /// preserved, not reset to generic disconnect.
-  Future<void> disconnect() {
+  /// preserved, not reset to generic disconnect. A Known Host session deliberately disconnected
+  /// by the client reports availability as `unknown`.
+  Future<void> disconnect() async {
+    final DovahLinkHostId? knownHostId = _sessionService.currentKnownHostId;
     _authenticationService.cancelPendingAuthentication();
     _reconnectService.stopRecovery();
     _subscriptionService.clearDesiredStateAreas();
-    return _sessionService.disconnect();
+    await _sessionService.disconnect();
+    if (knownHostId != null &&
+        _sessionService.connectionState !=
+            DovahLinkConnectionState.administrativelyInvalidated) {
+      _hostAvailabilityService.setAvailability(
+        knownHostId,
+        DovahLinkHostAvailability.unknown,
+      );
+    }
   }
 
   /// Removes one Known Host's credential while preserving its metadata and the local client ID.

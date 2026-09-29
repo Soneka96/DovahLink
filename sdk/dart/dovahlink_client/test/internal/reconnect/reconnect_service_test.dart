@@ -5,11 +5,13 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -22,6 +24,10 @@ class MockSessionService extends Mock implements ISessionService {}
 /// [IAuthenticationService.hello] outcomes.
 class MockAuthenticationService extends Mock
     implements IAuthenticationService {}
+
+/// Mocks the single owner of runtime Known Host availability.
+class MockHostAvailabilityService extends Mock
+    implements IHostAvailabilityService {}
 
 /// Millisecond-scale delays used so the retry loop's tests run fast, mirroring this suite's
 /// existing short-timeout convention for timer-based behavior.
@@ -38,17 +44,23 @@ final Uri _uri = Uri.parse('ws://127.0.0.1:58231/');
 void main() {
   late MockSessionService sessionService;
   late MockAuthenticationService authenticationService;
+  late MockHostAvailabilityService hostAvailabilityService;
 
   setUpAll(() {
     registerFallbackValue(_uri);
     registerFallbackValue(
       const DovahLinkConnectionException('fallback for any()'),
     );
+    registerFallbackValue(
+      DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+    );
+    registerFallbackValue(DovahLinkHostAvailability.unknown);
   });
 
   setUp(() {
     sessionService = MockSessionService();
     authenticationService = MockAuthenticationService();
+    hostAvailabilityService = MockHostAvailabilityService();
     when(
       () => sessionService.connectionState,
     ).thenReturn(DovahLinkConnectionState.reconnecting);
@@ -62,6 +74,9 @@ void main() {
     when(
       () => authenticationService.forgetLastKnownCredential(),
     ).thenAnswer((_) async {});
+    when(
+      () => hostAvailabilityService.setAvailability(any(), any()),
+    ).thenReturn(null);
   });
 
   /// Builds a service over [sessionService] and [authenticationService], with short test delays.
@@ -72,6 +87,7 @@ void main() {
   }) => ReconnectService(
     sessionService: sessionService,
     authenticationService: authenticationService,
+    hostAvailabilityService: hostAvailabilityService,
     attemptDelays: attemptDelays,
     deadline: deadline,
     now: now ?? DateTime.now,
@@ -98,6 +114,46 @@ void main() {
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
             reason: any(named: 'reason'),
+          ),
+        );
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss reports online for the Known Host this cycle owns',
+      () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer((
+          _,
+        ) async {
+          when(
+            () => sessionService.connectionState,
+          ).thenReturn(DovahLinkConnectionState.connected);
+          return Fixtures.buildHelloResult(
+            hostVersion: '1.0',
+            trustState: DovahLinkTrustState.trusted,
+          );
+        });
+        final ReconnectService service = buildService();
+
+        service.onOrdinaryTransportLoss(_uri, hostId);
+        await pumpEventQueue();
+
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            hostId,
+            DovahLinkHostAvailability.online,
+          ),
+        ).called(1);
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(
+            any(),
+            DovahLinkHostAvailability.offline,
           ),
         );
       },
@@ -212,6 +268,9 @@ void main() {
       'Method onOrdinaryTransportLoss succeeds on a later attempt after earlier connect() '
       'failures, waiting between attempts',
       () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
         int connectCallCount = 0;
         when(() => sessionService.connect(any())).thenAnswer((_) async {
           connectCallCount++;
@@ -219,15 +278,20 @@ void main() {
             throw const DovahLinkConnectionException('unreachable');
           }
         });
-        when(() => authenticationService.helloLastKnownHost()).thenAnswer(
-          (_) async => Fixtures.buildHelloResult(
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer((
+          _,
+        ) async {
+          when(
+            () => sessionService.connectionState,
+          ).thenReturn(DovahLinkConnectionState.connected);
+          return Fixtures.buildHelloResult(
             hostVersion: '1.0',
             trustState: DovahLinkTrustState.trusted,
-          ),
-        );
+          );
+        });
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, hostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         expect(connectCallCount, 3);
@@ -238,6 +302,18 @@ void main() {
             reason: any(named: 'reason'),
           ),
         );
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            hostId,
+            DovahLinkHostAvailability.online,
+          ),
+        ).called(1);
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(
+            hostId,
+            DovahLinkHostAvailability.offline,
+          ),
+        );
       },
     );
 
@@ -245,6 +321,9 @@ void main() {
       'Method onOrdinaryTransportLoss stops immediately on a typed rejection from hello() '
       'instead of consuming the remaining attempt budget',
       () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
         when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkProtocolException(
             code: ProtocolErrorCode.revoked,
@@ -254,7 +333,7 @@ void main() {
         );
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, hostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(() => authenticationService.helloLastKnownHost()).called(1);
@@ -265,12 +344,21 @@ void main() {
             reason: any(named: 'reason'),
           ),
         ).called(1);
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            hostId,
+            DovahLinkHostAvailability.unknown,
+          ),
+        ).called(1);
       },
     );
 
     test(
       'Method onOrdinaryTransportLoss stops after an incompatible Host instead of retrying it',
       () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
         when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkCompatibilityException(
             hostVersion: '0.6.0',
@@ -280,7 +368,7 @@ void main() {
         );
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, hostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(() => authenticationService.helloLastKnownHost()).called(1);
@@ -294,12 +382,21 @@ void main() {
                 ).captured.single
                 as Exception;
         expect(reason, isA<DovahLinkCompatibilityException>());
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            hostId,
+            DovahLinkHostAvailability.unknown,
+          ),
+        ).called(1);
       },
     );
 
     test(
       'Method onOrdinaryTransportLoss stops after a Known Host identity mismatch and preserves its reason',
       () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
         const DovahLinkHostIdentityMismatchException mismatch =
             DovahLinkHostIdentityMismatchException(
               knownHostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
@@ -310,7 +407,7 @@ void main() {
         ).thenThrow(mismatch);
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, hostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(() => sessionService.connect(_uri)).called(1);
@@ -325,6 +422,12 @@ void main() {
                 ).captured.single
                 as Exception;
         expect(identical(reason, mismatch), isTrue);
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            hostId,
+            DovahLinkHostAvailability.unknown,
+          ),
+        ).called(1);
       },
     );
 
@@ -570,9 +673,42 @@ void main() {
     );
 
     test(
+      'Method onOrdinaryTransportLoss keeps availability unknown when retryable protocol responses exhaust the budget',
+      () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
+        when(() => authenticationService.helloLastKnownHost()).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.rateLimited,
+            message: 'slow down',
+            retryable: true,
+          ),
+        );
+        final ReconnectService service = buildService(
+          attemptDelays: const <Duration>[Duration.zero, Duration.zero],
+        );
+
+        service.onOrdinaryTransportLoss(_uri, hostId);
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+
+        verify(() => sessionService.connect(_uri)).called(2);
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            hostId,
+            DovahLinkHostAvailability.unknown,
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
       'Method onOrdinaryTransportLoss disconnects once the attempt budget is exhausted, all '
       'attempts having failed',
       () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
         when(
           () => sessionService.connect(any()),
         ).thenThrow(const DovahLinkConnectionException('unreachable'));
@@ -584,7 +720,7 @@ void main() {
         );
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, hostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(() => sessionService.connect(_uri)).called(_shortDelays.length);
@@ -600,6 +736,48 @@ void main() {
           (verification.captured.single as DovahLinkConnectionException)
               .message,
           isNotEmpty,
+        );
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            hostId,
+            DovahLinkHostAvailability.offline,
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method onOrdinaryTransportLoss preserves availability when administrative invalidation ends recovery',
+      () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
+        when(() => authenticationService.helloLastKnownHost()).thenAnswer((
+          _,
+        ) async {
+          when(
+            () => sessionService.connectionState,
+          ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
+          throw DovahLinkHostIdentityMismatchException(
+            knownHostId: hostId.value,
+            reportedHostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          );
+        });
+        final ReconnectService service = buildService(
+          attemptDelays: const <Duration>[Duration.zero],
+        );
+
+        service.onOrdinaryTransportLoss(_uri, hostId);
+        await pumpEventQueue();
+
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+        verifyNever(
+          () => sessionService.disconnect(
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+            reason: any(named: 'reason'),
+          ),
         );
       },
     );

@@ -117,8 +117,12 @@ Host/SDK runtime state and is not persisted as Known Host membership.
 Known Host availability is a separate SDK-owned, non-persisted runtime projection with exactly three
 states: `unknown`, `online`, and `offline`. Persisted Hosts begin `unknown` at SDK startup. Successful
 Known Host authentication or pairing that creates or updates a durable Host during an active session
-reports `online`. An ordinary transport loss retains the previous state while bounded reconnect runs;
-successful recovery reports `online`, while reconnect exhaustion or an actual explicit Known Host
+reports `online`. An ordinary transport loss retains the previous state while bounded reconnect
+runs; successful recovery reports `online`. Reconnect exhaustion reports `offline` only when typed
+failures establish connection or transport reachability failure. Identity mismatch, compatibility
+failure, protocol response or rejection (including retryable protocol errors that exhaust the
+budget), and other semantic termination report `unknown`; a responsive endpoint identifying as
+another Host also leaves the expected Known Host `unknown`. An actual explicit Known Host
 transport-connect failure reports `offline`. Deliberate client disconnect returns the current Known
 Host to `unknown`; administrative invalidation preserves its previous availability. Discovery and
 candidate authentication do not affect Known Host availability, and availability does not represent
