@@ -1,0 +1,88 @@
+{
+  "configVersion": 2,
+  "packages": [
+    {
+      "name": "args",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/args-2.7.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.3"
+    },
+    {
+      "name": "asn1lib",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/asn1lib-1.6.5",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
+      "name": "collection",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/collection-1.19.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
+      "name": "crypto",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/crypto-3.0.7",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
+      "name": "path",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/path-1.9.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
+      "name": "source_span",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/source_span-1.10.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
+    },
+    {
+      "name": "string_scanner",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/string_scanner-1.4.1",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
+    },
+    {
+      "name": "term_glyph",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/term_glyph-1.2.2",
+      "packageUri": "lib/",
+      "languageVersion": "3.1"
+    },
+    {
+      "name": "tidy_imports",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/tidy_imports-1.6.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.0"
+    },
+    {
+      "name": "tint",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/tint-2.0.1",
+      "packageUri": "lib/",
+      "languageVersion": "2.18"
+    },
+    {
+      "name": "typed_data",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/typed_data-1.4.0",
+      "packageUri": "lib/",
+      "languageVersion": "3.5"
+    },
+    {
+      "name": "yaml",
+      "rootUri": "file:///C:/Users/gonca/AppData/Local/Pub/Cache/hosted/pub.dev/yaml-3.1.4",
+      "packageUri": "lib/",
+      "languageVersion": "3.4"
+    },
+    {
+      "name": "dovahlink_s2_tls_client_poc",
+      "rootUri": "../",
+      "packageUri": "lib/",
+      "languageVersion": "3.12"
+    }
+  ],
+  "generator": "pub",
+  "generatorVersion": "3.13.4",
+  "flutterRoot": "file:///C:/Projects/Tools/flutter",
+  "flutterVersion": "3.47.5",
+  "pubCache": "file:///C:/Users/gonca/AppData/Local/Pub/Cache"
+}
