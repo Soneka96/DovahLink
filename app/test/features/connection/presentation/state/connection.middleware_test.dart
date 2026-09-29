@@ -106,7 +106,15 @@ void main() {
       expect(actions.whereType<ConnectionKnownHostsChangedAction>(), [
         ConnectionKnownHostsChangedAction(const <Host>[]),
       ]);
+      expect(
+        actions.whereType<ConnectionKnownHostsObservationFailedAction>(),
+        isEmpty,
+      );
       expect(integrationStore.state.connection.knownHosts, isEmpty);
+      expect(
+        integrationStore.state.connection.knownHostsStatus,
+        KnownHostsObservationStatus.ready,
+      );
     });
 
     test(
@@ -141,6 +149,10 @@ void main() {
           HostMapper.fromSdk(first),
           HostMapper.fromSdk(second),
         ]);
+        expect(
+          integrationStore.state.connection.knownHostsStatus,
+          KnownHostsObservationStatus.ready,
+        );
 
         knownHostsController.add(<DovahLinkHost>[second]);
         await pumpEventQueue();
@@ -250,13 +262,78 @@ void main() {
       },
     );
 
+    test(
+      'stream error before the first snapshot marks the empty projection failed',
+      () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
+        final List<Object?> actions = <Object?>[];
+        final Store<AppState> integrationStore = const CreateStore()(
+          middleware: [
+            (Store<AppState> _, dynamic action, NextDispatcher next) {
+              actions.add(action);
+              next(action);
+            },
+            middleware.call,
+          ],
+        );
+        final DovahLinkHost host = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'KNOWN-HOST',
+          endpoint: defaultHostUri,
+        );
+        middleware.initialize(integrationStore);
+
+        knownHostsController.addError(
+          StateError('initial storage read failed'),
+        );
+        await pumpEventQueue();
+
+        expect(
+          integrationStore.state.connection.knownHostsStatus,
+          KnownHostsObservationStatus.failed,
+        );
+        expect(integrationStore.state.connection.knownHosts, isEmpty);
+        expect(
+          actions.whereType<ConnectionKnownHostsObservationFailedAction>(),
+          [const ConnectionKnownHostsObservationFailedAction()],
+        );
+        expect(reported, hasLength(1));
+
+        knownHostsController.add(<DovahLinkHost>[host]);
+        await pumpEventQueue();
+
+        expect(
+          integrationStore.state.connection.knownHostsStatus,
+          KnownHostsObservationStatus.ready,
+        );
+        expect(integrationStore.state.connection.knownHosts, <Host>[
+          HostMapper.fromSdk(host),
+        ]);
+      },
+    );
+
     test('stream errors are reported and observation continues', () async {
       final originalHandler = FlutterError.onError;
       final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
       FlutterError.onError = reported.add;
       addTearDown(() => FlutterError.onError = originalHandler);
+      final List<Object?> actions = <Object?>[];
       final Store<AppState> integrationStore = const CreateStore()(
-        middleware: [middleware.call],
+        middleware: [
+          (Store<AppState> _, dynamic action, NextDispatcher next) {
+            actions.add(action);
+            next(action);
+          },
+          middleware.call,
+        ],
+      );
+      final DovahLinkHost previous = DovahLinkHost(
+        hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+        hostName: 'PREVIOUS-HOST',
+        endpoint: Uri.parse('ws://127.0.0.1:58232/'),
       );
       final DovahLinkHost host = DovahLinkHost(
         hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
@@ -265,8 +342,22 @@ void main() {
       );
       middleware.initialize(integrationStore);
 
+      knownHostsController.add(<DovahLinkHost>[previous]);
+      await pumpEventQueue();
       knownHostsController.addError(StateError('storage read failed'));
       await pumpEventQueue();
+
+      expect(actions.whereType<ConnectionKnownHostsObservationFailedAction>(), [
+        const ConnectionKnownHostsObservationFailedAction(),
+      ]);
+      expect(
+        integrationStore.state.connection.knownHostsStatus,
+        KnownHostsObservationStatus.failed,
+      );
+      expect(integrationStore.state.connection.knownHosts, <Host>[
+        HostMapper.fromSdk(previous),
+      ]);
+
       knownHostsController.add(<DovahLinkHost>[host]);
       await pumpEventQueue();
 
@@ -276,6 +367,10 @@ void main() {
       expect(integrationStore.state.connection.knownHosts, <Host>[
         HostMapper.fromSdk(host),
       ]);
+      expect(
+        integrationStore.state.connection.knownHostsStatus,
+        KnownHostsObservationStatus.ready,
+      );
     });
   });
 

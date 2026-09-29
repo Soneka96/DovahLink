@@ -13,6 +13,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Added
 
+- The app distinguishes loading, ready, and failed Known Hosts observations while retaining the last successful collection on stream errors.
 - The connection state mirrors the complete SDK-owned Known Hosts list separately from discovery candidates.
 - The Connections screen discovers the local Host on demand and shows searching, available, empty, and failure states.
 - Discovery failures use app-owned semantic reasons in Redux, with user-facing copy beside the enum.

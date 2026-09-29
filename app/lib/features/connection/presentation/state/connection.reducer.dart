@@ -14,6 +14,9 @@ Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
   TypedReducer<ConnectionState, ConnectionKnownHostsChangedAction>(
     connectionKnownHostChangedReducer,
   ).call,
+  TypedReducer<ConnectionState, ConnectionKnownHostsObservationFailedAction>(
+    connectionKnownHostsObservationFailedReducer,
+  ).call,
   TypedReducer<ConnectionState, ConnectionDiscoveryStartedAction>(
     connectionDiscoveryStartedReducer,
   ).call,
@@ -31,7 +34,18 @@ Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
 ConnectionState connectionKnownHostChangedReducer(
   ConnectionState state,
   ConnectionKnownHostsChangedAction action,
-) => state.copyWith(knownHosts: action.knownHosts);
+) => state.copyWith(
+  knownHosts: action.knownHosts,
+  knownHostsStatus: KnownHostsObservationStatus.ready,
+);
+
+/// Marks the SDK Known Hosts observation unhealthy without discarding its last complete snapshot.
+/// @param state The current connection projection.
+/// @param action The semantic stream-observation failure.
+ConnectionState connectionKnownHostsObservationFailedReducer(
+  ConnectionState state,
+  ConnectionKnownHostsObservationFailedAction action,
+) => state.copyWith(knownHostsStatus: KnownHostsObservationStatus.failed);
 
 /// Handles [ConnectionHostSelectedAction].
 /// Updates [ConnectionState.selectedHost] to the Host the user selected, replacing any earlier

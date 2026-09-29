@@ -79,8 +79,11 @@ fabricate the resulting authoritative Host, session, trust, pairing, or game sta
 success.
 
 For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
-emitted by the SDK's authoritative Known Hosts stream. `ConnectionKnownHostsChangedAction` replaces
-the entire list; pairing actions and discovery results do not derive or change it.
+emitted by the SDK's authoritative Known Hosts stream. `knownHostsStatus` starts as `loading`, becomes
+`ready` on any complete snapshot (including an empty one), and becomes `failed` on a stream error.
+An observation error preserves the last successful `knownHosts` value; a later snapshot restores
+`ready`. `ConnectionKnownHostsChangedAction` replaces the entire list; pairing actions and discovery
+results do not derive or change it.
 `ConnectionMiddleware` owns the stream subscription and `HostMapper.fromSdk` is the sole SDK
 `DovahLinkHost` to app `Host` conversion. Discovery remains a command/result that returns reachable
 Host candidates. A candidate, including one whose claimed `hostId` matches a Known Host, does not

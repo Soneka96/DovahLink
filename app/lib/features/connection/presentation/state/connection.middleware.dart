@@ -73,6 +73,11 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
             }
           },
           onError: (Object error, StackTrace stackTrace) {
+            if (!_isShuttingDown) {
+              store.dispatch(
+                const ConnectionKnownHostsObservationFailedAction(),
+              );
+            }
             FlutterError.reportError(
               FlutterErrorDetails(
                 exception: error,

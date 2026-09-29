@@ -35,6 +35,25 @@ void main() {
   );
 
   group(
+    'Behavior equality in ConnectionKnownHostsObservationFailedAction behaves correctly',
+    () {
+      test(
+        'ConnectionKnownHostsObservationFailedAction compares equal without carrying raw errors',
+        () {
+          const ConnectionKnownHostsObservationFailedAction first =
+              ConnectionKnownHostsObservationFailedAction();
+          const ConnectionKnownHostsObservationFailedAction second =
+              ConnectionKnownHostsObservationFailedAction();
+
+          expect(first, second);
+          expect(first.hashCode, second.hashCode);
+          expect(first.props, isEmpty);
+        },
+      );
+    },
+  );
+
+  group(
     'Behavior equality in ConnectionDiscoveryRequestedAction behaves correctly',
     () {
       test('ConnectionDiscoveryRequestedAction values compare equal', () {

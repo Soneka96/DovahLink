@@ -24,6 +24,7 @@ void main() {
       );
 
       expect(result.knownHosts, <Host>[first, second]);
+      expect(result.knownHostsStatus, KnownHostsObservationStatus.ready);
     });
 
     test(
@@ -39,9 +40,34 @@ void main() {
         );
 
         expect(result.knownHosts, isEmpty);
+        expect(result.knownHostsStatus, KnownHostsObservationStatus.ready);
       },
     );
   });
+
+  group(
+    'Action ConnectionKnownHostsObservationFailedAction behaves correctly',
+    () {
+      test(
+        'ConnectionKnownHostsObservationFailedAction preserves the last collection and marks it failed',
+        () {
+          final List<Host> knownHosts = <Host>[Fixtures.buildHost()];
+          final ConnectionState state = ConnectionState(
+            knownHosts: knownHosts,
+            knownHostsStatus: KnownHostsObservationStatus.ready,
+          );
+
+          final ConnectionState result = connectionReducer(
+            state,
+            const ConnectionKnownHostsObservationFailedAction(),
+          );
+
+          expect(result.knownHosts, knownHosts);
+          expect(result.knownHostsStatus, KnownHostsObservationStatus.failed);
+        },
+      );
+    },
+  );
 
   group('Action lifecycle inference behaves correctly', () {
     test(
@@ -59,13 +85,27 @@ void main() {
       },
     );
 
-    test('Discovery success alone does not create a Known Host projection', () {
-      final ConnectionState result = connectionReducer(
-        ConnectionState.initial(),
+    test('Discovery actions do not change the Known Host projection', () {
+      final List<Host> knownHosts = <Host>[Fixtures.buildHost()];
+      final ConnectionState initial = ConnectionState(knownHosts: knownHosts);
+      final ConnectionState started = connectionReducer(
+        initial,
+        const ConnectionDiscoveryStartedAction(),
+      );
+      final ConnectionState succeeded = connectionReducer(
+        started,
         ConnectionDiscoverySucceededAction([Fixtures.buildHost()]),
       );
+      final ConnectionState failed = connectionReducer(
+        succeeded,
+        const ConnectionDiscoveryFailedAction(
+          ConnectionFailureReason.hostUnavailable,
+        ),
+      );
 
-      expect(result.knownHosts, isEmpty);
+      expect(started.knownHosts, knownHosts);
+      expect(succeeded.knownHosts, knownHosts);
+      expect(failed.knownHosts, knownHosts);
     });
 
     test('PairingSessionTrustedAction alone does not change Known Hosts', () {
@@ -82,6 +122,19 @@ void main() {
 
       expect(result.knownHosts, knownHosts);
     });
+
+    test(
+      'PairingConfirmedAction does not change the Known Host projection',
+      () {
+        final List<Host> knownHosts = <Host>[Fixtures.buildHost()];
+        final ConnectionState result = connectionReducer(
+          ConnectionState(knownHosts: knownHosts),
+          const PairingConfirmedAction(),
+        );
+
+        expect(result.knownHosts, knownHosts);
+      },
+    );
   });
 
   group('Action ConnectionHostSelectedAction behaves correctly', () {

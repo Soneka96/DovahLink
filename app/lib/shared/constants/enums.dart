@@ -109,6 +109,18 @@ enum ConnectionDiscoveryStatus {
   failed,
 }
 
+/// Whether Flutter's projection of the SDK-owned Known Hosts stream is current and healthy.
+enum KnownHostsObservationStatus {
+  /// No complete Known Hosts snapshot has been observed yet.
+  loading,
+
+  /// The latest complete Known Hosts snapshot was observed successfully.
+  ready,
+
+  /// The latest Known Hosts observation failed; the last successful snapshot remains available.
+  failed,
+}
+
 /// An application-owned meaning for a Host discovery failure.
 enum ConnectionFailureReason {
   /// The local Host could not be reached.

@@ -31,6 +31,16 @@ class ConnectionKnownHostsChangedAction extends Equatable {
   List<Object?> get props => [knownHosts];
 }
 
+/// Reports that the SDK Known Hosts stream failed to provide its latest observation.
+class ConnectionKnownHostsObservationFailedAction extends Equatable {
+  /// Creates a semantic Known Hosts observation failure action.
+  const ConnectionKnownHostsObservationFailedAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
+}
+
 /// Requests a fresh Host discovery operation.
 class ConnectionDiscoveryRequestedAction extends Equatable {
   /// Creates a discovery request action.

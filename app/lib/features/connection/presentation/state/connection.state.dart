@@ -18,6 +18,9 @@ class ConnectionState extends Equatable {
   /// The app-mapped complete projection emitted by the SDK's authoritative Known Host state.
   final List<Host> knownHosts;
 
+  /// Whether [knownHosts] is an observed, currently healthy SDK projection.
+  final KnownHostsObservationStatus knownHostsStatus;
+
   /// The latest discovery operation's state.
   final ConnectionDiscoveryStatus discoveryStatus;
 
@@ -26,10 +29,12 @@ class ConnectionState extends Equatable {
 
   /// Creates connection state with an explicit Host list and an optional selected Host.
   /// @param knownHosts The latest complete SDK-observed Known Host projection.
+  /// @param knownHostsStatus The health of the SDK Known Hosts observation.
   const ConnectionState({
     this.hosts = const <Host>[],
     this.selectedHost,
     this.knownHosts = const <Host>[],
+    this.knownHostsStatus = KnownHostsObservationStatus.loading,
     this.discoveryStatus = ConnectionDiscoveryStatus.idle,
     this.discoveryFailure,
   });
@@ -44,6 +49,7 @@ class ConnectionState extends Equatable {
     List<Host>? hosts,
     Option<Host>? selectedHost,
     List<Host>? knownHosts,
+    KnownHostsObservationStatus? knownHostsStatus,
     ConnectionDiscoveryStatus? discoveryStatus,
     Option<ConnectionFailureReason>? discoveryFailure,
   }) => ConnectionState(
@@ -52,6 +58,7 @@ class ConnectionState extends Equatable {
         ? this.selectedHost
         : selectedHost.toNullable(),
     knownHosts: knownHosts ?? this.knownHosts,
+    knownHostsStatus: knownHostsStatus ?? this.knownHostsStatus,
     discoveryStatus: discoveryStatus ?? this.discoveryStatus,
     discoveryFailure: discoveryFailure == null
         ? this.discoveryFailure
@@ -64,6 +71,7 @@ class ConnectionState extends Equatable {
     hosts,
     selectedHost,
     knownHosts,
+    knownHostsStatus,
     discoveryStatus,
     discoveryFailure,
   ];

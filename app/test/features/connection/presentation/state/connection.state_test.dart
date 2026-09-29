@@ -25,6 +25,13 @@ void main() {
     test('ConnectionState initial has no SDK Known Host projection', () {
       expect(ConnectionState.initial().knownHosts, isEmpty);
     });
+
+    test('ConnectionState initial waits for a Known Hosts observation', () {
+      expect(
+        ConnectionState.initial().knownHostsStatus,
+        KnownHostsObservationStatus.loading,
+      );
+    });
   });
 
   group('ConnectionState — copyWith', () {
@@ -91,6 +98,31 @@ void main() {
         expect(cleared.knownHosts, isEmpty);
       },
     );
+
+    test(
+      'ConnectionState copyWith replaces Known Hosts observation status',
+      () {
+        final ConnectionState result = ConnectionState.initial().copyWith(
+          knownHostsStatus: KnownHostsObservationStatus.failed,
+        );
+
+        expect(result.knownHostsStatus, KnownHostsObservationStatus.failed);
+      },
+    );
+
+    test(
+      'ConnectionState copyWith preserves Known Hosts observation status',
+      () {
+        const ConnectionState state = ConnectionState(
+          knownHostsStatus: KnownHostsObservationStatus.failed,
+        );
+
+        expect(
+          state.copyWith().knownHostsStatus,
+          KnownHostsObservationStatus.failed,
+        );
+      },
+    );
   });
 
   group('ConnectionState — equality', () {
@@ -101,6 +133,15 @@ void main() {
       );
 
       expect(selected, isNot(unselected));
+    });
+
+    test('ConnectionState differs when only Known Hosts status differs', () {
+      const ConnectionState loading = ConnectionState();
+      const ConnectionState failed = ConnectionState(
+        knownHostsStatus: KnownHostsObservationStatus.failed,
+      );
+
+      expect(failed, isNot(loading));
     });
   });
 
