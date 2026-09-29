@@ -27,6 +27,8 @@ import 'package:flutter/foundation.dart'
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
         DovahLinkHost,
+        DovahLinkHostAvailability,
+        DovahLinkKnownHostState,
         DovahLinkClient,
         DovahLinkTrustState,
         HelloResult,
@@ -78,17 +80,17 @@ void main() {
       'createStore and Pairing resolve the same SDK client registration',
       () async {
         final MockDovahLinkClient client = MockDovahLinkClient();
-        int knownHostsSubscriptionReads = 0;
-        when(() => client.knownHostsChanges).thenAnswer((_) {
-          knownHostsSubscriptionReads++;
-          return const Stream<List<DovahLinkHost>>.empty();
+        int knownHostStatesSubscriptionReads = 0;
+        when(() => client.knownHostStatesChanges).thenAnswer((_) {
+          knownHostStatesSubscriptionReads++;
+          return const Stream<List<DovahLinkKnownHostState>>.empty();
         });
         when(() => client.disconnect()).thenAnswer((_) async {});
         await sl.unregister<DovahLinkClient>();
         sl.registerSingleton<DovahLinkClient>(client);
 
         await const AppCompositionRoot().createStore();
-        expect(knownHostsSubscriptionReads, 1);
+        expect(knownHostStatesSubscriptionReads, 1);
         final result = await sl<IPairingRemoteDataSource>().disconnect();
 
         expect(result.isRight(), isTrue);
@@ -105,8 +107,15 @@ void main() {
           endpoint: defaultHostUri,
         );
         final MockDovahLinkClient client = MockDovahLinkClient();
-        when(() => client.knownHostsChanges).thenAnswer(
-          (_) => Stream<List<DovahLinkHost>>.value(<DovahLinkHost>[sdkHost]),
+        when(() => client.knownHostStatesChanges).thenAnswer(
+          (_) => Stream<List<DovahLinkKnownHostState>>.value(
+            <DovahLinkKnownHostState>[
+              Fixtures.buildSdkKnownHostState(
+                host: sdkHost,
+                availability: DovahLinkHostAvailability.online,
+              ),
+            ],
+          ),
         );
         await sl.unregister<IClientStorage>();
         sl.registerSingleton<IClientStorage>(MockClientStorage());
@@ -120,9 +129,12 @@ void main() {
         );
 
         expect(observed.connection.knownHosts, [
-          Fixtures.buildHost(
-            hostId: sdkHost.hostId,
-            displayName: sdkHost.hostName,
+          Fixtures.buildKnownHost(
+            host: Fixtures.buildHost(
+              hostId: sdkHost.hostId,
+              displayName: sdkHost.hostName,
+            ),
+            availability: HostAvailability.online,
           ),
         ]);
       },

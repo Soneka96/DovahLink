@@ -11,7 +11,13 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show CredentialRejectionReason, DovahLinkTrustState, HelloResult;
+    show
+        CredentialRejectionReason,
+        DovahLinkHost,
+        DovahLinkHostAvailability,
+        DovahLinkKnownHostState,
+        DovahLinkTrustState,
+        HelloResult;
 
 /// Central test-owned catalog of representative Flutter app values.
 abstract final class Fixtures {
@@ -65,6 +71,15 @@ abstract final class Fixtures {
     detail: detail,
     state: state,
   );
+
+  /// Builds an SDK Known Host state around [host].
+  static DovahLinkKnownHostState buildSdkKnownHostState({
+    /// The SDK Host metadata.
+    required DovahLinkHost host,
+
+    /// The SDK-reported runtime reachability evidence.
+    DovahLinkHostAvailability availability = DovahLinkHostAvailability.unknown,
+  }) => DovahLinkKnownHostState(host: host, availability: availability);
 
   // ---- Pairing ----
 

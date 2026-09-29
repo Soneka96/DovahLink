@@ -26,6 +26,8 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         DovahLinkConnectionException,
         DovahLinkClient,
         DovahLinkHost,
+        DovahLinkHostAvailability,
+        DovahLinkKnownHostState,
         DovahLinkProtocolException,
         DovahLinkTrustState,
         HelloResult,
@@ -47,8 +49,9 @@ class MockStore extends Mock implements Store<AppState> {}
 void main() {
   late MockDovahLinkDiscoveryService mockDiscoveryService;
   late MockDovahLinkClient mockClient;
-  late StreamController<List<DovahLinkHost>> knownHostsController;
-  late Stream<List<DovahLinkHost>> knownHostsChanges;
+  late StreamController<List<DovahLinkKnownHostState>>
+  knownHostStatesController;
+  late Stream<List<DovahLinkKnownHostState>> knownHostStatesChanges;
   late int knownHostListenerCount;
   late int knownHostCancellationCount;
   late MockStore store;
@@ -58,21 +61,27 @@ void main() {
     await sl.reset();
     mockDiscoveryService = MockDovahLinkDiscoveryService();
     mockClient = MockDovahLinkClient();
-    knownHostsController = StreamController<List<DovahLinkHost>>.broadcast();
+    knownHostStatesController =
+        StreamController<List<DovahLinkKnownHostState>>.broadcast();
     knownHostListenerCount = 0;
     knownHostCancellationCount = 0;
-    knownHostsChanges = Stream<List<DovahLinkHost>>.multi((sink) {
+    knownHostStatesChanges = Stream<List<DovahLinkKnownHostState>>.multi((
+      sink,
+    ) {
       knownHostListenerCount++;
-      final StreamSubscription<List<DovahLinkHost>> subscription =
-          knownHostsController.stream.listen(sink.add, onError: sink.addError);
+      final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+          knownHostStatesController.stream.listen(
+            sink.add,
+            onError: sink.addError,
+          );
       sink.onCancel = () async {
         knownHostCancellationCount++;
         await subscription.cancel();
       };
     }, isBroadcast: true);
     when(
-      () => mockClient.knownHostsChanges,
-    ).thenAnswer((_) => knownHostsChanges);
+      () => mockClient.knownHostStatesChanges,
+    ).thenAnswer((_) => knownHostStatesChanges);
     store = MockStore();
     when(() => store.state).thenReturn(AppState.initial());
     middleware = ConnectionMiddleware();
@@ -82,7 +91,7 @@ void main() {
 
   tearDown(() async {
     await middleware.shutdown();
-    await knownHostsController.close();
+    await knownHostStatesController.close();
     await sl.reset();
   });
 
@@ -100,7 +109,7 @@ void main() {
       );
 
       middleware.initialize(integrationStore);
-      knownHostsController.add(const <DovahLinkHost>[]);
+      knownHostStatesController.add(const <DovahLinkKnownHostState>[]);
       await pumpEventQueue();
 
       expect(knownHostListenerCount, 1);
@@ -119,7 +128,7 @@ void main() {
     });
 
     test(
-      'initialize maps SDK Hosts and replaces the Redux projection',
+      'initialize maps SDK Known Host states and replaces the Redux projection',
       () async {
         final Store<AppState> integrationStore = const CreateStore()(
           middleware: [middleware.call],
@@ -134,32 +143,45 @@ void main() {
           hostName: 'HOST-B',
           endpoint: Uri.parse('ws://127.0.0.1:58232/'),
         );
+        final DovahLinkKnownHostState firstOnline =
+            Fixtures.buildSdkKnownHostState(
+              host: first,
+              availability: DovahLinkHostAvailability.online,
+            );
+        final DovahLinkKnownHostState secondOffline =
+            Fixtures.buildSdkKnownHostState(
+              host: second,
+              availability: DovahLinkHostAvailability.offline,
+            );
 
         middleware.initialize(integrationStore);
         middleware.initialize(integrationStore);
-        knownHostsController.add(<DovahLinkHost>[first]);
+        knownHostStatesController.add(<DovahLinkKnownHostState>[firstOnline]);
         await pumpEventQueue();
         expect(integrationStore.state.connection.knownHosts, <KnownHost>[
-          HostMapper.fromSdkKnownHostMetadata(first),
+          HostMapper.fromSdkKnownHostState(firstOnline),
         ]);
-        knownHostsController.add(<DovahLinkHost>[first, second]);
+        knownHostStatesController.add(<DovahLinkKnownHostState>[
+          firstOnline,
+          secondOffline,
+        ]);
         await pumpEventQueue();
 
         expect(knownHostListenerCount, 1);
         expect(integrationStore.state.connection.knownHosts, <KnownHost>[
-          HostMapper.fromSdkKnownHostMetadata(first),
-          HostMapper.fromSdkKnownHostMetadata(second),
+          HostMapper.fromSdkKnownHostState(firstOnline),
+          HostMapper.fromSdkKnownHostState(secondOffline),
         ]);
         expect(
           integrationStore.state.connection.knownHostsStatus,
           KnownHostsObservationStatus.ready,
         );
 
-        knownHostsController.add(<DovahLinkHost>[second]);
+        knownHostStatesController.add(<DovahLinkKnownHostState>[secondOffline]);
         await pumpEventQueue();
 
         expect(integrationStore.state.connection.knownHosts, <KnownHost>[
-          HostMapper.fromSdkKnownHostMetadata(second),
+          HostMapper.fromSdkKnownHostState(secondOffline),
         ]);
       },
     );
@@ -183,30 +205,34 @@ void main() {
           hostName: 'HOST-B',
           endpoint: Uri.parse('ws://127.0.0.1:58232/'),
         );
+        final DovahLinkKnownHostState firstState =
+            Fixtures.buildSdkKnownHostState(host: first);
         middleware
           ..initialize(firstStore)
           ..initialize(secondStore);
-        knownHostsController.add(<DovahLinkHost>[first]);
+        knownHostStatesController.add(<DovahLinkKnownHostState>[firstState]);
         await pumpEventQueue();
 
         expect(knownHostListenerCount, 2);
         expect(firstStore.state.connection.knownHosts, <KnownHost>[
-          HostMapper.fromSdkKnownHostMetadata(first),
+          HostMapper.fromSdkKnownHostState(firstState),
         ]);
         expect(secondStore.state.connection.knownHosts, <KnownHost>[
-          HostMapper.fromSdkKnownHostMetadata(first),
+          HostMapper.fromSdkKnownHostState(firstState),
         ]);
 
         await middleware.shutdown();
-        knownHostsController.add(<DovahLinkHost>[second]);
+        knownHostStatesController.add(<DovahLinkKnownHostState>[
+          Fixtures.buildSdkKnownHostState(host: second),
+        ]);
         await pumpEventQueue();
 
         expect(knownHostCancellationCount, 2);
         expect(firstStore.state.connection.knownHosts, <KnownHost>[
-          HostMapper.fromSdkKnownHostMetadata(first),
+          HostMapper.fromSdkKnownHostState(firstState),
         ]);
         expect(secondStore.state.connection.knownHosts, <KnownHost>[
-          HostMapper.fromSdkKnownHostMetadata(first),
+          HostMapper.fromSdkKnownHostState(firstState),
         ]);
       },
     );
@@ -225,17 +251,21 @@ void main() {
         hostName: 'HOST-B',
         endpoint: Uri.parse('ws://127.0.0.1:58232/'),
       );
+      final DovahLinkKnownHostState firstState =
+          Fixtures.buildSdkKnownHostState(host: first);
       middleware.initialize(integrationStore);
-      knownHostsController.add(<DovahLinkHost>[first]);
+      knownHostStatesController.add(<DovahLinkKnownHostState>[firstState]);
       await pumpEventQueue();
 
       await middleware.shutdown();
-      knownHostsController.add(<DovahLinkHost>[second]);
+      knownHostStatesController.add(<DovahLinkKnownHostState>[
+        Fixtures.buildSdkKnownHostState(host: second),
+      ]);
       await pumpEventQueue();
 
       expect(knownHostCancellationCount, 1);
       expect(integrationStore.state.connection.knownHosts, <KnownHost>[
-        HostMapper.fromSdkKnownHostMetadata(first),
+        HostMapper.fromSdkKnownHostState(firstState),
       ]);
     });
 
@@ -287,7 +317,7 @@ void main() {
         );
         middleware.initialize(integrationStore);
 
-        knownHostsController.addError(
+        knownHostStatesController.addError(
           StateError('initial storage read failed'),
         );
         await pumpEventQueue();
@@ -303,7 +333,9 @@ void main() {
         );
         expect(reported, hasLength(1));
 
-        knownHostsController.add(<DovahLinkHost>[host]);
+        final DovahLinkKnownHostState hostState =
+            Fixtures.buildSdkKnownHostState(host: host);
+        knownHostStatesController.add(<DovahLinkKnownHostState>[hostState]);
         await pumpEventQueue();
 
         expect(
@@ -311,7 +343,7 @@ void main() {
           KnownHostsObservationStatus.ready,
         );
         expect(integrationStore.state.connection.knownHosts, <KnownHost>[
-          HostMapper.fromSdkKnownHostMetadata(host),
+          HostMapper.fromSdkKnownHostState(hostState),
         ]);
       },
     );
@@ -343,9 +375,14 @@ void main() {
       );
       middleware.initialize(integrationStore);
 
-      knownHostsController.add(<DovahLinkHost>[previous]);
+      final DovahLinkKnownHostState previousState =
+          Fixtures.buildSdkKnownHostState(
+            host: previous,
+            availability: DovahLinkHostAvailability.online,
+          );
+      knownHostStatesController.add(<DovahLinkKnownHostState>[previousState]);
       await pumpEventQueue();
-      knownHostsController.addError(StateError('storage read failed'));
+      knownHostStatesController.addError(StateError('storage read failed'));
       await pumpEventQueue();
 
       expect(actions.whereType<ConnectionKnownHostsObservationFailedAction>(), [
@@ -356,17 +393,21 @@ void main() {
         KnownHostsObservationStatus.failed,
       );
       expect(integrationStore.state.connection.knownHosts, <KnownHost>[
-        HostMapper.fromSdkKnownHostMetadata(previous),
+        HostMapper.fromSdkKnownHostState(previousState),
       ]);
 
-      knownHostsController.add(<DovahLinkHost>[host]);
+      final DovahLinkKnownHostState hostState = Fixtures.buildSdkKnownHostState(
+        host: host,
+        availability: DovahLinkHostAvailability.offline,
+      );
+      knownHostStatesController.add(<DovahLinkKnownHostState>[hostState]);
       await pumpEventQueue();
 
       expect(reported, hasLength(1));
       expect(reported.single.exception, isA<StateError>());
       expect(knownHostListenerCount, 1);
       expect(integrationStore.state.connection.knownHosts, <KnownHost>[
-        HostMapper.fromSdkKnownHostMetadata(host),
+        HostMapper.fromSdkKnownHostState(hostState),
       ]);
       expect(
         integrationStore.state.connection.knownHostsStatus,

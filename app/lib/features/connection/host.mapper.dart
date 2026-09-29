@@ -29,10 +29,4 @@ final class HostMapper {
       DovahLinkHostAvailability.offline => HostAvailability.offline,
     },
   );
-
-  /// Converts SDK Host metadata into a Known Host with no reachability evidence.
-  /// @param host The durable Host metadata returned by the SDK.
-  /// @return The app-owned Known Host with unknown availability.
-  static KnownHost fromSdkKnownHostMetadata(DovahLinkHost host) =>
-      KnownHost(host: fromSdk(host), availability: HostAvailability.unknown);
 }

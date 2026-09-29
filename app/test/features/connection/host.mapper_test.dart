@@ -71,22 +71,4 @@ void main() {
       },
     );
   });
-
-  group('Method fromSdkKnownHostMetadata behaves correctly', () {
-    test(
-      'HostMapper.fromSdkKnownHostMetadata assigns unknown availability',
-      () {
-        final DovahLinkHost sdkHost = DovahLinkHost(
-          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
-          hostName: 'SKYRIM-PC',
-          endpoint: Uri.parse('ws://127.0.0.1:58231/'),
-        );
-
-        expect(
-          HostMapper.fromSdkKnownHostMetadata(sdkHost).availability,
-          HostAvailability.unknown,
-        );
-      },
-    );
-  });
 }

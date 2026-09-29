@@ -12,7 +12,11 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkClient, DovahLinkHost, IDovahLinkDiscoveryService;
+    show
+        DovahLinkClient,
+        DovahLinkHost,
+        DovahLinkKnownHostState,
+        IDovahLinkDiscoveryService;
 
 /// Defines the connection feature's Redux middleware contract.
 abstract interface class IConnectionMiddleware {
@@ -32,9 +36,9 @@ abstract interface class IConnectionMiddleware {
 class ConnectionMiddleware extends MiddlewareClass<AppState>
     implements IConnectionMiddleware {
   /// The active SDK subscriptions, keyed by their Redux stores.
-  final Map<Store<AppState>, StreamSubscription<List<DovahLinkHost>>>
+  final Map<Store<AppState>, StreamSubscription<List<DovahLinkKnownHostState>>>
   _knownHostSubscriptions =
-      <Store<AppState>, StreamSubscription<List<DovahLinkHost>>>{};
+      <Store<AppState>, StreamSubscription<List<DovahLinkKnownHostState>>>{};
 
   /// The shared cancellation future returned to repeated shutdown callers.
   Future<void>? _shutdownFuture;
@@ -61,14 +65,15 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     if (_isShuttingDown || _knownHostSubscriptions.containsKey(store)) {
       return;
     }
-    _knownHostSubscriptions[store] = sl<DovahLinkClient>().knownHostsChanges
+    _knownHostSubscriptions[store] = sl<DovahLinkClient>()
+        .knownHostStatesChanges
         .listen(
-          (List<DovahLinkHost> sdkHosts) {
+          (List<DovahLinkKnownHostState> sdkKnownHosts) {
             if (!_isShuttingDown) {
               store.dispatch(
                 ConnectionKnownHostsChangedAction(
-                  sdkHosts
-                      .map(HostMapper.fromSdkKnownHostMetadata)
+                  sdkKnownHosts
+                      .map(HostMapper.fromSdkKnownHostState)
                       .toList(growable: false),
                 ),
               );
@@ -97,7 +102,7 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     _isShuttingDown = true;
     return _shutdownFuture ??= Future.wait<void>(
       _knownHostSubscriptions.values.map(
-        (StreamSubscription<List<DovahLinkHost>> subscription) =>
+        (StreamSubscription<List<DovahLinkKnownHostState>> subscription) =>
             subscription.cancel(),
       ),
     ).then((_) => _knownHostSubscriptions.clear());
