@@ -6,7 +6,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_client.dart'
-    show buildDovahLinkClientForDiscovery, buildDovahLinkClientForTesting;
+    show buildDovahLinkClientForTesting;
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
@@ -4206,8 +4206,10 @@ void main() {
       'Behavior reconnect-disabled client composition does not retry after transport loss',
       () async {
         final FakeDovahLinkTransport transport = FakeDovahLinkTransport();
-        final DovahLinkClient client = buildDovahLinkClientForDiscovery(
+        final DovahLinkClient client = buildDovahLinkClientForTesting(
           transport: transport,
+          storage: InMemoryClientStorage(),
+          reconnectEnabled: false,
         );
         addTearDown(client.disconnect);
 

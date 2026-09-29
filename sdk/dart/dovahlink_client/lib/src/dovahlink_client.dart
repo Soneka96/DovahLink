@@ -41,7 +41,6 @@ import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
-import 'package:dovahlink_client_sdk/src/persistence/transient_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -616,18 +615,4 @@ DovahLinkClient buildDovahLinkClientForTesting({
   reconnectDeadline: reconnectDeadline,
   reconnectNow: now,
   reconnectEnabled: reconnectEnabled,
-);
-
-/// Creates an isolated client engine for a one-shot discovery probe. Its storage is transient and
-/// ordinary transport loss cannot start automatic reconnect.
-/// @param transport The transport to use, or the production WebSocket transport when omitted.
-/// @param timeoutDurations The bounded request durations for the probe.
-DovahLinkClient buildDovahLinkClientForDiscovery({
-  IDovahLinkTransport? transport,
-  Map<TimeoutClass, Duration> timeoutDurations = kTimeoutClassDurations,
-}) => DovahLinkClient._build(
-  transport: transport ?? WebSocketTransport(),
-  storage: TransientClientStorage(),
-  timeoutDurations: timeoutDurations,
-  reconnectEnabled: false,
 );

@@ -8,6 +8,8 @@ export 'src/dovahlink_compatibility_exception.dart'
     show DovahLinkCompatibilityException;
 export 'src/dovahlink_discovery_service.dart'
     show DovahLinkDiscoveryService, IDovahLinkDiscoveryService;
+export 'src/host_presence_probe.dart'
+    show HostPresenceProbe, IHostPresenceProbe;
 export 'src/dovahlink_host.dart' show DovahLinkHost;
 export 'src/dovahlink_host_id.dart' show DovahLinkHostId;
 export 'src/dovahlink_known_host_state.dart' show DovahLinkKnownHostState;

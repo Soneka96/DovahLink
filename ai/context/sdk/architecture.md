@@ -133,26 +133,23 @@ implementation exists, so importing or constructing the shared client never cons
 facility. Later Android/iOS storage implementations can provide platform behavior without rewriting
 connection, authentication, or state semantics.
 
-## Local Host discovery
+## Local Host discovery and presence
 
-The Dart SDK owns the current local discovery candidate, `ws://127.0.0.1:58231/`. Discovery uses a
-temporary `DovahLinkClient` with `TransientClientStorage` and no reconnect callback. It connects,
-sends an unpaired `hello`, relies on the ordinary decoder and compatibility check, and disconnects
-in all outcomes. It does not read or mutate consumer storage, use a saved credential, pair, or
-restore subscriptions.
+The Dart SDK locates the current local Host at `ws://127.0.0.1:58231/` through the Host's bounded
+sessionless `GET /.well-known/dovahlink` endpoint. `HostPresenceProbe` reads only the stable Host ID,
+current Host name, and Host release version, applies the existing identity and compatibility
+validation, and closes the HTTP request. It has no consumer storage, credential, pairing, reconnect,
+or protocol-session dependency, and the same probe is used for Known Host reachability.
 
-The candidate endpoint locates a responder. Its protocol-validated `hello_ack` asserts `hostId` and
-`hostName`; this does not cryptographically prove the peer owns a previously known Host identity.
-`hostId` remains the stable DovahLink installation identity, `hostName` is mutable OS display
-metadata, and `endpoint` is the current connection location. The current probe is loopback-only and
-does not implement LAN, mDNS, or other network discovery. A connection failure without an HTTP
-status code returns no candidate. An HTTP response rejecting the WebSocket upgrade includes its
-typed status in `DovahLinkConnectionException`. Without a status, the current transport cannot
-distinguish a refused connection from a peer that accepts TCP and closes before replying; if this
-case needs a different outcome, the transport boundary must provide a typed connect-stage result.
-Malformed protocol, compatibility failures, and a silent or disconnected peer during `hello` also
-remain typed failures. A discovered `hostId` alone must not authorize trust, credential disclosure,
-pairing bypass, durable Known Host updates, or another security-sensitive decision.
+The response is an unauthenticated Host claim. It locates a candidate but does not prove the peer
+owns a previously known identity. `hostId` remains the stable DovahLink installation identity,
+`hostName` is mutable OS display metadata, and `endpoint` is the current WebSocket location. Local
+discovery remains loopback-only and does not implement LAN or mDNS discovery. An unreachable
+endpoint produces no candidate; an HTTP rejection preserves its status in
+`DovahLinkConnectionException`, while malformed metadata and incompatible versions remain typed
+protocol and compatibility failures. A discovered `hostId` alone must not authorize trust,
+credential disclosure, pairing bypass, durable Known Host updates, or another security-sensitive
+decision.
 
 ## Feature and capability organization
 

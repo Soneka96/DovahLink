@@ -44,19 +44,16 @@ Trusted sessions may refresh metadata only for the matching Known Host ID; disco
 refresh persisted metadata. SDK-owned Host IDs are stored and compared in canonical lowercase form;
 the typed `DovahLinkHostId` accepts either UUID casing at its boundary.
 
-`DovahLinkDiscoveryService.discover()` proposes reachable endpoints. The responding peer's
-`hello_ack` asserts `hostId` and `hostName`, which the SDK validates for protocol shape and Host
-version compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the peer
-claims, `hostName` is mutable display metadata, and `endpoint` is the current location. Discovery
-identifies a candidate; it does not authenticate Host identity or prove the peer owns an identity
-previously trusted under that ID. A discovered `hostId` alone must never authorize trust, credential
-disclosure, pairing bypass, or another security-sensitive decision. Connection refusal or WebSocket
-setup failure without an HTTP status code returns `null`; an HTTP response rejecting the WebSocket
-upgrade, malformed DovahLink response, incompatible Host, and a silent or disconnected peer during
-`hello` remain typed failures. The probe uses an isolated, unpaired client and disconnects after the
-handshake. Without an HTTP status, the current transport cannot distinguish connection refusal
-from a peer that accepts TCP and closes before replying; a typed transport connection outcome would
-be needed if that distinction becomes necessary.
+`DovahLinkDiscoveryService.discover()` uses [IHostPresenceProbe] to query the sessionless local Host
+metadata endpoint. The response's `hostId`, `hostName`, and `hostVersion` are validated for identity
+shape and Host compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the
+peer claims, `hostName` is mutable display metadata, and `endpoint` is the current location.
+Discovery identifies a candidate; it does not authenticate Host identity or prove the peer owns an
+identity previously trusted under that ID. A discovered `hostId` alone must never authorize trust,
+credential disclosure, pairing bypass, or another security-sensitive decision. An unreachable
+endpoint returns no candidate; an HTTP rejection preserves its status in
+`DovahLinkConnectionException`, while malformed metadata and incompatible Host versions remain
+typed failures. The probe sends no credential and never creates a protocol session.
 
 ## No duplicate stacks, no speculative surface
 

@@ -17,8 +17,9 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The SDK keeps each Host's current bearer credential and pending pairing recovery scoped to that Host ID.
 - Known Host authentication resolves its endpoint and credential inside the SDK from `DovahLinkHostId`.
 - The SDK handshake result exposes the stable Host installation ID and current OS computer name.
-- The Dart SDK discovers the local loopback Host with an isolated unpaired handshake and returns the responding peer's validated Host ID and name claims with its endpoint; discovery does not authenticate Host identity.
-- DovahLinkConnectionException preserves an HTTP status when a peer rejects the WebSocket upgrade during discovery.
+- The Dart SDK discovers the local loopback Host through a bounded sessionless metadata probe; its Host ID claim remains unauthenticated.
+- The SDK exposes the shared Host presence probe for local discovery and Known Host reachability.
+- DovahLinkConnectionException preserves an HTTP status when a peer rejects the metadata probe.
 
 ### Changed
 

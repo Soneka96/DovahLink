@@ -5,7 +5,11 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/injection_container.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkDiscoveryService, IDovahLinkDiscoveryService;
+    show
+        DovahLinkDiscoveryService,
+        HostPresenceProbe,
+        IDovahLinkDiscoveryService,
+        IHostPresenceProbe;
 
 /// Exercises connection feature dependency registration.
 void main() {
@@ -25,6 +29,7 @@ void main() {
         sl<IDovahLinkDiscoveryService>(),
         isA<DovahLinkDiscoveryService>(),
       );
+      expect(sl<IHostPresenceProbe>(), isA<HostPresenceProbe>());
       expect(sl<IConnectionMiddleware>(), isA<ConnectionMiddleware>());
     });
   });

@@ -5,6 +5,14 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// The maximum UTF-8 byte length of the Host computer name in `hello_ack`.
 const int kMaxHostNameLengthBytes = 64;
 
+// ---- Host presence probe ----
+
+/// The maximum body size accepted from a public Host discovery/presence probe.
+const int kHostProbeResponseMaxBytes = 512;
+
+/// The total time allowed for one public Host discovery/presence probe.
+const Duration kHostProbeTimeout = Duration(seconds: 5);
+
 // ---- Request policy ----
 
 /// The bounded wait this SDK allows a request of each [TimeoutClass] before treating its
