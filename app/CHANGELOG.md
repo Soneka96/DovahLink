@@ -55,6 +55,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Connections now shows restored Known Hosts alongside candidates and preserves the selected entry's authentication source.
 - Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its
   three-second cleanup budget, then returns the close message through Flutter's engine and plugin
   pipeline; the native runner resumes close processing after five seconds if cleanup stalls.

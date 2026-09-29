@@ -2487,6 +2487,37 @@ void main() {
     );
 
     test(
+      'Method confirmPairingCode keeps its Known Host and credential for a fresh client',
+      () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(clientId: 'client-1'),
+        );
+        await _connectAndHello(transport, client);
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+        );
+
+        await client.confirmPairingCode(code: '123456', displayName: 'My PC');
+
+        final PersistedClientState persisted = await storage.load();
+        final DovahLinkHost host = persisted.knownHosts.values.single.host;
+        final DovahLinkClient restoredClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: storage,
+        );
+
+        expect(await restoredClient.loadKnownHosts(), <DovahLinkHost>[host]);
+        expect(
+          (await storage.load()).knownHosts[host.hostId]?.credential,
+          'a1b2c3d4e5f6',
+        );
+        expect(await restoredClient.knownHostsChanges.first, <DovahLinkHost>[
+          host,
+        ]);
+      },
+    );
+
+    test(
       'Method confirmPairingCode leaves a pre-existing CONFIRMING credential untouched when the outcome is a failure',
       () async {
         await storage.save(

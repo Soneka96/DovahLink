@@ -1,7 +1,6 @@
 import 'package:equatable/equatable.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
@@ -26,8 +25,8 @@ class ConnectionsScreenViewModel extends Equatable {
   /// Called when the user requests Host discovery.
   final void Function() onDiscover;
 
-  /// Called when the user selects [host] to pair or connect with.
-  final void Function(Host host) onSelectHost;
+  /// Called when the user selects a card to pair or connect with.
+  final void Function(HostCardViewData card) onSelectHost;
 
   /// Creates a connections screen ViewModel.
   const ConnectionsScreenViewModel({
@@ -49,8 +48,9 @@ class ConnectionsScreenViewModel extends Equatable {
       discoveryFailure: ConnectionSelectors.discoveryFailureSelector(state),
       onDiscover: () =>
           store.dispatch(const ConnectionDiscoveryRequestedAction()),
-      onSelectHost: (Host host) =>
-          store.dispatch(ConnectionHostSelectedAction(host)),
+      onSelectHost: (HostCardViewData card) => store.dispatch(
+        ConnectionHostSelectedAction(card.host, source: card.source),
+      ),
     );
   }
 

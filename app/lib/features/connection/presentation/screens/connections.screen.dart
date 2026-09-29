@@ -6,8 +6,8 @@ import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/sections/appearance.section.dart';
-import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_footer.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
@@ -21,8 +21,9 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 
 /// The root screen: DovahLink's branded header, the "Connections" title with its Discover Skyrim
-/// action, and the Hosts available to select, over the theme's atmosphere. Selecting a Host
-/// records it and opens the pairing dialog for it; the header's appearance action opens the theme
+/// action, and Known Hosts and candidates available to select, over the theme's atmosphere.
+/// Selecting an entry records its Host and source and opens the pairing dialog; the header's
+/// appearance action opens the theme
 /// picker. Content is capped at a comfortable reading width and scrolls both ways below its
 /// minimum width.
 class ConnectionsScreen extends StatelessWidget {
@@ -82,8 +83,8 @@ class ConnectionsScreen extends StatelessWidget {
                                   cards: viewModel.hostCards,
                                   discoveryStatus: viewModel.discoveryStatus,
                                   discoveryFailure: viewModel.discoveryFailure,
-                                  onSelectHost: (Host host) {
-                                    viewModel.onSelectHost(host);
+                                  onSelectHost: (HostCardViewData card) {
+                                    viewModel.onSelectHost(card);
                                     PairingDialog.show(context);
                                   },
                                 ),

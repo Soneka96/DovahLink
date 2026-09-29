@@ -77,7 +77,7 @@ void main() {
       await tester.pumpWidget(DovahLinkApp(store: const CreateStore()()));
 
       expect(
-        find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+        find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
         findsNothing,
       );
       expect(find.text('Discover Skyrim'), findsOneWidget);
@@ -135,7 +135,7 @@ void main() {
         await tester.pumpWidget(DovahLinkApp(store: store));
 
         await tester.tap(
-          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
@@ -176,7 +176,7 @@ void main() {
         await tester.pumpWidget(DovahLinkApp(store: store));
 
         await tester.tap(
-          find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
+          find.byKey(const Key('host-card-candidate-ws://192.168.1.11:2000/')),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
@@ -199,7 +199,7 @@ void main() {
         final Store<AppState> store = buildStore([Fixtures.buildHost()]);
         await tester.pumpWidget(DovahLinkApp(store: store));
         await tester.tap(
-          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
@@ -225,7 +225,7 @@ void main() {
         DovahLinkApp(store: buildStore([Fixtures.buildHost()])),
       );
       await tester.tap(
-        find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+        find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
       );
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
@@ -243,7 +243,7 @@ void main() {
         final Store<AppState> store = buildStore([Fixtures.buildHost()]);
         await tester.pumpWidget(DovahLinkApp(store: store));
         final Finder card = find.byKey(
-          const Key('host-card-ws://127.0.0.1:58231/'),
+          const Key('host-card-candidate-ws://127.0.0.1:58231/'),
         );
 
         await tester.tap(card);
@@ -270,7 +270,7 @@ void main() {
     late MockConfirmPairingCodeUseCase confirm;
     late MockObserveConnectionStatusUseCase observe;
 
-    const Key hostCard = Key('host-card-ws://127.0.0.1:58231/');
+    const Key hostCard = Key('host-card-candidate-ws://127.0.0.1:58231/');
 
     setUpAll(() {
       registerFallbackValue(Fixtures.buildAuthenticateParams());
@@ -599,7 +599,7 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(
-          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
           findsNothing,
         );
       },

@@ -37,7 +37,7 @@ void main() {
                     detail: '192.168.1.11:2000',
                   ),
                 ],
-                onSelectHost: (Host host) {},
+                onSelectHost: (HostCardViewData card) {},
               ),
               preset: preset,
               size: size,
@@ -47,11 +47,15 @@ void main() {
             expect(find.text('MY SKYRIM PCS'), findsOneWidget);
             expect(find.byType(DovahConnectionCard), findsNWidgets(2));
             expect(
-              find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+              find.byKey(
+                const Key('host-card-candidate-ws://127.0.0.1:58231/'),
+              ),
               findsOneWidget,
             );
             expect(
-              find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
+              find.byKey(
+                const Key('host-card-candidate-ws://192.168.1.11:2000/'),
+              ),
               findsOneWidget,
             );
             expect(
@@ -72,14 +76,14 @@ void main() {
           tester,
           ConnectionsHostSection(
             cards: [Fixtures.buildHostCardViewData()],
-            onSelectHost: (Host host) {},
+            onSelectHost: (HostCardViewData card) {},
           ),
           preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
         );
 
         expect(find.text('Not connected'), findsOneWidget);
-        expect(find.text('DovahLink · Ready to connect'), findsOneWidget);
+        expect(find.text('Discovered candidate'), findsOneWidget);
       },
     );
 
@@ -88,7 +92,10 @@ void main() {
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
-          ConnectionsHostSection(cards: const [], onSelectHost: (Host host) {}),
+          ConnectionsHostSection(
+            cards: const [],
+            onSelectHost: (HostCardViewData card) {},
+          ),
           preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
         );
@@ -119,7 +126,7 @@ void main() {
                       detail: 'a-very-long-host-name.local:58231' * 3,
                     ),
                   ],
-                  onSelectHost: (Host host) {},
+                  onSelectHost: (HostCardViewData card) {},
                 ),
               ),
             ),
@@ -140,7 +147,7 @@ void main() {
             tester,
             ConnectionsHostSection(
               cards: [Fixtures.buildHostCardViewData()],
-              onSelectHost: (Host host) {},
+              onSelectHost: (HostCardViewData card) {},
             ),
             preset: preset,
             size: dovahTestSizes.first,
@@ -179,7 +186,7 @@ void main() {
                 title: 'Second Host',
               ),
             ],
-            onSelectHost: (Host host) {},
+            onSelectHost: (HostCardViewData card) {},
           ),
           preset: DovahThemePreset.dovah,
           size: dovahTestSizes.first,
@@ -188,12 +195,16 @@ void main() {
         final double gap =
             tester
                 .getTopLeft(
-                  find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
+                  find.byKey(
+                    const Key('host-card-candidate-ws://192.168.1.11:2000/'),
+                  ),
                 )
                 .dy -
             tester
                 .getBottomLeft(
-                  find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+                  find.byKey(
+                    const Key('host-card-candidate-ws://127.0.0.1:58231/'),
+                  ),
                 )
                 .dy;
 
@@ -215,16 +226,17 @@ void main() {
           displayName: 'Second Host',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
-        final List<Host> selected = [];
+        final List<HostCardViewData> selected = [];
+        final HostCardViewData secondCard = Fixtures.buildHostCardViewData(
+          host: second,
+          title: 'Second Host',
+        );
         await pumpDovahThemedWidget(
           tester,
           ConnectionsHostSection(
             cards: [
               Fixtures.buildHostCardViewData(host: first, title: 'First Host'),
-              Fixtures.buildHostCardViewData(
-                host: second,
-                title: 'Second Host',
-              ),
+              secondCard,
             ],
             onSelectHost: selected.add,
           ),
@@ -232,10 +244,67 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        await tester.tap(find.byKey(const Key('host-card-ws://127.0.0.1:2/')));
+        await tester.tap(
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:2/')),
+        );
         await tester.pump();
 
-        expect(selected, [second]);
+        expect(selected, [secondCard]);
+        expect(selected.single.source, ConnectionHostSelectionSource.candidate);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsHostSection keeps matching Known Host and candidate cards distinct when tapped',
+      (WidgetTester tester) async {
+        final Host host = Fixtures.buildHost();
+        final HostCardViewData knownHostCard = Fixtures.buildHostCardViewData(
+          host: host,
+          source: ConnectionHostSelectionSource.knownHost,
+          subtitle: 'Known Host',
+          state: DovahConnectionCardState.offline,
+        );
+        final HostCardViewData candidateCard = Fixtures.buildHostCardViewData(
+          host: host,
+        );
+        final List<HostCardViewData> selected = [];
+
+        await pumpDovahThemedWidget(
+          tester,
+          ConnectionsHostSection(
+            cards: [knownHostCard, candidateCard],
+            onSelectHost: selected.add,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        expect(find.byType(DovahConnectionCard), findsNWidgets(2));
+        expect(find.text('Known Host'), findsOneWidget);
+        expect(find.text('Discovered candidate'), findsOneWidget);
+        expect(
+          find.byKey(const Key('host-card-knownHost-ws://127.0.0.1:58231/')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
+          findsOneWidget,
+        );
+
+        await tester.tap(
+          find.byKey(const Key('host-card-knownHost-ws://127.0.0.1:58231/')),
+        );
+        await tester.pump();
+        await tester.tap(
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
+        );
+        await tester.pump();
+
+        expect(selected, [knownHostCard, candidateCard]);
+        expect(selected.map((HostCardViewData card) => card.source), [
+          ConnectionHostSelectionSource.knownHost,
+          ConnectionHostSelectionSource.candidate,
+        ]);
       },
     );
 
@@ -250,7 +319,7 @@ void main() {
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
-        final List<Host> selected = [];
+        final List<HostCardViewData> selected = [];
 
         await pumpDovahThemedWidget(
           tester,
@@ -277,17 +346,20 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        await tester.tap(find.byKey(const Key('host-card-ws://127.0.0.1:2/')));
+        await tester.tap(
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:2/')),
+        );
         await tester.pump();
 
-        expect(selected, [second]);
+        expect(selected.single.host, second);
+        expect(selected.single.source, ConnectionHostSelectionSource.candidate);
       },
     );
 
     testWidgets(
       'ConnectionsHostSection does not call onSelectHost before a tap',
       (WidgetTester tester) async {
-        final List<Host> selected = [];
+        final List<HostCardViewData> selected = [];
         await pumpDovahThemedWidget(
           tester,
           ConnectionsHostSection(
@@ -313,7 +385,7 @@ void main() {
             tester,
             ConnectionsHostSection(
               cards: [Fixtures.buildHostCardViewData()],
-              onSelectHost: (Host host) {},
+              onSelectHost: (HostCardViewData card) {},
             ),
             preset: DovahThemePreset.dovah,
             size: dovahTestSizes.first,
@@ -321,7 +393,7 @@ void main() {
 
           expect(
             find.bySemanticsLabel(
-              'Local Host, DovahLink · Ready to connect, 127.0.0.1:58231, Not connected',
+              'Local Host, Discovered candidate, 127.0.0.1:58231, Not connected',
             ),
             findsOneWidget,
           );
@@ -498,4 +570,4 @@ void main() {
 }
 
 /// Ignores Host selection when discovery status is the behavior under test.
-void ignoreHost(Host host) {}
+void ignoreHost(HostCardViewData card) {}

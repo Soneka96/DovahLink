@@ -21,6 +21,9 @@ void main() {
         Fixtures.buildHostCardViewData(
           host: Fixtures.buildHost(displayName: 'Other'),
         ),
+        Fixtures.buildHostCardViewData(
+          source: ConnectionHostSelectionSource.knownHost,
+        ),
         Fixtures.buildHostCardViewData(title: 'Other'),
         Fixtures.buildHostCardViewData(subtitle: 'Other'),
         Fixtures.buildHostCardViewData(detail: 'Other'),

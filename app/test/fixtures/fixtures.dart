@@ -53,11 +53,15 @@ abstract final class Fixtures {
     /// The Host the card selects, or the representative Host when omitted.
     Host? host,
 
+    /// The semantic selection intent represented by the card.
+    ConnectionHostSelectionSource source =
+        ConnectionHostSelectionSource.candidate,
+
     /// The card's primary line.
     String title = 'Local Host',
 
     /// The card's secondary line.
-    String subtitle = 'DovahLink · Ready to connect',
+    String subtitle = 'Discovered candidate',
 
     /// The card's trailing detail.
     String detail = '127.0.0.1:58231',
@@ -66,6 +70,7 @@ abstract final class Fixtures {
     DovahConnectionCardState state = DovahConnectionCardState.unknown,
   }) => HostCardViewData(
     host: host ?? buildHost(),
+    source: source,
     title: title,
     subtitle: subtitle,
     detail: detail,

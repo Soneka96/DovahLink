@@ -68,6 +68,7 @@ void main() {
   late List<String> pairingCalls;
   late List<String> discoveryCalls;
   late List<Host> selectedHosts;
+  late List<ConnectionHostSelectionSource> selectedSources;
   late List<DovahThemePreset> selectedPresets;
 
   setUp(() async {
@@ -81,6 +82,7 @@ void main() {
     pairingCalls = [];
     discoveryCalls = [];
     selectedHosts = [];
+    selectedSources = [];
     selectedPresets = [];
 
     when(() => store.state).thenReturn(AppState.initial());
@@ -98,7 +100,10 @@ void main() {
     when(
       () => viewModel.onDiscover,
     ).thenReturn(() => discoveryCalls.add('discover'));
-    when(() => viewModel.onSelectHost).thenReturn(selectedHosts.add);
+    when(() => viewModel.onSelectHost).thenReturn((HostCardViewData card) {
+      selectedHosts.add(card.host);
+      selectedSources.add(card.source);
+    });
     when(
       () => appearanceViewModel.activePreset,
     ).thenReturn(DovahThemePreset.dovah);
@@ -247,14 +252,44 @@ void main() {
 
         expect(find.byType(DovahConnectionCard), findsNWidgets(2));
         expect(
-          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
           findsOneWidget,
         );
         expect(
-          find.byKey(const Key('host-card-ws://192.168.1.11:2000/')),
+          find.byKey(const Key('host-card-candidate-ws://192.168.1.11:2000/')),
           findsOneWidget,
         );
         expect(find.text('192.168.1.11:2000'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen shows same-endpoint Known Host and candidate entries separately',
+      (WidgetTester tester) async {
+        final Host host = Fixtures.buildHost();
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewData(
+            host: host,
+            source: ConnectionHostSelectionSource.knownHost,
+            subtitle: 'Known Host',
+            state: DovahConnectionCardState.offline,
+          ),
+          Fixtures.buildHostCardViewData(host: host),
+        ]);
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.byType(DovahConnectionCard), findsNWidgets(2));
+        expect(find.text('Known Host'), findsOneWidget);
+        expect(find.text('Discovered candidate'), findsOneWidget);
+        expect(
+          find.byKey(const Key('host-card-knownHost-ws://127.0.0.1:58231/')),
+          findsOneWidget,
+        );
+        expect(
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
+          findsOneWidget,
+        );
       },
     );
 
@@ -362,11 +397,37 @@ void main() {
         await tester.pumpWidget(buildWidget());
 
         await tester.tap(
-          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
         );
         await tester.pump();
 
         expect(selectedHosts, [Fixtures.buildHost()]);
+        expect(selectedSources, [ConnectionHostSelectionSource.candidate]);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen preserves Known Host source when its card is tapped',
+      (WidgetTester tester) async {
+        final Host host = Fixtures.buildHost();
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewData(
+            host: host,
+            source: ConnectionHostSelectionSource.knownHost,
+            subtitle: 'Known Host',
+            state: DovahConnectionCardState.offline,
+          ),
+          Fixtures.buildHostCardViewData(host: host),
+        ]);
+
+        await tester.pumpWidget(buildWidget());
+        await tester.tap(
+          find.byKey(const Key('host-card-knownHost-ws://127.0.0.1:58231/')),
+        );
+        await tester.pump();
+
+        expect(selectedHosts, [host]);
+        expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
       },
     );
 
@@ -388,7 +449,9 @@ void main() {
         await useSurface(tester, const Size(1280, 900));
         await tester.pumpWidget(buildWidget());
 
-        await tester.tap(find.byKey(const Key('host-card-ws://127.0.0.1:2/')));
+        await tester.tap(
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:2/')),
+        );
         await tester.pump();
 
         expect(selectedHosts, [second]);
@@ -418,15 +481,17 @@ void main() {
 
         expect(find.text('Shared Host Name'), findsNWidgets(2));
         expect(
-          find.byKey(const Key('host-card-ws://127.0.0.1:1/')),
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:1/')),
           findsOneWidget,
         );
         expect(
-          find.byKey(const Key('host-card-ws://127.0.0.1:2/')),
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:2/')),
           findsOneWidget,
         );
 
-        await tester.tap(find.byKey(const Key('host-card-ws://127.0.0.1:2/')));
+        await tester.tap(
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:2/')),
+        );
         await tester.pump();
 
         expect(selectedHosts, [second]);
@@ -476,9 +541,9 @@ void main() {
     /// Taps the card keyed for [uri] and settles the dialog's opening transition.
     Future<void> tapHost(WidgetTester tester, String uri) async {
       // A window below the root's minimum width scrolls sideways, so bring the card into view.
-      await tester.ensureVisible(find.byKey(Key('host-card-$uri')));
+      await tester.ensureVisible(find.byKey(Key('host-card-candidate-$uri')));
       await tester.pump();
-      await tester.tap(find.byKey(Key('host-card-$uri')));
+      await tester.tap(find.byKey(Key('host-card-candidate-$uri')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
     }
@@ -674,7 +739,7 @@ void main() {
         await tapHost(tester, 'ws://127.0.0.1:58231/');
 
         await tester.tap(
-          find.byKey(const Key('host-card-ws://127.0.0.1:58231/')),
+          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
           warnIfMissed: false,
         );
         await tester.pump();
@@ -1044,7 +1109,7 @@ void main() {
           final SemanticsData host = tester
               .getSemantics(
                 find.bySemanticsLabel(
-                  'Local Host, DovahLink · Ready to connect, 127.0.0.1:58231, Not connected',
+                  'Local Host, Discovered candidate, 127.0.0.1:58231, Not connected',
                 ),
               )
               .getSemanticsData();

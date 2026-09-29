@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
@@ -13,6 +14,7 @@ import '../../../../fixtures/fixtures.dart';
 void main() {
   AppState stateWith(
     List<Host> hosts, {
+    List<KnownHost> knownHosts = const <KnownHost>[],
     Host? selectedHost,
     ConnectionHostSelectionSource selectedHostSource =
         ConnectionHostSelectionSource.candidate,
@@ -21,6 +23,7 @@ void main() {
   }) => AppState(
     connection: ConnectionState(
       hosts: hosts,
+      knownHosts: knownHosts,
       selectedHost: selectedHost,
       selectedHostSource: selectedHostSource,
       discoveryStatus: discoveryStatus,
@@ -208,13 +211,108 @@ void main() {
   });
 
   group('Selector hostCardsSelector behaves correctly', () {
-    test('Selector hostCardsSelector maps a Host to its display data', () {
+    test('Selector hostCardsSelector maps a candidate to its display data', () {
       final Host host = Fixtures.buildHost();
 
       expect(ConnectionSelectors.hostCardsSelector(stateWith([host])), [
         Fixtures.buildHostCardViewData(host: host),
       ]);
     });
+
+    test(
+      'Selector hostCardsSelector includes a Known Host before discovery',
+      () {
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          availability: HostAvailability.unknown,
+        );
+
+        final List<HostCardViewData> cards =
+            ConnectionSelectors.hostCardsSelector(
+              stateWith([], knownHosts: [knownHost]),
+            );
+
+        expect(cards, hasLength(1));
+        expect(cards.single.host, knownHost.host);
+        expect(cards.single.source, ConnectionHostSelectionSource.knownHost);
+        expect(cards.single.state, DovahConnectionCardState.unknown);
+        expect(cards.single.subtitle, 'Known Host');
+      },
+    );
+
+    test('Selector hostCardsSelector maps every Known Host availability', () {
+      for (final (
+            HostAvailability availability,
+            DovahConnectionCardState cardState,
+          )
+          in const [
+            (HostAvailability.unknown, DovahConnectionCardState.unknown),
+            (HostAvailability.online, DovahConnectionCardState.available),
+            (HostAvailability.offline, DovahConnectionCardState.offline),
+          ]) {
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          availability: availability,
+        );
+
+        final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+          stateWith([], knownHosts: [knownHost]),
+        ).single;
+
+        expect(card.host, knownHost.host);
+        expect(card.source, ConnectionHostSelectionSource.knownHost);
+        expect(card.state, cardState);
+      }
+    });
+
+    test(
+      'Selector hostCardsSelector keeps Known Hosts and candidates separate when IDs match',
+      () {
+        final Host knownHostHost = Fixtures.buildHost(
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Host candidate = Fixtures.buildHost(uri: knownHostHost.uri);
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          host: knownHostHost,
+          availability: HostAvailability.online,
+        );
+
+        final List<HostCardViewData> cards =
+            ConnectionSelectors.hostCardsSelector(
+              stateWith([candidate], knownHosts: [knownHost]),
+            );
+
+        expect(candidate.hostId, knownHostHost.hostId);
+        expect(cards, hasLength(2));
+        expect(cards.map((HostCardViewData card) => card.host), [
+          knownHostHost,
+          candidate,
+        ]);
+        expect(cards.map((HostCardViewData card) => card.source), [
+          ConnectionHostSelectionSource.knownHost,
+          ConnectionHostSelectionSource.candidate,
+        ]);
+      },
+    );
+
+    test(
+      'Selector hostCardsSelector keeps Known Hosts visible after discovery clears or fails',
+      () {
+        final KnownHost knownHost = Fixtures.buildKnownHost();
+
+        for (final ConnectionDiscoveryStatus status in [
+          ConnectionDiscoveryStatus.empty,
+          ConnectionDiscoveryStatus.failed,
+        ]) {
+          final List<HostCardViewData> cards =
+              ConnectionSelectors.hostCardsSelector(
+                stateWith([], knownHosts: [knownHost], discoveryStatus: status),
+              );
+
+          expect(cards, hasLength(1));
+          expect(cards.single.host, knownHost.host);
+          expect(cards.single.source, ConnectionHostSelectionSource.knownHost);
+        }
+      },
+    );
 
     test(
       'Selector hostCardsSelector marks every card unknown because reachability is not known',

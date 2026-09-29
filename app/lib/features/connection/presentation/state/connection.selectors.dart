@@ -1,12 +1,16 @@
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Static selectors over [AppState] for connection presentation state.
 abstract final class ConnectionSelectors {
-  /// The secondary line every Host card shows.
-  static const String hostCardSubtitle = 'DovahLink · Ready to connect';
+  /// The secondary line shown for a Known Host.
+  static const String knownHostCardSubtitle = 'Known Host';
+
+  /// The secondary line shown for an untrusted discovery result.
+  static const String candidateCardSubtitle = 'Discovered candidate';
 
   /// Returns the Hosts available to select.
   static List<Host> hostsSelector(AppState state) => state.connection.hosts;
@@ -37,15 +41,30 @@ abstract final class ConnectionSelectors {
   static String? selectedHostNameSelector(AppState state) =>
       selectedHostSelector(state)?.displayName;
 
-  /// Returns one card's display data per Host, in Host order. Reachability is not known on the
-  /// connections screen, so every card is [DovahConnectionCardState.unknown]; its detail is the
-  /// Host endpoint's authority (host and port), or the whole endpoint when it has none.
+  /// Returns Known Host cards followed by discovery candidate cards, without merging their
+  /// identities. Each card retains its selection source and mapped availability.
   static List<HostCardViewData> hostCardsSelector(AppState state) => [
+    for (final KnownHost knownHost in state.connection.knownHosts)
+      HostCardViewData(
+        host: knownHost.host,
+        source: ConnectionHostSelectionSource.knownHost,
+        title: knownHost.host.displayName,
+        subtitle: knownHostCardSubtitle,
+        detail: knownHost.host.uri.authority.isEmpty
+            ? knownHost.host.uri.toString()
+            : knownHost.host.uri.authority,
+        state: switch (knownHost.availability) {
+          HostAvailability.unknown => DovahConnectionCardState.unknown,
+          HostAvailability.online => DovahConnectionCardState.available,
+          HostAvailability.offline => DovahConnectionCardState.offline,
+        },
+      ),
     for (final Host host in hostsSelector(state))
       HostCardViewData(
         host: host,
+        source: ConnectionHostSelectionSource.candidate,
         title: host.displayName,
-        subtitle: hostCardSubtitle,
+        subtitle: candidateCardSubtitle,
         detail: host.uri.authority.isEmpty
             ? host.uri.toString()
             : host.uri.authority,

@@ -8,6 +8,9 @@ class HostCardViewData extends Equatable {
   /// The Host this card represents and selects.
   final Host host;
 
+  /// Whether selecting this card means using a discovery candidate or Known Host.
+  final ConnectionHostSelectionSource source;
+
   /// The card's primary line, the Host's name.
   final String title;
 
@@ -25,6 +28,9 @@ class HostCardViewData extends Equatable {
     /// The Host this card represents and selects.
     required this.host,
 
+    /// Whether selecting this card means using a discovery candidate or Known Host.
+    required this.source,
+
     /// The card's primary line.
     required this.title,
 
@@ -40,5 +46,5 @@ class HostCardViewData extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [host, title, subtitle, detail, state];
+  List<Object?> get props => [host, source, title, subtitle, detail, state];
 }
