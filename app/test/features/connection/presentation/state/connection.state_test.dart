@@ -20,6 +20,7 @@ void main() {
       final ConnectionState state = ConnectionState.initial();
 
       expect(state.selectedHost, isNull);
+      expect(state.selectedHostSource, ConnectionHostSelectionSource.candidate);
     });
 
     test('ConnectionState initial has no SDK Known Host projection', () {
@@ -83,6 +84,28 @@ void main() {
       expect(result.selectedHost, isNull);
     });
 
+    test('ConnectionState copyWith replaces selected Host source', () {
+      final ConnectionState result = ConnectionState.initial().copyWith(
+        selectedHostSource: ConnectionHostSelectionSource.knownHost,
+      );
+
+      expect(
+        result.selectedHostSource,
+        ConnectionHostSelectionSource.knownHost,
+      );
+    });
+
+    test('ConnectionState copyWith preserves selected Host source', () {
+      const ConnectionState state = ConnectionState(
+        selectedHostSource: ConnectionHostSelectionSource.knownHost,
+      );
+
+      expect(
+        state.copyWith().selectedHostSource,
+        ConnectionHostSelectionSource.knownHost,
+      );
+    });
+
     test(
       'ConnectionState copyWith replaces the full SDK Known Hosts projection',
       () {
@@ -142,6 +165,17 @@ void main() {
       );
 
       expect(failed, isNot(loading));
+    });
+
+    test('ConnectionState differs when only selected Host source differs', () {
+      final Host host = Fixtures.buildHost();
+      final ConnectionState candidate = ConnectionState(selectedHost: host);
+      final ConnectionState knownHost = ConnectionState(
+        selectedHost: host,
+        selectedHostSource: ConnectionHostSelectionSource.knownHost,
+      );
+
+      expect(knownHost, isNot(candidate));
     });
   });
 

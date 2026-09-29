@@ -8,6 +8,25 @@ import '../../../../fixtures/fixtures.dart';
 /// Exercises the values carried by connection discovery actions.
 void main() {
   group(
+    'Behavior equality in ConnectionHostSelectedAction behaves correctly',
+    () {
+      test('ConnectionHostSelectedAction includes its selection source', () {
+        final Host host = Fixtures.buildHost();
+        const ConnectionHostSelectionSource candidate =
+            ConnectionHostSelectionSource.candidate;
+        const ConnectionHostSelectionSource knownHost =
+            ConnectionHostSelectionSource.knownHost;
+
+        expect(
+          ConnectionHostSelectedAction(host),
+          isNot(ConnectionHostSelectedAction(host, source: knownHost)),
+        );
+        expect(ConnectionHostSelectedAction(host).source, candidate);
+      });
+    },
+  );
+
+  group(
     'Behavior equality in ConnectionKnownHostsChangedAction behaves correctly',
     () {
       test(

@@ -14,12 +14,15 @@ void main() {
   AppState stateWith(
     List<Host> hosts, {
     Host? selectedHost,
+    ConnectionHostSelectionSource selectedHostSource =
+        ConnectionHostSelectionSource.candidate,
     ConnectionDiscoveryStatus discoveryStatus = ConnectionDiscoveryStatus.idle,
     ConnectionFailureReason? discoveryFailure,
   }) => AppState(
     connection: ConnectionState(
       hosts: hosts,
       selectedHost: selectedHost,
+      selectedHostSource: selectedHostSource,
       discoveryStatus: discoveryStatus,
       discoveryFailure: discoveryFailure,
     ),
@@ -156,6 +159,24 @@ void main() {
       expect(selected, second);
       expect(selected?.uri, second.uri);
     });
+  });
+
+  group('Selector selectedHostSourceSelector behaves correctly', () {
+    test(
+      'Selector selectedHostSourceSelector returns the durable Known Host source',
+      () {
+        expect(
+          ConnectionSelectors.selectedHostSourceSelector(
+            stateWith(
+              [Fixtures.buildHost()],
+              selectedHost: Fixtures.buildHost(),
+              selectedHostSource: ConnectionHostSelectionSource.knownHost,
+            ),
+          ),
+          ConnectionHostSelectionSource.knownHost,
+        );
+      },
+    );
   });
 
   group('Selector selectedHostNameSelector behaves correctly', () {

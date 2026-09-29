@@ -109,6 +109,15 @@ enum ConnectionDiscoveryStatus {
   failed,
 }
 
+/// The source of a Host selection in the Connections state.
+enum ConnectionHostSelectionSource {
+  /// A short-lived endpoint discovered by the current discovery operation.
+  candidate,
+
+  /// A durable Known Host relationship selected by the user.
+  knownHost,
+}
+
 /// Whether Flutter's projection of the SDK-owned Known Hosts stream is current and healthy.
 enum KnownHostsObservationStatus {
   /// No complete Known Hosts snapshot has been observed yet.

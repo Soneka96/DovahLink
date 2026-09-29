@@ -31,6 +31,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
 - Pairing shows while a code redisplay is being sent to Skyrim and prevents repeated requests
   until the Host responds.
 - Custom Dovah controls suppress Material splash and state overlays.

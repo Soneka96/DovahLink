@@ -19,6 +19,6 @@ class AuthenticateUseCase
   /// See [UseCase.call].
   @override
   Future<Either<Failure, PairingHandshake>> call(AuthenticateParams params) {
-    return _repository.authenticate(hostUri: params.hostUri);
+    return _repository.authenticate(target: params.target);
   }
 }

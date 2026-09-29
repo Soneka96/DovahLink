@@ -89,6 +89,12 @@ results do not derive or change it.
 Host candidates. A candidate, including one whose claimed `hostId` matches a Known Host, does not
 establish identity, trust, or authorization and does not mutate Known Hosts state.
 
+Host selection records whether the selected `Host` is an ephemeral discovery candidate or durable
+Known Host intent. Discovery refresh clears a candidate selection when its endpoint disappears or
+discovery fails, and keeps it when that endpoint remains. Discovery loss does not clear a Known Host
+selection. Pairing sends candidate endpoints through candidate authentication and Known Host IDs
+through `authenticateKnownHost`; it never sends a mapped Host snapshot as an SDK command.
+
 ## Feature structure
 
 Feature-owned data, domain, and presentation code lives under its feature boundary. Application-wide

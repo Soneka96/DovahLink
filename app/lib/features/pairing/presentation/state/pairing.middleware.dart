@@ -122,9 +122,12 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       store.dispatch(const PairingFailedAction('Select a Host to pair with.'));
       return;
     }
-    final result = await sl<AuthenticateUseCase>()(
-      AuthenticateParams(hostUri: host.uri),
-    );
+    final AuthenticateParams params =
+        ConnectionSelectors.selectedHostSourceSelector(store.state) ==
+            ConnectionHostSelectionSource.knownHost
+        ? AuthenticateParams.knownHost(hostId: host.hostId)
+        : AuthenticateParams(hostUri: host.uri);
+    final result = await sl<AuthenticateUseCase>()(params);
     if (_isShuttingDown) {
       return;
     }

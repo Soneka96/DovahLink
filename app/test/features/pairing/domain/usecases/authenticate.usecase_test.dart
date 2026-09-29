@@ -31,13 +31,15 @@ void main() {
       () async {
         final PairingHandshake handshake = Fixtures.buildPairingHandshake();
         when(
-          () => mockRepository.authenticate(hostUri: hostUri),
+          () => mockRepository.authenticate(target: Left(hostUri)),
         ).thenAnswer((_) async => Right(handshake));
 
         final Either<Failure, PairingHandshake> result = await useCase(params);
 
         expect(result, Right(handshake));
-        verify(() => mockRepository.authenticate(hostUri: hostUri)).called(1);
+        verify(
+          () => mockRepository.authenticate(target: Left(hostUri)),
+        ).called(1);
         verifyNoMoreInteractions(mockRepository);
       },
     );
@@ -47,13 +49,39 @@ void main() {
       () async {
         const NetworkFailure failure = NetworkFailure('failed');
         when(
-          () => mockRepository.authenticate(hostUri: hostUri),
+          () => mockRepository.authenticate(target: Left(hostUri)),
         ).thenAnswer((_) async => const Left(failure));
 
         final Either<Failure, PairingHandshake> result = await useCase(params);
 
         expect(result, const Left(failure));
-        verify(() => mockRepository.authenticate(hostUri: hostUri)).called(1);
+        verify(
+          () => mockRepository.authenticate(target: Left(hostUri)),
+        ).called(1);
+        verifyNoMoreInteractions(mockRepository);
+      },
+    );
+
+    test(
+      'Usecase AuthenticateUseCase forwards a Known Host ID without an endpoint',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final AuthenticateParams knownHost = Fixtures.buildAuthenticateParams(
+          hostId: hostId,
+        );
+        final PairingHandshake handshake = Fixtures.buildPairingHandshake();
+        when(
+          () => mockRepository.authenticate(target: const Right(hostId)),
+        ).thenAnswer((_) async => Right(handshake));
+
+        final Either<Failure, PairingHandshake> result = await useCase(
+          knownHost,
+        );
+
+        expect(result, Right(handshake));
+        verify(
+          () => mockRepository.authenticate(target: const Right(hostId)),
+        ).called(1);
         verifyNoMoreInteractions(mockRepository);
       },
     );

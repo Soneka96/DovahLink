@@ -8,12 +8,18 @@ class ConnectionHostSelectedAction extends Equatable {
   /// The Host the user selected.
   final Host host;
 
-  /// Creates a Host-selection action.
-  const ConnectionHostSelectedAction(this.host);
+  /// Whether this selection is an ephemeral candidate or a Known Host relationship.
+  final ConnectionHostSelectionSource source;
+
+  /// Creates a Host-selection action. Omitted [source] means a discovered candidate.
+  const ConnectionHostSelectedAction(
+    this.host, {
+    this.source = ConnectionHostSelectionSource.candidate,
+  });
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [host];
+  List<Object?> get props => [host, source];
 }
 
 /// Carries the complete SDK-owned Known Hosts projection into Redux.

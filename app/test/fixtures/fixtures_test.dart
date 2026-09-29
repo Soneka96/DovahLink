@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
@@ -57,7 +58,7 @@ void main() {
     test('Method buildAuthenticateParams targets the representative Host', () {
       final AuthenticateParams params = Fixtures.buildAuthenticateParams();
 
-      expect(params.hostUri, defaultHostUri);
+      expect(params.target, Left(defaultHostUri));
     });
 
     test('Method buildAuthenticateParams preserves the named override', () {
@@ -67,7 +68,17 @@ void main() {
         hostUri: uri,
       );
 
-      expect(params.hostUri, uri);
+      expect(params.target, Left(uri));
+    });
+
+    test('Method buildAuthenticateParams can target a Known Host ID', () {
+      const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+
+      final AuthenticateParams params = Fixtures.buildAuthenticateParams(
+        hostId: hostId,
+      );
+
+      expect(params.target, const Right(hostId));
     });
   });
 

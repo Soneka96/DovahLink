@@ -48,6 +48,18 @@ void main() {
     );
   });
 
+  group('Behavior values in ConnectionHostSelectionSource behave correctly', () {
+    test(
+      'ConnectionHostSelectionSource values distinguish candidates from Known Hosts',
+      () {
+        expect(ConnectionHostSelectionSource.values, [
+          ConnectionHostSelectionSource.candidate,
+          ConnectionHostSelectionSource.knownHost,
+        ]);
+      },
+    );
+  });
+
   group('Behavior values in KnownHostsObservationStatus behave correctly', () {
     test(
       'KnownHostsObservationStatus values include every observation state',

@@ -41,7 +41,7 @@ void main() {
         );
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -50,6 +50,36 @@ void main() {
           ),
         );
         verify(() => mockClient.authenticateCandidate(hostUri)).called(1);
+        verifyNever(() => mockClient.recoverPendingPairing());
+      },
+    );
+
+    test(
+      'Method authenticate sends a Known Host ID through Known Host authentication',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        when(
+          () => mockClient.authenticateKnownHost(DovahLinkHostId(hostId)),
+        ).thenAnswer(
+          (_) async => Fixtures.buildSdkHelloResult(
+            hostVersion: '1.2.3',
+            trustState: DovahLinkTrustState.trusted,
+          ),
+        );
+
+        final Either<Failure, PairingHandshakeModel> result = await dataSource
+            .authenticate(target: const Right(hostId));
+
+        expect(
+          result,
+          Right<Failure, PairingHandshakeModel>(
+            Fixtures.buildPairingHandshakeModel(),
+          ),
+        );
+        verify(
+          () => mockClient.authenticateKnownHost(DovahLinkHostId(hostId)),
+        ).called(1);
+        verifyNever(() => mockClient.authenticateCandidate(any()));
         verifyNever(() => mockClient.recoverPendingPairing());
       },
     );
@@ -68,7 +98,7 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.trusted);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -94,7 +124,7 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -120,7 +150,7 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -151,7 +181,7 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -185,7 +215,7 @@ void main() {
         ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -214,7 +244,7 @@ void main() {
         ).thenReturn(DovahLinkConnectionState.disconnected);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -237,7 +267,7 @@ void main() {
         ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -269,7 +299,7 @@ void main() {
         ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -294,7 +324,7 @@ void main() {
         );
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -313,7 +343,7 @@ void main() {
         ).thenThrow(const DovahLinkStorageException('corrupt store'));
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -338,7 +368,7 @@ void main() {
         ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -357,7 +387,7 @@ void main() {
         ).thenThrow(StateError('boom'));
 
         final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,

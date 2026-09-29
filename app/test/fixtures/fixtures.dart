@@ -62,7 +62,12 @@ abstract final class Fixtures {
   static AuthenticateParams buildAuthenticateParams({
     /// The Host endpoint to authenticate with, or the representative local endpoint when omitted.
     Uri? hostUri,
-  }) => AuthenticateParams(hostUri: hostUri ?? defaultHostUri);
+
+    /// The stable Known Host ID to authenticate with instead of the endpoint.
+    String? hostId,
+  }) => hostId == null
+      ? AuthenticateParams(hostUri: hostUri ?? defaultHostUri)
+      : AuthenticateParams.knownHost(hostId: hostId);
 
   /// Builds the SDK handshake value consumed by pairing tests.
   /// @param hostId The stable Host installation identity.

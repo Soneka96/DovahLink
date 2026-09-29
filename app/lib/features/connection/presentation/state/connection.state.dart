@@ -15,6 +15,9 @@ class ConnectionState extends Equatable {
   /// selection.
   final Host? selectedHost;
 
+  /// Whether [selectedHost] represents a discovery candidate or durable Known Host intent.
+  final ConnectionHostSelectionSource selectedHostSource;
+
   /// The app-mapped complete projection emitted by the SDK's authoritative Known Host state.
   final List<Host> knownHosts;
 
@@ -33,6 +36,7 @@ class ConnectionState extends Equatable {
   const ConnectionState({
     this.hosts = const <Host>[],
     this.selectedHost,
+    this.selectedHostSource = ConnectionHostSelectionSource.candidate,
     this.knownHosts = const <Host>[],
     this.knownHostsStatus = KnownHostsObservationStatus.loading,
     this.discoveryStatus = ConnectionDiscoveryStatus.idle,
@@ -48,6 +52,7 @@ class ConnectionState extends Equatable {
   ConnectionState copyWith({
     List<Host>? hosts,
     Option<Host>? selectedHost,
+    ConnectionHostSelectionSource? selectedHostSource,
     List<Host>? knownHosts,
     KnownHostsObservationStatus? knownHostsStatus,
     ConnectionDiscoveryStatus? discoveryStatus,
@@ -57,6 +62,7 @@ class ConnectionState extends Equatable {
     selectedHost: selectedHost == null
         ? this.selectedHost
         : selectedHost.toNullable(),
+    selectedHostSource: selectedHostSource ?? this.selectedHostSource,
     knownHosts: knownHosts ?? this.knownHosts,
     knownHostsStatus: knownHostsStatus ?? this.knownHostsStatus,
     discoveryStatus: discoveryStatus ?? this.discoveryStatus,
@@ -70,6 +76,7 @@ class ConnectionState extends Equatable {
   List<Object?> get props => [
     hosts,
     selectedHost,
+    selectedHostSource,
     knownHosts,
     knownHostsStatus,
     discoveryStatus,

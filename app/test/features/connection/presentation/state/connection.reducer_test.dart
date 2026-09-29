@@ -143,10 +143,17 @@ void main() {
 
       final ConnectionState result = connectionReducer(
         ConnectionState.initial(),
-        ConnectionHostSelectedAction(host),
+        ConnectionHostSelectedAction(
+          host,
+          source: ConnectionHostSelectionSource.knownHost,
+        ),
       );
 
       expect(result.selectedHost, host);
+      expect(
+        result.selectedHostSource,
+        ConnectionHostSelectionSource.knownHost,
+      );
     });
 
     test('ConnectionHostSelectedAction preserves the Host list', () {
@@ -213,6 +220,18 @@ void main() {
         expect(result.selectedHost, isNot(first));
       },
     );
+
+    test('ConnectionHostSelectedAction defaults to a candidate source', () {
+      final ConnectionState result = connectionReducer(
+        ConnectionState.initial(),
+        ConnectionHostSelectedAction(Fixtures.buildHost()),
+      );
+
+      expect(
+        result.selectedHostSource,
+        ConnectionHostSelectionSource.candidate,
+      );
+    });
   });
 
   group('Action Object behaves correctly', () {
@@ -307,14 +326,88 @@ void main() {
         expect(result.discoveryStatus, ConnectionDiscoveryStatus.empty);
       },
     );
+
+    test(
+      'ConnectionDiscoverySucceededAction clears a candidate that disappeared',
+      () {
+        final Host selected = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final ConnectionState result = connectionReducer(
+          ConnectionState(selectedHost: selected),
+          const ConnectionDiscoverySucceededAction(<Host>[]),
+        );
+
+        expect(result.selectedHost, isNull);
+      },
+    );
+
+    test(
+      'ConnectionDiscoverySucceededAction keeps selection when the endpoint remains',
+      () {
+        final Host selected = Fixtures.buildHost(
+          displayName: 'Before Refresh',
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Host refreshed = Fixtures.buildHost(
+          displayName: 'After Refresh',
+          uri: selected.uri,
+        );
+        final ConnectionState result = connectionReducer(
+          ConnectionState(selectedHost: selected),
+          ConnectionDiscoverySucceededAction(<Host>[refreshed]),
+        );
+
+        expect(result.selectedHost, selected);
+      },
+    );
+
+    test(
+      'ConnectionDiscoverySucceededAction identifies candidates by endpoint instead of display name',
+      () {
+        final Host selected = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Host other = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        final ConnectionState result = connectionReducer(
+          ConnectionState(selectedHost: selected),
+          ConnectionDiscoverySucceededAction(<Host>[other]),
+        );
+
+        expect(result.selectedHost, isNull);
+      },
+    );
+
+    test(
+      'ConnectionDiscoverySucceededAction preserves a Known Host selection after discovery loss',
+      () {
+        final Host knownHost = Fixtures.buildHost();
+        final ConnectionState result = connectionReducer(
+          ConnectionState(
+            selectedHost: knownHost,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+          ),
+          const ConnectionDiscoverySucceededAction(<Host>[]),
+        );
+
+        expect(result.selectedHost, knownHost);
+      },
+    );
   });
 
   group('Action ConnectionDiscoveryFailedAction behaves correctly', () {
     test(
       'ConnectionDiscoveryFailedAction stores the semantic failure reason',
       () {
+        final Host candidate = Fixtures.buildHost();
         final ConnectionState state = ConnectionState(
-          hosts: [Fixtures.buildHost()],
+          hosts: <Host>[candidate],
+          selectedHost: candidate,
           discoveryStatus: ConnectionDiscoveryStatus.available,
         );
         final ConnectionState result = connectionReducer(
@@ -330,6 +423,25 @@ void main() {
           result.discoveryFailure,
           ConnectionFailureReason.hostUnavailable,
         );
+        expect(result.selectedHost, isNull);
+      },
+    );
+
+    test(
+      'ConnectionDiscoveryFailedAction preserves a Known Host selection',
+      () {
+        final Host knownHost = Fixtures.buildHost();
+        final ConnectionState result = connectionReducer(
+          ConnectionState(
+            selectedHost: knownHost,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+          ),
+          const ConnectionDiscoveryFailedAction(
+            ConnectionFailureReason.hostUnavailable,
+          ),
+        );
+
+        expect(result.selectedHost, knownHost);
       },
     );
   });
