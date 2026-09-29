@@ -3,6 +3,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:meta/meta.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Immutable Redux state for the Host connection.
@@ -19,7 +20,7 @@ class ConnectionState extends Equatable {
   final ConnectionHostSelectionSource selectedHostSource;
 
   /// The app-mapped complete projection emitted by the SDK's authoritative Known Host state.
-  final List<Host> knownHosts;
+  final List<KnownHost> knownHosts;
 
   /// Whether [knownHosts] is an observed, currently healthy SDK projection.
   final KnownHostsObservationStatus knownHostsStatus;
@@ -37,7 +38,7 @@ class ConnectionState extends Equatable {
     this.hosts = const <Host>[],
     this.selectedHost,
     this.selectedHostSource = ConnectionHostSelectionSource.candidate,
-    this.knownHosts = const <Host>[],
+    this.knownHosts = const <KnownHost>[],
     this.knownHostsStatus = KnownHostsObservationStatus.loading,
     this.discoveryStatus = ConnectionDiscoveryStatus.idle,
     this.discoveryFailure,
@@ -53,7 +54,7 @@ class ConnectionState extends Equatable {
     List<Host>? hosts,
     Option<Host>? selectedHost,
     ConnectionHostSelectionSource? selectedHostSource,
-    List<Host>? knownHosts,
+    List<KnownHost>? knownHosts,
     KnownHostsObservationStatus? knownHostsStatus,
     ConnectionDiscoveryStatus? discoveryStatus,
     Option<ConnectionFailureReason>? discoveryFailure,

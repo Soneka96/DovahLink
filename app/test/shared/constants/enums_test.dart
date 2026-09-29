@@ -60,6 +60,16 @@ void main() {
     );
   });
 
+  group('Behavior values in HostAvailability behave correctly', () {
+    test('HostAvailability values contain only the three runtime states', () {
+      expect(HostAvailability.values, [
+        HostAvailability.unknown,
+        HostAvailability.online,
+        HostAvailability.offline,
+      ]);
+    });
+  });
+
   group('Behavior values in KnownHostsObservationStatus behave correctly', () {
     test(
       'KnownHostsObservationStatus values include every observation state',

@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Records the Host the user selected to pair or connect with.
@@ -25,12 +26,12 @@ class ConnectionHostSelectedAction extends Equatable {
 /// Carries the complete SDK-owned Known Hosts projection into Redux.
 class ConnectionKnownHostsChangedAction extends Equatable {
   /// The complete app-mapped Known Hosts collection.
-  final List<Host> knownHosts;
+  final List<KnownHost> knownHosts;
 
   /// Creates an immutable Known Hosts observation action.
   /// @param knownHosts The complete SDK-reported collection after app-boundary mapping.
-  ConnectionKnownHostsChangedAction(List<Host> knownHosts)
-    : knownHosts = List<Host>.unmodifiable(knownHosts);
+  ConnectionKnownHostsChangedAction(List<KnownHost> knownHosts)
+    : knownHosts = List<KnownHost>.unmodifiable(knownHosts);
 
   /// See [Equatable.props].
   @override

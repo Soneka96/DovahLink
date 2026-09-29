@@ -79,15 +79,18 @@ fabricate the resulting authoritative Host, session, trust, pairing, or game sta
 success.
 
 For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
-emitted by the SDK's authoritative Known Hosts stream. `knownHostsStatus` starts as `loading`, becomes
-`ready` on any complete snapshot (including an empty one), and becomes `failed` on a stream error.
-An observation error preserves the last successful `knownHosts` value; a later snapshot restores
-`ready`. `ConnectionKnownHostsChangedAction` replaces the entire list; pairing actions and discovery
-results do not derive or change it.
-`ConnectionMiddleware` owns the stream subscription and `HostMapper.fromSdk` is the sole SDK
-`DovahLinkHost` to app `Host` conversion. Discovery remains a command/result that returns reachable
-Host candidates. A candidate, including one whose claimed `hostId` matches a Known Host, does not
-establish identity, trust, or authorization and does not mutate Known Hosts state.
+of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with `HostAvailability`;
+discovery candidates and selected-Host state remain `Host` values without availability. The SDK owns
+the runtime projection, and Flutter maps its `DovahLinkKnownHostState` values into `KnownHost` before
+they enter Redux. `knownHostsStatus` starts as `loading`, becomes `ready` on any complete snapshot
+(including an empty one), and becomes `failed` on a stream error. An observation error preserves the
+last successful `knownHosts` value; a later snapshot restores `ready`.
+`ConnectionKnownHostsChangedAction` replaces the entire list; pairing actions and discovery results
+do not derive or change it. `ConnectionMiddleware` owns the stream subscription. `HostMapper.fromSdk`
+converts SDK `DovahLinkHost` values to app `Host` values, while `HostMapper.fromSdkKnownHostState`
+converts the SDK runtime projection to `KnownHost`. Discovery remains a command/result that returns
+reachable Host candidates. A candidate, including one whose claimed `hostId` matches a Known Host,
+does not establish identity, trust, or authorization and does not mutate Known Hosts state.
 
 Host selection records whether the selected `Host` is an ephemeral discovery candidate or durable
 Known Host intent. Discovery refresh clears a candidate selection when its endpoint disappears or

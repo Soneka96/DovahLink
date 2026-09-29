@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/host.mapper.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
@@ -104,7 +105,7 @@ void main() {
 
       expect(knownHostListenerCount, 1);
       expect(actions.whereType<ConnectionKnownHostsChangedAction>(), [
-        ConnectionKnownHostsChangedAction(const <Host>[]),
+        ConnectionKnownHostsChangedAction(const <KnownHost>[]),
       ]);
       expect(
         actions.whereType<ConnectionKnownHostsObservationFailedAction>(),
@@ -138,16 +139,16 @@ void main() {
         middleware.initialize(integrationStore);
         knownHostsController.add(<DovahLinkHost>[first]);
         await pumpEventQueue();
-        expect(integrationStore.state.connection.knownHosts, <Host>[
-          HostMapper.fromSdk(first),
+        expect(integrationStore.state.connection.knownHosts, <KnownHost>[
+          HostMapper.fromSdkKnownHostMetadata(first),
         ]);
         knownHostsController.add(<DovahLinkHost>[first, second]);
         await pumpEventQueue();
 
         expect(knownHostListenerCount, 1);
-        expect(integrationStore.state.connection.knownHosts, <Host>[
-          HostMapper.fromSdk(first),
-          HostMapper.fromSdk(second),
+        expect(integrationStore.state.connection.knownHosts, <KnownHost>[
+          HostMapper.fromSdkKnownHostMetadata(first),
+          HostMapper.fromSdkKnownHostMetadata(second),
         ]);
         expect(
           integrationStore.state.connection.knownHostsStatus,
@@ -157,8 +158,8 @@ void main() {
         knownHostsController.add(<DovahLinkHost>[second]);
         await pumpEventQueue();
 
-        expect(integrationStore.state.connection.knownHosts, <Host>[
-          HostMapper.fromSdk(second),
+        expect(integrationStore.state.connection.knownHosts, <KnownHost>[
+          HostMapper.fromSdkKnownHostMetadata(second),
         ]);
       },
     );
@@ -189,11 +190,11 @@ void main() {
         await pumpEventQueue();
 
         expect(knownHostListenerCount, 2);
-        expect(firstStore.state.connection.knownHosts, <Host>[
-          HostMapper.fromSdk(first),
+        expect(firstStore.state.connection.knownHosts, <KnownHost>[
+          HostMapper.fromSdkKnownHostMetadata(first),
         ]);
-        expect(secondStore.state.connection.knownHosts, <Host>[
-          HostMapper.fromSdk(first),
+        expect(secondStore.state.connection.knownHosts, <KnownHost>[
+          HostMapper.fromSdkKnownHostMetadata(first),
         ]);
 
         await middleware.shutdown();
@@ -201,11 +202,11 @@ void main() {
         await pumpEventQueue();
 
         expect(knownHostCancellationCount, 2);
-        expect(firstStore.state.connection.knownHosts, <Host>[
-          HostMapper.fromSdk(first),
+        expect(firstStore.state.connection.knownHosts, <KnownHost>[
+          HostMapper.fromSdkKnownHostMetadata(first),
         ]);
-        expect(secondStore.state.connection.knownHosts, <Host>[
-          HostMapper.fromSdk(first),
+        expect(secondStore.state.connection.knownHosts, <KnownHost>[
+          HostMapper.fromSdkKnownHostMetadata(first),
         ]);
       },
     );
@@ -233,8 +234,8 @@ void main() {
       await pumpEventQueue();
 
       expect(knownHostCancellationCount, 1);
-      expect(integrationStore.state.connection.knownHosts, <Host>[
-        HostMapper.fromSdk(first),
+      expect(integrationStore.state.connection.knownHosts, <KnownHost>[
+        HostMapper.fromSdkKnownHostMetadata(first),
       ]);
     });
 
@@ -309,8 +310,8 @@ void main() {
           integrationStore.state.connection.knownHostsStatus,
           KnownHostsObservationStatus.ready,
         );
-        expect(integrationStore.state.connection.knownHosts, <Host>[
-          HostMapper.fromSdk(host),
+        expect(integrationStore.state.connection.knownHosts, <KnownHost>[
+          HostMapper.fromSdkKnownHostMetadata(host),
         ]);
       },
     );
@@ -354,8 +355,8 @@ void main() {
         integrationStore.state.connection.knownHostsStatus,
         KnownHostsObservationStatus.failed,
       );
-      expect(integrationStore.state.connection.knownHosts, <Host>[
-        HostMapper.fromSdk(previous),
+      expect(integrationStore.state.connection.knownHosts, <KnownHost>[
+        HostMapper.fromSdkKnownHostMetadata(previous),
       ]);
 
       knownHostsController.add(<DovahLinkHost>[host]);
@@ -364,8 +365,8 @@ void main() {
       expect(reported, hasLength(1));
       expect(reported.single.exception, isA<StateError>());
       expect(knownHostListenerCount, 1);
-      expect(integrationStore.state.connection.knownHosts, <Host>[
-        HostMapper.fromSdk(host),
+      expect(integrationStore.state.connection.knownHosts, <KnownHost>[
+        HostMapper.fromSdkKnownHostMetadata(host),
       ]);
       expect(
         integrationStore.state.connection.knownHostsStatus,

@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.reducer.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
@@ -14,33 +15,70 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 void main() {
   group('Action ConnectionKnownHostsChangedAction behaves correctly', () {
     test('ConnectionKnownHostsChangedAction replaces the SDK projection', () {
-      final Host first = Fixtures.buildHost(displayName: 'First Host');
-      final Host second = Fixtures.buildHost(displayName: 'Second Host');
-      final ConnectionState state = ConnectionState(knownHosts: <Host>[first]);
+      final KnownHost first = Fixtures.buildKnownHost(
+        host: Fixtures.buildHost(displayName: 'First Host'),
+        availability: HostAvailability.online,
+      );
+      final KnownHost second = Fixtures.buildKnownHost(
+        host: Fixtures.buildHost(displayName: 'Second Host'),
+        availability: HostAvailability.offline,
+      );
+      final ConnectionState state = ConnectionState(
+        knownHosts: <KnownHost>[first],
+      );
 
       final ConnectionState result = connectionReducer(
         state,
-        ConnectionKnownHostsChangedAction(<Host>[first, second]),
+        ConnectionKnownHostsChangedAction(<KnownHost>[first, second]),
       );
 
-      expect(result.knownHosts, <Host>[first, second]);
+      expect(result.knownHosts, <KnownHost>[first, second]);
       expect(result.knownHostsStatus, KnownHostsObservationStatus.ready);
     });
 
     test(
-      'ConnectionKnownHostsChangedAction clears the SDK projection on null',
+      'ConnectionKnownHostsChangedAction clears the SDK projection on an empty collection',
       () {
         final ConnectionState state = ConnectionState(
-          knownHosts: <Host>[Fixtures.buildHost()],
+          knownHosts: <KnownHost>[Fixtures.buildKnownHost()],
         );
 
         final ConnectionState result = connectionReducer(
           state,
-          ConnectionKnownHostsChangedAction(const <Host>[]),
+          ConnectionKnownHostsChangedAction(const <KnownHost>[]),
         );
 
         expect(result.knownHosts, isEmpty);
         expect(result.knownHostsStatus, KnownHostsObservationStatus.ready);
+      },
+    );
+
+    test(
+      'ConnectionKnownHostsChangedAction preserves discovery and candidate selection state',
+      () {
+        final Host candidate = Fixtures.buildHost(displayName: 'Candidate');
+        final List<Host> candidates = <Host>[candidate];
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          availability: HostAvailability.online,
+        );
+        final ConnectionState state = ConnectionState(
+          hosts: candidates,
+          selectedHost: candidate,
+          knownHostsStatus: KnownHostsObservationStatus.ready,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          ConnectionKnownHostsChangedAction(<KnownHost>[knownHost]),
+        );
+
+        expect(result.hosts, candidates);
+        expect(result.selectedHost, candidate);
+        expect(
+          result.selectedHostSource,
+          ConnectionHostSelectionSource.candidate,
+        );
+        expect(result.knownHosts, <KnownHost>[knownHost]);
       },
     );
   });
@@ -51,7 +89,9 @@ void main() {
       test(
         'ConnectionKnownHostsObservationFailedAction preserves the last collection and marks it failed',
         () {
-          final List<Host> knownHosts = <Host>[Fixtures.buildHost()];
+          final List<KnownHost> knownHosts = <KnownHost>[
+            Fixtures.buildKnownHost(availability: HostAvailability.online),
+          ];
           final ConnectionState state = ConnectionState(
             knownHosts: knownHosts,
             knownHostsStatus: KnownHostsObservationStatus.ready,
@@ -86,7 +126,9 @@ void main() {
     );
 
     test('Discovery actions do not change the Known Host projection', () {
-      final List<Host> knownHosts = <Host>[Fixtures.buildHost()];
+      final List<KnownHost> knownHosts = <KnownHost>[
+        Fixtures.buildKnownHost(availability: HostAvailability.offline),
+      ];
       final ConnectionState initial = ConnectionState(knownHosts: knownHosts);
       final ConnectionState started = connectionReducer(
         initial,
@@ -109,9 +151,12 @@ void main() {
     });
 
     test('PairingSessionTrustedAction alone does not change Known Hosts', () {
-      final List<Host> knownHosts = <Host>[
-        Fixtures.buildHost(),
-        Fixtures.buildHost(displayName: 'Second Host'),
+      final List<KnownHost> knownHosts = <KnownHost>[
+        Fixtures.buildKnownHost(),
+        Fixtures.buildKnownHost(
+          host: Fixtures.buildHost(displayName: 'Second Host'),
+          availability: HostAvailability.online,
+        ),
       ];
       final ConnectionState state = ConnectionState(knownHosts: knownHosts);
 
@@ -126,7 +171,9 @@ void main() {
     test(
       'PairingConfirmedAction does not change the Known Host projection',
       () {
-        final List<Host> knownHosts = <Host>[Fixtures.buildHost()];
+        final List<KnownHost> knownHosts = <KnownHost>[
+          Fixtures.buildKnownHost(availability: HostAvailability.online),
+        ];
         final ConnectionState result = connectionReducer(
           ConnectionState(knownHosts: knownHosts),
           const PairingConfirmedAction(),

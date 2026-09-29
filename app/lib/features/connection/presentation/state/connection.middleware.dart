@@ -67,7 +67,9 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
             if (!_isShuttingDown) {
               store.dispatch(
                 ConnectionKnownHostsChangedAction(
-                  sdkHosts.map(HostMapper.fromSdk).toList(growable: false),
+                  sdkHosts
+                      .map(HostMapper.fromSdkKnownHostMetadata)
+                      .toList(growable: false),
                 ),
               );
             }

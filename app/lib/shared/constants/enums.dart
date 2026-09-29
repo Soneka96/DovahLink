@@ -91,6 +91,8 @@ enum PairingConnectionStatus {
   invalidated,
 }
 
+// ---- Connection ----
+
 /// The state of the latest Host discovery operation.
 enum ConnectionDiscoveryStatus {
   /// Discovery has not been requested during this app session.
@@ -116,6 +118,18 @@ enum ConnectionHostSelectionSource {
 
   /// A durable Known Host relationship selected by the user.
   knownHost,
+}
+
+/// App-owned runtime evidence about whether a durable Known Host is reachable.
+enum HostAvailability {
+  /// The SDK has not established current reachability evidence.
+  unknown,
+
+  /// The SDK has sufficiently recent positive evidence that the Host is reachable.
+  online,
+
+  /// An explicit reachability attempt or bounded recovery definitively failed.
+  offline,
 }
 
 /// Whether Flutter's projection of the SDK-owned Known Hosts stream is current and healthy.

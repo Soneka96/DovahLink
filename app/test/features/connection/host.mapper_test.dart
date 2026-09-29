@@ -1,7 +1,11 @@
-import 'package:dovahlink_client_sdk/dovahlink_client.dart' show DovahLinkHost;
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show DovahLinkHost, DovahLinkHostAvailability, DovahLinkKnownHostState;
+
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/host.mapper.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Exercises the single SDK-to-app Host mapping boundary.
 void main() {
@@ -22,5 +26,67 @@ void main() {
       expect(host.uri, isA<Uri>());
       expect(host.uri, sdkHost.endpoint);
     });
+  });
+
+  group('Method fromSdkKnownHostState behaves correctly', () {
+    test(
+      'HostMapper.fromSdkKnownHostState maps metadata and every availability',
+      () {
+        final DovahLinkHost sdkHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'SKYRIM-PC',
+          endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final List<DovahLinkHostAvailability> sdkAvailabilities = [
+          DovahLinkHostAvailability.unknown,
+          DovahLinkHostAvailability.online,
+          DovahLinkHostAvailability.offline,
+        ];
+        final List<HostAvailability> appAvailabilities = [
+          HostAvailability.unknown,
+          HostAvailability.online,
+          HostAvailability.offline,
+        ];
+
+        final List<KnownHost> mapped = [
+          for (int index = 0; index < sdkAvailabilities.length; index++)
+            HostMapper.fromSdkKnownHostState(
+              DovahLinkKnownHostState(
+                host: sdkHost,
+                availability: sdkAvailabilities[index],
+              ),
+            ),
+        ];
+
+        expect(
+          mapped.every(
+            (KnownHost state) => state.host == HostMapper.fromSdk(sdkHost),
+          ),
+          isTrue,
+        );
+        expect(
+          mapped.map((KnownHost state) => state.availability),
+          appAvailabilities,
+        );
+      },
+    );
+  });
+
+  group('Method fromSdkKnownHostMetadata behaves correctly', () {
+    test(
+      'HostMapper.fromSdkKnownHostMetadata assigns unknown availability',
+      () {
+        final DovahLinkHost sdkHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'SKYRIM-PC',
+          endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+
+        expect(
+          HostMapper.fromSdkKnownHostMetadata(sdkHost).availability,
+          HostAvailability.unknown,
+        );
+      },
+    );
   });
 }

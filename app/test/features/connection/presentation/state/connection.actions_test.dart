@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
@@ -30,22 +31,26 @@ void main() {
     'Behavior equality in ConnectionKnownHostsChangedAction behaves correctly',
     () {
       test(
-        'ConnectionKnownHostsChangedAction values compare by complete Host projection',
+        'ConnectionKnownHostsChangedAction values compare by complete Known Host projection',
         () {
-          final List<Host> hosts = <Host>[Fixtures.buildHost()];
+          final List<KnownHost> hosts = <KnownHost>[
+            Fixtures.buildKnownHost(availability: HostAvailability.online),
+          ];
           final ConnectionKnownHostsChangedAction first =
               ConnectionKnownHostsChangedAction(hosts);
           final ConnectionKnownHostsChangedAction second =
-              ConnectionKnownHostsChangedAction(<Host>[Fixtures.buildHost()]);
+              ConnectionKnownHostsChangedAction(<KnownHost>[
+                Fixtures.buildKnownHost(availability: HostAvailability.online),
+              ]);
 
           expect(first, second);
           expect(first.hashCode, second.hashCode);
           expect(
-            ConnectionKnownHostsChangedAction(const <Host>[]),
+            ConnectionKnownHostsChangedAction(const <KnownHost>[]),
             isNot(first),
           );
           expect(
-            () => first.knownHosts.add(Fixtures.buildHost()),
+            () => first.knownHosts.add(Fixtures.buildKnownHost()),
             throwsUnsupportedError,
           );
         },

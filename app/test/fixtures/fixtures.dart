@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
@@ -31,6 +32,15 @@ abstract final class Fixtures {
     displayName: displayName,
     uri: uri ?? defaultHostUri,
   );
+
+  /// Builds a Known Host with representative metadata and unknown availability by default.
+  static KnownHost buildKnownHost({
+    /// The Host metadata, or the representative local Host when omitted.
+    Host? host,
+
+    /// The runtime reachability evidence.
+    HostAvailability availability = HostAvailability.unknown,
+  }) => KnownHost(host: host ?? buildHost(), availability: availability);
 
   /// Builds a Host card's display data for the representative local Host.
   static HostCardViewData buildHostCardViewData({

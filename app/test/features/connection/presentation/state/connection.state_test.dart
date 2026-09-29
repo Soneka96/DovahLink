@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
@@ -109,15 +110,17 @@ void main() {
     test(
       'ConnectionState copyWith replaces the full SDK Known Hosts projection',
       () {
-        final Host host = Fixtures.buildHost();
+        final KnownHost host = Fixtures.buildKnownHost(
+          availability: HostAvailability.online,
+        );
         final ConnectionState set = ConnectionState.initial().copyWith(
-          knownHosts: <Host>[host],
+          knownHosts: <KnownHost>[host],
         );
         final ConnectionState cleared = set.copyWith(
-          knownHosts: const <Host>[],
+          knownHosts: const <KnownHost>[],
         );
 
-        expect(set.knownHosts, <Host>[host]);
+        expect(set.knownHosts, <KnownHost>[host]);
         expect(cleared.knownHosts, isEmpty);
       },
     );
@@ -176,6 +179,20 @@ void main() {
       );
 
       expect(knownHost, isNot(candidate));
+    });
+
+    test('ConnectionState differs when Known Host availability changes', () {
+      final KnownHost unknown = Fixtures.buildKnownHost();
+      final ConnectionState unknownState = ConnectionState(
+        knownHosts: <KnownHost>[unknown],
+      );
+      final ConnectionState onlineState = ConnectionState(
+        knownHosts: <KnownHost>[
+          Fixtures.buildKnownHost(availability: HostAvailability.online),
+        ],
+      );
+
+      expect(onlineState, isNot(unknownState));
     });
   });
 
