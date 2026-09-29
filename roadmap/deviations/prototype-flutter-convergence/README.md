@@ -83,24 +83,31 @@ failure. Localization can replace the centralized copy when the app adopts local
 
 ## Known Host lifecycle + discovery integration — current branch
 
-The SDK owns complete persisted client-state mutations and exposes the current Known Host plus every
-committed change through `DovahLinkClient.knownHostChanges`. Its state owner publishes only after
-storage succeeds and preserves pairing's atomic credential, recovery-state, and Known Host write.
-Pairing, trusted-session metadata refresh, credential removal, and failed pairing recovery continue
-to use SDK-owned lifecycle rules.
+The SDK owns complete persisted client-state mutations and exposes the complete Host-ID-keyed Known
+Hosts collection through `DovahLinkClient.loadKnownHosts()` and `knownHostsChanges`. Each stream
+event is a complete immutable snapshot, published only after storage succeeds. The state owner
+preserves pairing's atomic Host-scoped credential, recovery-state, and Known Host write. Pairing,
+trusted-session metadata refresh, credential removal, and failed pairing recovery continue to use
+SDK-owned lifecycle rules.
 
 The app mirrors that state through this boundary:
 
 ```text
-SDK persisted state -> knownHostChanges -> ConnectionMiddleware -> HostMapper
-  -> ConnectionKnownHostChangedAction -> ConnectionState.knownHost -> ViewModel / UI
+SDK persisted state -> knownHostsChanges -> ConnectionMiddleware -> HostMapper
+  -> ConnectionKnownHostsChangedAction -> ConnectionState.knownHosts -> ViewModel / UI
 ```
 
-Redux stores app `Host` values only. Its Known Host field is the latest projection emitted by the
-SDK; pairing actions and discovery success do not create or update it. Middleware starts the
-subscription with the store and cancels it at app shutdown. When secure client storage is
-unsupported, the app does not construct an SDK client just to observe a Host that cannot be
-persisted on that platform.
+Redux stores app `Host` values only. Its Known Hosts field is the latest complete projection emitted
+by the SDK; pairing actions and discovery success do not create or update it. Middleware starts the
+subscription with the store and cancels it at app shutdown. The app-wide composition root owns the
+single SDK client used by Connection and Pairing. When secure storage is unsupported, Known Hosts
+observation still subscribes; the SDK reports an initial storage error and keeps the subscriber
+attached, while pairing support remains unavailable.
+
+Known Hosts are durable SDK-owned client relationships, not a claim of current trust. Discovery
+candidates are currently reachable, untrusted routing candidates whose claimed `hostId` does not
+authenticate them. The selected Host is app-owned presentation and routing state. Current trust is
+Host/SDK runtime state and is not persisted as Known Host membership.
 
 Discovery remains a separate command/result that returns reachable candidates. Discovery claims,
 including `hostId`, do not refresh Known Host metadata, establish trust, bypass pairing, or authorize

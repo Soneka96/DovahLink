@@ -2195,7 +2195,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             dart_style,
         )
 
-        self.assertIn("reusable known-Host information", sdk_persistence)
+        self.assertIn("reusable Known Host information", sdk_persistence)
         self.assertIn("preferred Host selection", sdk_persistence)
         self.assertIn("must be re-established from the Host after", sdk_persistence)
 

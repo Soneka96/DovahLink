@@ -109,7 +109,7 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 - Use these suffixes: `.widget.dart`, `.section.dart`, `.screen.dart`, `.usecase.dart`,
   `.params.dart`, `.entity.dart`, `.model.dart`, `.viewdata.dart`, `.actions.dart`,
   `.middleware.dart`, `.reducer.dart`, `.selectors.dart`, `.state.dart`, `.viewmodel.dart`,
-  `.repository.dart`, `.datasource.dart`.
+  `.repository.dart`, `.datasource.dart`, `.mapper.dart`.
 - **Datasource files and classes:** Name datasource files `feature_local.datasource.dart` and
   `feature_remote.datasource.dart` (always feature-first, snake_case with underscores). Every
   datasource file requires both an abstract interface and a concrete implementation, per
