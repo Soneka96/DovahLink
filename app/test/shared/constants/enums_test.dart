@@ -71,6 +71,18 @@ void main() {
     });
   });
 
+  group('Behavior values in KnownHostSessionState behave correctly', () {
+    test('KnownHostSessionState lists each session lifecycle phase', () {
+      expect(KnownHostSessionState.values, [
+        KnownHostSessionState.disconnected,
+        KnownHostSessionState.connecting,
+        KnownHostSessionState.connected,
+        KnownHostSessionState.reconnecting,
+        KnownHostSessionState.reauthenticating,
+      ]);
+    });
+  });
+
   group('Behavior values in KnownHostsObservationStatus behave correctly', () {
     test(
       'KnownHostsObservationStatus values include every observation state',

@@ -265,12 +265,65 @@ void main() {
     });
 
     test(
+      'Selector hostCardsSelector gives the exact Known Host session phase priority over availability',
+      () {
+        for (final (
+              KnownHostSessionState sessionState,
+              HostAvailability availability,
+              DovahConnectionCardState cardState,
+            )
+            in const [
+              (
+                KnownHostSessionState.connecting,
+                HostAvailability.offline,
+                DovahConnectionCardState.connecting,
+              ),
+              (
+                KnownHostSessionState.connected,
+                HostAvailability.offline,
+                DovahConnectionCardState.connected,
+              ),
+              (
+                KnownHostSessionState.reconnecting,
+                HostAvailability.online,
+                DovahConnectionCardState.reconnecting,
+              ),
+              (
+                KnownHostSessionState.reauthenticating,
+                HostAvailability.unknown,
+                DovahConnectionCardState.reconnecting,
+              ),
+              (
+                KnownHostSessionState.disconnected,
+                HostAvailability.online,
+                DovahConnectionCardState.available,
+              ),
+            ]) {
+          final KnownHost knownHost = Fixtures.buildKnownHost(
+            sessionState: sessionState,
+            availability: availability,
+          );
+
+          final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+            stateWith([], knownHosts: [knownHost]),
+          ).single;
+
+          expect(card.state, cardState);
+          expect(card.source, ConnectionHostSelectionSource.knownHost);
+        }
+      },
+    );
+
+    test(
       'Selector hostCardsSelector keeps Known Hosts and candidates separate when IDs match',
       () {
         final Host knownHostHost = Fixtures.buildHost(
           uri: Uri.parse('ws://127.0.0.1:58231/'),
         );
         final Host candidate = Fixtures.buildHost(uri: knownHostHost.uri);
+        final Host unrelatedCandidate = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+        );
         final KnownHost knownHost = Fixtures.buildKnownHost(
           host: knownHostHost,
           availability: HostAvailability.online,
@@ -278,19 +331,29 @@ void main() {
 
         final List<HostCardViewData> cards =
             ConnectionSelectors.hostCardsSelector(
-              stateWith([candidate], knownHosts: [knownHost]),
+              stateWith(
+                [candidate, unrelatedCandidate],
+                knownHosts: [knownHost],
+              ),
             );
 
         expect(candidate.hostId, knownHostHost.hostId);
-        expect(cards, hasLength(2));
+        expect(cards, hasLength(3));
         expect(cards.map((HostCardViewData card) => card.host), [
           knownHostHost,
           candidate,
+          unrelatedCandidate,
         ]);
         expect(cards.map((HostCardViewData card) => card.source), [
           ConnectionHostSelectionSource.knownHost,
           ConnectionHostSelectionSource.candidate,
+          ConnectionHostSelectionSource.candidate,
         ]);
+        expect(
+          cards.map((HostCardViewData card) => card.claimsKnownHostIdentity),
+          [false, true, false],
+        );
+        expect(cards[1].state, DovahConnectionCardState.unknown);
       },
     );
 
@@ -379,6 +442,22 @@ void main() {
         ).single;
 
         expect(card.detail, isA<String>());
+        expect(card.detail, 'local-host');
+      },
+    );
+
+    test(
+      'Selector hostCardsSelector uses the whole endpoint for a Known Host without authority',
+      () {
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          host: Fixtures.buildHost(uri: Uri.parse('local-host')),
+        );
+
+        final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+          stateWith([], knownHosts: [knownHost]),
+        ).single;
+
+        expect(card.source, ConnectionHostSelectionSource.knownHost);
         expect(card.detail, 'local-host');
       },
     );

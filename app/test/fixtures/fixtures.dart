@@ -15,6 +15,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         CredentialRejectionReason,
         DovahLinkHost,
         DovahLinkHostAvailability,
+        DovahLinkKnownHostSessionState,
         DovahLinkKnownHostState,
         DovahLinkTrustState,
         HelloResult;
@@ -46,7 +47,14 @@ abstract final class Fixtures {
 
     /// The runtime reachability evidence.
     HostAvailability availability = HostAvailability.unknown,
-  }) => KnownHost(host: host ?? buildHost(), availability: availability);
+
+    /// The session lifecycle for this Known Host.
+    KnownHostSessionState sessionState = KnownHostSessionState.disconnected,
+  }) => KnownHost(
+    host: host ?? buildHost(),
+    availability: availability,
+    sessionState: sessionState,
+  );
 
   /// Builds a Host card's display data for the representative local Host.
   static HostCardViewData buildHostCardViewData({
@@ -68,6 +76,9 @@ abstract final class Fixtures {
 
     /// The card's visual state.
     DovahConnectionCardState state = DovahConnectionCardState.unknown,
+
+    /// Whether an unverified candidate claim matches a saved Host ID.
+    bool claimsKnownHostIdentity = false,
   }) => HostCardViewData(
     host: host ?? buildHost(),
     source: source,
@@ -75,6 +86,7 @@ abstract final class Fixtures {
     subtitle: subtitle,
     detail: detail,
     state: state,
+    claimsKnownHostIdentity: claimsKnownHostIdentity,
   );
 
   /// Builds an SDK Known Host state around [host].
@@ -84,7 +96,15 @@ abstract final class Fixtures {
 
     /// The SDK-reported runtime reachability evidence.
     DovahLinkHostAvailability availability = DovahLinkHostAvailability.unknown,
-  }) => DovahLinkKnownHostState(host: host, availability: availability);
+
+    /// The SDK-reported session lifecycle for this exact relationship.
+    DovahLinkKnownHostSessionState sessionState =
+        DovahLinkKnownHostSessionState.disconnected,
+  }) => DovahLinkKnownHostState(
+    host: host,
+    availability: availability,
+    sessionState: sessionState,
+  );
 
   // ---- Pairing ----
 

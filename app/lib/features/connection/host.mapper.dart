@@ -1,5 +1,9 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkHost, DovahLinkHostAvailability, DovahLinkKnownHostState;
+    show
+        DovahLinkHost,
+        DovahLinkHostAvailability,
+        DovahLinkKnownHostSessionState,
+        DovahLinkKnownHostState;
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
@@ -28,6 +32,18 @@ final class HostMapper {
       DovahLinkHostAvailability.online => HostAvailability.online,
       DovahLinkHostAvailability.offline => HostAvailability.offline,
       DovahLinkHostAvailability.checking => HostAvailability.checking,
+    },
+    sessionState: switch (knownHostState.sessionState) {
+      DovahLinkKnownHostSessionState.disconnected =>
+        KnownHostSessionState.disconnected,
+      DovahLinkKnownHostSessionState.connecting =>
+        KnownHostSessionState.connecting,
+      DovahLinkKnownHostSessionState.connected =>
+        KnownHostSessionState.connected,
+      DovahLinkKnownHostSessionState.reconnecting =>
+        KnownHostSessionState.reconnecting,
+      DovahLinkKnownHostSessionState.reauthenticating =>
+        KnownHostSessionState.reauthenticating,
     },
   );
 }

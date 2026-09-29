@@ -42,34 +42,52 @@ abstract final class ConnectionSelectors {
       selectedHostSelector(state)?.displayName;
 
   /// Returns Known Host cards followed by discovery candidate cards, without merging their
-  /// identities. Each card retains its selection source and mapped availability.
-  static List<HostCardViewData> hostCardsSelector(AppState state) => [
-    for (final KnownHost knownHost in state.connection.knownHosts)
-      HostCardViewData(
-        host: knownHost.host,
-        source: ConnectionHostSelectionSource.knownHost,
-        title: knownHost.host.displayName,
-        subtitle: knownHostCardSubtitle,
-        detail: knownHost.host.uri.authority.isEmpty
-            ? knownHost.host.uri.toString()
-            : knownHost.host.uri.authority,
-        state: switch (knownHost.availability) {
-          HostAvailability.checking => DovahConnectionCardState.checking,
-          HostAvailability.unknown => DovahConnectionCardState.unknown,
-          HostAvailability.online => DovahConnectionCardState.available,
-          HostAvailability.offline => DovahConnectionCardState.offline,
-        },
-      ),
-    for (final Host host in hostsSelector(state))
-      HostCardViewData(
-        host: host,
-        source: ConnectionHostSelectionSource.candidate,
-        title: host.displayName,
-        subtitle: candidateCardSubtitle,
-        detail: host.uri.authority.isEmpty
-            ? host.uri.toString()
-            : host.uri.authority,
-        state: DovahConnectionCardState.unknown,
-      ),
-  ];
+  /// identities. Session phases override weaker reachability evidence. Candidate identity matches
+  /// are exposed as unverified presentation data only and leave selection source unchanged.
+  static List<HostCardViewData> hostCardsSelector(AppState state) {
+    final List<KnownHost> knownHosts = state.connection.knownHosts;
+    final Set<String> knownHostIds = knownHosts
+        .map((KnownHost knownHost) => knownHost.host.hostId)
+        .toSet();
+    return [
+      for (final KnownHost knownHost in knownHosts)
+        HostCardViewData(
+          host: knownHost.host,
+          source: ConnectionHostSelectionSource.knownHost,
+          title: knownHost.host.displayName,
+          subtitle: knownHostCardSubtitle,
+          detail: knownHost.host.uri.authority.isEmpty
+              ? knownHost.host.uri.toString()
+              : knownHost.host.uri.authority,
+          state: switch (knownHost.sessionState) {
+            KnownHostSessionState.connecting =>
+              DovahConnectionCardState.connecting,
+            KnownHostSessionState.connected =>
+              DovahConnectionCardState.connected,
+            KnownHostSessionState.reconnecting ||
+            KnownHostSessionState.reauthenticating =>
+              DovahConnectionCardState.reconnecting,
+            KnownHostSessionState.disconnected =>
+              switch (knownHost.availability) {
+                HostAvailability.checking => DovahConnectionCardState.checking,
+                HostAvailability.unknown => DovahConnectionCardState.unknown,
+                HostAvailability.online => DovahConnectionCardState.available,
+                HostAvailability.offline => DovahConnectionCardState.offline,
+              },
+          },
+        ),
+      for (final Host host in hostsSelector(state))
+        HostCardViewData(
+          host: host,
+          source: ConnectionHostSelectionSource.candidate,
+          title: host.displayName,
+          subtitle: candidateCardSubtitle,
+          detail: host.uri.authority.isEmpty
+              ? host.uri.toString()
+              : host.uri.authority,
+          state: DovahConnectionCardState.unknown,
+          claimsKnownHostIdentity: knownHostIds.contains(host.hostId),
+        ),
+    ];
+  }
 }

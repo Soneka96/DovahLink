@@ -25,6 +25,16 @@ void main() {
     });
   });
 
+  group('Property sessionState behaves correctly', () {
+    test('KnownHost.sessionState stores the exact relationship lifecycle', () {
+      final KnownHost knownHost = Fixtures.buildKnownHost(
+        sessionState: KnownHostSessionState.reconnecting,
+      );
+
+      expect(knownHost.sessionState, KnownHostSessionState.reconnecting);
+    });
+  });
+
   group('Behavior equality behaves correctly', () {
     test('KnownHost equality includes Host metadata and availability', () {
       final KnownHost unknown = Fixtures.buildKnownHost();
@@ -34,9 +44,13 @@ void main() {
       final KnownHost otherHost = Fixtures.buildKnownHost(
         host: Fixtures.buildHost(displayName: 'Other Host'),
       );
+      final KnownHost connected = Fixtures.buildKnownHost(
+        sessionState: KnownHostSessionState.connected,
+      );
 
       expect(unknown, isNot(online));
       expect(unknown, isNot(otherHost));
+      expect(unknown, isNot(connected));
 
       final KnownHost equal = Fixtures.buildKnownHost();
       expect(unknown, equal);

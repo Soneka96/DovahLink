@@ -14,6 +14,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 ### Added
 
 - Known Host cards display Checking and Online while the SDK performs startup and periodic sessionless presence checks.
+- Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions; matching candidate ID claims are recorded as unverified correlations and remain candidate selections.
 - The app distinguishes loading, ready, and failed Known Hosts observations while retaining the last successful collection on stream errors.
 - The connection state mirrors the complete SDK-owned Known Hosts list separately from discovery candidates.
 - The Connections screen discovers the local Host on demand and shows searching, available, empty, and failure states.

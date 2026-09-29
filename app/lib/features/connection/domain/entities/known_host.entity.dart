@@ -11,12 +11,20 @@ final class KnownHost extends Equatable {
   /// The SDK's app-mapped reachability evidence.
   final HostAvailability availability;
 
+  /// The SDK's app-mapped lifecycle for this exact Known Host session.
+  final KnownHostSessionState sessionState;
+
   /// Creates a Known Host runtime projection.
   /// @param host The durable Host metadata.
   /// @param availability The current runtime reachability evidence.
-  const KnownHost({required this.host, required this.availability});
+  /// @param sessionState The current session lifecycle for this relationship.
+  const KnownHost({
+    required this.host,
+    required this.availability,
+    this.sessionState = KnownHostSessionState.disconnected,
+  });
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [host, availability];
+  List<Object?> get props => [host, availability, sessionState];
 }
