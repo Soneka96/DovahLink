@@ -17,8 +17,8 @@ class PairingRepository implements IPairingRepository {
   /// See [IPairingRepository.authenticate].
   @override
   Future<Either<Failure, PairingHandshake>> authenticate({
-    required Uri hostUri,
-  }) => _remoteDataSource.authenticate(hostUri: hostUri);
+    required Either<Uri, String> target,
+  }) => _remoteDataSource.authenticate(target: target);
 
   /// See [IPairingRepository.requestPairingCode].
   @override

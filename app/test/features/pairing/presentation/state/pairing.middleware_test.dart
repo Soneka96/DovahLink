@@ -57,9 +57,14 @@ class MockStore extends Mock implements Store<AppState> {}
 AppState _stateWithPhase(
   PairingPhase phase, {
   Host? host,
+  ConnectionHostSelectionSource source =
+      ConnectionHostSelectionSource.candidate,
   PairingSupport support = PairingSupport.available,
 }) => AppState(
-  connection: ConnectionState(selectedHost: host ?? Fixtures.buildHost()),
+  connection: ConnectionState(
+    selectedHost: host ?? Fixtures.buildHost(),
+    selectedHostSource: source,
+  ),
   pairing: PairingState(
     phase: phase,
     support: support,
@@ -333,6 +338,31 @@ void main() {
         ).called(1);
       },
     );
+
+    test('PairingStartedAction authenticates a Known Host by ID', () async {
+      final Host host = Fixtures.buildHost(
+        displayName: 'Known Host',
+        uri: Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      when(() => store.state).thenReturn(
+        _stateWithPhase(
+          PairingPhase.none,
+          host: host,
+          source: ConnectionHostSelectionSource.knownHost,
+        ),
+      );
+      when(() => mockAuthenticate(any())).thenAnswer(
+        (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+      );
+
+      middleware.call(store, const PairingStartedAction(), next);
+      await Future<void>.delayed(Duration.zero);
+
+      verify(
+        () =>
+            mockAuthenticate(AuthenticateParams.knownHost(hostId: host.hostId)),
+      ).called(1);
+    });
 
     test(
       'PairingStartedAction authenticates by URI when two Hosts share a display name',

@@ -5,7 +5,7 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart
 /// instance. Used by bounded SDK probes that must not read or mutate consumer persistence.
 class TransientClientStorage implements IClientStorage {
   /// The transient state, initially empty.
-  PersistedClientState _state = const PersistedClientState();
+  PersistedClientState _state = PersistedClientState();
 
   /// Creates an empty transient storage instance.
   TransientClientStorage();
@@ -23,6 +23,6 @@ class TransientClientStorage implements IClientStorage {
   /// Resets the transient state to empty.
   @override
   Future<void> clear() async {
-    _state = const PersistedClientState();
+    _state = PersistedClientState();
   }
 }

@@ -6,12 +6,11 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Domain boundary for negotiating local device pairing with the host.
 abstract interface class IPairingRepository {
-  /// Connects to the Host at [hostUri] and authenticates, resolving this
-  /// installation's trust standing with that Host. Recovers an interrupted
-  /// pairing confirmation automatically when the session authenticates as
-  /// unpaired.
+  /// Authenticates a candidate endpoint (`Left`) or Known Host ID (`Right`) in [target], resolving
+  /// this installation's trust standing with that Host. Recovers an interrupted pairing
+  /// confirmation automatically when the session authenticates as unpaired.
   Future<Either<Failure, PairingHandshake>> authenticate({
-    required Uri hostUri,
+    required Either<Uri, String> target,
   });
 
   /// Starts, or queries the status of, a pairing challenge. A fresh or

@@ -27,6 +27,11 @@ abstract final class ConnectionSelectors {
   static Host? selectedHostSelector(AppState state) =>
       state.connection.selectedHost;
 
+  /// Returns whether the selected Host is a candidate or a durable Known Host relationship.
+  static ConnectionHostSelectionSource selectedHostSourceSelector(
+    AppState state,
+  ) => state.connection.selectedHostSource;
+
   /// Returns the display name of the Host the user most recently selected, or `null` before any
   /// selection.
   static String? selectedHostNameSelector(AppState state) =>

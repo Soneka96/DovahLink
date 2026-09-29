@@ -35,17 +35,65 @@ Host:               "These clients are trusted."
 SDK on a client:    "This is my clientId and credential."
 ```
 
-The SDK owns its local `clientId`, credential, pairing `CONFIRMING` recovery state, Known Host
-metadata, and other client-side authentication persistence. Known Host records which Host the
-client previously paired with; it does not establish current trust. `SessionState` owns the current
-session's `DovahLinkHost` context, while the persistence layer owns its last-known durable copy. The
-SDK may expose typed APIs for Host trust-administration
+The SDK owns its local `clientId`, per-Host bearer credentials, the single Host-owned pairing
+`CONFIRMING` recovery operation, Known Host metadata, and other client-side authentication
+persistence. Known Hosts records the Hosts this client previously paired with; it does not establish
+current trust. `SessionState` owns the current session's `DovahLinkHost` context, while persistence
+owns the last-known durable collection. The SDK may expose typed APIs for Host trust-administration
 capabilities (list/revoke/reset), but the authoritative mutation always happens on the Host; see
 `ai/context/protocol/security.md` for the trust model itself.
 
-This describes the current singleton Known Host and bearer-credential implementation. The target
-multiple-KnownHost, key-based authentication, and pairing ownership contract is in
-[`../security/identity-and-transport.md`](../security/identity-and-transport.md).
+Client-side semantic facts have one SDK owner and are exposed through typed, domain-specific state
+streams. The app may map those values into Redux for presentation but must not infer Known Host,
+connection, trust, pairing lifecycle, or game-state transitions from its own commands or actions.
+The Host remains authoritative for live game values and server-side trust; existing SDK streams for
+health, magicka, stamina, level, and XP are examples of typed live-state views. Keep separate SDK
+streams per domain rather than combining unrelated state into a global stream.
+
+The current SDK stores multiple Known Hosts and scopes the current bearer credential and pending
+pairing recovery to their owning Host IDs. This does not authenticate a discovered Host-ID claim;
+the current wire authentication remains the loopback development protocol. Future cryptographic
+identity decisions remain in [`../security/identity-and-transport.md`](../security/identity-and-transport.md).
+
+### Known Host runtime availability
+
+The SDK owns one runtime availability projection for durable Known Hosts. Availability means only
+whether the SDK has current runtime evidence that a Known Host is reachable; it is separate from
+trust, pairing, and connection lifecycle state. Keep it out of `DovahLinkHost` and out of persisted
+client state. Each persisted Known Host starts `unknown` after process startup, and no startup
+probe is run for availability.
+
+The availability owner holds only runtime values keyed by Host ID and combines them with the
+complete durable Known Host snapshot when it publishes the public projection. A newly added or
+metadata-refreshed Host with no runtime value projects as `unknown`; removal drops its runtime
+value. Do not duplicate Host metadata or persistence ownership in the availability owner.
+
+Apply only these transitions: successful `authenticateKnownHost` admission and successful pairing
+that durably creates or updates a Known Host in the active session report `online`; an actual
+transport failure to connect during an explicit Known Host attempt reports `offline`. Preserve the
+previous value during reconnect attempts, and report `online` after recovery succeeds. Reconnect
+exhaustion reports `offline` only when typed reconnect failures establish that connection or
+transport reachability failed. Identity mismatch, compatibility failure, protocol response or
+rejection (including retryable protocol errors that exhaust the retry budget), and other semantic
+termination report `unknown`: reconnect `terminal` means stop retrying, not that the Known Host is
+unreachable. Reachability alone also does not authenticate the expected Known Host; if its endpoint
+responds as a different Host, the expected Known Host returns to `unknown`. Explicit
+`DovahLinkClient.disconnect()` reports `unknown` for its admitted Known Host because observation
+was deliberately stopped.
+Administrative invalidation preserves the previous availability: its typed event requires an
+admitted session and
+does not establish that the Host became unreachable. Compatibility, malformed-protocol, identity,
+credential, and trust outcomes are not blanket transport-failure signals.
+
+Candidate authentication and discovery never update a Known Host's availability based on a claimed
+Host ID. Recovery must carry the verified Known Host relationship ID from the admitted operation;
+do not infer it from an endpoint, display metadata, or discovery. Future TTL or other liveness policy
+belongs inside this SDK availability owner. No timer, polling, or discovery-based liveness policy
+exists today.
+
+The owner suppresses equivalent successive projections. After a stream error, it emits the next
+valid complete snapshot even if the projection is unchanged, so subscribers can observe recovery
+without losing the prior snapshot.
 
 ## App independence
 
@@ -140,7 +188,7 @@ separate.
 
 ## Internal composition
 
-The client engine described above is implemented as seven major Services, each an
+The client engine described above is implemented as nine major Services, each an
 independently-testable behavioral subsystem, plus supporting collaborators. Every supporting
 collaborator that owns behavior has its own explicit contract; data-only helpers remain concrete.
 **A concrete production Service implementation implements exactly one architectural Service
@@ -163,7 +211,7 @@ When a supporting collaborator's dependency shape does not already match a real 
 with its own contract and depend on that contract. Never let a `ServiceImpl` implement the
 collaborator's own dependency port and pass `this`.
 
-The eight Services:
+The nine Services:
 
 - `ISessionService`/`SessionService` — owns transport lifecycle, connection state, and stream
   ownership: `connect`, `disconnect`, reads (`connectionState`, `currentSessionId`,
@@ -181,9 +229,11 @@ The eight Services:
   envelope decoding, correlation, and unsolicited routing: `sendAndAwait`, `handleIncoming`,
   `failAll`, `retryOrphanedOperations`. Privately owns `MessageRouter` and
   `PendingOperationTransmitter`.
-- `IAuthenticationService`/`AuthenticationService` — `hello`/authentication and credential
-  recovery.
+- `IAuthenticationService`/`AuthenticationService` — candidate authentication, Known Host
+  authentication by ID, Host-scoped credential recovery, and `hello`.
 - `IPairingService`/`PairingService` — pairing operations.
+- `IClientStateService`/`ClientStateService` — the sole owner of persisted client-state loads and
+  serialized complete-state mutations, with save-before-publish Known Hosts projections.
 - `IReconnectService`/`ReconnectService` — bounded automatic recovery from ordinary transport
   loss, reconnecting and re-authenticating up to an attempt budget and a hard deadline without
   taking over transport or authentication state from `ISessionService`/`IAuthenticationService`.
@@ -281,7 +331,9 @@ implementations.
 2. **Ordinary transport-loss notification** → drives `ReconnectService`'s recovery start. Same
    reasoning: `ReconnectService` needs `ISessionService` and `IAuthenticationService` as
    constructor dependencies, so `SessionService` cannot hold a matching `IReconnectService`
-   reference without a cycle.
+   reference without a cycle. The callback carries the session's selected Known Host relationship ID
+   captured through teardown; a candidate session carries `null`, even if it reported an ID that
+   matches a durable Known Host.
 3. **Incoming-message forwarding** → `IRequestService.handleIncoming`. `SessionService` owns
    starting the transport's inbound subscription (`connect()`'s own implementation, per "Request/
    session boundary" below) and is the only class that ever sees a raw inbound message land, but
@@ -360,10 +412,13 @@ the recovery request area, tracker, decoder, and unavailable-value rule come fro
 
 `SessionState` is created exactly once, by the composition root (`DovahLinkClient`), and is the
 single authoritative owner of every session-scoped mutable fact this engine has: connection state,
-`sessionId`, trust state, the administrative invalidation reason, the connection generation, the
-last-connected URI, and the transport's message subscription. Direct `SessionState` access is
-limited to the session subsystem's own internal components that legitimately participate in
-maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustService`, and
+`sessionId`, trust state, the optional Known Host relationship selected for the session, the
+administrative invalidation reason, the connection generation, the last-connected URI, and the
+transport's message subscription. A candidate session has no Known Host relationship until pairing
+durably creates one in that active session. The relationship ID stays separate from
+`DovahLinkHost` metadata and is retained only for the bounded recovery cycle. Direct `SessionState`
+access is limited to the session subsystem's own internal components that legitimately participate
+in maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustService`, and
 `ConnectionTeardownCoordinator` (`SessionService`'s own supporting collaborator, per
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
@@ -376,7 +431,10 @@ whose durable source of truth is `IClientStorage`, refreshed every `hello()` —
 of anything `SessionState` owns.
 
 `SessionAdmissionService` exposes the one write command that admits a newly authenticated
-session (`admitSession`, called once by `AuthenticationService` after a successful `hello`);
+session (`admitSession`, called once by `AuthenticationService` after a successful `hello`).
+`AuthenticationService` then associates the explicitly selected Known Host relationship through
+`SessionService.associateKnownHost`; candidate authentication leaves it unset. Pairing calls that
+same command only after the relationship is durable and the same session remains active.
 `SessionTrustService` exposes the one write command that upgrades trust standing (`markTrusted`,
 called by `PairingService` after a successful pairing acknowledgement). No other class assigns
 `sessionId` or trust state directly.

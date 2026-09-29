@@ -18,7 +18,7 @@ import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
 import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show IClientStorage, UnsupportedClientStorage;
+    show DovahLinkClient, IClientStorage, UnsupportedClientStorage;
 import 'package:dovahlink_client_sdk/dovahlink_client_windows.dart'
     show DpapiClientStorage;
 
@@ -53,10 +53,21 @@ Future<void> initDependencies() async {
       _ => const UnsupportedClientStorage(),
     };
   });
+  sl.registerLazySingleton<DovahLinkClient>(() {
+    final DovahLinkClient client = DovahLinkClient(
+      storage: sl<IClientStorage>(),
+    );
+    sl<ExistingDovahLinkClient>().clientCreated(client);
+    return client;
+  });
   initConnectionDependencies();
   initPairingDependencies();
   sl.registerLazySingleton<IAppShutdownService>(
-    () => AppShutdownService(pairingMiddleware: sl(), existingClient: sl()),
+    () => AppShutdownService(
+      connectionMiddleware: sl(),
+      pairingMiddleware: sl(),
+      existingClient: sl(),
+    ),
   );
   initAppearanceDependencies();
   if (defaultTargetPlatform == TargetPlatform.windows) {

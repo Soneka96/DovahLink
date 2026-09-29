@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/services.dart' show PlatformException;
 
 import 'package:flutter_test/flutter_test.dart';
@@ -7,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/app/composition_root.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
+import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
@@ -15,13 +18,21 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 import '../fixtures/fixtures.dart';
 
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, debugDefaultTargetPlatformOverride;
+    show
+        FlutterError,
+        FlutterErrorDetails,
+        TargetPlatform,
+        debugDefaultTargetPlatformOverride;
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
         DovahLinkHost,
+        DovahLinkHostAvailability,
+        DovahLinkKnownHostState,
+        DovahLinkClient,
         DovahLinkTrustState,
         HelloResult,
+        IClientStorage,
         IDovahLinkDiscoveryService;
 
 /// Mocks async preference reads for composition-root tests.
@@ -31,6 +42,12 @@ class MockSharedPreferencesAsync extends Mock
 /// Mocks SDK local discovery for composition-root tests.
 class MockDovahLinkDiscoveryService extends Mock
     implements IDovahLinkDiscoveryService {}
+
+/// Mocks the SDK client that supplies Known Host state during store creation.
+class MockDovahLinkClient extends Mock implements DovahLinkClient {}
+
+/// Mocks supported client storage for Known Host store-composition coverage.
+class MockClientStorage extends Mock implements IClientStorage {}
 
 /// Exercises independent store creation by [AppCompositionRoot] through the real dependency
 /// graph [initDependencies] wires -- a composition test proving the production graph resolves
@@ -60,18 +77,89 @@ void main() {
 
   group('Method createStore behaves correctly', () {
     test(
+      'createStore and Pairing resolve the same SDK client registration',
+      () async {
+        final MockDovahLinkClient client = MockDovahLinkClient();
+        int knownHostStatesSubscriptionReads = 0;
+        when(() => client.knownHostStatesChanges).thenAnswer((_) {
+          knownHostStatesSubscriptionReads++;
+          return const Stream<List<DovahLinkKnownHostState>>.empty();
+        });
+        when(() => client.disconnect()).thenAnswer((_) async {});
+        await sl.unregister<DovahLinkClient>();
+        sl.registerSingleton<DovahLinkClient>(client);
+
+        await const AppCompositionRoot().createStore();
+        expect(knownHostStatesSubscriptionReads, 1);
+        final result = await sl<IPairingRemoteDataSource>().disconnect();
+
+        expect(result.isRight(), isTrue);
+        verify(() => client.disconnect()).called(1);
+      },
+    );
+
+    test(
+      'Method createStore subscribes to and maps SDK Known Host state',
+      () async {
+        final DovahLinkHost sdkHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'KNOWN-HOST',
+          endpoint: defaultHostUri,
+        );
+        final MockDovahLinkClient client = MockDovahLinkClient();
+        when(() => client.knownHostStatesChanges).thenAnswer(
+          (_) => Stream<List<DovahLinkKnownHostState>>.value(
+            <DovahLinkKnownHostState>[
+              Fixtures.buildSdkKnownHostState(
+                host: sdkHost,
+                availability: DovahLinkHostAvailability.online,
+              ),
+            ],
+          ),
+        );
+        await sl.unregister<IClientStorage>();
+        sl.registerSingleton<IClientStorage>(MockClientStorage());
+        await sl.unregister<DovahLinkClient>();
+        sl.registerSingleton<DovahLinkClient>(client);
+
+        final Store<AppState> store = await const AppCompositionRoot()
+            .createStore();
+        final AppState observed = await store.onChange.firstWhere(
+          (AppState state) => state.connection.knownHosts.isNotEmpty,
+        );
+
+        expect(observed.connection.knownHosts, [
+          Fixtures.buildKnownHost(
+            host: Fixtures.buildHost(
+              hostId: sdkHost.hostId,
+              displayName: sdkHost.hostName,
+            ),
+            availability: HostAvailability.online,
+          ),
+        ]);
+      },
+    );
+
+    test(
       'marks pairing unavailable when secure storage is unsupported',
       () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
         debugDefaultTargetPlatformOverride = TargetPlatform.android;
         addTearDown(() => debugDefaultTargetPlatformOverride = null);
         const AppCompositionRoot root = AppCompositionRoot();
 
         final store = await root.createStore();
+        await pumpEventQueue();
 
         expect(
           store.state.pairing.support,
           PairingSupport.secureStorageUnavailable,
         );
+        expect(reported, hasLength(1));
+        expect(reported.single.exception, isA<UnsupportedError>());
       },
     );
 
@@ -140,12 +228,14 @@ void main() {
         final HelloResult reportedHello = Fixtures.buildSdkHelloResult(
           trustState: DovahLinkTrustState.unpaired,
         );
-        when(() => discoveryService.discoverLocalHost()).thenAnswer(
-          (_) async => DovahLinkHost(
-            hostId: reportedHello.hostId,
-            hostName: reportedHello.hostName,
-            endpoint: defaultHostUri,
-          ),
+        when(() => discoveryService.discover()).thenAnswer(
+          (_) async => <DovahLinkHost>[
+            DovahLinkHost(
+              hostId: reportedHello.hostId,
+              hostName: reportedHello.hostName,
+              endpoint: defaultHostUri,
+            ),
+          ],
         );
         const AppCompositionRoot root = AppCompositionRoot();
         final Store<AppState> store = await root.createStore();
@@ -160,8 +250,13 @@ void main() {
         final AppState result = await availableState.timeout(
           const Duration(seconds: 1),
         );
-        expect(result.connection.hosts, [Fixtures.buildHost()]);
-        verify(() => discoveryService.discoverLocalHost()).called(1);
+        expect(result.connection.hosts, [
+          Fixtures.buildHost(
+            hostId: reportedHello.hostId,
+            displayName: reportedHello.hostName,
+          ),
+        ]);
+        verify(() => discoveryService.discover()).called(1);
       },
     );
   });

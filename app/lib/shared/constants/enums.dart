@@ -91,6 +91,8 @@ enum PairingConnectionStatus {
   invalidated,
 }
 
+// ---- Connection ----
+
 /// The state of the latest Host discovery operation.
 enum ConnectionDiscoveryStatus {
   /// Discovery has not been requested during this app session.
@@ -106,6 +108,39 @@ enum ConnectionDiscoveryStatus {
   empty,
 
   /// Discovery failed with an app-owned semantic reason.
+  failed,
+}
+
+/// The source of a Host selection in the Connections state.
+enum ConnectionHostSelectionSource {
+  /// A short-lived endpoint discovered by the current discovery operation.
+  candidate,
+
+  /// A durable Known Host relationship selected by the user.
+  knownHost,
+}
+
+/// App-owned runtime evidence about whether a durable Known Host is reachable.
+enum HostAvailability {
+  /// The SDK has not established current reachability evidence.
+  unknown,
+
+  /// The SDK has sufficiently recent positive evidence that the Host is reachable.
+  online,
+
+  /// An explicit reachability attempt or bounded recovery definitively failed.
+  offline,
+}
+
+/// Whether Flutter's projection of the SDK-owned Known Hosts stream is current and healthy.
+enum KnownHostsObservationStatus {
+  /// No complete Known Hosts snapshot has been observed yet.
+  loading,
+
+  /// The latest complete Known Hosts snapshot was observed successfully.
+  ready,
+
+  /// The latest Known Hosts observation failed; the last successful snapshot remains available.
   failed,
 }
 

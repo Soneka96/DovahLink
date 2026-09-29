@@ -9,34 +9,30 @@ active deviations.
 
 ## Work order
 
-1. **Complete the Local Host discovery foundation in the current branch.** Keep the SDK-owned loopback
-   probe behind the direct middleware boundary. Redux/ViewModels expose typed discovery states,
-   candidates, selected Host, and semantic failure reasons. The temporary candidate uses only the
-   fixed “Local Host” label and endpoint; discovery claims are not identity or trust. Temporary UI
-   exercises the states but does not claim canonical prototype parity.
-2. **Next PR — Known Host Lifecycle + Discovery Integration.** Connect the existing SDK-owned
-   Known Host loading and persistence to application state so saved Hosts and discovery candidates
-   are represented separately. Prove first-run discovery and pairing, persistence, loading after
-   restart, and local-route correlation that prevents an already-associated localhost Host from
-   appearing as new. Discovery claims, including a claimed `hostId`, remain untrusted; this local
-   correlation is product routing behavior, not authentication. Known Host metadata remains known
-   when the Host is offline, revoked, blocked, unrecognized, or needs repair. Only a future explicit
-   forget/remove action clears the association. Existing SDK persistence is the foundation; this
-   work integrates and verifies it end to end rather than inventing it again.
-3. **Then — Canonical Discovery / Connections UI Convergence.** Reproduce the approved prototype
-   presentation using the tested Known Host lifecycle, discovery candidates/status, selected Host,
+1. **Local Host discovery foundation — complete.** Keep the strategy-neutral SDK `discover()`
+   contract behind the direct middleware boundary. Redux/ViewModels expose typed discovery states,
+   candidates, selected Host, and semantic failure reasons. Discovery returns candidates only; its
+   claims are not identity, trust, authentication, or Known Host state. The temporary UI does not
+   claim canonical prototype parity.
+2. **Known Host lifecycle + discovery integration — current branch.** The SDK owns the complete,
+   Host-ID-keyed Known Hosts collection and exposes it through `loadKnownHosts()` and complete
+   committed snapshots on `knownHostsChanges`. `ConnectionMiddleware` subscribes at store
+   initialization, maps SDK Hosts through `HostMapper`, and dispatches a typed observation action;
+   Redux `knownHosts` is only that app-mapped projection. Pairing, authentication, credential
+   recovery, and metadata refresh continue to follow SDK-owned rules. Discovery remains a separate
+   command/result candidate list. A claimed `hostId` does not establish trust or mutate Known Hosts.
+   The next UI work consumes this projection alongside discovery candidates/status and real
+   connection/pairing state.
+3. **Next — Canonical Discovery / Connections UI Convergence.** Reproduce the approved prototype
+   presentation using the tested Known Host projection, discovery candidates/status, selected Host,
    and real connection/pairing state. Keep presentation faithful to the prototype and add no fake
-   delays. This follows Known Host lifecycle integration so the final UI can be built and tested
-   against real saved/discovered Host behavior rather than temporary assumptions. It does not mark
-   historical slice 03.6 complete.
-4. **Later — production LAN discovery and secure initial pairing.** Keep today's localhost flow as
-   candidate → connect → loopback development pairing → successful association → Known Host. When
-   an approved SAS/secure bootstrap is ready, the production flow becomes candidate → connect →
-   secure bootstrap → Pair / Reject / Block → successful association → Known Host. That security
-   work replaces the initial pairing ceremony; it should not require rebuilding discovery, Known
-   Host lifecycle, saved Host presentation, reconnect behavior, offline/repair presentation, or the
-   Connections UI. Production LAN exposure and secure first contact remain gated by the security
-   requirements and integration evidence.
+   delays. This work does not mark historical slice 03.6 complete.
+4. **Later — production LAN discovery and secure initial pairing.** Production LAN exposure and
+   secure first contact remain gated by the security requirements and integration evidence. If an
+   approved SAS profile preserves the current human interaction, pairing implementation changes
+   may stay behind the SDK boundary and use the same Flutter presentation. If SAS requires materially
+   different human interaction, Flutter pairing presentation may change while SDK-owned Host,
+   session, and trust lifecycle remains reusable. No SAS profile or UX is selected by this work.
 ## Remaining convergence planning
 
 - **Re-plan historical connection/pairing slices 03.4–03.10 before resuming them.** Compare each

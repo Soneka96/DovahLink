@@ -6,6 +6,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
@@ -39,6 +40,13 @@ class MockLifecycleOperationQueue extends Mock
 class MockConnectionTeardownCoordinator extends Mock
     implements ConnectionTeardownCoordinator {}
 
+/// Builds the Host context used by session-service tests.
+DovahLinkHost _currentHost() => DovahLinkHost(
+  hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+  hostName: 'LOCAL-HOST',
+  endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+);
+
 /// Fake stream subscription used to register a mocktail fallback for `any()`.
 class FakeStreamSubscription extends Fake
     implements StreamSubscription<String> {}
@@ -54,8 +62,10 @@ void main() {
   late List<Exception> teardownReasons;
   late List<bool> teardownOrphanFlags;
   late List<Uri> reconnectUris;
+  late List<DovahLinkHostId?> reconnectHostIds;
   late List<String> incomingMessages;
   late DovahLinkConnectionState connectionStateValue;
+  late DovahLinkHost? currentHostValue;
   late int connectionGenerationValue;
   late String? sessionIdValue;
   late DovahLinkTrustState? trustStateValue;
@@ -67,6 +77,9 @@ void main() {
       const DovahLinkConnectionException('fallback for any()'),
     );
     registerFallbackValue(Uri.parse('ws://127.0.0.1:0/'));
+    registerFallbackValue(
+      DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+    );
     registerFallbackValue(FakeStreamSubscription());
     registerFallbackValue(AdministrativeInvalidationReason.revoked);
   });
@@ -95,8 +108,10 @@ void main() {
     teardownReasons = <Exception>[];
     teardownOrphanFlags = <bool>[];
     reconnectUris = <Uri>[];
+    reconnectHostIds = <DovahLinkHostId?>[];
     incomingMessages = <String>[];
     connectionStateValue = DovahLinkConnectionState.disconnected;
+    currentHostValue = null;
     connectionGenerationValue = 0;
     sessionIdValue = null;
     trustStateValue = null;
@@ -111,6 +126,8 @@ void main() {
     ).thenAnswer((_) => connectionGenerationValue);
     when(() => state.sessionId).thenAnswer((_) => sessionIdValue);
     when(() => state.trustState).thenAnswer((_) => trustStateValue);
+    when(() => state.knownHostId).thenReturn(null);
+    when(() => state.currentHost).thenAnswer((_) => currentHostValue);
     when(
       () => state.isAdministrativelyInvalidated,
     ).thenAnswer((_) => isAdministrativelyInvalidatedValue);
@@ -130,6 +147,7 @@ void main() {
       connectionStateValue = DovahLinkConnectionState.reconnecting;
     });
     when(() => state.attachMessageSubscription(any())).thenAnswer((_) {});
+    when(() => state.associateKnownHost(any())).thenAnswer((_) {});
     when(() => state.invalidate(any())).thenAnswer((_) {});
     service = SessionService(
       transport: transport,
@@ -142,7 +160,11 @@ void main() {
           teardownReasons.add(reason);
           teardownOrphanFlags.add(orphanRetrySafeOperations);
         };
-    service.onOrdinaryTransportLoss = reconnectUris.add;
+    service.onOrdinaryTransportLoss =
+        (Uri uri, [DovahLinkHostId? knownHostId]) {
+          reconnectUris.add(uri);
+          reconnectHostIds.add(knownHostId);
+        };
     service.onIncomingMessage = incomingMessages.add;
   });
 
@@ -191,6 +213,46 @@ void main() {
       when(() => state.currentEndpoint).thenReturn(endpoint);
 
       expect(service.currentEndpoint, endpoint);
+    });
+  });
+
+  group('Property currentKnownHostId behaves correctly', () {
+    test('Property currentKnownHostId delegates to SessionState', () {
+      final DovahLinkHostId knownHostId = DovahLinkHostId(
+        '81869993-955c-4ba3-a7d0-d35ca86078ea',
+      );
+      when(() => state.knownHostId).thenReturn(knownHostId);
+
+      expect(service.currentKnownHostId, knownHostId);
+    });
+  });
+
+  group('Method associateKnownHost behaves correctly', () {
+    test(
+      'Method associateKnownHost delegates for the active matching Host',
+      () {
+        final DovahLinkHost host = _currentHost();
+        final DovahLinkHostId hostId = DovahLinkHostId(host.hostId);
+        connectionStateValue = DovahLinkConnectionState.connected;
+        currentHostValue = host;
+
+        service.associateKnownHost(hostId);
+
+        verify(() => state.associateKnownHost(hostId)).called(1);
+      },
+    );
+
+    test('Method associateKnownHost rejects a different active Host ID', () {
+      connectionStateValue = DovahLinkConnectionState.connected;
+      currentHostValue = _currentHost();
+
+      expect(
+        () => service.associateKnownHost(
+          DovahLinkHostId('81f6cc90-3a88-40c7-8351-104d4a36c971'),
+        ),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+      verifyNever(() => state.associateKnownHost(any()));
     });
   });
 
@@ -352,13 +414,18 @@ void main() {
       'Method onUnhealthy transitions to reconnecting and notifies onOrdinaryTransportLoss when the '
       'coordinator resolves to disconnected with a known endpoint',
       () async {
+        final DovahLinkHostId knownHostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
         lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
         connectionStateValue = DovahLinkConnectionState.disconnected;
+        when(() => state.knownHostId).thenReturn(knownHostId);
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
 
         expect(reconnectUris, <Uri>[Uri.parse('ws://127.0.0.1:58231/')]);
+        expect(reconnectHostIds, <DovahLinkHostId?>[knownHostId]);
         verify(() => state.markReconnecting()).called(1);
       },
     );

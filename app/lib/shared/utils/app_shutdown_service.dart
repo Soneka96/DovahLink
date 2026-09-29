@@ -1,11 +1,12 @@
 import 'dart:async';
 
+import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
 
 /// Defines the platform-neutral cleanup path for app-owned Dart resources.
 abstract interface class IAppShutdownService {
-  /// Stops pairing work and disconnects an SDK client that already exists.
+  /// Stops app middleware and disconnects an SDK client that already exists.
   ///
   /// Concurrent calls share one bounded cleanup operation. Cleanup failures do not escape.
   /// The deadline stops waiting but does not cancel cleanup already in progress.
@@ -13,12 +14,15 @@ abstract interface class IAppShutdownService {
   Future<void> shutdown();
 }
 
-/// Coordinates pairing cleanup and disconnect of an existing SDK client.
+/// Coordinates middleware cleanup and disconnect of an existing SDK client.
 class AppShutdownService implements IAppShutdownService {
+  /// Connection middleware whose SDK state observation belongs to the app lifecycle.
+  final IConnectionMiddleware _connectionMiddleware;
+
   /// Pairing middleware whose retry timer and connection subscription belong to the app.
   final IPairingMiddleware _pairingMiddleware;
 
-  /// Accesses only an SDK client already created by pairing composition.
+  /// Accesses only an SDK client already created by app composition.
   final IExistingDovahLinkClient _existingClient;
 
   /// The shared cleanup operation returned to every shutdown caller.
@@ -28,29 +32,37 @@ class AppShutdownService implements IAppShutdownService {
   static const Duration _shutdownTimeout = Duration(seconds: 3);
 
   /// Creates the shared shutdown owner from app-owned resource contracts.
+  /// @param connectionMiddleware Cancels SDK Known Host observation.
   /// @param pairingMiddleware The middleware owning app-level retry and status observation.
   /// @param existingClient The holder that disconnects only an SDK client already constructed.
   AppShutdownService({
+    required IConnectionMiddleware connectionMiddleware,
     required IPairingMiddleware pairingMiddleware,
     required IExistingDovahLinkClient existingClient,
-  }) : _pairingMiddleware = pairingMiddleware,
+  }) : _connectionMiddleware = connectionMiddleware,
+       _pairingMiddleware = pairingMiddleware,
        _existingClient = existingClient;
 
   /// Implements [IAppShutdownService.shutdown].
   @override
   Future<void> shutdown() => _shutdownFuture ??= _performShutdown();
 
-  /// Stops pairing work before starting the existing-client disconnect. Both operations begin
-  /// before the deadline wait, so disconnect invalidates authentication and reconnect work
-  /// immediately. Their late completions perform no follow-up application work.
+  /// Starts both middleware cancellations and the existing-client disconnect before the deadline
+  /// wait, so disconnect invalidates authentication and reconnect work immediately. Their late
+  /// completions perform no follow-up application work.
   Future<void> _performShutdown() async {
     final Completer<void> deadline = Completer<void>();
     final Timer timer = Timer(_shutdownTimeout, deadline.complete);
     try {
+      final Future<void> connectionCleanup = _stopConnection();
       final Future<void> pairingCleanup = _stopPairing();
       final Future<void> clientDisconnect = _disconnectExistingClient();
       await Future.any<void>([
-        Future.wait<void>([pairingCleanup, clientDisconnect]),
+        Future.wait<void>([
+          connectionCleanup,
+          pairingCleanup,
+          clientDisconnect,
+        ]),
         deadline.future,
       ]);
     } on Object {
@@ -60,12 +72,21 @@ class AppShutdownService implements IAppShutdownService {
     }
   }
 
+  /// Stops connection observation and contains cancellation failures.
+  Future<void> _stopConnection() async {
+    try {
+      await _connectionMiddleware.shutdown();
+    } on Object {
+      // Keep pairing cleanup and client disconnect running within the shutdown budget.
+    }
+  }
+
   /// Stops pairing middleware and contains synchronous or asynchronous cancellation failures.
   Future<void> _stopPairing() async {
     try {
       await _pairingMiddleware.shutdown();
     } on Object {
-      // Continue to client disconnect if the deadline still permits another cleanup step.
+      // A failed pairing cancellation must not prevent client disconnect.
     }
   }
 

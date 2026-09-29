@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
@@ -40,6 +41,10 @@ abstract interface class ISessionService {
   /// @return The current session's Host identity and metadata, or `null` when no session is admitted.
   DovahLinkHost? get currentHost;
 
+  /// The Known Host relationship admitted for this session or retained for bounded recovery.
+  /// Candidate sessions return `null` even when the candidate claims a saved Host ID.
+  DovahLinkHostId? get currentKnownHostId;
+
   /// The active connection endpoint while connected or reauthenticating.
   /// @return The endpoint for the active transport, or `null` while disconnected or connecting.
   Uri? get currentEndpoint;
@@ -54,6 +59,11 @@ abstract interface class ISessionService {
   /// @throws [DovahLinkConnectionException] if the socket cannot be established, including when
   /// the attempt times out.
   Future<void> connect(Uri uri);
+
+  /// Associates the active session with a durable Known Host created by successful pairing.
+  /// @param hostId The Known Host relationship made durable by the active session.
+  /// @throws [DovahLinkConnectionException] if the active session does not identify [hostId].
+  void associateKnownHost(DovahLinkHostId hostId);
 
   /// Closes the connection and resets in-memory session state. Idempotent. A `retrySafe` pending
   /// or already-orphaned operation is failed rather than preserved unless [orphanRetrySafeOperations]
@@ -149,10 +159,13 @@ class SessionService implements ISessionService {
   onTeardown;
 
   /// Notified when ordinary transport loss finishes tearing down the connection, so bounded
-  /// automatic reconnect may begin. `null` until [DovahLinkClient] assigns it after constructing
-  /// `ReconnectService` -- the same construction-order reasoning as [onTeardown] applies, since
-  /// `ReconnectService` itself depends on `ISessionService`.
-  void Function(Uri uri)? onOrdinaryTransportLoss;
+  /// automatic reconnect may begin. Carries the durable relationship selected for the lost
+  /// session; candidate sessions pass `null` even when they claim a saved Host ID. `null` until
+  /// [DovahLinkClient] assigns it after constructing `ReconnectService` -- the same
+  /// construction-order reasoning as [onTeardown] applies, since `ReconnectService` itself depends
+  /// on `ISessionService`.
+  void Function(Uri uri, [DovahLinkHostId? knownHostId])?
+  onOrdinaryTransportLoss;
 
   /// Receives each inbound message this session's subscription reads, already filtered to the
   /// current connection generation. `null` until `DovahLinkClient` assigns
@@ -180,6 +193,10 @@ class SessionService implements ISessionService {
   /// Implements [ISessionService.currentHost].
   @override
   DovahLinkHost? get currentHost => _state.currentHost;
+
+  /// Implements [ISessionService.currentKnownHostId].
+  @override
+  DovahLinkHostId? get currentKnownHostId => _state.knownHostId;
 
   /// Implements [ISessionService.currentEndpoint].
   @override
@@ -223,6 +240,18 @@ class SessionService implements ISessionService {
       );
     }
   });
+
+  /// Implements [ISessionService.associateKnownHost].
+  @override
+  void associateKnownHost(DovahLinkHostId hostId) {
+    if (_state.connectionState != DovahLinkConnectionState.connected ||
+        _state.currentHost?.hostId != hostId.value) {
+      throw const DovahLinkConnectionException(
+        'The current session does not match the Known Host relationship.',
+      );
+    }
+    _state.associateKnownHost(hostId);
+  }
 
   /// Implements [ISessionService.disconnect].
   @override
@@ -353,13 +382,15 @@ class SessionService implements ISessionService {
   }
 
   /// Runs teardown after an ordinary loss, then starts bounded recovery if its handoff generation
-  /// is still current and the connection remains eligible. The admission check and
+  /// is still current and the connection remains eligible. SessionState retains the selected Known
+  /// Host relationship ID across this teardown so it can be handed to ReconnectService. The admission check and
   /// `reconnecting` transition run as a queued step after teardown, serialized with connect and
   /// disconnect operations.
   Future<void> _beginRecoveryAfterOrdinaryTransportLoss(
     Exception reason,
   ) async {
     final int handoffGeneration = _recoveryHandoffGeneration;
+    final DovahLinkHostId? knownHostId = _state.knownHostId;
     await _teardownCoordinator.tearDown(reason);
     await _lifecycleQueue.run(() async {
       if (handoffGeneration != _recoveryHandoffGeneration ||
@@ -367,12 +398,13 @@ class SessionService implements ISessionService {
         return;
       }
       final Uri? uri = _state.lastConnectedUri;
-      final void Function(Uri uri)? observer = onOrdinaryTransportLoss;
+      final void Function(Uri uri, [DovahLinkHostId? knownHostId])? observer =
+          onOrdinaryTransportLoss;
       if (uri == null || observer == null) {
         return;
       }
       _state.markReconnecting();
-      observer(uri);
+      observer(uri, knownHostId);
     });
   }
 

@@ -32,13 +32,19 @@ merely because an expert API exists, unless a later explicit low-level API decis
 mutable computer-name display metadata. Neither represents the endpoint. A peer's assertion of
 `hostId` is not cryptographic proof that it owns a previously trusted identity.
 
-`DovahLinkClient.loadKnownHost()` reads the SDK-owned persisted Known Host as a `DovahLinkHost`, or
-returns `null` when the client has not established one. The value contains identity and last-known
-metadata only; it exposes no credential and does not claim the Host currently trusts this client.
-Trusted sessions may refresh its name and endpoint only when the reported Host ID matches the stored
-ID. A mismatch is a typed failure; discovery claims never refresh persisted metadata.
+`DovahLinkClient.loadKnownHosts()` returns the complete immutable Known Hosts collection, ordered by
+`hostId`; `knownHostsChanges` emits that same complete view on listen and after each committed
+semantic change. A load failure is reported as a stream error, never converted to an empty
+collection. The same subscriber remains attached and receives state after a later successful SDK
+load or mutation. Each public `DovahLinkHost` contains identity and last-known metadata only; it
+exposes no credential and does not claim the Host currently trusts this client. Known Host
+authentication takes a `DovahLinkHostId`; the SDK resolves its current endpoint and Host-scoped
+credential. Candidate authentication takes an endpoint and never selects Known Host credentials.
+Trusted sessions may refresh metadata only for the matching Known Host ID; discovery claims never
+refresh persisted metadata. SDK-owned Host IDs are stored and compared in canonical lowercase form;
+the typed `DovahLinkHostId` accepts either UUID casing at its boundary.
 
-`DovahLinkDiscoveryService.discoverLocalHost()` proposes the local endpoint. The responding peer's
+`DovahLinkDiscoveryService.discover()` proposes reachable endpoints. The responding peer's
 `hello_ack` asserts `hostId` and `hostName`, which the SDK validates for protocol shape and Host
 version compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the peer
 claims, `hostName` is mutable display metadata, and `endpoint` is the current location. Discovery
@@ -177,3 +183,19 @@ immediately when one is already known — this applies to lifecycle state and fu
 current-state-bearing domain views. It does not imply replaying historical events on Event-mode
 streams; a late subscriber to an Event-mode domain still synchronizes through that domain's normal
 initial-snapshot path, not through event replay.
+
+`DovahLinkClient.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts
+and their `DovahLinkHostAvailability`. When storage provides a snapshot, it immediately provides the
+current immutable collection, ordered deterministically by Host ID, then emits a complete replacement
+when either Host metadata or availability changes. Equivalent snapshots are suppressed, except the
+first complete snapshot after a stream error, which signals recovery even if its values are
+unchanged. An initial storage failure is reported to the subscriber, which remains attached for
+later recovery.
+Availability starts as `unknown` for every persisted Host after process startup and is runtime-only;
+it is not part of `DovahLinkHost` or persisted client state. Keep `knownHostsChanges` for consumers
+that need durable Host metadata without runtime availability.
+
+Commands and authoritative state are separate API views. A command may report whether its operation
+was accepted or rejected and return operation-specific metadata, while the resulting persistent,
+session, trust, pairing, or game state is observed through its owning typed API or stream. Consumers
+must not invent the expected state transition from command success.

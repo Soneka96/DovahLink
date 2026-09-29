@@ -9,9 +9,9 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 abstract interface class IPairingRemoteDataSource {
   /// Connects to the Host at [hostUri] and authenticates, recovering an
   /// interrupted pairing confirmation when the session authenticates as
-  /// unpaired.
+  /// unpaired. A left target is an untrusted endpoint candidate; a right target is a Known Host ID.
   Future<Either<Failure, PairingHandshakeModel>> authenticate({
-    required Uri hostUri,
+    required Either<Uri, String> target,
   });
 
   /// Starts, or queries the status of, a pairing challenge.
@@ -50,7 +50,7 @@ const PairingFailure _unexpectedPairingFailure = PairingFailure(
   'Pairing could not be completed. Please try again.',
 );
 
-/// Connects to the Host endpoint each call names through an injected
+/// Authenticates the candidate endpoint or Known Host ID through an injected
 /// [DovahLinkClient], converting its typed exceptions into user-safe [Failure]s. An exception
 /// outside that documented set is also converted rather than left to escape this boundary, as
 /// [_unexpectedPairingFailure].
@@ -67,10 +67,14 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// [HelloResult.recoveredFromRejectedCredential] when that happened.
   @override
   Future<Either<Failure, PairingHandshakeModel>> authenticate({
-    required Uri hostUri,
+    required Either<Uri, String> target,
   }) async {
     try {
-      final HelloResult hello = await _client.authenticate(hostUri);
+      final HelloResult hello = await target.fold(
+        _client.authenticateCandidate,
+        (String hostId) =>
+            _client.authenticateKnownHost(DovahLinkHostId(hostId)),
+      );
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
       if (!trusted) {
         final DovahLinkTrustState recovered = await _client
@@ -143,11 +147,8 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     String? displayName,
   }) async {
     try {
-      final String credential = await _client.confirmPairingCode(
-        code: code,
-        displayName: displayName,
-      );
-      await _client.acknowledgeTrustedCredential(credential);
+      await _client.confirmPairingCode(code: code, displayName: displayName);
+      await _client.acknowledgeTrustedCredential();
       return const Right(unit);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));

@@ -5,6 +5,15 @@ import '../../../../fixtures/fixtures.dart';
 
 /// Exercises Host entity value preservation.
 void main() {
+  group('Property hostId behaves correctly', () {
+    test('Host.hostId stores the supplied installation identity', () {
+      final Host host = Fixtures.buildHost();
+
+      expect(host.hostId, isA<String>());
+      expect(host.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
+    });
+  });
+
   group('Property displayName behaves correctly', () {
     test('Host.displayName stores the supplied display name', () {
       final Host host = Fixtures.buildHost(
@@ -32,6 +41,15 @@ void main() {
       );
       final Host second = Fixtures.buildHost(
         uri: Uri.parse('ws://127.0.0.1:9999/'),
+      );
+
+      expect(first == second, isFalse);
+    });
+
+    test('Host equality changes when installation identities differ', () {
+      final Host first = Fixtures.buildHost();
+      final Host second = Fixtures.buildHost(
+        hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       );
 
       expect(first == second, isFalse);

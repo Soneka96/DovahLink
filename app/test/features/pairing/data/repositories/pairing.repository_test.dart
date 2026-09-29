@@ -39,14 +39,16 @@ void main() {
         final PairingHandshakeModel handshake =
             Fixtures.buildPairingHandshakeModel();
         when(
-          () => mockDataSource.authenticate(hostUri: hostUri),
+          () => mockDataSource.authenticate(target: Left<Uri, String>(hostUri)),
         ).thenAnswer((_) async => Right(handshake));
 
         final Either<Failure, PairingHandshake> result = await repository
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(result, Right<Failure, PairingHandshake>(handshake));
-        verify(() => mockDataSource.authenticate(hostUri: hostUri)).called(1);
+        verify(
+          () => mockDataSource.authenticate(target: Left<Uri, String>(hostUri)),
+        ).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
     );
@@ -56,14 +58,37 @@ void main() {
       () async {
         const NetworkFailure failure = NetworkFailure('failed');
         when(
-          () => mockDataSource.authenticate(hostUri: hostUri),
+          () => mockDataSource.authenticate(target: Left<Uri, String>(hostUri)),
         ).thenAnswer((_) async => const Left(failure));
 
         final Either<Failure, PairingHandshake> result = await repository
-            .authenticate(hostUri: hostUri);
+            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(result, const Left<Failure, PairingHandshake>(failure));
-        verify(() => mockDataSource.authenticate(hostUri: hostUri)).called(1);
+        verify(
+          () => mockDataSource.authenticate(target: Left<Uri, String>(hostUri)),
+        ).called(1);
+        verifyNoMoreInteractions(mockDataSource);
+      },
+    );
+
+    test(
+      'Method authenticate passes a Known Host ID to the data source',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final PairingHandshakeModel handshake =
+            Fixtures.buildPairingHandshakeModel();
+        when(
+          () => mockDataSource.authenticate(target: const Right(hostId)),
+        ).thenAnswer((_) async => Right(handshake));
+
+        final Either<Failure, PairingHandshake> result = await repository
+            .authenticate(target: const Right(hostId));
+
+        expect(result, Right<Failure, PairingHandshake>(handshake));
+        verify(
+          () => mockDataSource.authenticate(target: const Right(hostId)),
+        ).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
     );

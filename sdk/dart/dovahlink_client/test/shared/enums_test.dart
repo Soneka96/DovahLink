@@ -4,6 +4,19 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Runs [CredentialRejectionReason.fromProtocolErrorCode] behavior tests.
 void main() {
+  group('Property values in DovahLinkHostAvailability behaves correctly', () {
+    test(
+      'Property values in DovahLinkHostAvailability contains only reachability states',
+      () {
+        expect(DovahLinkHostAvailability.values, <DovahLinkHostAvailability>[
+          DovahLinkHostAvailability.unknown,
+          DovahLinkHostAvailability.online,
+          DovahLinkHostAvailability.offline,
+        ]);
+      },
+    );
+  });
+
   group('DovahLinkStateArea behaves correctly', () {
     test('protocolValue maps every typed state area to its canonical name', () {
       expect(

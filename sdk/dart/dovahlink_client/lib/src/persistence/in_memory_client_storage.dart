@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 /// secure-storage mechanism.
 class InMemoryClientStorage implements IClientStorage {
   /// The currently held state, defaulting to the empty state a fresh install starts from.
-  PersistedClientState _state = const PersistedClientState();
+  PersistedClientState _state = PersistedClientState();
 
   /// See [IClientStorage.load].
   @override
@@ -21,6 +21,6 @@ class InMemoryClientStorage implements IClientStorage {
   /// See [IClientStorage.clear].
   @override
   Future<void> clear() async {
-    _state = const PersistedClientState();
+    _state = PersistedClientState();
   }
 }

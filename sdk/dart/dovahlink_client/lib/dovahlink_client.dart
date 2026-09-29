@@ -9,6 +9,10 @@ export 'src/dovahlink_compatibility_exception.dart'
 export 'src/dovahlink_discovery_service.dart'
     show DovahLinkDiscoveryService, IDovahLinkDiscoveryService;
 export 'src/dovahlink_host.dart' show DovahLinkHost;
+export 'src/dovahlink_host_id.dart' show DovahLinkHostId;
+export 'src/dovahlink_known_host_state.dart' show DovahLinkKnownHostState;
+export 'src/dovahlink_known_host_not_found_exception.dart'
+    show DovahLinkKnownHostNotFoundException;
 export 'src/dovahlink_host_identity_mismatch_exception.dart'
     show DovahLinkHostIdentityMismatchException;
 // PairingOutcome is exported alongside the other domain enums, not hidden as a purely internal
@@ -20,6 +24,7 @@ export 'src/shared/enums.dart'
         CredentialRejectionReason,
         HostVersionCompatibilityFailure,
         DovahLinkConnectionState,
+        DovahLinkHostAvailability,
         DovahLinkStateArea,
         DovahLinkStateStatus,
         DovahLinkTrustState,

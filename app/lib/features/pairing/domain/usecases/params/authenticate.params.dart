@@ -1,16 +1,21 @@
 import 'package:equatable/equatable.dart';
+import 'package:fpdart/fpdart.dart';
 import 'package:meta/meta.dart';
 
 /// Parameters for connecting and authenticating with a Host.
 @immutable
 class AuthenticateParams extends Equatable {
-  /// The WebSocket endpoint of the Host to connect to.
-  final Uri hostUri;
+  /// An untrusted candidate endpoint in `Left`, or a stable Known Host ID in `Right`.
+  final Either<Uri, String> target;
 
-  /// Creates authentication parameters for the Host at [hostUri].
-  const AuthenticateParams({required this.hostUri});
+  /// Creates candidate-authentication parameters for [hostUri].
+  AuthenticateParams({required Uri hostUri}) : target = Left(hostUri);
+
+  /// Creates Known Host-authentication parameters for [hostId].
+  AuthenticateParams.knownHost({required String hostId})
+    : target = Right(hostId);
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [hostUri];
+  List<Object?> get props => [target];
 }

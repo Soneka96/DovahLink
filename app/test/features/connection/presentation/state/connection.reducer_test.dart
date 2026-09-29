@@ -1,24 +1,206 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.reducer.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart'
+    show PairingConfirmedAction, PairingSessionTrustedAction;
+
 /// Exercises connection reducer transitions.
 void main() {
+  group('Action ConnectionKnownHostsChangedAction behaves correctly', () {
+    test('ConnectionKnownHostsChangedAction replaces the SDK projection', () {
+      final KnownHost first = Fixtures.buildKnownHost(
+        host: Fixtures.buildHost(displayName: 'First Host'),
+        availability: HostAvailability.online,
+      );
+      final KnownHost second = Fixtures.buildKnownHost(
+        host: Fixtures.buildHost(displayName: 'Second Host'),
+        availability: HostAvailability.offline,
+      );
+      final ConnectionState state = ConnectionState(
+        knownHosts: <KnownHost>[first],
+      );
+
+      final ConnectionState result = connectionReducer(
+        state,
+        ConnectionKnownHostsChangedAction(<KnownHost>[first, second]),
+      );
+
+      expect(result.knownHosts, <KnownHost>[first, second]);
+      expect(result.knownHostsStatus, KnownHostsObservationStatus.ready);
+    });
+
+    test(
+      'ConnectionKnownHostsChangedAction clears the SDK projection on an empty collection',
+      () {
+        final ConnectionState state = ConnectionState(
+          knownHosts: <KnownHost>[Fixtures.buildKnownHost()],
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          ConnectionKnownHostsChangedAction(const <KnownHost>[]),
+        );
+
+        expect(result.knownHosts, isEmpty);
+        expect(result.knownHostsStatus, KnownHostsObservationStatus.ready);
+      },
+    );
+
+    test(
+      'ConnectionKnownHostsChangedAction preserves discovery and candidate selection state',
+      () {
+        final Host candidate = Fixtures.buildHost(displayName: 'Candidate');
+        final List<Host> candidates = <Host>[candidate];
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          availability: HostAvailability.online,
+        );
+        final ConnectionState state = ConnectionState(
+          hosts: candidates,
+          selectedHost: candidate,
+          knownHostsStatus: KnownHostsObservationStatus.ready,
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          ConnectionKnownHostsChangedAction(<KnownHost>[knownHost]),
+        );
+
+        expect(result.hosts, candidates);
+        expect(result.selectedHost, candidate);
+        expect(
+          result.selectedHostSource,
+          ConnectionHostSelectionSource.candidate,
+        );
+        expect(result.knownHosts, <KnownHost>[knownHost]);
+      },
+    );
+  });
+
+  group(
+    'Action ConnectionKnownHostsObservationFailedAction behaves correctly',
+    () {
+      test(
+        'ConnectionKnownHostsObservationFailedAction preserves the last collection and marks it failed',
+        () {
+          final List<KnownHost> knownHosts = <KnownHost>[
+            Fixtures.buildKnownHost(availability: HostAvailability.online),
+          ];
+          final ConnectionState state = ConnectionState(
+            knownHosts: knownHosts,
+            knownHostsStatus: KnownHostsObservationStatus.ready,
+          );
+
+          final ConnectionState result = connectionReducer(
+            state,
+            const ConnectionKnownHostsObservationFailedAction(),
+          );
+
+          expect(result.knownHosts, knownHosts);
+          expect(result.knownHostsStatus, KnownHostsObservationStatus.failed);
+        },
+      );
+    },
+  );
+
+  group('Action lifecycle inference behaves correctly', () {
+    test(
+      'PairingConfirmedAction alone does not create a Known Host projection',
+      () {
+        final ConnectionState state = ConnectionState.initial();
+
+        final ConnectionState result = connectionReducer(
+          state,
+          const PairingConfirmedAction(),
+        );
+
+        expect(identical(result, state), isTrue);
+        expect(result.knownHosts, isEmpty);
+      },
+    );
+
+    test('Discovery actions do not change the Known Host projection', () {
+      final List<KnownHost> knownHosts = <KnownHost>[
+        Fixtures.buildKnownHost(availability: HostAvailability.offline),
+      ];
+      final ConnectionState initial = ConnectionState(knownHosts: knownHosts);
+      final ConnectionState started = connectionReducer(
+        initial,
+        const ConnectionDiscoveryStartedAction(),
+      );
+      final ConnectionState succeeded = connectionReducer(
+        started,
+        ConnectionDiscoverySucceededAction([Fixtures.buildHost()]),
+      );
+      final ConnectionState failed = connectionReducer(
+        succeeded,
+        const ConnectionDiscoveryFailedAction(
+          ConnectionFailureReason.hostUnavailable,
+        ),
+      );
+
+      expect(started.knownHosts, knownHosts);
+      expect(succeeded.knownHosts, knownHosts);
+      expect(failed.knownHosts, knownHosts);
+    });
+
+    test('PairingSessionTrustedAction alone does not change Known Hosts', () {
+      final List<KnownHost> knownHosts = <KnownHost>[
+        Fixtures.buildKnownHost(),
+        Fixtures.buildKnownHost(
+          host: Fixtures.buildHost(displayName: 'Second Host'),
+          availability: HostAvailability.online,
+        ),
+      ];
+      final ConnectionState state = ConnectionState(knownHosts: knownHosts);
+
+      final ConnectionState result = connectionReducer(
+        state,
+        const PairingSessionTrustedAction(),
+      );
+
+      expect(result.knownHosts, knownHosts);
+    });
+
+    test(
+      'PairingConfirmedAction does not change the Known Host projection',
+      () {
+        final List<KnownHost> knownHosts = <KnownHost>[
+          Fixtures.buildKnownHost(availability: HostAvailability.online),
+        ];
+        final ConnectionState result = connectionReducer(
+          ConnectionState(knownHosts: knownHosts),
+          const PairingConfirmedAction(),
+        );
+
+        expect(result.knownHosts, knownHosts);
+      },
+    );
+  });
+
   group('Action ConnectionHostSelectedAction behaves correctly', () {
     test('ConnectionHostSelectedAction stores the selected Host in state', () {
       final Host host = Fixtures.buildHost();
 
       final ConnectionState result = connectionReducer(
         ConnectionState.initial(),
-        ConnectionHostSelectedAction(host),
+        ConnectionHostSelectedAction(
+          host,
+          source: ConnectionHostSelectionSource.knownHost,
+        ),
       );
 
       expect(result.selectedHost, host);
+      expect(
+        result.selectedHostSource,
+        ConnectionHostSelectionSource.knownHost,
+      );
     });
 
     test('ConnectionHostSelectedAction preserves the Host list', () {
@@ -85,6 +267,18 @@ void main() {
         expect(result.selectedHost, isNot(first));
       },
     );
+
+    test('ConnectionHostSelectedAction defaults to a candidate source', () {
+      final ConnectionState result = connectionReducer(
+        ConnectionState.initial(),
+        ConnectionHostSelectedAction(Fixtures.buildHost()),
+      );
+
+      expect(
+        result.selectedHostSource,
+        ConnectionHostSelectionSource.candidate,
+      );
+    });
   });
 
   group('Action Object behaves correctly', () {
@@ -179,14 +373,88 @@ void main() {
         expect(result.discoveryStatus, ConnectionDiscoveryStatus.empty);
       },
     );
+
+    test(
+      'ConnectionDiscoverySucceededAction clears a candidate that disappeared',
+      () {
+        final Host selected = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final ConnectionState result = connectionReducer(
+          ConnectionState(selectedHost: selected),
+          const ConnectionDiscoverySucceededAction(<Host>[]),
+        );
+
+        expect(result.selectedHost, isNull);
+      },
+    );
+
+    test(
+      'ConnectionDiscoverySucceededAction keeps selection when the endpoint remains',
+      () {
+        final Host selected = Fixtures.buildHost(
+          displayName: 'Before Refresh',
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Host refreshed = Fixtures.buildHost(
+          displayName: 'After Refresh',
+          uri: selected.uri,
+        );
+        final ConnectionState result = connectionReducer(
+          ConnectionState(selectedHost: selected),
+          ConnectionDiscoverySucceededAction(<Host>[refreshed]),
+        );
+
+        expect(result.selectedHost, selected);
+      },
+    );
+
+    test(
+      'ConnectionDiscoverySucceededAction identifies candidates by endpoint instead of display name',
+      () {
+        final Host selected = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Host other = Fixtures.buildHost(
+          displayName: 'Same Name',
+          uri: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        final ConnectionState result = connectionReducer(
+          ConnectionState(selectedHost: selected),
+          ConnectionDiscoverySucceededAction(<Host>[other]),
+        );
+
+        expect(result.selectedHost, isNull);
+      },
+    );
+
+    test(
+      'ConnectionDiscoverySucceededAction preserves a Known Host selection after discovery loss',
+      () {
+        final Host knownHost = Fixtures.buildHost();
+        final ConnectionState result = connectionReducer(
+          ConnectionState(
+            selectedHost: knownHost,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+          ),
+          const ConnectionDiscoverySucceededAction(<Host>[]),
+        );
+
+        expect(result.selectedHost, knownHost);
+      },
+    );
   });
 
   group('Action ConnectionDiscoveryFailedAction behaves correctly', () {
     test(
       'ConnectionDiscoveryFailedAction stores the semantic failure reason',
       () {
+        final Host candidate = Fixtures.buildHost();
         final ConnectionState state = ConnectionState(
-          hosts: [Fixtures.buildHost()],
+          hosts: <Host>[candidate],
+          selectedHost: candidate,
           discoveryStatus: ConnectionDiscoveryStatus.available,
         );
         final ConnectionState result = connectionReducer(
@@ -202,6 +470,25 @@ void main() {
           result.discoveryFailure,
           ConnectionFailureReason.hostUnavailable,
         );
+        expect(result.selectedHost, isNull);
+      },
+    );
+
+    test(
+      'ConnectionDiscoveryFailedAction preserves a Known Host selection',
+      () {
+        final Host knownHost = Fixtures.buildHost();
+        final ConnectionState result = connectionReducer(
+          ConnectionState(
+            selectedHost: knownHost,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+          ),
+          const ConnectionDiscoveryFailedAction(
+            ConnectionFailureReason.hostUnavailable,
+          ),
+        );
+
+        expect(result.selectedHost, knownHost);
       },
     );
   });

@@ -35,6 +35,18 @@ enum DovahLinkConnectionState {
   reauthenticating,
 }
 
+/// The SDK's current runtime evidence that a durable Known Host is reachable.
+enum DovahLinkHostAvailability {
+  /// The SDK has not established current reachability evidence.
+  unknown,
+
+  /// The SDK has sufficiently recent positive evidence that the Host is reachable.
+  online,
+
+  /// An explicit reachability attempt or bounded recovery definitively failed.
+  offline,
+}
+
 /// The client's trust standing, established by a successful `hello` and possibly upgraded by
 /// credential acknowledgment or pending-pairing recovery.
 enum DovahLinkTrustState {

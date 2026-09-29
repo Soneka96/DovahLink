@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -190,6 +191,7 @@ void main() {
       expect(state.sessionId, 'session-1');
       expect(state.trustState, DovahLinkTrustState.unpaired);
       expect(state.currentHost, _currentHost());
+      expect(state.knownHostId, isNull);
     });
 
     test(
@@ -209,6 +211,7 @@ void main() {
         expect(state.sessionId, 'session-2');
         expect(state.trustState, DovahLinkTrustState.trusted);
         expect(state.currentHost, _currentHost(hostName: 'OTHER-HOST'));
+        expect(state.knownHostId, isNull);
       },
     );
 
@@ -239,6 +242,92 @@ void main() {
       );
 
       expect(state.connectionState, DovahLinkConnectionState.connected);
+    });
+  });
+
+  group('Property knownHostId behaves correctly', () {
+    test(
+      'Property knownHostId retains the selected relation through recovery teardown',
+      () {
+        final DovahLinkHostId hostId = DovahLinkHostId(_currentHost().hostId);
+        state.beginConnectAttempt(_currentHost().endpoint);
+        state.markConnected();
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
+        );
+        state.associateKnownHost(hostId);
+
+        state.markReconnecting();
+        state.beginConnectAttempt(_currentHost().endpoint);
+        state.markConnected();
+        state.resetAfterTeardown(preserveReconnecting: true);
+
+        expect(state.knownHostId, hostId);
+        expect(state.currentHost, isNull);
+        expect(state.connectionState, DovahLinkConnectionState.reconnecting);
+      },
+    );
+
+    test(
+      'Property knownHostId is cleared after deliberate teardown and invalidation',
+      () {
+        final DovahLinkHostId hostId = DovahLinkHostId(_currentHost().hostId);
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
+        );
+        state.associateKnownHost(hostId);
+
+        state.resetAfterTeardown(preserveReconnecting: false);
+        expect(state.knownHostId, isNull);
+
+        state.admit(
+          sessionId: 'session-2',
+          trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
+        );
+        state.associateKnownHost(hostId);
+        state.invalidate(AdministrativeInvalidationReason.revoked);
+        expect(state.knownHostId, isNull);
+      },
+    );
+
+    test(
+      'Property knownHostId does not carry into a later explicit connect attempt',
+      () {
+        final DovahLinkHostId hostId = DovahLinkHostId(_currentHost().hostId);
+        state.beginConnectAttempt(_currentHost().endpoint);
+        state.markConnected();
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
+        );
+        state.associateKnownHost(hostId);
+        state.resetAfterTeardown(preserveReconnecting: false);
+
+        state.beginConnectAttempt(_currentHost().endpoint);
+
+        expect(state.knownHostId, isNull);
+      },
+    );
+  });
+
+  group('Method associateKnownHost behaves correctly', () {
+    test('Method associateKnownHost adds the relationship after pairing', () {
+      final DovahLinkHostId hostId = DovahLinkHostId(_currentHost().hostId);
+      state.admit(
+        sessionId: 'session-1',
+        trustState: DovahLinkTrustState.unpaired,
+        currentHost: _currentHost(),
+      );
+
+      state.associateKnownHost(hostId);
+
+      expect(state.knownHostId, hostId);
     });
   });
 

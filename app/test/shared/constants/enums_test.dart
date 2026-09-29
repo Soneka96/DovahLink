@@ -48,6 +48,41 @@ void main() {
     );
   });
 
+  group('Behavior values in ConnectionHostSelectionSource behave correctly', () {
+    test(
+      'ConnectionHostSelectionSource values distinguish candidates from Known Hosts',
+      () {
+        expect(ConnectionHostSelectionSource.values, [
+          ConnectionHostSelectionSource.candidate,
+          ConnectionHostSelectionSource.knownHost,
+        ]);
+      },
+    );
+  });
+
+  group('Behavior values in HostAvailability behave correctly', () {
+    test('HostAvailability values contain only the three runtime states', () {
+      expect(HostAvailability.values, [
+        HostAvailability.unknown,
+        HostAvailability.online,
+        HostAvailability.offline,
+      ]);
+    });
+  });
+
+  group('Behavior values in KnownHostsObservationStatus behave correctly', () {
+    test(
+      'KnownHostsObservationStatus values include every observation state',
+      () {
+        expect(KnownHostsObservationStatus.values, [
+          KnownHostsObservationStatus.loading,
+          KnownHostsObservationStatus.ready,
+          KnownHostsObservationStatus.failed,
+        ]);
+      },
+    );
+  });
+
   group('ConnectionFailureReason maps discovery errors', () {
     test(
       'ConnectionFailureReason maps SDK discovery exception types to app meanings',

@@ -8,6 +8,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_client.dart'
     show buildDovahLinkClientForDiscovery, buildDovahLinkClientForTesting;
 import 'package:dovahlink_client_sdk/src/persistence/in_memory_client_storage.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart' show TimeoutClass;
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart'
@@ -15,6 +16,24 @@ import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart'
 import 'fixtures/fixtures.dart';
 import 'support/fake_websocket_server.dart';
 import 'support/pending_reply.dart';
+
+/// Builds one persisted relationship through the test fixture catalog.
+/// @param clientId The local Client ID to represent.
+/// @param credential The Host-owned bearer credential, if any.
+/// @param recoveryState The Host-owned pairing recovery phase.
+/// @param knownHost The relationship metadata to store, if any.
+/// @return A fresh persisted-state fixture.
+PersistedClientState _persistedState({
+  String? clientId = 'client-1',
+  String? credential,
+  PairingRecoveryState recoveryState = PairingRecoveryState.none,
+  DovahLinkHost? knownHost,
+}) => Fixtures.buildPersistedClientState(
+  clientId: clientId,
+  credential: credential,
+  recoveryState: recoveryState,
+  host: knownHost,
+);
 
 /// Owns ordered release and correlation rewriting for fake-transport replies.
 class PendingReplyQueue {
@@ -368,14 +387,30 @@ Future<void> _connectAndHello(
 /// Connects [client] to the fake transport and admits a trusted session.
 /// @param transport The fake transport supplying Host replies.
 /// @param client The client to authenticate.
+/// @param storage The storage owning the represented Known Host.
+/// @param credential The Host-scoped credential to use.
+/// @param recoveryState The pairing recovery phase to persist before authentication.
 Future<void> _connectAndTrustedHello(
   FakeDovahLinkTransport transport,
   DovahLinkClient client,
-) async {
-  await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+  IClientStorage storage, {
+  String credential = 'trusted-credential',
+  PairingRecoveryState recoveryState = PairingRecoveryState.none,
+}) async {
+  await storage.save(
+    Fixtures.buildPersistedClientState(
+      clientId: 'client-1',
+      hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+      hostName: 'Soneka-Desktop',
+      credential: credential,
+      recoveryState: recoveryState,
+    ),
+  );
   transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
   transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
-  await client.hello();
+  await client.authenticateKnownHost(
+    DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+  );
 }
 
 /// Requests each [areas] entry cumulatively and confirms the complete accepted set.
@@ -433,9 +468,9 @@ void main() {
     );
   });
 
-  group('Method loadKnownHost behaves correctly', () {
+  group('Method loadKnownHosts behaves correctly', () {
     test(
-      'Method loadKnownHost returns the persisted Host without credentials',
+      'Method loadKnownHosts returns persisted Hosts without credentials',
       () async {
         final DovahLinkHost knownHost = DovahLinkHost(
           hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
@@ -443,25 +478,54 @@ void main() {
           endpoint: Uri.parse('ws://127.0.0.1:58231/'),
         );
         await storage.save(
-          PersistedClientState(
+          _persistedState(
             clientId: 'client-1',
             credential: 'private-credential',
             knownHost: knownHost,
           ),
         );
 
-        expect(await client.loadKnownHost(), knownHost);
+        expect(await client.loadKnownHosts(), <DovahLinkHost>[knownHost]);
       },
     );
 
     test(
-      'Method loadKnownHost returns null when no Host is persisted',
+      'Method loadKnownHosts returns an empty list when no Host is persisted',
       () async {
-        expect(await client.loadKnownHost(), isNull);
+        expect(await client.loadKnownHosts(), isEmpty);
       },
     );
 
-    test('Method loadKnownHost propagates corrupt storage errors', () async {
+    test(
+      'Method loadKnownHosts returns an immutable Host-ID-sorted collection',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        await storage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostBId: PersistedKnownHost(
+                host: Fixtures.buildDovahLinkHost(hostId: hostBId),
+              ),
+              hostAId: PersistedKnownHost(
+                host: Fixtures.buildDovahLinkHost(hostId: hostAId),
+              ),
+            },
+          ),
+        );
+
+        final List<DovahLinkHost> hosts = await client.loadKnownHosts();
+
+        expect(hosts.map((host) => host.hostId), <String>[hostAId, hostBId]);
+        expect(
+          () => hosts.add(Fixtures.buildDovahLinkHost()),
+          throwsUnsupportedError,
+        );
+      },
+    );
+
+    test('Method loadKnownHosts propagates corrupt storage errors', () async {
       final TrackingClientStorage failingStorage = TrackingClientStorage(
         Fixtures.buildPersistedClientState(clientId: 'client-1'),
       )..loadError = const DovahLinkStorageException('corrupt state');
@@ -471,10 +535,384 @@ void main() {
       );
 
       await expectLater(
-        failingClient.loadKnownHost(),
+        failingClient.loadKnownHosts(),
         throwsA(isA<DovahLinkStorageException>()),
       );
     });
+  });
+
+  group('Property knownHostsChanges behaves correctly', () {
+    test(
+      'Property knownHostsChanges first emits an empty collection for a new client',
+      () async {
+        expect(await client.knownHostsChanges.first, isEmpty);
+      },
+    );
+
+    test(
+      'Property knownHostsChanges refreshes metadata after trusted hello',
+      () async {
+        final DovahLinkHost oldHost = DovahLinkHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          hostName: 'OLD-NAME',
+          endpoint: Uri.parse('ws://127.0.0.1:58230/'),
+        );
+        await storage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: oldHost,
+          ),
+        );
+        final StreamIterator<List<DovahLinkHost>> changes = StreamIterator(
+          client.knownHostsChanges,
+        );
+        addTearDown(changes.cancel);
+
+        expect(await changes.moveNext(), isTrue);
+        expect(changes.current, <DovahLinkHost>[oldHost]);
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+
+        await client.authenticateKnownHost(DovahLinkHostId(oldHost.hostId));
+
+        expect(await changes.moveNext(), isTrue);
+        expect(changes.current, <DovahLinkHost>[
+          DovahLinkHost(
+            hostId: oldHost.hostId,
+            hostName: 'Soneka-Desktop',
+            endpoint: Uri.parse('ws://127.0.0.1:58230/'),
+          ),
+        ]);
+      },
+    );
+  });
+
+  group('Property knownHostStatesChanges behaves correctly', () {
+    test(
+      'Property knownHostStatesChanges starts persisted Hosts unknown without connecting',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+        );
+        final DovahLinkHost hostB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostBId: PersistedKnownHost(host: hostB, credential: 'secret-b'),
+              hostAId: PersistedKnownHost(host: hostA, credential: 'secret-a'),
+            },
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+
+        final List<DovahLinkKnownHostState> states =
+            await runtimeClient.knownHostStatesChanges.first;
+
+        expect(states.map((state) => state.host.hostId), <String>[
+          hostAId,
+          hostBId,
+        ]);
+        expect(
+          states.map((state) => state.availability),
+          <DovahLinkHostAvailability>[
+            DovahLinkHostAvailability.unknown,
+            DovahLinkHostAvailability.unknown,
+          ],
+        );
+        expect(
+          () => states.add(Fixtures.buildDovahLinkKnownHostState()),
+          throwsUnsupportedError,
+        );
+        expect(runtimeTransport.connectCalls, isEmpty);
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges reports online after Known Host admission',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+            ),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        runtimeTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          snapshots.single.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        await runtimeClient.authenticateKnownHost(DovahLinkHostId(hostId));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.online,
+        );
+        await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        await subscription.cancel();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges preserves availability through administrative invalidation',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+            ),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        runtimeTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await runtimeClient.authenticateKnownHost(DovahLinkHostId(hostId));
+        await Future<void>.delayed(Duration.zero);
+
+        runtimeTransport.queueResponse(
+          _rawSessionInvalidated('revoked', sessionId: 'session-paired-1'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          runtimeClient.connectionState,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.online,
+        );
+        await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.online,
+        );
+        await subscription.cancel();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges reports offline after an explicit transport connection failure',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(hostId: hostId),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport = FakeDovahLinkTransport()
+          ..failConnectWith = const SocketException('refused');
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        await Future<void>.delayed(Duration.zero);
+
+        await expectLater(
+          runtimeClient.authenticateKnownHost(DovahLinkHostId(hostId)),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(snapshots, <List<DovahLinkKnownHostState>>[
+          <DovahLinkKnownHostState>[
+            Fixtures.buildDovahLinkKnownHostState(
+              host: Fixtures.buildDovahLinkHost(hostId: hostId),
+            ),
+          ],
+          <DovahLinkKnownHostState>[
+            Fixtures.buildDovahLinkKnownHostState(
+              host: Fixtures.buildDovahLinkHost(hostId: hostId),
+              availability: DovahLinkHostAvailability.offline,
+            ),
+          ],
+        ]);
+        await subscription.cancel();
+        await runtimeClient.disconnect();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges reports online when active pairing creates a Known Host',
+      () async {
+        const String hostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        final JsonMap candidateHelloAck =
+            jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                as JsonMap;
+        final JsonMap candidatePayload =
+            candidateHelloAck['payload'] as JsonMap;
+        candidatePayload['hostId'] = hostId;
+        candidatePayload['clientIdentityKind'] = 'unpaired';
+        runtimeTransport.queueResponse(jsonEncode(candidateHelloAck));
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await runtimeClient.authenticateCandidate(
+          Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(snapshots, <List<DovahLinkKnownHostState>>[
+          const <DovahLinkKnownHostState>[],
+        ]);
+
+        final JsonMap pairingOutcome =
+            jsonDecode(
+                  _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+                )
+                as JsonMap;
+        pairingOutcome['sessionId'] = 'session-paired-1';
+        runtimeTransport.queueResponse(jsonEncode(pairingOutcome));
+        await runtimeClient.confirmPairingCode(code: '123456');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+              endpoint: 'ws://127.0.0.1:58232/',
+            ),
+            availability: DovahLinkHostAvailability.online,
+          ),
+        ]);
+        await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        await subscription.cancel();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges ignores a candidate claiming an existing Known Host ID',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(hostId: hostId),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        final JsonMap response =
+            jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                as JsonMap;
+        (response['payload'] as JsonMap)['clientIdentityKind'] = 'unpaired';
+        runtimeTransport.queueResponse(jsonEncode(response));
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await runtimeClient.authenticateCandidate(
+          Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(snapshots, hasLength(1));
+        expect(
+          snapshots.single.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(snapshots, hasLength(1));
+        await subscription.cancel();
+      },
+    );
   });
 
   group('Property character state streams behave correctly', () {
@@ -507,7 +945,7 @@ void main() {
     test(
       'Property character state streams receive typed Snapshots, level Events, and recovery updates',
       () async {
-        await _connectAndTrustedHello(transport, client);
+        await _connectAndTrustedHello(transport, client, storage);
         await _subscribeStateAreas(
           transport,
           client,
@@ -737,7 +1175,7 @@ void main() {
       test(
         'Method subscribeStateArea keeps Host-rejected domains inactive',
         () async {
-          await _connectAndTrustedHello(transport, client);
+          await _connectAndTrustedHello(transport, client, storage);
           transport.queueResponse(
             _rawSubscriptionAck(
               accepted: const <String>[],
@@ -769,7 +1207,7 @@ void main() {
       test(
         'Methods send the complete desired set and stop applying removed areas',
         () async {
-          await _connectAndTrustedHello(transport, client);
+          await _connectAndTrustedHello(transport, client, storage);
 
           transport.queueResponse(
             _rawSubscriptionAck(accepted: <String>['character_xp']),
@@ -895,9 +1333,10 @@ void main() {
       () async {
         final FakeDovahLinkTransport reconnectTransport =
             FakeDovahLinkTransport();
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
         final DovahLinkClient reconnectClient = _buildFastReconnectClient(
           reconnectTransport,
-          InMemoryClientStorage(),
+          reconnectStorage,
         );
         final Completer<void> closeGate = Completer<void>();
         addTearDown(() async {
@@ -907,7 +1346,11 @@ void main() {
           await reconnectClient.disconnect();
         });
         reconnectTransport.closeGate = closeGate;
-        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _connectAndTrustedHello(
+          reconnectTransport,
+          reconnectClient,
+          reconnectStorage,
+        );
 
         reconnectTransport.failMessagesWith(const SocketException('dropped'));
         for (
@@ -939,14 +1382,23 @@ void main() {
       () async {
         final FakeDovahLinkTransport reconnectTransport =
             FakeDovahLinkTransport();
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
         final DovahLinkClient reconnectClient = _buildFastReconnectClient(
           reconnectTransport,
-          InMemoryClientStorage(),
+          reconnectStorage,
         );
         addTearDown(reconnectClient.disconnect);
-        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _connectAndTrustedHello(
+          reconnectTransport,
+          reconnectClient,
+          reconnectStorage,
+        );
         await reconnectClient.disconnect();
-        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _connectAndTrustedHello(
+          reconnectTransport,
+          reconnectClient,
+          reconnectStorage,
+        );
 
         reconnectTransport.queueResponse(
           _rawFixture('connection/hello-ack-paired.json'),
@@ -1032,7 +1484,11 @@ void main() {
           reconnectTransport,
           reconnectStorage,
         );
-        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _connectAndTrustedHello(
+          reconnectTransport,
+          reconnectClient,
+          reconnectStorage,
+        );
         await _subscribeStateAreas(
           reconnectTransport,
           reconnectClient,
@@ -1123,7 +1579,7 @@ void main() {
     test(
       'Behavior administrative invalidation stays dormant until explicit pairing succeeds',
       () async {
-        await _connectAndTrustedHello(transport, client);
+        await _connectAndTrustedHello(transport, client, storage);
         await _subscribeStateAreas(transport, client, <DovahLinkStateArea>[
           DovahLinkStateArea.characterXp,
         ]);
@@ -1171,7 +1627,7 @@ void main() {
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
-        final HelloResult retry = await client.authenticate(
+        final HelloResult retry = await client.authenticateCandidate(
           Uri.parse('ws://127.0.0.1:58231/'),
         );
         expect(retry.trustState, DovahLinkTrustState.unpaired);
@@ -1184,10 +1640,7 @@ void main() {
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
         );
-        final String credential = await client.confirmPairingCode(
-          code: '123456',
-          displayName: 'My PC',
-        );
+        await client.confirmPairingCode(code: '123456', displayName: 'My PC');
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
@@ -1197,7 +1650,7 @@ void main() {
             sessionId: 'session-1',
           ),
         );
-        await client.acknowledgeTrustedCredential(credential);
+        await client.acknowledgeTrustedCredential();
 
         for (
           int attempt = 0;
@@ -1231,16 +1684,21 @@ void main() {
       () async {
         final FakeDovahLinkTransport reconnectTransport =
             FakeDovahLinkTransport();
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
         final DovahLinkClient reconnectClient = buildDovahLinkClientForTesting(
           transport: reconnectTransport,
-          storage: InMemoryClientStorage(),
+          storage: reconnectStorage,
           reconnectAttemptDelays: const <Duration>[
             Duration.zero,
             Duration(milliseconds: 200),
           ],
           reconnectDeadline: const Duration(seconds: 5),
         );
-        await _connectAndTrustedHello(reconnectTransport, reconnectClient);
+        await _connectAndTrustedHello(
+          reconnectTransport,
+          reconnectClient,
+          reconnectStorage,
+        );
         await _subscribeStateAreas(
           reconnectTransport,
           reconnectClient,
@@ -1281,14 +1739,11 @@ void main() {
           DovahLinkStateStatus.notSubscribed,
         );
         reconnectTransport.failConnectWith = null;
-        await reconnectClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        reconnectTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+        await _connectAndTrustedHello(
+          reconnectTransport,
+          reconnectClient,
+          reconnectStorage,
         );
-        reconnectTransport.queueResponse(
-          _rawFixture('capabilities/capabilities-host.json'),
-        );
-        await reconnectClient.hello();
         await pumpEventQueue();
 
         expect(_sentSubscriptionUpdates(reconnectTransport), hasLength(1));
@@ -1482,7 +1937,7 @@ void main() {
       () async {
         const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
         const String reportedHostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
-        final PersistedClientState pendingState = PersistedClientState(
+        final PersistedClientState pendingState = _persistedState(
           clientId: 'client-1',
           credential: 'pending-credential',
           recoveryState: PairingRecoveryState.confirming,
@@ -1714,10 +2169,12 @@ void main() {
       'Method hello a malformed JSON response throws malformed_message',
       () async {
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
+        final Future<HelloResult> hello = client.hello();
+        await pumpEventQueue();
         transport.queueResponse('not valid json');
 
         await expectLater(
-          client.hello(),
+          hello,
           throwsA(
             isA<DovahLinkProtocolException>().having(
               (DovahLinkProtocolException error) => error.code,
@@ -1735,6 +2192,29 @@ void main() {
 
   group('Method authenticate behaves correctly', () {
     test(
+      'Method authenticateCandidate never selects a persisted Host credential',
+      () async {
+        final PersistedClientState knownState =
+            Fixtures.buildPersistedClientState(
+              clientId: 'client-1',
+              credential: 'private-credential',
+            );
+        await storage.save(knownState);
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+
+        await client.authenticateCandidate(Uri.parse('ws://127.0.0.1:58232/'));
+
+        final JsonMap sentPayload =
+            (jsonDecode(transport.sent.first) as JsonMap)['payload'] as JsonMap;
+        expect(sentPayload['auth'], <String, dynamic>{'method': 'unpaired'});
+        expect(await storage.load(), knownState);
+      },
+    );
+
+    test(
       'Method authenticate delegates to connect and hello when nothing is rejected',
       () async {
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
@@ -1742,7 +2222,7 @@ void main() {
           _rawFixture('capabilities/capabilities-host.json'),
         );
 
-        final HelloResult result = await client.authenticate(
+        final HelloResult result = await client.authenticateCandidate(
           Uri.parse('ws://127.0.0.1:58231/'),
         );
 
@@ -1778,8 +2258,8 @@ void main() {
         });
         transport.queueResponse(_rawFixture('errors/error-revoked.json'));
 
-        final Future<HelloResult> authentication = client.authenticate(
-          Uri.parse('ws://127.0.0.1:58231/'),
+        final Future<HelloResult> authentication = client.authenticateKnownHost(
+          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
         );
         await saveStarted.future;
         await client.disconnect();
@@ -1796,6 +2276,13 @@ void main() {
     test(
       'Method authenticate reconnects after disconnect even though the client was last trusted',
       () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            credential: 'known-host-credential',
+          ),
+        );
         transport.queueResponse(
           jsonEncode(<String, dynamic>{
             'messageType': 'hello_ack',
@@ -1816,8 +2303,10 @@ void main() {
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
-        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-        await client.authenticate(uri);
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
+        await client.authenticateKnownHost(hostId);
         await client.disconnect();
 
         transport.queueResponse(
@@ -1840,7 +2329,7 @@ void main() {
         transport.queueResponse(
           _rawFixture('capabilities/capabilities-host.json'),
         );
-        await client.authenticate(uri);
+        await client.authenticateKnownHost(hostId);
 
         expect(transport.connectCalls, hasLength(2));
       },
@@ -1949,35 +2438,51 @@ void main() {
 
   group('Method confirmPairingCode behaves correctly', () {
     test(
-      'Method confirmPairingCode returns the issued credential and persists it with CONFIRMING recovery',
+      'Method confirmPairingCode persists its credential with Host-owned recovery',
       () async {
         await storage.save(
           Fixtures.buildPersistedClientState(clientId: 'client-1'),
         );
         await _connectAndHello(transport, client);
+        final StreamIterator<List<DovahLinkHost>> changes = StreamIterator(
+          client.knownHostsChanges,
+        );
+        addTearDown(changes.cancel);
+        expect(await changes.moveNext(), isTrue);
+        expect(changes.current, isEmpty);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
         );
 
-        final String credential = await client.confirmPairingCode(
-          code: '123456',
-          displayName: 'My PC',
-        );
+        await client.confirmPairingCode(code: '123456', displayName: 'My PC');
 
-        expect(credential, 'a1b2c3d4e5f6');
+        expect(await changes.moveNext(), isTrue);
+        expect(changes.current, <DovahLinkHost>[
+          DovahLinkHost(
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            hostName: 'Soneka-Desktop',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+        ]);
+
         final PersistedClientState stored = await storage.load();
         expect(stored.clientId, 'client-1');
-        expect(stored.credential, 'a1b2c3d4e5f6');
-        expect(stored.recoveryState, PairingRecoveryState.confirming);
+        expect(stored.knownHosts.values.single.credential, 'a1b2c3d4e5f6');
         expect(
-          stored.knownHost,
+          stored.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
+        expect(
+          stored.knownHosts.values.single.host,
           DovahLinkHost(
             hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
             hostName: 'Soneka-Desktop',
             endpoint: Uri.parse('ws://127.0.0.1:58231/'),
           ),
         );
-        expect(await client.loadKnownHost(), stored.knownHost);
+        expect(await client.loadKnownHosts(), <DovahLinkHost>[
+          stored.knownHosts.values.single.host,
+        ]);
       },
     );
 
@@ -2002,8 +2507,14 @@ void main() {
         );
 
         final PersistedClientState stored = await storage.load();
-        expect(stored.credential, 'already-confirming-credential');
-        expect(stored.recoveryState, PairingRecoveryState.confirming);
+        expect(
+          stored.knownHosts.values.single.credential,
+          'already-confirming-credential',
+        );
+        expect(
+          stored.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
       },
     );
 
@@ -2048,17 +2559,17 @@ void main() {
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
 
-        await client.acknowledgeTrustedCredential('a1b2c3d4e5f6');
+        await client.acknowledgeTrustedCredential();
 
         expect(client.trustState, DovahLinkTrustState.trusted);
         final PersistedClientState stored = await storage.load();
-        expect(stored.credential, 'a1b2c3d4e5f6');
-        expect(stored.recoveryState, PairingRecoveryState.none);
+        expect(stored.knownHosts.values.single.credential, 'a1b2c3d4e5f6');
+        expect(stored.pendingPairingRecovery, isNull);
       },
     );
 
     test(
-      'Method acknowledgeTrustedCredential persists the previously stored credential, not the method argument, on success',
+      'Method acknowledgeTrustedCredential keeps its Host-scoped credential in the SDK',
       () async {
         await storage.save(
           Fixtures.buildPersistedClientState(
@@ -2072,13 +2583,11 @@ void main() {
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
 
-        // The argument is what the caller sends over the wire in pairing_ack; storage is never
-        // overwritten with it, only its recoveryState is cleared -- pass a deliberately different
-        // value than what is stored to prove that.
-        await client.acknowledgeTrustedCredential('argument-credential');
+        // The app does not receive or pass the credential back to the SDK.
+        await client.acknowledgeTrustedCredential();
 
         final PersistedClientState stored = await storage.load();
-        expect(stored.credential, 'stored-credential');
+        expect(stored.knownHosts.values.single.credential, 'stored-credential');
       },
     );
   });
@@ -2109,8 +2618,11 @@ void main() {
         );
 
         final PersistedClientState stored = await storage.load();
-        expect(stored.credential, 'a1b2c3d4e5f6');
-        expect(stored.recoveryState, PairingRecoveryState.confirming);
+        expect(stored.knownHosts.values.single.credential, 'a1b2c3d4e5f6');
+        expect(
+          stored.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
       },
     );
   });
@@ -2172,22 +2684,53 @@ void main() {
           credential: 'credential-1',
         ),
       );
-      await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-      transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
-      transport.queueResponse(
-        _rawFixture('capabilities/capabilities-host.json'),
+      await _connectAndTrustedHello(
+        transport,
+        client,
+        storage,
+        credential: 'credential-1',
       );
-      await client.hello();
 
       await client.disconnect();
 
       final PersistedClientState stored = await storage.load();
       expect(stored.clientId, 'client-1');
-      expect(stored.credential, 'credential-1');
+      expect(stored.knownHosts.values.single.credential, 'credential-1');
     });
   });
 
   group('Method forgetCredential behaves correctly', () {
+    test('Method forgetCredential preserves the observed Known Host', () async {
+      final DovahLinkHost knownHost = DovahLinkHost(
+        hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        hostName: 'KNOWN-HOST',
+        endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      await storage.save(
+        _persistedState(
+          clientId: 'client-1',
+          credential: 'credential-1',
+          knownHost: knownHost,
+        ),
+      );
+      final List<List<DovahLinkHost>> values = <List<DovahLinkHost>>[];
+      final StreamSubscription<List<DovahLinkHost>> subscription = client
+          .knownHostsChanges
+          .listen(values.add);
+      addTearDown(subscription.cancel);
+      await pumpEventQueue();
+
+      await client.forgetCredential(
+        DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+      );
+      await pumpEventQueue();
+
+      expect(values, <List<DovahLinkHost>>[
+        <DovahLinkHost>[knownHost],
+      ]);
+      expect((await storage.load()).knownHosts.values.single.host, knownHost);
+    });
+
     test(
       'Method forgetCredential a later hello presents unpaired instead of the forgotten credential',
       () async {
@@ -2197,7 +2740,9 @@ void main() {
             credential: 'a1b2c3d4e5f6',
           ),
         );
-        await client.forgetCredential();
+        await client.forgetCredential(
+          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+        );
         await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
         transport.queueResponse(_rawFixture('connection/hello-ack.json'));
         transport.queueResponse(
@@ -2379,22 +2924,20 @@ void main() {
               credential: 'credential-1',
             ),
           );
-          await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-          transport.queueResponse(
-            _rawFixture('connection/hello-ack-paired.json'),
+          await _connectAndTrustedHello(
+            transport,
+            client,
+            storage,
+            credential: 'credential-1',
           );
-          transport.queueResponse(
-            _rawFixture('capabilities/capabilities-host.json'),
-          );
-          await client.hello();
 
           transport.queueResponse(_rawSessionInvalidated(entry.value));
           await pumpEventQueue();
 
           final PersistedClientState stored = await storage.load();
           expect(stored.clientId, 'client-1');
-          expect(stored.credential, isNull);
-          expect(stored.recoveryState, PairingRecoveryState.none);
+          expect(stored.knownHosts.values.single.credential, isNull);
+          expect(stored.pendingPairingRecovery, isNull);
         },
       );
     }
@@ -2409,22 +2952,21 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
           ),
         );
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+        await _connectAndTrustedHello(
+          transport,
+          client,
+          storage,
+          credential: 'credential-1',
+          recoveryState: PairingRecoveryState.confirming,
         );
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-host.json'),
-        );
-        await client.hello();
 
         transport.queueResponse(_rawSessionInvalidated('revoked'));
         await pumpEventQueue();
 
         final PersistedClientState stored = await storage.load();
         expect(stored.clientId, 'client-1');
-        expect(stored.credential, isNull);
-        expect(stored.recoveryState, PairingRecoveryState.none);
+        expect(stored.knownHosts.values.single.credential, isNull);
+        expect(stored.pendingPairingRecovery, isNull);
       },
     );
 
@@ -2445,14 +2987,12 @@ void main() {
         );
         addTearDown(trackingClient.disconnect);
 
-        await trackingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        trackingTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+        await _connectAndTrustedHello(
+          trackingTransport,
+          trackingClient,
+          trackingStorage,
+          credential: 'credential-1',
         );
-        trackingTransport.queueResponse(
-          _rawFixture('capabilities/capabilities-host.json'),
-        );
-        await trackingClient.hello();
 
         trackingTransport.queueResponse(_rawSessionInvalidated('revoked'));
         trackingTransport.failMessagesWithBoth(
@@ -2461,7 +3001,10 @@ void main() {
         await pumpEventQueue();
 
         expect(trackingStorage.saveCount, 2);
-        expect((await trackingStorage.load()).credential, isNull);
+        expect(
+          (await trackingStorage.load()).knownHosts.values.single.credential,
+          isNull,
+        );
       },
     );
 
@@ -2482,14 +3025,12 @@ void main() {
         );
         addTearDown(failingClient.disconnect);
 
-        await failingClient.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        failingTransport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+        await _connectAndTrustedHello(
+          failingTransport,
+          failingClient,
+          failingStorage,
+          credential: 'credential-1',
         );
-        failingTransport.queueResponse(
-          _rawFixture('capabilities/capabilities-host.json'),
-        );
-        await failingClient.hello();
         failingStorage.saveError = StateError('storage unavailable');
 
         final List<Object> uncaughtErrors = <Object>[];
@@ -2503,7 +3044,10 @@ void main() {
 
         expect(uncaughtErrors, isEmpty);
         expect(failingStorage.saveCount, 2);
-        expect((await failingStorage.load()).credential, 'credential-1');
+        expect(
+          (await failingStorage.load()).knownHosts.values.single.credential,
+          'credential-1',
+        );
       },
     );
 
@@ -2655,7 +3199,7 @@ void main() {
       'Behavior retry-safe reconnect never replays a pending pairing_ack to a different Known Host',
       () async {
         const String knownHostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
-        final PersistedClientState pendingState = PersistedClientState(
+        final PersistedClientState pendingState = _persistedState(
           clientId: 'client-1',
           credential: 'pending-credential',
           recoveryState: PairingRecoveryState.confirming,
@@ -2676,7 +3220,7 @@ void main() {
         await _connectAndHello(reconnectTransport, reconnectClient);
 
         final Future<void> pending = reconnectClient
-            .acknowledgeTrustedCredential('pending-credential');
+            .acknowledgeTrustedCredential();
         final Future<void> pendingFails = expectLater(
           pending,
           throwsA(isA<DovahLinkHostIdentityMismatchException>()),
@@ -2751,7 +3295,7 @@ void main() {
       expect(transport.sent, hasLength(4));
     });
 
-    test('Behavior retry-safe reconnect fails without retransmission when trust state changes, via '
+    test('Behavior retry-safe reconnect rejects a paired claim without Known Host authentication, via '
         'automatic reconnect', () async {
       await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
       transport.queueResponse(_rawFixture('connection/hello-ack.json'));
@@ -2762,10 +3306,8 @@ void main() {
 
       final Future<PairingChallengeStatus> pending = client.requestPairing();
       await pumpEventQueue();
-      // The reconnected session comes back already trusted -- pairing_request requires
-      // unpaired, so the orphaned request must fail instead of being retried into a session it
-      // was never classified for. Queued ahead of the drop so automatic reconnect's own
-      // connect()+hello() finds it ready the moment it retries.
+      // This unpaired candidate has no Known Host relationship. A later paired claim cannot
+      // promote it or select a credential, so the orphaned request is never retried.
       transport.queueResponse(
         jsonEncode(<String, dynamic>{
           'messageType': 'hello_ack',
@@ -2788,8 +3330,17 @@ void main() {
       );
       transport.failMessagesWith(const SocketException('dropped'));
 
-      await expectLater(pending, throwsA(isA<DovahLinkConnectionException>()));
-      expect(client.connectionState, DovahLinkConnectionState.connected);
+      await expectLater(
+        pending,
+        throwsA(
+          isA<DovahLinkProtocolException>().having(
+            (error) => error.code,
+            'code',
+            ProtocolErrorCode.malformedMessage,
+          ),
+        ),
+      );
+      expect(client.connectionState, DovahLinkConnectionState.disconnected);
       // hello#1, pairing_request#1 (orphaned, already sent before the drop), hello#2
       // (automatic) -- no pairing_request#2: the orphaned request was never retransmitted.
       expect(transport.sent, hasLength(3));
@@ -2878,9 +3429,7 @@ void main() {
         );
         await client.hello();
 
-        final Future<String> pending = client.confirmPairingCode(
-          code: '123456',
-        );
+        final Future<void> pending = client.confirmPairingCode(code: '123456');
         await pumpEventQueue();
         transport.failMessagesWith(const SocketException('dropped'));
 
@@ -2897,6 +3446,203 @@ void main() {
   });
 
   group('Behavior reconnect re-authentication sequencing behaves correctly', () {
+    test(
+      'Known Host reconnect preserves its availability while retrying and marks only that Host offline after exhaustion',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+          hostName: 'Soneka-Desktop',
+        );
+        final DovahLinkHost hostB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final PersistedClientState state = PersistedClientState(
+          clientId: 'client-1',
+          knownHosts: <String, PersistedKnownHost>{
+            hostAId: PersistedKnownHost(
+              host: hostA,
+              credential: 'credential-a',
+            ),
+            hostBId: PersistedKnownHost(
+              host: hostB,
+              credential: 'credential-b',
+            ),
+          },
+        );
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        await reconnectStorage.save(state);
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await reconnectClient.authenticateKnownHost(DovahLinkHostId(hostAId));
+        await Future<void>.delayed(Duration.zero);
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: hostA,
+            availability: DovahLinkHostAvailability.online,
+          ),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 30; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.connected,
+        );
+        expect(
+          snapshots.every((List<DovahLinkKnownHostState> snapshot) {
+            return snapshot.first.availability !=
+                DovahLinkHostAvailability.offline;
+          }),
+          isTrue,
+        );
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: hostA,
+            availability: DovahLinkHostAvailability.online,
+          ),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+
+        reconnectTransport.failConnectWith = const SocketException(
+          'unreachable',
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 40; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: hostA,
+            availability: DovahLinkHostAvailability.offline,
+          ),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+        await subscription.cancel();
+        await reconnectClient.disconnect();
+      },
+    );
+
+    test(
+      'Known Host reconnect identity mismatch returns that Host to unknown',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+          hostName: 'Soneka-Desktop',
+        );
+        final DovahLinkHost hostB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        await reconnectStorage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: PersistedKnownHost(
+                host: hostA,
+                credential: 'credential-a',
+              ),
+              hostBId: PersistedKnownHost(
+                host: hostB,
+                credential: 'credential-b',
+              ),
+            },
+          ),
+        );
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await reconnectClient.authenticateKnownHost(DovahLinkHostId(hostAId));
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.first.availability,
+          DovahLinkHostAvailability.online,
+        );
+
+        final Map<String, dynamic> hostBHelloAck =
+            jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                as Map<String, dynamic>;
+        (hostBHelloAck['payload'] as Map<String, dynamic>)['hostId'] = hostBId;
+        reconnectTransport.queueResponse(jsonEncode(hostBHelloAck));
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+
+        for (
+          int attempt = 0;
+          attempt < 40 &&
+              reconnectClient.connectionState !=
+                  DovahLinkConnectionState.disconnected;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(host: hostA),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+        expect(
+          snapshots.every(
+            (List<DovahLinkKnownHostState> snapshot) =>
+                snapshot.first.availability !=
+                DovahLinkHostAvailability.offline,
+          ),
+          isTrue,
+        );
+        await subscription.cancel();
+        await reconnectClient.disconnect();
+      },
+    );
+
     test('Behavior automatic reconnect passes through reauthenticating before resolving to '
         'connected, never exposing connected before hello succeeds', () async {
       final FakeDovahLinkTransport reconnectTransport =
@@ -3032,14 +3778,12 @@ void main() {
             credential: 'stale-cred',
           ),
         );
-        await client.connect(Uri.parse('ws://127.0.0.1:58231/'));
-        transport.queueResponse(
-          _rawFixture('connection/hello-ack-paired.json'),
+        await _connectAndTrustedHello(
+          transport,
+          client,
+          storage,
+          credential: 'stale-cred',
         );
-        transport.queueResponse(
-          _rawFixture('capabilities/capabilities-host.json'),
-        );
-        await client.hello();
 
         // Answers the automatic reconnect's own hello -- the host decides, while this device
         // was briefly offline, that its presented credential is now blocked.
@@ -3067,7 +3811,7 @@ void main() {
 
         expect(client.connectionState, DovahLinkConnectionState.disconnected);
         final PersistedClientState stored = await storage.load();
-        expect(stored.credential, isNull);
+        expect(stored.knownHosts.values.single.credential, isNull);
         expect(stored.clientId, 'client-1');
         final List<String> helloSends = transport.sent
             .where(
@@ -3099,7 +3843,7 @@ void main() {
         // retry behavior -- a retry-safe first request would itself get auto-retried by the
         // second hello() below, which is exactly the mechanism the sibling group above already
         // covers and would confuse this test's own generation-isolation assertion.
-        final Future<String> firstRequest = client.confirmPairingCode(
+        final Future<void> firstRequest = client.confirmPairingCode(
           code: '123456',
         );
         final Future<void> firstRequestFails = expectLater(
@@ -3211,9 +3955,7 @@ void main() {
       );
       await client.hello();
 
-      final Future<void> pending = client.acknowledgeTrustedCredential(
-        'a1b2c3d4e5f6',
-      );
+      final Future<void> pending = client.acknowledgeTrustedCredential();
       final Future<void> pendingCompletes = expectLater(pending, completes);
       await pumpEventQueue();
       // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry
@@ -3338,6 +4080,94 @@ void main() {
       // above.
       await client.disconnect();
     });
+  });
+
+  group('Behavior Known Host disconnect during recovery behaves correctly', () {
+    test(
+      'Behavior Known Host disconnect during reauthentication reports unknown and ignores a late hello reply',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        await reconnectStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+            ),
+          ),
+        );
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        await reconnectClient.authenticateKnownHost(DovahLinkHostId(hostId));
+        await Future<void>.delayed(Duration.zero);
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.reauthenticating,
+        );
+
+        final int closeCountBeforeDisconnect =
+            reconnectTransport.closeCallCount;
+        final Completer<void> closeGate = Completer<void>();
+        reconnectTransport.closeGate = closeGate;
+        final Future<void> disconnect = reconnectClient.disconnect();
+        for (
+          int i = 0;
+          i < 20 &&
+              reconnectTransport.closeCallCount == closeCountBeforeDisconnect;
+          i++
+        ) {
+          await pumpEventQueue();
+        }
+        expect(
+          reconnectTransport.closeCallCount,
+          greaterThan(closeCountBeforeDisconnect),
+        );
+
+        reconnectTransport.queueRawResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        closeGate.complete();
+        await disconnect;
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          reconnectClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+            ),
+            availability: DovahLinkHostAvailability.unknown,
+          ),
+        ]);
+        await subscription.cancel();
+      },
+    );
   });
 
   group('Behavior reconnect-disabled client composition behaves correctly', () {

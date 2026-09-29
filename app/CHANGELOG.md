@@ -13,6 +13,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Added
 
+- The app distinguishes loading, ready, and failed Known Hosts observations while retaining the last successful collection on stream errors.
+- The connection state mirrors the complete SDK-owned Known Hosts list separately from discovery candidates.
 - The Connections screen discovers the local Host on demand and shows searching, available, empty, and failure states.
 - Discovery failures use app-owned semantic reasons in Redux, with user-facing copy beside the enum.
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
@@ -29,6 +31,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
 - Pairing shows while a code redisplay is being sent to Skyrim and prevents repeated requests
   until the Host responds.
 - Custom Dovah controls suppress Material splash and state overlays.

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
@@ -10,7 +11,13 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show CredentialRejectionReason, DovahLinkTrustState, HelloResult;
+    show
+        CredentialRejectionReason,
+        DovahLinkHost,
+        DovahLinkHostAvailability,
+        DovahLinkKnownHostState,
+        DovahLinkTrustState,
+        HelloResult;
 
 /// Central test-owned catalog of representative Flutter app values.
 abstract final class Fixtures {
@@ -18,12 +25,28 @@ abstract final class Fixtures {
 
   /// Builds a Host identity with the representative local endpoint.
   static Host buildHost({
+    /// The stable Host installation identity.
+    String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
+
     /// The user-facing Host name.
     String displayName = 'Local Host',
 
     /// The Host endpoint, or the representative local endpoint when omitted.
     Uri? uri,
-  }) => Host(displayName: displayName, uri: uri ?? defaultHostUri);
+  }) => Host(
+    hostId: hostId,
+    displayName: displayName,
+    uri: uri ?? defaultHostUri,
+  );
+
+  /// Builds a Known Host with representative metadata and unknown availability by default.
+  static KnownHost buildKnownHost({
+    /// The Host metadata, or the representative local Host when omitted.
+    Host? host,
+
+    /// The runtime reachability evidence.
+    HostAvailability availability = HostAvailability.unknown,
+  }) => KnownHost(host: host ?? buildHost(), availability: availability);
 
   /// Builds a Host card's display data for the representative local Host.
   static HostCardViewData buildHostCardViewData({
@@ -49,13 +72,27 @@ abstract final class Fixtures {
     state: state,
   );
 
+  /// Builds an SDK Known Host state around [host].
+  static DovahLinkKnownHostState buildSdkKnownHostState({
+    /// The SDK Host metadata.
+    required DovahLinkHost host,
+
+    /// The SDK-reported runtime reachability evidence.
+    DovahLinkHostAvailability availability = DovahLinkHostAvailability.unknown,
+  }) => DovahLinkKnownHostState(host: host, availability: availability);
+
   // ---- Pairing ----
 
   /// Builds authentication parameters targeting the representative local Host.
   static AuthenticateParams buildAuthenticateParams({
     /// The Host endpoint to authenticate with, or the representative local endpoint when omitted.
     Uri? hostUri,
-  }) => AuthenticateParams(hostUri: hostUri ?? defaultHostUri);
+
+    /// The stable Known Host ID to authenticate with instead of the endpoint.
+    String? hostId,
+  }) => hostId == null
+      ? AuthenticateParams(hostUri: hostUri ?? defaultHostUri)
+      : AuthenticateParams.knownHost(hostId: hostId);
 
   /// Builds the SDK handshake value consumed by pairing tests.
   /// @param hostId The stable Host installation identity.

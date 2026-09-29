@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
@@ -20,6 +21,18 @@ void main() {
       final ConnectionState state = ConnectionState.initial();
 
       expect(state.selectedHost, isNull);
+      expect(state.selectedHostSource, ConnectionHostSelectionSource.candidate);
+    });
+
+    test('ConnectionState initial has no SDK Known Host projection', () {
+      expect(ConnectionState.initial().knownHosts, isEmpty);
+    });
+
+    test('ConnectionState initial waits for a Known Hosts observation', () {
+      expect(
+        ConnectionState.initial().knownHostsStatus,
+        KnownHostsObservationStatus.loading,
+      );
     });
   });
 
@@ -71,6 +84,71 @@ void main() {
 
       expect(result.selectedHost, isNull);
     });
+
+    test('ConnectionState copyWith replaces selected Host source', () {
+      final ConnectionState result = ConnectionState.initial().copyWith(
+        selectedHostSource: ConnectionHostSelectionSource.knownHost,
+      );
+
+      expect(
+        result.selectedHostSource,
+        ConnectionHostSelectionSource.knownHost,
+      );
+    });
+
+    test('ConnectionState copyWith preserves selected Host source', () {
+      const ConnectionState state = ConnectionState(
+        selectedHostSource: ConnectionHostSelectionSource.knownHost,
+      );
+
+      expect(
+        state.copyWith().selectedHostSource,
+        ConnectionHostSelectionSource.knownHost,
+      );
+    });
+
+    test(
+      'ConnectionState copyWith replaces the full SDK Known Hosts projection',
+      () {
+        final KnownHost host = Fixtures.buildKnownHost(
+          availability: HostAvailability.online,
+        );
+        final ConnectionState set = ConnectionState.initial().copyWith(
+          knownHosts: <KnownHost>[host],
+        );
+        final ConnectionState cleared = set.copyWith(
+          knownHosts: const <KnownHost>[],
+        );
+
+        expect(set.knownHosts, <KnownHost>[host]);
+        expect(cleared.knownHosts, isEmpty);
+      },
+    );
+
+    test(
+      'ConnectionState copyWith replaces Known Hosts observation status',
+      () {
+        final ConnectionState result = ConnectionState.initial().copyWith(
+          knownHostsStatus: KnownHostsObservationStatus.failed,
+        );
+
+        expect(result.knownHostsStatus, KnownHostsObservationStatus.failed);
+      },
+    );
+
+    test(
+      'ConnectionState copyWith preserves Known Hosts observation status',
+      () {
+        const ConnectionState state = ConnectionState(
+          knownHostsStatus: KnownHostsObservationStatus.failed,
+        );
+
+        expect(
+          state.copyWith().knownHostsStatus,
+          KnownHostsObservationStatus.failed,
+        );
+      },
+    );
   });
 
   group('ConnectionState — equality', () {
@@ -81,6 +159,40 @@ void main() {
       );
 
       expect(selected, isNot(unselected));
+    });
+
+    test('ConnectionState differs when only Known Hosts status differs', () {
+      const ConnectionState loading = ConnectionState();
+      const ConnectionState failed = ConnectionState(
+        knownHostsStatus: KnownHostsObservationStatus.failed,
+      );
+
+      expect(failed, isNot(loading));
+    });
+
+    test('ConnectionState differs when only selected Host source differs', () {
+      final Host host = Fixtures.buildHost();
+      final ConnectionState candidate = ConnectionState(selectedHost: host);
+      final ConnectionState knownHost = ConnectionState(
+        selectedHost: host,
+        selectedHostSource: ConnectionHostSelectionSource.knownHost,
+      );
+
+      expect(knownHost, isNot(candidate));
+    });
+
+    test('ConnectionState differs when Known Host availability changes', () {
+      final KnownHost unknown = Fixtures.buildKnownHost();
+      final ConnectionState unknownState = ConnectionState(
+        knownHosts: <KnownHost>[unknown],
+      );
+      final ConnectionState onlineState = ConnectionState(
+        knownHosts: <KnownHost>[
+          Fixtures.buildKnownHost(availability: HostAvailability.online),
+        ],
+      );
+
+      expect(onlineState, isNot(unknownState));
     });
   });
 

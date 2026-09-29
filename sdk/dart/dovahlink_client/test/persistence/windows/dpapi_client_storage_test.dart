@@ -6,7 +6,9 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
+import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi.dart';
 import 'package:dovahlink_client_sdk/src/persistence/windows/dpapi_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -49,37 +51,66 @@ void main() {
       },
     );
 
-    test('Method load round-trips a full state through save', () async {
-      final PersistedClientState saved = PersistedClientState(
-        clientId: 'client-1',
-        credential: 'a1b2c3d4e5f6',
-        recoveryState: PairingRecoveryState.confirming,
-        knownHost: DovahLinkHost(
-          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
-          hostName: 'GONCALO-DESKTOP',
-          endpoint: Uri.parse('ws://127.0.0.1:58231/'),
-        ),
-      );
+    test(
+      'Method load round-trips multiple Host-scoped records through save',
+      () async {
+        final PersistedClientState saved = PersistedClientState(
+          clientId: 'client-1',
+          knownHosts: <String, PersistedKnownHost>{
+            '81869993-955c-4ba3-a7d0-d35ca86078ea': PersistedKnownHost(
+              host: DovahLinkHost(
+                hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+                hostName: 'GONCALO-DESKTOP',
+                endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+              ),
+              credential: 'credential-a',
+            ),
+            '81f6cc90-3a88-40c7-8351-104d4a36c971': PersistedKnownHost(
+              host: DovahLinkHost(
+                hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+                hostName: 'HOST-B',
+                endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+              ),
+              credential: 'credential-b',
+            ),
+          },
+          pendingPairingRecovery: const PendingPairingRecovery(
+            hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+            state: PairingRecoveryState.confirming,
+          ),
+        );
 
-      await storage.save(saved);
-      final PersistedClientState loaded = await storage.load();
-      final Uint8List decrypted = Dpapi.unprotect(
-        await File(filePath).readAsBytes(),
-      );
-      final Map<String, dynamic> json =
-          jsonDecode(utf8.decode(decrypted)) as Map<String, dynamic>;
+        await storage.save(saved);
+        final PersistedClientState loaded = await storage.load();
+        final Uint8List decrypted = Dpapi.unprotect(
+          await File(filePath).readAsBytes(),
+        );
+        final Map<String, dynamic> json =
+            jsonDecode(utf8.decode(decrypted)) as Map<String, dynamic>;
 
-      expect(loaded, saved);
-      expect(json['formatVersion'], 2);
-      expect(json['knownHost'], <String, dynamic>{
-        'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
-        'hostName': 'GONCALO-DESKTOP',
-        'endpoint': 'ws://127.0.0.1:58231/',
-      });
-    });
+        expect(loaded, saved);
+        expect(json['formatVersion'], 3);
+        expect(json['knownHosts'], <String, dynamic>{
+          '81869993-955c-4ba3-a7d0-d35ca86078ea': <String, dynamic>{
+            'hostName': 'GONCALO-DESKTOP',
+            'endpoint': 'ws://127.0.0.1:58231/',
+            'credential': 'credential-a',
+          },
+          '81f6cc90-3a88-40c7-8351-104d4a36c971': <String, dynamic>{
+            'hostName': 'HOST-B',
+            'endpoint': 'ws://127.0.0.1:58232/',
+            'credential': 'credential-b',
+          },
+        });
+        expect(json['pendingPairingRecovery'], <String, dynamic>{
+          'hostId': '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          'state': 'confirming',
+        });
+      },
+    );
 
     test(
-      'Method load migrates v1 state and saves it in v2 on the next mutation',
+      'Method load invalidates v1 singleton credentials and writes v3 on save',
       () async {
         final Uint8List encrypted = Dpapi.protect(
           Uint8List.fromList(
@@ -97,9 +128,8 @@ void main() {
 
         final PersistedClientState loaded = await storage.load();
         expect(loaded.clientId, 'client-1');
-        expect(loaded.credential, 'legacy-credential');
-        expect(loaded.recoveryState, PairingRecoveryState.confirming);
-        expect(loaded.knownHost, isNull);
+        expect(loaded.knownHosts, isEmpty);
+        expect(loaded.pendingPairingRecovery, isNull);
 
         await storage.save(loaded);
         final Uint8List migrated = Dpapi.unprotect(
@@ -108,28 +138,28 @@ void main() {
         final Map<String, dynamic> json =
             jsonDecode(utf8.decode(migrated)) as Map<String, dynamic>;
 
-        expect(json['formatVersion'], 2);
+        expect(json['formatVersion'], 3);
         expect(json['clientId'], 'client-1');
-        expect(json['credential'], 'legacy-credential');
-        expect(json['recoveryState'], 'confirming');
-        expect(json['knownHost'], isNull);
+        expect(json['knownHosts'], isEmpty);
+        expect(json['pendingPairingRecovery'], isNull);
       },
     );
 
-    test('Method load rejects corrupt v2 Known Host data', () async {
+    test('Method load rejects corrupt v3 Known Host data', () async {
       final Uint8List encrypted = Dpapi.protect(
         Uint8List.fromList(
           utf8.encode(
             jsonEncode(<String, dynamic>{
-              'formatVersion': 2,
+              'formatVersion': 3,
               'clientId': 'client-1',
-              'credential': 'credential-1',
-              'recoveryState': 'none',
-              'knownHost': <String, dynamic>{
-                'hostId': 'not-a-uuid',
-                'hostName': 'GONCALO-DESKTOP',
-                'endpoint': 'ws://127.0.0.1:58231/',
+              'knownHosts': <String, dynamic>{
+                'not-a-uuid': <String, dynamic>{
+                  'hostName': 'GONCALO-DESKTOP',
+                  'endpoint': 'ws://127.0.0.1:58231/',
+                  'credential': null,
+                },
               },
+              'pendingPairingRecovery': null,
             }),
           ),
         ),
