@@ -1,5 +1,6 @@
 using System.Net.WebSockets;
 using System.Threading.Channels;
+using DovahLink.Host.Identity;
 using DovahLink.Host.State;
 using DovahLink.Host.Time;
 
@@ -140,6 +141,9 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// </summary>
     private readonly IDataLaneOutboundQueue dataLaneQueue;
 
+    /// <summary>The public Host metadata returned by the sessionless probe route.</summary>
+    private readonly HostIdentity hostIdentity;
+
     /// <summary>
     /// The total encoded byte size of frames this connection currently owns for outbound delivery,
     /// across both lanes -- admitted by <see cref="TrySend"/> and not yet released by the writer loop,
@@ -278,13 +282,15 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <param name="options">The bounded configuration this connection enforces.</param>
     /// <param name="diagnostics">The Host-local abnormal-termination reporting sink this connection reports its root-cause end reason through, at most once.</param>
     /// <param name="dataLaneQueue">The <see cref="PublicOutboundLane.Data"/> lane's own ordered admission and draining structure, scoped to this connection for its entire lifetime.</param>
+    /// <param name="hostIdentity">The stable Host ID and current display name exposed by the sessionless metadata probe.</param>
     public PublicWebSocketConnection(
         Stream stream,
         IPublicWebSocketMessageHandler messageHandler,
         IClock clock,
         PublicWebSocketTransportOptions options,
         IPublicWebSocketTransportDiagnostics diagnostics,
-        IDataLaneOutboundQueue dataLaneQueue)
+        IDataLaneOutboundQueue dataLaneQueue,
+        HostIdentity hostIdentity)
     {
         this.stream = stream;
         this.messageHandler = messageHandler;
@@ -292,6 +298,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         this.options = options;
         this.diagnostics = diagnostics;
         this.dataLaneQueue = dataLaneQueue;
+        this.hostIdentity = hostIdentity;
         controlOutbound = Channel.CreateBounded<byte[]>(
             new BoundedChannelOptions(options.ControlOutboundQueueMaxMessages) { SingleReader = true, SingleWriter = false });
         connectionContext = new PublicConnectionContext(this);
@@ -663,12 +670,13 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     }
 
     /// <summary>
-    /// Reads the raw HTTP Upgrade request byte-by-byte -- never over-reading past the header
+    /// Reads the raw HTTP request byte-by-byte -- never over-reading past the header
     /// terminator, so no leftover bytes are ever lost to the WebSocket framing that follows -- within
     /// <see cref="PublicWebSocketTransportOptions.HandshakeTimeout"/>, validates it, and writes the
-    /// matching response: <c>101 Switching Protocols</c> on success, or a minimal <c>400 Bad
-    /// Request</c> or <c>426 Upgrade Required</c> for a complete request this transport intentionally
-    /// rejects. A peer that withholds or malforms its handshake past the deadline, or disconnects
+    /// matching response: the bounded metadata payload for the exact sessionless Host probe route,
+    /// <c>101 Switching Protocols</c> for a valid upgrade, or a minimal HTTP rejection for a
+    /// complete request this transport intentionally rejects. A peer that withholds the request
+    /// past the deadline, or disconnects
     /// before completing it, is closed silently with no fabricated HTTP response -- a rejection
     /// response is only ever attempted for a complete request the parser actually evaluated.
     /// </summary>
@@ -721,7 +729,25 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
             return null;
         }
 
-        HandshakeRejectReason rejectReason = PublicWebSocketHandshake.TryParseUpgradeRequest(requestBuffer.AsSpan(0, length), out string acceptKey);
+        byte[] requestBytes = requestBuffer[..length];
+        if (PublicWebSocketHandshake.IsHostProbeRequest(requestBytes))
+        {
+            byte[] probeResponse = PublicWebSocketHandshake.IsValidHostProbeRequest(requestBytes)
+                ? PublicWebSocketHandshake.BuildHostProbeResponse(hostIdentity)
+                : PublicWebSocketHandshake.BuildBadRequestResponse();
+            try
+            {
+                await stream.WriteAsync(probeResponse, handshakeDeadline.Token).ConfigureAwait(false);
+            }
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException or OperationCanceledException)
+            {
+                // This short-lived request owns no session state; a failed response write only ends its transport.
+            }
+
+            return null;
+        }
+
+        HandshakeRejectReason rejectReason = PublicWebSocketHandshake.TryParseUpgradeRequest(requestBytes, out string acceptKey);
         if (rejectReason != HandshakeRejectReason.None)
         {
             ReportAbnormalEnd(rejectReason switch

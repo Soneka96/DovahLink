@@ -6,8 +6,8 @@ namespace DovahLink.Host.Client.Transport;
 /// <summary>
 /// The public client channel's listening side: binds both supported loopback addresses,
 /// <see cref="IPAddress.Loopback"/> and <see cref="IPAddress.IPv6Loopback"/>, on one port and serves
-/// up to <see cref="PublicWebSocketListener"/>'s configured bound of concurrent public WebSocket
-/// connections, supporting multiple simultaneous devices. A connection attempt while every slot is
+/// up to <see cref="PublicWebSocketListener"/>'s configured bound of concurrent raw public
+/// connections, which is separate from the active-session bound. A connection attempt while every slot is
 /// occupied is rejected outright -- closed before its handshake even begins -- never queued and
 /// never allowed to replace an active connection. Accepts a fresh connection again as soon as any
 /// slot frees, whether that is the same device reconnecting or an additional device connecting for
@@ -51,8 +51,8 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     /// <summary>Creates a connection over a newly accepted transport.</summary>
     private readonly Func<Stream, IPublicWebSocketConnection> connectionFactory;
 
-    /// <summary>The maximum number of connections admitted at once. See <see cref="TryAcquireSlot"/>.</summary>
-    private readonly int maxConcurrentConnections;
+    /// <summary>The maximum number of raw public connections admitted at once.</summary>
+    private readonly int maxConcurrentPublicConnections;
 
     /// <summary>
     /// Guards <see cref="occupiedSlots"/> and <see cref="serveTasksByConnection"/> against concurrent
@@ -81,20 +81,20 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     /// addresses always share one numeric port.
     /// </param>
     /// <param name="connectionFactory">Creates a connection over a newly accepted transport.</param>
-    /// <param name="maxConcurrentConnections">The maximum number of connections admitted at once.</param>
-    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxConcurrentConnections"/> is not positive.</exception>
+    /// <param name="maxConcurrentPublicConnections">The maximum number of raw public connections admitted at once.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="maxConcurrentPublicConnections"/> is not positive.</exception>
     public PublicWebSocketListener(
         int port,
         Func<Stream, IPublicWebSocketConnection> connectionFactory,
-        int maxConcurrentConnections = Constants.MaxActiveSessions)
+        int maxConcurrentPublicConnections = Constants.MaxConcurrentPublicConnections)
     {
-        if (maxConcurrentConnections <= 0)
+        if (maxConcurrentPublicConnections <= 0)
         {
-            throw new ArgumentOutOfRangeException(nameof(maxConcurrentConnections));
+            throw new ArgumentOutOfRangeException(nameof(maxConcurrentPublicConnections));
         }
 
         this.connectionFactory = connectionFactory;
-        this.maxConcurrentConnections = maxConcurrentConnections;
+        this.maxConcurrentPublicConnections = maxConcurrentPublicConnections;
 
         ipv4Socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
         try
@@ -124,12 +124,17 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
         }
     }
 
-    /// <summary>Creates a listener from its own runtime configuration, the Host-lifetime connection factory, and the resolved device cap.</summary>
+    /// <summary>Creates a listener with raw capacity for configured sessions plus bounded pre-session work.</summary>
     /// <param name="options">The public client listener's own runtime configuration.</param>
-    /// <param name="hostSettings">The resolved host configuration this listener's admission bound comes from.</param>
+    /// <param name="hostSettings">The resolved active-session capacity.</param>
     /// <param name="connectionFactory">Builds a fresh connection-owned graph for each accepted transport.</param>
     public PublicWebSocketListener(PublicListenerOptions options, HostSettings hostSettings, IPublicConnectionFactory connectionFactory)
-        : this(options.Port, connectionFactory.Create, hostSettings.MaxActiveSessions)
+        : this(
+            options.Port,
+            connectionFactory.Create,
+            hostSettings.MaxActiveSessions > 0
+                ? checked(hostSettings.MaxActiveSessions + Constants.MaxPreSessionPublicConnections)
+                : throw new ArgumentOutOfRangeException(nameof(hostSettings)))
     {
     }
 
@@ -270,7 +275,7 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
             }
 
             // Serving runs detached from this loop rather than being awaited inline: the admission
-            // bound already guarantees no more than maxConcurrentConnections are ever served at once,
+            // bound already guarantees no more than maxConcurrentPublicConnections are ever served at once,
             // but the accept loop itself must keep accepting (so it can promptly reject an attempt
             // once every slot is occupied) instead of blocking here until an active connection ends.
             // RunAsync still awaits every serve task after both accept loops stop, so shutdown remains
@@ -331,7 +336,7 @@ public sealed class PublicWebSocketListener : IPublicWebSocketListener
     {
         lock (gate)
         {
-            if (occupiedSlots >= maxConcurrentConnections)
+            if (occupiedSlots >= maxConcurrentPublicConnections)
             {
                 return false;
             }

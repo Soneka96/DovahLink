@@ -152,7 +152,7 @@ public class PublicWebSocketListenerTests
             var connection = new FakePublicWebSocketConnection(stream);
             connections.Enqueue(connection);
             return connection;
-        }, maxConcurrentConnections: 1);
+        }, maxConcurrentPublicConnections: 1);
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
@@ -180,7 +180,7 @@ public class PublicWebSocketListenerTests
             var connection = new FakePublicWebSocketConnection(stream);
             connections.Enqueue(connection);
             return connection;
-        }, maxConcurrentConnections: 1);
+        }, maxConcurrentPublicConnections: 1);
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
@@ -207,7 +207,7 @@ public class PublicWebSocketListenerTests
             var connection = new FakePublicWebSocketConnection(stream);
             connections.Enqueue(connection);
             return connection;
-        }, maxConcurrentConnections: 3);
+        }, maxConcurrentPublicConnections: 3);
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
@@ -236,7 +236,7 @@ public class PublicWebSocketListenerTests
             var connection = new FakePublicWebSocketConnection(stream);
             connections.Enqueue(connection);
             return connection;
-        }, maxConcurrentConnections: 2);
+        }, maxConcurrentPublicConnections: 2);
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
@@ -269,7 +269,7 @@ public class PublicWebSocketListenerTests
             var connection = new FakePublicWebSocketConnection(stream);
             connections.Enqueue(connection);
             return connection;
-        }, maxConcurrentConnections: 2);
+        }, maxConcurrentPublicConnections: 2);
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
@@ -295,10 +295,10 @@ public class PublicWebSocketListenerTests
 
     /// <summary>Verifies that a non-positive admission bound is rejected.</summary>
     [Fact]
-    public void Constructor_NonPositiveMaxConcurrentConnections_Throws()
+    public void Constructor_NonPositiveMaxConcurrentPublicConnections_Throws()
     {
         Assert.Throws<ArgumentOutOfRangeException>(
-            () => new PublicWebSocketListener(0, stream => new FakePublicWebSocketConnection(stream), maxConcurrentConnections: 0));
+            () => new PublicWebSocketListener(0, stream => new FakePublicWebSocketConnection(stream), maxConcurrentPublicConnections: 0));
     }
 
     /// <summary>Verifies that cancelling before any client ever connects ends the accept loop without throwing.</summary>
@@ -376,7 +376,7 @@ public class PublicWebSocketListenerTests
         int connectionIndex = 0;
         using var listener = new PublicWebSocketListener(0, stream =>
             new FakePublicWebSocketConnection(stream, Interlocked.Increment(ref connectionIndex) == 1 ? fastTeardownDelay : slowTeardownDelay),
-            maxConcurrentConnections: 2);
+            maxConcurrentPublicConnections: 2);
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
@@ -606,9 +606,9 @@ public class PublicWebSocketListenerTests
         Assert.Throws<SocketException>(() => new PublicWebSocketListener(first.BoundPort, stream => new FakePublicWebSocketConnection(stream)));
     }
 
-    /// <summary>Verifies that the options-based constructor binds the configured port, resolved admission cap, and supplied connection factory.</summary>
+    /// <summary>Verifies that the options-based constructor reserves raw public capacity beyond active sessions.</summary>
     [Fact]
-    public async Task Constructor_OptionsHostSettingsAndConnectionFactory_BindsConfiguredPortCapAndFactory()
+    public async Task Constructor_OptionsHostSettingsAndConnectionFactory_AdmitsPreSessionConnectionAlongsideConfiguredSessions()
     {
         var connectionFactory = new StubPublicConnectionFactory(stream => new FakePublicWebSocketConnection(stream));
         using var listener = new PublicWebSocketListener(new PublicListenerOptions(0), new HostSettings(1), connectionFactory);
@@ -620,10 +620,58 @@ public class PublicWebSocketListenerTests
         using Socket firstClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
         await WaitUntilAsync(() => connectionFactory.CreateCallCount == 1);
         using Socket secondClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
-        await WaitUntilAsync(() => IsDisconnected(secondClient));
+        await WaitUntilAsync(() => connectionFactory.CreateCallCount == 2);
+        Assert.Equal(2, listener.CurrentConnections.Count);
 
         cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>Verifies the production listener derives a finite raw bound from multi-session capacity plus its fixed pre-session allowance.</summary>
+    [Fact]
+    public async Task Constructor_OptionsHostSettingsAndConnectionFactory_BoundsMultiSessionPreSessionCapacity()
+    {
+        ConcurrentQueue<FakePublicWebSocketConnection> connections = new();
+        using var listener = new PublicWebSocketListener(
+            new PublicListenerOptions(0),
+            new HostSettings(2),
+            new StubPublicConnectionFactory(stream =>
+            {
+                var connection = new FakePublicWebSocketConnection(stream);
+                connections.Enqueue(connection);
+                return connection;
+            }));
+        using var cancellation = new CancellationTokenSource();
+        Task runTask = listener.RunAsync(cancellation.Token);
+        List<Socket> clients = [];
+        int capacity = 2 + Constants.MaxPreSessionPublicConnections;
+        try
+        {
+            for (int index = 0; index < capacity; index++)
+            {
+                clients.Add(await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork));
+            }
+
+            await WaitUntilAsync(() => listener.CurrentConnections.Count == capacity);
+            using Socket overflowClient = await ConnectClientAsync(listener.BoundPort, AddressFamily.InterNetwork);
+            await WaitUntilAsync(() => IsDisconnected(overflowClient));
+            Assert.Equal(capacity, connections.Count);
+        }
+        finally
+        {
+            foreach (FakePublicWebSocketConnection connection in connections)
+            {
+                connection.Complete();
+            }
+
+            foreach (Socket client in clients)
+            {
+                client.Dispose();
+            }
+
+            cancellation.Cancel();
+            await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+        }
     }
 
     /// <summary>Verifies that the options-based constructor also fails fast on a port already bound by another, matching the low-level constructor it delegates to.</summary>

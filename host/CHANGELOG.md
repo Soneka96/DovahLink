@@ -17,10 +17,12 @@ for the player-facing summary posted with each Nexus Mods package. See
 ### Added
 
 - The connection handshake now exposes the stable Host installation ID and current OS computer name.
+- The loopback listener exposes a bounded, sessionless Host metadata probe for discovery and presence checks.
 
 ### Changed
 
 - Pairing outcomes now expose Host-calculated attempts remaining and the committed renotify cooldown.
+- Raw public connection capacity is bounded separately from authenticated session capacity.
 
 ## [0.5.0] - 2026-09-24
 

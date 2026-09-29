@@ -21,6 +21,12 @@ This file records the current transport and trust implementation. The target cry
   and this policy rejects it exactly the same way. There is no origin allowlist: this is an
   intentional no-browser-clients contract, not a placeholder for one, and a browser origin is never
   treated as privileged merely because it happens to be loopback.
+- The loopback listener's `GET /.well-known/dovahlink` discovery/presence endpoint returns only the
+  stable Host ID, current Host name, and Host release version as an unauthenticated claim. It never
+  reads credentials, trust, pairing, or session state and never creates a protocol session. It uses
+  the WebSocket handshake's existing request-size and deadline bounds, closes after one response,
+  rejects `Origin`, and is included in a finite public-connection cap separate from
+  `MaxActiveSessions`.
 - A complete handshake request the Host intentionally rejects (malformed, missing a required
   header, a disallowed `Origin`, or an unsupported `Sec-WebSocket-Version`) receives a minimal HTTP
   rejection instead of a silent close: `400 Bad Request` for a malformed or policy-rejected request,

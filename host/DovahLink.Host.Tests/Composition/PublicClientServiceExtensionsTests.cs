@@ -101,12 +101,11 @@ public class PublicClientServiceExtensionsTests
     }
 
     /// <summary>
-    /// Verifies that the composed listener's own connection cap comes from the same resolved
-    /// <see cref="HostSettings"/> the session registry uses -- not an independent default -- by
-    /// admitting exactly that many concurrent raw connections and rejecting the next.
+    /// Verifies that the composed listener's raw connection cap uses the resolved
+    /// <see cref="HostSettings"/> session capacity plus its separate fixed pre-session allowance.
     /// </summary>
     [Fact]
-    public async Task AddPublicClientServices_UsesResolvedCapFromCoreServicesForListenerAdmission()
+    public async Task AddPublicClientServices_SeparatesResolvedSessionAndRawConnectionCapacities()
     {
         using var shutdown = new CancellationTokenSource();
         var hostSettingsProvider = new FakeHostSettingsProvider { Settings = new HostSettings(2) };
@@ -115,21 +114,36 @@ public class PublicClientServiceExtensionsTests
         using var cancellation = new CancellationTokenSource();
         Task runTask = listener.RunAsync(cancellation.Token);
 
-        using var firstClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        await firstClient.ConnectAsync(IPAddress.Loopback, listener.BoundPort);
-        using var secondClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        await secondClient.ConnectAsync(IPAddress.Loopback, listener.BoundPort);
-        using var thirdClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        await thirdClient.ConnectAsync(IPAddress.Loopback, listener.BoundPort);
-
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!IsDisconnected(thirdClient))
+        int rawCapacity = hostSettingsProvider.Settings.MaxActiveSessions + Constants.MaxPreSessionPublicConnections;
+        List<Socket> admittedClients = [];
+        using var overflowClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        try
         {
-            Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for the third connection to be rejected.");
-            await Task.Delay(TimeSpan.FromMilliseconds(20));
+            for (int index = 0; index < rawCapacity; index++)
+            {
+                var client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                await client.ConnectAsync(IPAddress.Loopback, listener.BoundPort);
+                admittedClients.Add(client);
+            }
+
+            await overflowClient.ConnectAsync(IPAddress.Loopback, listener.BoundPort);
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!IsDisconnected(overflowClient))
+            {
+                Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for the next raw public connection to be rejected.");
+                await Task.Delay(TimeSpan.FromMilliseconds(20));
+            }
+        }
+        finally
+        {
+            foreach (Socket client in admittedClients)
+            {
+                client.Dispose();
+            }
+
+            cancellation.Cancel();
         }
 
-        cancellation.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 

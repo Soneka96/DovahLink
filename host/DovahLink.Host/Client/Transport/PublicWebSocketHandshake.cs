@@ -1,5 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
+using System.Text.Json;
+using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.Client.Transport;
 
@@ -11,6 +13,9 @@ namespace DovahLink.Host.Client.Transport;
 /// </summary>
 internal static class PublicWebSocketHandshake
 {
+    /// <summary>The unauthenticated HTTP route for discovering public Host metadata.</summary>
+    internal const string HostProbePath = "/.well-known/dovahlink";
+
     /// <summary>The fixed GUID RFC 6455 defines for computing <c>Sec-WebSocket-Accept</c>.</summary>
     private const string WebSocketAcceptGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 
@@ -28,6 +33,87 @@ internal static class PublicWebSocketHandshake
     /// </summary>
     private static readonly HashSet<string> SingletonHeaderNames =
         new(StringComparer.OrdinalIgnoreCase) { "Host", "Upgrade", "Sec-WebSocket-Version", "Sec-WebSocket-Key", "Origin" };
+
+    /// <summary>Whether a request targets the exact sessionless Host metadata route.</summary>
+    /// <param name="requestBytes">The bounded HTTP request bytes.</param>
+    /// <returns><see langword="true"/> only for the expected HTTP/1.1 request line.</returns>
+    internal static bool IsHostProbeRequest(ReadOnlySpan<byte> requestBytes)
+    {
+        int lineEnd = requestBytes.IndexOf("\r\n"u8);
+        return lineEnd >= 0 &&
+            Encoding.ASCII.GetString(requestBytes[..lineEnd]) == $"GET {HostProbePath} HTTP/1.1";
+    }
+
+    /// <summary>Validates the headers permitted on a sessionless Host metadata request.</summary>
+    /// <param name="requestBytes">The complete bounded HTTP request header.</param>
+    /// <returns><see langword="true"/> when the request is complete, has one non-empty Host header, and has no Origin or body.</returns>
+    internal static bool IsValidHostProbeRequest(ReadOnlySpan<byte> requestBytes)
+    {
+        string[] lines = Encoding.ASCII.GetString(requestBytes).Split("\r\n");
+        if (lines.Length < 3)
+        {
+            return false;
+        }
+
+        Dictionary<string, string> headers = new(StringComparer.OrdinalIgnoreCase);
+        bool foundTerminator = false;
+        for (int index = 1; index < lines.Length; index++)
+        {
+            string line = lines[index];
+            if (line.Length == 0)
+            {
+                foundTerminator = true;
+                break;
+            }
+
+            int separator = line.IndexOf(':');
+            if (separator <= 0)
+            {
+                return false;
+            }
+
+            string name = line[..separator];
+            string value = line[(separator + 1)..].Trim();
+            if (!IsValidHeaderName(name) || !headers.TryAdd(name, value))
+            {
+                return false;
+            }
+        }
+
+        return foundTerminator &&
+            headers.TryGetValue("Host", out string? host) && host.Length > 0 &&
+            !headers.ContainsKey("Origin") &&
+            (!headers.TryGetValue("Content-Length", out string? contentLength) || contentLength == "0") &&
+            !headers.ContainsKey("Transfer-Encoding");
+    }
+
+    /// <summary>Builds the fixed-size public metadata response for a valid Host probe.</summary>
+    /// <param name="hostIdentity">The stable Host ID and current display name.</param>
+    /// <returns>A close-after-response HTTP payload containing only public Host metadata.</returns>
+    internal static byte[] BuildHostProbeResponse(HostIdentity hostIdentity)
+    {
+        byte[] body = JsonSerializer.SerializeToUtf8Bytes(new
+        {
+            hostId = hostIdentity.HostId.ToString(),
+            hostName = hostIdentity.HostName,
+            hostVersion = Constants.PublicProtocolHostVersion,
+        });
+        if (body.Length > Constants.PublicHostProbeMaxResponseBytes)
+        {
+            throw new InvalidOperationException("The public Host probe response exceeded its fixed size bound.");
+        }
+
+        byte[] headers = Encoding.ASCII.GetBytes(
+            "HTTP/1.1 200 OK\r\n" +
+            "Content-Type: application/json\r\n" +
+            "Cache-Control: no-store\r\n" +
+            "Connection: close\r\n" +
+            $"Content-Length: {body.Length}\r\n\r\n");
+        byte[] response = new byte[headers.Length + body.Length];
+        headers.CopyTo(response, 0);
+        body.CopyTo(response, headers.Length);
+        return response;
+    }
 
     /// <summary>
     /// Determines whether <paramref name="requestBytes"/> is a well-formed, policy-admitted WebSocket
