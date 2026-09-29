@@ -188,7 +188,7 @@ separate.
 
 ## Internal composition
 
-The client engine described above is implemented as seven major Services, each an
+The client engine described above is implemented as nine major Services, each an
 independently-testable behavioral subsystem, plus supporting collaborators. Every supporting
 collaborator that owns behavior has its own explicit contract; data-only helpers remain concrete.
 **A concrete production Service implementation implements exactly one architectural Service
