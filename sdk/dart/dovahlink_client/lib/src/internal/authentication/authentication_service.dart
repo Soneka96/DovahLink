@@ -155,11 +155,15 @@ class AuthenticationService implements IAuthenticationService {
     final PersistedClientState state = await _clientStateService.load();
     final String? hostId =
         state.pendingPairingRecovery?.hostId ?? _lastHelloResult?.hostId;
+    final String? normalizedHostId = hostId == null
+        ? null
+        : DovahLinkHostId(hostId).value;
     return _hello(
       _authenticationGeneration,
       knownHostId:
-          hostId != null && state.knownHosts.containsKey(hostId.toLowerCase())
-          ? hostId
+          normalizedHostId != null &&
+              state.knownHosts.containsKey(normalizedHostId)
+          ? normalizedHostId
           : null,
       stateSnapshot: state,
     );
@@ -176,20 +180,24 @@ class AuthenticationService implements IAuthenticationService {
     PersistedClientState? stateSnapshot,
   }) async {
     bool disconnectAfterFailure = false;
+    final String? normalizedKnownHostId = knownHostId == null
+        ? null
+        : DovahLinkHostId(knownHostId).value;
     try {
       final PersistedClientState state =
           stateSnapshot ?? await _clientStateService.load();
       _ensureAuthenticationCurrent(generation);
       final String clientId = await _clientIdResolver.resolve(state);
       _ensureAuthenticationCurrent(generation);
-      final PersistedKnownHost? knownRelationship = knownHostId == null
+      final PersistedKnownHost? knownRelationship =
+          normalizedKnownHostId == null
           ? null
-          : state.knownHosts[knownHostId];
-      if (knownHostId != null && knownRelationship == null) {
-        throw DovahLinkKnownHostNotFoundException(knownHostId);
+          : state.knownHosts[normalizedKnownHostId];
+      if (normalizedKnownHostId != null && knownRelationship == null) {
+        throw DovahLinkKnownHostNotFoundException(normalizedKnownHostId);
       }
       final String? credential =
-          state.pendingPairingRecovery?.hostId == knownHostId
+          state.pendingPairingRecovery?.hostId == normalizedKnownHostId
           ? null
           : knownRelationship?.credential;
       _clientIdCache.set(clientId);
@@ -240,28 +248,27 @@ class AuthenticationService implements IAuthenticationService {
         );
       }
       final DovahLinkHost currentHost = DovahLinkHost(
-        hostId: ack.hostId,
+        hostId: DovahLinkHostId(ack.hostId).value,
         hostName: ack.hostName,
         endpoint: currentEndpoint,
       );
       final String? pendingPairingHostId = state.pendingPairingRecovery?.hostId;
       if (pendingPairingHostId != null &&
-          pendingPairingHostId.toLowerCase() !=
-              currentHost.hostId.toLowerCase()) {
+          pendingPairingHostId != currentHost.hostId) {
         throw DovahLinkHostIdentityMismatchException(
           knownHostId: pendingPairingHostId,
           reportedHostId: currentHost.hostId,
         );
       }
-      if (knownHostId != null &&
-          knownHostId.toLowerCase() != currentHost.hostId.toLowerCase()) {
+      if (normalizedKnownHostId != null &&
+          normalizedKnownHostId != currentHost.hostId) {
         throw DovahLinkHostIdentityMismatchException(
-          knownHostId: knownHostId,
+          knownHostId: normalizedKnownHostId,
           reportedHostId: currentHost.hostId,
         );
       }
       if (trustState == DovahLinkTrustState.trusted) {
-        if (knownHostId == null) {
+        if (normalizedKnownHostId == null) {
           throw const DovahLinkProtocolException(
             code: ProtocolErrorCode.malformedMessage,
             message:
@@ -271,14 +278,14 @@ class AuthenticationService implements IAuthenticationService {
         }
         await _clientStateService.updateState((PersistedClientState state) {
           final PersistedKnownHost? relationship =
-              state.knownHosts[currentHost.hostId.toLowerCase()];
+              state.knownHosts[currentHost.hostId];
           if (relationship == null) {
             throw DovahLinkKnownHostNotFoundException(currentHost.hostId);
           }
           return state.copyWith(
             knownHosts: <String, PersistedKnownHost>{
               ...state.knownHosts,
-              currentHost.hostId.toLowerCase(): PersistedKnownHost(
+              currentHost.hostId: PersistedKnownHost(
                 host: DovahLinkHost(
                   hostId: relationship.host.hostId,
                   hostName: currentHost.hostName,
@@ -300,7 +307,7 @@ class AuthenticationService implements IAuthenticationService {
         currentHost: currentHost,
       );
       final HelloResult result = HelloResult(
-        hostId: ack.hostId,
+        hostId: currentHost.hostId,
         hostName: ack.hostName,
         hostVersion: ack.hostVersion,
         trustState: trustState,
@@ -348,7 +355,7 @@ class AuthenticationService implements IAuthenticationService {
       throw DovahLinkKnownHostNotFoundException(id);
     }
     final PendingPairingRecovery? recovery = state.pendingPairingRecovery;
-    if (recovery != null && recovery.hostId.toLowerCase() != id.toLowerCase()) {
+    if (recovery != null && recovery.hostId != id) {
       throw DovahLinkHostIdentityMismatchException(
         knownHostId: recovery.hostId,
         reportedHostId: id,
@@ -373,7 +380,7 @@ class AuthenticationService implements IAuthenticationService {
         _sessionService.connectionState == DovahLinkConnectionState.connected &&
         _sessionService.currentTrustState == DovahLinkTrustState.trusted &&
         cachedHelloResult != null &&
-        cachedHelloResult.hostId.toLowerCase() == knownHostId.toLowerCase()) {
+        cachedHelloResult.hostId == DovahLinkHostId(knownHostId).value) {
       return HelloResult(
         hostId: cachedHelloResult.hostId,
         hostName: cachedHelloResult.hostName,
@@ -459,7 +466,7 @@ class AuthenticationService implements IAuthenticationService {
       if (generation != null) {
         _ensureAuthenticationCurrent(generation);
       }
-      final String normalizedHostId = hostId.toLowerCase();
+      final String normalizedHostId = DovahLinkHostId(hostId).value;
       final PersistedKnownHost? relationship =
           current.knownHosts[normalizedHostId];
       if (relationship == null) {
@@ -471,8 +478,7 @@ class AuthenticationService implements IAuthenticationService {
           normalizedHostId: PersistedKnownHost(host: relationship.host),
         },
         clearPendingPairingRecovery:
-            current.pendingPairingRecovery?.hostId.toLowerCase() ==
-            normalizedHostId,
+            current.pendingPairingRecovery?.hostId == normalizedHostId,
       );
     });
   }

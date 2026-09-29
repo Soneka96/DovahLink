@@ -56,6 +56,25 @@ void main() {
 
       expect(state.knownHosts.keys, <String>[hostA]);
     });
+
+    test('Method constructor canonicalizes every stored Host UUID', () {
+      final PersistedClientState state = PersistedClientState(
+        knownHosts: <String, PersistedKnownHost>{
+          hostA.toUpperCase(): PersistedKnownHost(
+            host: Fixtures.buildDovahLinkHost(hostId: hostA.toUpperCase()),
+            credential: 'credential-a',
+          ),
+        },
+        pendingPairingRecovery: PendingPairingRecovery(
+          hostId: hostA.toUpperCase(),
+          state: PairingRecoveryState.confirming,
+        ),
+      );
+
+      expect(state.knownHosts.keys, <String>[hostA]);
+      expect(state.knownHosts[hostA]?.host.hostId, hostA);
+      expect(state.pendingPairingRecovery?.hostId, hostA);
+    });
   });
 
   group('Property currentFormatVersion behaves correctly', () {

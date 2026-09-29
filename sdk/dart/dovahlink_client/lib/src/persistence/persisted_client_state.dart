@@ -1,4 +1,5 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 
@@ -24,12 +25,16 @@ class PersistedClientState {
   PersistedClientState({
     this.clientId,
     Map<String, PersistedKnownHost> knownHosts = const {},
-    this.pendingPairingRecovery,
-  }) : knownHosts = _normalizeKnownHosts(knownHosts) {
-    if (pendingPairingRecovery != null &&
-        !this.knownHosts.containsKey(
-          pendingPairingRecovery!.hostId.toLowerCase(),
-        )) {
+    PendingPairingRecovery? pendingPairingRecovery,
+  }) : knownHosts = _normalizeKnownHosts(knownHosts),
+       pendingPairingRecovery = pendingPairingRecovery == null
+           ? null
+           : PendingPairingRecovery(
+               hostId: DovahLinkHostId(pendingPairingRecovery.hostId).value,
+               state: pendingPairingRecovery.state,
+             ) {
+    if (this.pendingPairingRecovery != null &&
+        !this.knownHosts.containsKey(this.pendingPairingRecovery!.hostId)) {
       throw ArgumentError.value(
         pendingPairingRecovery,
         'pendingPairingRecovery',
@@ -103,8 +108,8 @@ class PersistedClientState {
   ) {
     final Map<String, PersistedKnownHost> normalized = {};
     for (final MapEntry<String, PersistedKnownHost> entry in hosts.entries) {
-      final String key = entry.key.toLowerCase();
-      if (key != entry.value.host.hostId.toLowerCase() ||
+      final String key = DovahLinkHostId(entry.key).value;
+      if (key != DovahLinkHostId(entry.value.host.hostId).value ||
           normalized.containsKey(key)) {
         throw ArgumentError.value(
           hosts,

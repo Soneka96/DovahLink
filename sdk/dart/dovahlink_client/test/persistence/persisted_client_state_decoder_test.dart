@@ -100,6 +100,27 @@ void main() {
       },
     );
 
+    test('Method decode canonicalizes uppercase Host IDs in stored state', () {
+      final PersistedClientState state = PersistedClientStateDecoder.decode(
+        currentJson(
+          knownHosts: <String, dynamic>{
+            hostA.toUpperCase(): host(
+              id: hostA.toUpperCase(),
+              credential: 'credential-a',
+            ),
+          },
+          recovery: <String, dynamic>{
+            'hostId': hostA.toUpperCase(),
+            'state': 'confirming',
+          },
+        ),
+      );
+
+      expect(state.knownHosts.keys, <String>[hostA]);
+      expect(state.knownHosts[hostA]?.host.hostId, hostA);
+      expect(state.pendingPairingRecovery?.hostId, hostA);
+    });
+
     test('Method decode rejects an unknown format version', () {
       expect(
         () => PersistedClientStateDecoder.decode(<String, dynamic>{

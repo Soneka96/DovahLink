@@ -1,4 +1,5 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
@@ -42,7 +43,7 @@ class PersistedClientStateDecoder {
       json['pendingPairingRecovery'],
     );
     if (recovery != null &&
-        !knownHosts.containsKey(recovery.hostId.toLowerCase())) {
+        !knownHosts.containsKey(DovahLinkHostId(recovery.hostId).value)) {
       throw const DovahLinkStorageException(
         'Pending pairing recovery has no matching Known Host.',
       );
@@ -72,7 +73,7 @@ class PersistedClientStateDecoder {
           'Persisted knownHosts contains an invalid Host entry.',
         );
       }
-      final String hostId = entry.key.toLowerCase();
+      final String hostId = DovahLinkHostId(entry.key).value;
       if (!normalizedIds.add(hostId)) {
         throw const DovahLinkStorageException(
           'Persisted knownHosts contains duplicate Host IDs.',

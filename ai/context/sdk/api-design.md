@@ -41,7 +41,8 @@ exposes no credential and does not claim the Host currently trusts this client. 
 authentication takes a `DovahLinkHostId`; the SDK resolves its current endpoint and Host-scoped
 credential. Candidate authentication takes an endpoint and never selects Known Host credentials.
 Trusted sessions may refresh metadata only for the matching Known Host ID; discovery claims never
-refresh persisted metadata.
+refresh persisted metadata. SDK-owned Host IDs are stored and compared in canonical lowercase form;
+the typed `DovahLinkHostId` accepts either UUID casing at its boundary.
 
 `DovahLinkDiscoveryService.discover()` proposes reachable endpoints. The responding peer's
 `hello_ack` asserts `hostId` and `hostName`, which the SDK validates for protocol shape and Host

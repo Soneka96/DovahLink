@@ -11,6 +11,10 @@ void main() {
       expect(DovahLinkHostId(hostId).value, hostId);
     });
 
+    test('Method constructor canonicalizes uppercase UUID letters', () {
+      expect(DovahLinkHostId(hostId.toUpperCase()).value, hostId);
+    });
+
     test('Method constructor rejects values that are not Host UUIDs', () {
       expect(() => DovahLinkHostId('client-1'), throwsArgumentError);
     });

@@ -260,8 +260,7 @@ class PairingService implements IPairingService {
     }
     await _clientStateService.updateState((PersistedClientState state) {
       final PendingPairingRecovery? pending = state.pendingPairingRecovery;
-      if (pending != null &&
-          pending.hostId.toLowerCase() != currentHost.hostId.toLowerCase()) {
+      if (pending != null && pending.hostId != currentHost.hostId) {
         throw DovahLinkHostIdentityMismatchException(
           knownHostId: pending.hostId,
           reportedHostId: currentHost.hostId,
@@ -270,7 +269,7 @@ class PairingService implements IPairingService {
       return state.copyWith(
         knownHosts: <String, PersistedKnownHost>{
           ...state.knownHosts,
-          currentHost.hostId.toLowerCase(): PersistedKnownHost(
+          currentHost.hostId: PersistedKnownHost(
             host: currentHost,
             credential: credential,
           ),
@@ -297,14 +296,13 @@ class PairingService implements IPairingService {
     if (recovery == null) {
       throw const DovahLinkPairingException(PairingOutcome.pendingNotFound);
     }
-    if (recovery.hostId.toLowerCase() != currentHost.hostId.toLowerCase()) {
+    if (recovery.hostId != currentHost.hostId) {
       throw DovahLinkHostIdentityMismatchException(
         knownHostId: recovery.hostId,
         reportedHostId: currentHost.hostId,
       );
     }
-    final String? credential =
-        state.knownHosts[currentHost.hostId.toLowerCase()]?.credential;
+    final String? credential = state.knownHosts[currentHost.hostId]?.credential;
     if (credential == null) {
       throw const DovahLinkPairingException(PairingOutcome.pendingNotFound);
     }
@@ -346,14 +344,14 @@ class PairingService implements IPairingService {
     }
     await _clientStateService.updateState((PersistedClientState state) {
       final PersistedKnownHost? relationship =
-          state.knownHosts[currentHost.hostId.toLowerCase()];
+          state.knownHosts[currentHost.hostId];
       if (relationship == null) {
         throw const DovahLinkPairingException(PairingOutcome.pendingNotFound);
       }
       return state.copyWith(
         knownHosts: <String, PersistedKnownHost>{
           ...state.knownHosts,
-          currentHost.hostId.toLowerCase(): PersistedKnownHost(
+          currentHost.hostId: PersistedKnownHost(
             host: relationship.host,
             credential: relationship.credential,
           ),
@@ -378,7 +376,7 @@ class PairingService implements IPairingService {
         'The current Host context is unavailable.',
       );
     }
-    if (currentHostId.toLowerCase() != recovery.hostId.toLowerCase()) {
+    if (currentHostId != recovery.hostId) {
       throw DovahLinkHostIdentityMismatchException(
         knownHostId: recovery.hostId,
         reportedHostId: currentHostId,
@@ -393,13 +391,11 @@ class PairingService implements IPairingService {
           error.outcome == PairingOutcome.pairingInvalidated) {
         await _clientStateService.updateState((PersistedClientState current) {
           final PersistedKnownHost relationship =
-              current.knownHosts[recovery.hostId.toLowerCase()]!;
+              current.knownHosts[recovery.hostId]!;
           return current.copyWith(
             knownHosts: <String, PersistedKnownHost>{
               ...current.knownHosts,
-              recovery.hostId.toLowerCase(): PersistedKnownHost(
-                host: relationship.host,
-              ),
+              recovery.hostId: PersistedKnownHost(host: relationship.host),
             },
             clearPendingPairingRecovery: true,
           );

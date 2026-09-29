@@ -30,7 +30,9 @@ Host ID. A second Host's pairing preserves earlier relationships and credentials
 incomplete credential and recovery state but keeps its Known Host metadata. A trusted Known Host
 session refreshes only the matching record's name and endpoint. During pending recovery, another
 Host ID fails before session admission. Credential removal and failed recovery preserve the owning
-Known Host metadata; none of this metadata establishes current trust.
+Known Host metadata; none of this metadata establishes current trust. The SDK canonicalizes Host
+UUIDs to lowercase when persisted state is constructed, so Known Host keys, stored Host IDs, and the
+pending recovery owner share one form.
 
 Current persisted client state stores `knownHosts` keyed by `hostId`. Each relationship contains
 Host metadata and the current bearer credential issued by that Host. The single pending pairing

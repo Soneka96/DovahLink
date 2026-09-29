@@ -511,6 +511,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
+            hostId: hostId.toUpperCase(),
             hostName: 'NEW-NAME',
             kind: ClientIdentityKind.paired,
           ),
@@ -697,6 +698,108 @@ void main() {
             sessionId: 'session-1',
             trustState: DovahLinkTrustState.unpaired,
             currentHost: any(named: 'currentHost'),
+          ),
+        ).called(1);
+        verifyNever(() => storage.updateState(any()));
+      },
+    );
+
+    test(
+      'Method authenticateKnownHost recognizes uppercase persisted recovery and sends no credential',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        when(() => storage.load()).thenAnswer(
+          (_) async => PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostId: PersistedKnownHost(
+                host: Fixtures.buildDovahLinkHost(hostId: hostId),
+                credential: 'pending-credential',
+              ),
+            },
+            pendingPairingRecovery: const PendingPairingRecovery(
+              hostId: '81869993-955C-4BA3-A7D0-D35CA86078EA',
+              state: PairingRecoveryState.confirming,
+            ),
+          ),
+        );
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(kind: ClientIdentityKind.unpaired),
+        );
+
+        final HelloResult result = await service.authenticateKnownHost(
+          DovahLinkHostId(hostId),
+        );
+
+        final JsonMap sentPayload =
+            verify(
+                  () => requestService.sendAndAwait(
+                    messageType: ProtocolMessageType.hello,
+                    payload: captureAny(named: 'payload'),
+                    expectedType: ProtocolMessageType.helloAck,
+                    policy: any(named: 'policy'),
+                  ),
+                ).captured.single
+                as JsonMap;
+        expect(sentPayload['auth'], <String, dynamic>{'method': 'unpaired'});
+        expect(result.hostId, hostId);
+        expect((await storage.load()).pendingPairingRecovery?.hostId, hostId);
+        verify(
+          () => sessionAdmissionService.admitSession(
+            sessionId: 'session-1',
+            trustState: DovahLinkTrustState.unpaired,
+            currentHost: DovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+              endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+            ),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method authenticateKnownHost accepts uppercase reported Host ID during pending recovery',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        when(() => storage.load()).thenAnswer(
+          (_) async => PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostId: PersistedKnownHost(
+                host: Fixtures.buildDovahLinkHost(hostId: hostId),
+                credential: 'pending-credential',
+              ),
+            },
+            pendingPairingRecovery: const PendingPairingRecovery(
+              hostId: hostId,
+              state: PairingRecoveryState.confirming,
+            ),
+          ),
+        );
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: '81869993-955C-4BA3-A7D0-D35CA86078EA',
+            kind: ClientIdentityKind.unpaired,
+          ),
+        );
+
+        final HelloResult result = await service.authenticateKnownHost(
+          DovahLinkHostId(hostId),
+        );
+
+        expect(result.hostId, hostId);
+        verify(
+          () => sessionAdmissionService.admitSession(
+            sessionId: 'session-1',
+            trustState: DovahLinkTrustState.unpaired,
+            currentHost: DovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+              endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+            ),
           ),
         ).called(1);
         verifyNever(() => storage.updateState(any()));

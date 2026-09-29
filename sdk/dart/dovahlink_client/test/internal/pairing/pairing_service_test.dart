@@ -5,6 +5,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
@@ -15,6 +16,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
+import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -711,6 +713,51 @@ void main() {
 
   group('Method confirmPairingCode behaves correctly', () {
     test(
+      'Method confirmPairingCode does not persist a credential owned by another pending Host',
+      () async {
+        const String otherHostId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        when(() => storage.load()).thenAnswer(
+          (_) async => PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              _currentHost().hostId: PersistedKnownHost(
+                host: _currentHost(),
+                credential: 'old-credential',
+              ),
+              otherHostId: PersistedKnownHost(
+                host: DovahLinkHost(
+                  hostId: otherHostId,
+                  hostName: 'OTHER-HOST',
+                  endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+                ),
+              ),
+            },
+            pendingPairingRecovery: const PendingPairingRecovery(
+              hostId: otherHostId,
+              state: PairingRecoveryState.confirming,
+            ),
+          ),
+        );
+        stubSendAndAwait(
+          requestService,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
+            credential: 'new-credential',
+          ),
+        );
+
+        await expectLater(
+          service.confirmPairingCode(code: '123456'),
+          throwsA(isA<DovahLinkHostIdentityMismatchException>()),
+        );
+
+        verify(() => storage.updateState(any())).called(1);
+        expect(updatedState, isNull);
+        verifyNever(() => sessionTrustService.markTrusted());
+      },
+    );
+
+    test(
       'Method confirmPairingCode keeps three paired Host records independent',
       () async {
         const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
@@ -1073,6 +1120,37 @@ void main() {
 
   group('Method acknowledgeTrustedCredential behaves correctly', () {
     test(
+      'Method acknowledgeTrustedCredential does not send a credential for another Host recovery',
+      () async {
+        const String otherHostId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        when(() => sessionService.currentHost).thenReturn(
+          DovahLinkHost(
+            hostId: otherHostId,
+            hostName: 'OTHER-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+          ),
+        );
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
+
+        await expectLater(
+          service.acknowledgeTrustedCredential(),
+          throwsA(isA<DovahLinkHostIdentityMismatchException>()),
+        );
+
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNoStateMutations(storage);
+        verifyNever(() => sessionTrustService.markTrusted());
+      },
+    );
+
+    test(
       'Method acknowledgeTrustedCredential marks the session trusted and clears the recovery state on a trusted outcome',
       () async {
         when(() => storage.load()).thenAnswer(
@@ -1345,6 +1423,37 @@ void main() {
   });
 
   group('Method recoverPendingPairing behaves correctly', () {
+    test(
+      'Method recoverPendingPairing fails closed when another Host is connected',
+      () async {
+        const String otherHostId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        when(() => sessionService.currentHost).thenReturn(
+          DovahLinkHost(
+            hostId: otherHostId,
+            hostName: 'OTHER-HOST',
+            endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+          ),
+        );
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
+
+        await expectLater(
+          service.recoverPendingPairing(),
+          throwsA(isA<DovahLinkHostIdentityMismatchException>()),
+        );
+
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNoStateMutations(storage);
+        verifyNever(() => sessionTrustService.markTrusted());
+      },
+    );
+
     test(
       'Method recoverPendingPairing is a no-op returning unpaired when no confirmation is outstanding',
       () async {
