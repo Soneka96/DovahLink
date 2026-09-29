@@ -49,6 +49,11 @@ remaining connection/pairing steps must still be reconciled with current DovahLi
 architecture before implementation. Ordinary product work that does not depend on hostile-network
 first contact may continue from Phase 5.4. Stage 5A and production LAN pairing remain gated.
 
+The follow-up `feature/known-host-availability` work adds SDK-owned runtime availability and its
+logic-only app projection. It remains separate from the paused Connections UI convergence: widgets
+do not display availability in that change. This state reports only the SDK's current reachability
+evidence and remains separate from durable Known Host metadata, connection lifecycle, and trust.
+
 ## Local Host discovery foundation — established
 
 The local discovery foundation established the production-quality application contract:
@@ -108,6 +113,17 @@ Known Hosts are durable SDK-owned client relationships, not a claim of current t
 candidates are currently reachable, untrusted routing candidates whose claimed `hostId` does not
 authenticate them. The selected Host is app-owned presentation and routing state. Current trust is
 Host/SDK runtime state and is not persisted as Known Host membership.
+
+Known Host availability is a separate SDK-owned, non-persisted runtime projection with exactly three
+states: `unknown`, `online`, and `offline`. Persisted Hosts begin `unknown` at SDK startup. Successful
+Known Host authentication or pairing that creates or updates a durable Host during an active session
+reports `online`. An ordinary transport loss retains the previous state while bounded reconnect runs;
+successful recovery reports `online`, while reconnect exhaustion or an actual explicit Known Host
+transport-connect failure reports `offline`. Deliberate client disconnect returns the current Known
+Host to `unknown`; administrative invalidation preserves its previous availability. Discovery and
+candidate authentication do not affect Known Host availability, and availability does not represent
+trust or pairing state. TTL and other future liveness policy belongs inside the SDK availability
+owner; no such timer or discovery-based signal exists now.
 
 Discovery remains a separate command/result that returns reachable candidates. Discovery claims,
 including `hostId`, do not refresh Known Host metadata, establish trust, bypass pairing, or authorize

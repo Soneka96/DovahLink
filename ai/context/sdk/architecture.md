@@ -55,6 +55,35 @@ pairing recovery to their owning Host IDs. This does not authenticate a discover
 the current wire authentication remains the loopback development protocol. Future cryptographic
 identity decisions remain in [`../security/identity-and-transport.md`](../security/identity-and-transport.md).
 
+### Known Host runtime availability
+
+The SDK owns one runtime availability projection for durable Known Hosts. Availability means only
+whether the SDK has current runtime evidence that a Known Host is reachable; it is separate from
+trust, pairing, and connection lifecycle state. Keep it out of `DovahLinkHost` and out of persisted
+client state. Each persisted Known Host starts `unknown` after process startup, and no startup
+probe is run for availability.
+
+The availability owner holds only runtime values keyed by Host ID and combines them with the
+complete durable Known Host snapshot when it publishes the public projection. A newly added or
+metadata-refreshed Host with no runtime value projects as `unknown`; removal drops its runtime
+value. Do not duplicate Host metadata or persistence ownership in the availability owner.
+
+Apply only these transitions: successful `authenticateKnownHost` admission and successful pairing
+that durably creates or updates a Known Host in the active session report `online`; an actual
+transport failure to connect during an explicit Known Host attempt, or terminal exhaustion of that
+Host's bounded reconnect cycle, reports `offline`. Preserve the previous value during reconnect
+attempts, and report `online` after recovery succeeds. Explicit `DovahLinkClient.disconnect()`
+reports `unknown` for its admitted Known Host because observation was deliberately stopped.
+Administrative invalidation preserves the previous availability: its typed event requires an admitted session and
+does not establish that the Host became unreachable. Compatibility, malformed-protocol, identity,
+credential, and trust outcomes are not blanket transport-failure signals.
+
+Candidate authentication and discovery never update a Known Host's availability based on a claimed
+Host ID. Recovery must carry the verified Known Host relationship ID from the admitted operation;
+do not infer it from an endpoint, display metadata, or discovery. Future TTL or other liveness policy
+belongs inside this SDK availability owner. No timer, polling, or discovery-based liveness policy
+exists today.
+
 ## App independence
 
 After the Dart Client SDK Foundation phase, the official app depends on the SDK's public API for

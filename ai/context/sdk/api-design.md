@@ -184,6 +184,15 @@ current-state-bearing domain views. It does not imply replaying historical event
 streams; a late subscriber to an Event-mode domain still synchronizes through that domain's normal
 initial-snapshot path, not through event replay.
 
+`DovahLinkClient.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts
+and their `DovahLinkHostAvailability`. When storage provides a snapshot, it immediately provides the
+current immutable collection, ordered deterministically by Host ID, then emits a complete replacement
+when either Host metadata or availability changes. Equivalent snapshots are not emitted twice. An
+initial storage failure is reported to the subscriber, which remains attached for later recovery.
+Availability starts as `unknown` for every persisted Host after process startup and is runtime-only;
+it is not part of `DovahLinkHost` or persisted client state. Keep `knownHostsChanges` for consumers
+that need durable Host metadata without runtime availability.
+
 Commands and authoritative state are separate API views. A command may report whether its operation
 was accepted or rejected and return operation-specific metadata, while the resulting persistent,
 session, trust, pairing, or game state is observed through its owning typed API or stream. Consumers
