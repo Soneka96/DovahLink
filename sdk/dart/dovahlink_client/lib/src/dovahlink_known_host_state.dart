@@ -9,12 +9,17 @@ final class DovahLinkKnownHostState {
   /// The SDK's current runtime evidence about the Host's reachability.
   final DovahLinkHostAvailability availability;
 
+  /// The session lifecycle for this exact Known Host relationship.
+  final DovahLinkKnownHostSessionState sessionState;
+
   /// Creates a complete Known Host runtime projection.
   /// @param host The durable Host metadata.
   /// @param availability The current runtime reachability evidence.
+  /// @param sessionState The current session lifecycle for this relationship.
   const DovahLinkKnownHostState({
     required this.host,
     required this.availability,
+    this.sessionState = DovahLinkKnownHostSessionState.disconnected,
   });
 
   /// Compares the Host metadata and runtime availability.
@@ -22,9 +27,10 @@ final class DovahLinkKnownHostState {
   bool operator ==(Object other) =>
       other is DovahLinkKnownHostState &&
       other.host == host &&
-      other.availability == availability;
+      other.availability == availability &&
+      other.sessionState == sessionState;
 
   /// Combines the Host metadata and runtime availability values.
   @override
-  int get hashCode => Object.hash(host, availability);
+  int get hashCode => Object.hash(host, availability, sessionState);
 }

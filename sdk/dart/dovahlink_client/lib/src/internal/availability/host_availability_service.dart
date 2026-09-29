@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Owns runtime availability values and complete Known Host projections.
+/// Owns runtime availability values and complete Known Host session projections.
 abstract interface class IHostAvailabilityService {
   /// Emits complete Known Host runtime snapshots and storage observation errors.
   Stream<List<DovahLinkKnownHostState>> get knownHostStatesChanges;
@@ -19,11 +19,17 @@ abstract interface class IHostAvailabilityService {
     DovahLinkHostAvailability availability,
   );
 
+  /// Sets the exact Known Host session projection, clearing it when [hostId] is `null`.
+  void setSessionState(
+    DovahLinkHostId? hostId,
+    DovahLinkKnownHostSessionState sessionState,
+  );
+
   /// Cancels durable-state observation and closes the runtime projection stream.
   Future<void> close();
 }
 
-/// Implements [IHostAvailabilityService] over the durable Known Host projection.
+/// Implements [IHostAvailabilityService] over durable Known Host metadata and session evidence.
 class HostAvailabilityService implements IHostAvailabilityService {
   /// The owner of durable Known Host metadata and its replayable snapshots.
   final IClientStateService _clientStateService;
@@ -31,6 +37,13 @@ class HostAvailabilityService implements IHostAvailabilityService {
   /// The runtime availability values, keyed by stable Host ID.
   final Map<String, DovahLinkHostAvailability> _availability =
       <String, DovahLinkHostAvailability>{};
+
+  /// The current exact Known Host session projection.
+  DovahLinkHostId? _sessionHostId;
+
+  /// The session phase associated with [_sessionHostId].
+  DovahLinkKnownHostSessionState _sessionState =
+      DovahLinkKnownHostSessionState.disconnected;
 
   /// Publishes complete projection changes and storage errors.
   final StreamController<List<DovahLinkKnownHostState>> _changes =
@@ -94,6 +107,26 @@ class HostAvailabilityService implements IHostAvailabilityService {
     } else {
       _availability[hostId.value] = availability;
     }
+    _publishCurrentStates();
+  }
+
+  /// Implements [IHostAvailabilityService.setSessionState].
+  @override
+  void setSessionState(
+    DovahLinkHostId? hostId,
+    DovahLinkKnownHostSessionState sessionState,
+  ) {
+    if (_isClosed) {
+      return;
+    }
+    final DovahLinkKnownHostSessionState nextState = hostId == null
+        ? DovahLinkKnownHostSessionState.disconnected
+        : sessionState;
+    if (hostId == _sessionHostId && nextState == _sessionState) {
+      return;
+    }
+    _sessionHostId = hostId;
+    _sessionState = nextState;
     _publishCurrentStates();
   }
 
@@ -169,6 +202,9 @@ class HostAvailabilityService implements IHostAvailabilityService {
           availability:
               _availability[state.host.hostId] ??
               DovahLinkHostAvailability.unknown,
+          sessionState: state.host.hostId == _sessionHostId?.value
+              ? _sessionState
+              : DovahLinkKnownHostSessionState.disconnected,
         ),
       ),
     );
@@ -184,6 +220,9 @@ class HostAvailabilityService implements IHostAvailabilityService {
             host: host,
             availability:
                 _availability[host.hostId] ?? DovahLinkHostAvailability.unknown,
+            sessionState: host.hostId == _sessionHostId?.value
+                ? _sessionState
+                : DovahLinkKnownHostSessionState.disconnected,
           ),
         ),
         force: force,

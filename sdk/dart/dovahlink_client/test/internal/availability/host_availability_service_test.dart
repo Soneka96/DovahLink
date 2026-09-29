@@ -41,6 +41,52 @@ void main() {
 
   group('Property knownHostStatesChanges behaves correctly', () {
     test(
+      'Property knownHostStatesChanges projects session state only onto its exact Known Host',
+      () async {
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+        );
+        final DovahLinkHost hostB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            service.knownHostStatesChanges.listen(snapshots.add);
+        knownHostsController.add(<DovahLinkHost>[hostA, hostB]);
+        await Future<void>.delayed(Duration.zero);
+
+        service.setSessionState(
+          DovahLinkHostId(hostAId),
+          DovahLinkKnownHostSessionState.connecting,
+        );
+        service.setSessionState(
+          DovahLinkHostId(hostAId),
+          DovahLinkKnownHostSessionState.connected,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: hostA,
+            sessionState: DovahLinkKnownHostSessionState.connected,
+          ),
+          Fixtures.buildDovahLinkKnownHostState(host: hostB),
+        ]);
+
+        service.setSessionState(
+          null,
+          DovahLinkKnownHostSessionState.disconnected,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.first.sessionState,
+          DovahLinkKnownHostSessionState.disconnected,
+        );
+        await subscription.cancel();
+      },
+    );
+
+    test(
       'Property knownHostStatesChanges emits complete immutable unknown snapshots and replays them',
       () async {
         final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(

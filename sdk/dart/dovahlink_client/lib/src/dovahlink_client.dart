@@ -121,6 +121,13 @@ class DovahLinkClient {
       lifecycleQueue: lifecycleQueue,
       teardownCoordinator: teardownCoordinator,
     );
+    _knownHostSessionSubscription = _sessionService.knownHostSessionChanges
+        .listen((KnownHostSessionSnapshot snapshot) {
+          _hostAvailabilityService.setSessionState(
+            snapshot.hostId,
+            snapshot.state,
+          );
+        });
 
     final CurrentValueStream<StateSynchronization<CharacterXpState>>
     characterXpStream =
@@ -328,6 +335,10 @@ class DovahLinkClient {
   /// Owns the runtime availability map and complete Known Host projection.
   late final IHostAvailabilityService _hostAvailabilityService;
 
+  /// Mirrors the session owner's exact Known Host projection into complete Known Host snapshots.
+  late final StreamSubscription<KnownHostSessionSnapshot>
+  _knownHostSessionSubscription;
+
   /// Owns sessionless startup and periodic presence checks until [close].
   late final IKnownHostPresenceMonitor _knownHostPresenceMonitor;
 
@@ -412,7 +423,8 @@ class DovahLinkClient {
 
   /// Emits complete runtime Known Host snapshots, replaying the current projection to each
   /// subscriber. Storage failures are reported while the listener remains available for recovery.
-  /// @return An immutable, Host-ID-sorted projection of durable Known Hosts and runtime availability.
+  /// @return An immutable, Host-ID-sorted projection of durable Known Hosts, runtime availability,
+  /// and exact-relationship session state.
   Stream<List<DovahLinkKnownHostState>> get knownHostStatesChanges =>
       _hostAvailabilityService.knownHostStatesChanges;
 
@@ -618,6 +630,7 @@ class DovahLinkClient {
   Future<void> close() => _closeFuture ??= (() async {
     await _knownHostPresenceMonitor.close();
     await disconnect();
+    await _knownHostSessionSubscription.cancel();
     await _hostAvailabilityService.close();
   })();
 

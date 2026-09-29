@@ -5,6 +5,12 @@ import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
+/// The exact durable relationship and its current session lifecycle.
+typedef KnownHostSessionSnapshot = ({
+  DovahLinkHostId? hostId,
+  DovahLinkKnownHostSessionState state,
+});
+
 /// The single authoritative owner of every session-scoped mutable fact this engine has, per
 /// `ai/context/sdk/architecture.md`'s "Session-state ownership". Created exactly once by the
 /// composition root and shared by direct reference only with the session subsystem's own internal
@@ -30,6 +36,14 @@ class SessionState {
       CurrentValueStream<DovahLinkConnectionState>(
         DovahLinkConnectionState.disconnected,
       );
+
+  /// Replays the session lifecycle for the exact Known Host relationship, independent of the
+  /// broader connection phase and any unauthenticated Host identity claim.
+  final CurrentValueStream<KnownHostSessionSnapshot> _knownHostSessionChanges =
+      CurrentValueStream<KnownHostSessionSnapshot>((
+        hostId: null,
+        state: DovahLinkKnownHostSessionState.disconnected,
+      ));
 
   /// The server-issued session identifier, or `null` before [admit] is called.
   String? _sessionId;
@@ -68,6 +82,11 @@ class SessionState {
   Stream<DovahLinkConnectionState> get connectionStateChanges =>
       _connectionStateStream.stream;
 
+  /// Emits the exact Known Host relationship and its session lifecycle immediately on listen and
+  /// whenever either changes.
+  Stream<KnownHostSessionSnapshot> get knownHostSessionChanges =>
+      _knownHostSessionChanges.stream;
+
   /// The server-issued session identifier of the current session, or `null` before one is
   /// admitted.
   String? get sessionId => _sessionId;
@@ -81,6 +100,29 @@ class SessionState {
 
   /// The durable relationship associated with the admitted session or pending recovery cycle.
   DovahLinkHostId? get knownHostId => _knownHostId;
+
+  /// The current session lifecycle for [knownHostId], treating an open transport before admission
+  /// as `connecting` rather than `connected`.
+  DovahLinkKnownHostSessionState get knownHostSessionState {
+    if (_knownHostId == null) {
+      return DovahLinkKnownHostSessionState.disconnected;
+    }
+    return switch (_connectionState) {
+      DovahLinkConnectionState.disconnected ||
+      DovahLinkConnectionState.administrativelyInvalidated =>
+        DovahLinkKnownHostSessionState.disconnected,
+      DovahLinkConnectionState.connecting =>
+        DovahLinkKnownHostSessionState.connecting,
+      DovahLinkConnectionState.connected =>
+        _sessionId == null || _trustState == null
+            ? DovahLinkKnownHostSessionState.connecting
+            : DovahLinkKnownHostSessionState.connected,
+      DovahLinkConnectionState.reconnecting =>
+        DovahLinkKnownHostSessionState.reconnecting,
+      DovahLinkConnectionState.reauthenticating =>
+        DovahLinkKnownHostSessionState.reauthenticating,
+    };
+  }
 
   /// The active connection endpoint while connected or reauthenticating.
   /// @return The endpoint for the active transport, or `null` while disconnected or connecting.
@@ -106,23 +148,29 @@ class SessionState {
       _connectionState == DovahLinkConnectionState.administrativelyInvalidated;
 
   /// Begins a connect attempt to [uri]: advances the generation, clears any prior
-  /// [invalidationReason] and [currentHost], and records [uri] as [lastConnectedUri]. Leaves
-  /// [connectionState] at [DovahLinkConnectionState.reconnecting] when a bounded-recovery attempt is
-  /// underway, so recovery stays outwardly visible as one continuous `reconnecting` phase instead
-  /// of flickering through `connecting` and retains its Known Host relationship ID; otherwise
-  /// transitions to [DovahLinkConnectionState.connecting] and clears any earlier relationship ID.
-  void beginConnectAttempt(Uri uri) {
+  /// [invalidationReason] and [currentHost], records [uri] as [lastConnectedUri], and associates
+  /// the attempt with [knownHostId] when supplied. Leaves [connectionState] at
+  /// [DovahLinkConnectionState.reconnecting] when a bounded-recovery attempt is underway, so
+  /// recovery stays outwardly visible as one continuous `reconnecting` phase and retains its Known
+  /// Host relationship ID; otherwise transitions to [DovahLinkConnectionState.connecting].
+  /// Candidate attempts supply no relationship ID.
+  /// @param knownHostId The exact durable relationship being authenticated, or `null` for a candidate.
+  void beginConnectAttempt(Uri uri, {DovahLinkHostId? knownHostId}) {
     final bool isRecoveryAttempt =
         _connectionState == DovahLinkConnectionState.reconnecting;
     _connectionGeneration++;
     _invalidationReason = null;
     _currentHost = null;
     if (!isRecoveryAttempt) {
-      _knownHostId = null;
+      _knownHostId = knownHostId;
       _connectionState = DovahLinkConnectionState.connecting;
     }
     _lastConnectedUri = uri;
     _connectionStateStream.update(_connectionState);
+    _knownHostSessionChanges.update((
+      hostId: _knownHostId,
+      state: knownHostSessionState,
+    ));
   }
 
   /// Records a successful connect attempt. A bounded-recovery attempt (entered while
@@ -135,6 +183,10 @@ class SessionState {
         ? DovahLinkConnectionState.reauthenticating
         : DovahLinkConnectionState.connected;
     _connectionStateStream.update(_connectionState);
+    _knownHostSessionChanges.update((
+      hostId: _knownHostId,
+      state: knownHostSessionState,
+    ));
   }
 
   /// Records a failed connect attempt. Leaves [connectionState] untouched when a bounded-recovery
@@ -146,6 +198,10 @@ class SessionState {
       _connectionState = DovahLinkConnectionState.disconnected;
     }
     _connectionStateStream.update(_connectionState);
+    _knownHostSessionChanges.update((
+      hostId: _knownHostId,
+      state: knownHostSessionState,
+    ));
   }
 
   /// Transitions to [DovahLinkConnectionState.reconnecting], entered only after ordinary transport
@@ -153,6 +209,10 @@ class SessionState {
   void markReconnecting() {
     _connectionState = DovahLinkConnectionState.reconnecting;
     _connectionStateStream.update(_connectionState);
+    _knownHostSessionChanges.update((
+      hostId: _knownHostId,
+      state: knownHostSessionState,
+    ));
   }
 
   /// Admits a newly authenticated session, recording [sessionId] and [trustState] and promoting
@@ -173,12 +233,20 @@ class SessionState {
     _currentHost = currentHost;
     _connectionState = DovahLinkConnectionState.connected;
     _connectionStateStream.update(_connectionState);
+    _knownHostSessionChanges.update((
+      hostId: _knownHostId,
+      state: knownHostSessionState,
+    ));
   }
 
   /// Associates the active session with a Known Host created through successful pairing.
   /// @param hostId The durable relationship established by the active pairing session.
   void associateKnownHost(DovahLinkHostId hostId) {
     _knownHostId = hostId;
+    _knownHostSessionChanges.update((
+      hostId: _knownHostId,
+      state: knownHostSessionState,
+    ));
   }
 
   /// Upgrades the current session's trust standing to [DovahLinkTrustState.trusted].
@@ -191,6 +259,7 @@ class SessionState {
   /// [sessionId], [trustState], [currentHost], and [knownHostId], and advances the generation.
   /// Terminal for the current session.
   void invalidate(AdministrativeInvalidationReason reason) {
+    final DovahLinkHostId? invalidatedHostId = _knownHostId;
     _invalidationReason = reason;
     _connectionState = DovahLinkConnectionState.administrativelyInvalidated;
     _sessionId = null;
@@ -199,6 +268,10 @@ class SessionState {
     _knownHostId = null;
     _connectionGeneration++;
     _connectionStateStream.update(_connectionState);
+    _knownHostSessionChanges.update((
+      hostId: invalidatedHostId,
+      state: DovahLinkKnownHostSessionState.disconnected,
+    ));
   }
 
   /// Advances the connection generation so callbacks from an older connection become stale.
@@ -215,6 +288,7 @@ class SessionState {
   /// [preserveReconnecting] is `true` so the recovery handoff can capture the relationship before
   /// the next explicit connection attempt resets it.
   void resetAfterTeardown({required bool preserveReconnecting}) {
+    final DovahLinkHostId? disconnectedHostId = _knownHostId;
     final bool wasRecovering =
         _connectionState == DovahLinkConnectionState.reconnecting ||
         _connectionState == DovahLinkConnectionState.reauthenticating;
@@ -228,6 +302,10 @@ class SessionState {
       _knownHostId = null;
     }
     _connectionStateStream.update(_connectionState);
+    _knownHostSessionChanges.update((
+      hostId: preserveReconnecting ? _knownHostId : disconnectedHostId,
+      state: knownHostSessionState,
+    ));
   }
 
   /// Records [subscription] as the one currently reading the transport's inbound message stream.

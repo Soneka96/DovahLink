@@ -137,6 +137,14 @@ void main() {
     ) {
       lastConnectedUriValue = invocation.positionalArguments[0] as Uri;
     });
+    when(
+      () => state.beginConnectAttempt(
+        any(),
+        knownHostId: any(named: 'knownHostId'),
+      ),
+    ).thenAnswer((Invocation invocation) {
+      lastConnectedUriValue = invocation.positionalArguments[0] as Uri;
+    });
     when(() => state.markConnected()).thenAnswer((_) {
       connectionStateValue = DovahLinkConnectionState.connected;
     });
@@ -194,6 +202,16 @@ void main() {
         await expectation;
       },
     );
+  });
+
+  group('Property knownHostSessionChanges behaves correctly', () {
+    test('Property knownHostSessionChanges delegates to SessionState', () {
+      const Stream<KnownHostSessionSnapshot> changes =
+          Stream<KnownHostSessionSnapshot>.empty();
+      when(() => state.knownHostSessionChanges).thenAnswer((_) => changes);
+
+      expect(service.knownHostSessionChanges, same(changes));
+    });
   });
 
   group('Properties currentHost and currentEndpoint behave correctly', () {
@@ -269,6 +287,20 @@ void main() {
         verify(() => state.markConnected()).called(1);
         verify(() => transport.messages).called(1);
         verify(() => state.attachMessageSubscription(any())).called(1);
+      },
+    );
+
+    test(
+      'Method connect passes the selected Known Host relationship to session state',
+      () async {
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+        final DovahLinkHostId hostId = DovahLinkHostId(_currentHost().hostId);
+
+        await service.connect(uri, knownHostId: hostId);
+
+        verify(
+          () => state.beginConnectAttempt(uri, knownHostId: hostId),
+        ).called(1);
       },
     );
 

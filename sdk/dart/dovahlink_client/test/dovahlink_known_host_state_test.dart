@@ -30,6 +30,20 @@ void main() {
     });
   });
 
+  group('Property sessionState behaves correctly', () {
+    test(
+      'Property sessionState returns the supplied relationship lifecycle',
+      () {
+        final DovahLinkKnownHostState state =
+            Fixtures.buildDovahLinkKnownHostState(
+              sessionState: DovahLinkKnownHostSessionState.reconnecting,
+            );
+
+        expect(state.sessionState, DovahLinkKnownHostSessionState.reconnecting);
+      },
+    );
+  });
+
   group('Behavior equality behaves correctly', () {
     test('Behavior equality compares Host and availability values', () {
       final DovahLinkKnownHostState first =
@@ -40,10 +54,20 @@ void main() {
           Fixtures.buildDovahLinkKnownHostState(
             availability: DovahLinkHostAvailability.online,
           );
+      final DovahLinkKnownHostState connected =
+          Fixtures.buildDovahLinkKnownHostState(
+            sessionState: DovahLinkKnownHostSessionState.connected,
+          );
+      final DovahLinkKnownHostState renamedHost =
+          Fixtures.buildDovahLinkKnownHostState(
+            host: Fixtures.buildDovahLinkHost(hostName: 'OTHER-HOST'),
+          );
 
       expect(first, equal);
       expect(first.hashCode, equal.hashCode);
       expect(first, isNot(online));
+      expect(first, isNot(connected));
+      expect(first, isNot(renamedHost));
     });
   });
 }

@@ -30,6 +30,9 @@ abstract interface class ISessionService {
   /// state replay".
   Stream<DovahLinkConnectionState> get connectionStateChanges;
 
+  /// The selected Known Host relationship and its admitted session phase.
+  Stream<KnownHostSessionSnapshot> get knownHostSessionChanges;
+
   /// The server-issued session identifier of the current session, or `null` before one is
   /// admitted.
   String? get currentSessionId;
@@ -55,10 +58,12 @@ abstract interface class ISessionService {
 
   /// Establishes the transport connection to [uri]. An attempt that has not completed within the
   /// centrally tuned connect timeout is abandoned rather than left to resolve indefinitely, so it
-  /// can never block automatic recovery's own deadline.
+  /// can never block automatic recovery's own deadline. [knownHostId] binds visible session state
+  /// to the exact saved relationship; candidate connections leave it `null`.
+  /// @param knownHostId The selected durable Known Host relationship, or `null` for a candidate.
   /// @throws [DovahLinkConnectionException] if the socket cannot be established, including when
   /// the attempt times out.
-  Future<void> connect(Uri uri);
+  Future<void> connect(Uri uri, {DovahLinkHostId? knownHostId});
 
   /// Associates the active session with a durable Known Host created by successful pairing.
   /// @param hostId The Known Host relationship made durable by the active session.
@@ -182,6 +187,11 @@ class SessionService implements ISessionService {
   Stream<DovahLinkConnectionState> get connectionStateChanges =>
       _state.connectionStateChanges;
 
+  /// Implements [ISessionService.knownHostSessionChanges].
+  @override
+  Stream<KnownHostSessionSnapshot> get knownHostSessionChanges =>
+      _state.knownHostSessionChanges;
+
   /// Implements [ISessionService.currentSessionId].
   @override
   String? get currentSessionId => _state.sessionId;
@@ -221,25 +231,30 @@ class SessionService implements ISessionService {
   /// own bounded-recovery deadline, indefinitely -- and fails with [DovahLinkConnectionException]
   /// the same as any other connect failure.
   @override
-  Future<void> connect(Uri uri) => _lifecycleQueue.run(() async {
-    _state.beginConnectAttempt(uri);
-    try {
-      await _transport.connect(uri).timeout(_connectTimeout);
-      _state.markConnected();
-      _startReceiving();
-    } on Object catch (error) {
-      if (error is TimeoutException) {
-        unawaited(_transport.close());
-      }
-      _state.markConnectFailed();
-      throw DovahLinkConnectionException(
-        'Failed to connect to $uri: $error',
-        httpStatusCode: error is WebSocketException
-            ? error.httpStatusCode
-            : null,
-      );
-    }
-  });
+  Future<void> connect(Uri uri, {DovahLinkHostId? knownHostId}) =>
+      _lifecycleQueue.run(() async {
+        if (knownHostId == null) {
+          _state.beginConnectAttempt(uri);
+        } else {
+          _state.beginConnectAttempt(uri, knownHostId: knownHostId);
+        }
+        try {
+          await _transport.connect(uri).timeout(_connectTimeout);
+          _state.markConnected();
+          _startReceiving();
+        } on Object catch (error) {
+          if (error is TimeoutException) {
+            unawaited(_transport.close());
+          }
+          _state.markConnectFailed();
+          throw DovahLinkConnectionException(
+            'Failed to connect to $uri: $error',
+            httpStatusCode: error is WebSocketException
+                ? error.httpStatusCode
+                : null,
+          );
+        }
+      });
 
   /// Implements [ISessionService.associateKnownHost].
   @override

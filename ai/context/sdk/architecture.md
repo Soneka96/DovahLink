@@ -63,8 +63,12 @@ trust, pairing, and connection lifecycle state. Keep it out of `DovahLinkHost` a
 client state. `KnownHostPresenceMonitor` starts with the client, marks restored Hosts `checking`,
 and probes them through `IHostPresenceProbe` without creating protocol sessions.
 
-The availability owner holds only runtime values keyed by Host ID and combines them with the
-complete durable Known Host snapshot when it publishes the public projection. The monitor retains
+The availability owner holds runtime reachability and the current exact Known Host session
+projection keyed by relationship ID, and combines them with the complete durable Known Host
+snapshot when it publishes the public projection. The session owner supplies the selected durable
+relationship alongside its lifecycle; candidates supply no relationship ID, even if their peer
+claims the same Host ID. The projection reports `connected` only after `hello` admits a session; an
+open socket while hello is pending remains `connecting`. The monitor retains
 only Host IDs, probe endpoints, and generations needed to schedule and reject stale results; it does
 not own Host metadata or persistence. Added Hosts and endpoint changes enter `checking` and receive
 an immediate bounded probe; removal drops runtime state and cancels or ignores the old result.

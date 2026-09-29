@@ -38,9 +38,12 @@ abstract final class Fixtures {
   static DovahLinkKnownHostState buildDovahLinkKnownHostState({
     DovahLinkHost? host,
     DovahLinkHostAvailability availability = DovahLinkHostAvailability.unknown,
+    DovahLinkKnownHostSessionState sessionState =
+        DovahLinkKnownHostSessionState.disconnected,
   }) => DovahLinkKnownHostState(
     host: host ?? buildDovahLinkHost(),
     availability: availability,
+    sessionState: sessionState,
   );
 
   // ---- Request ----

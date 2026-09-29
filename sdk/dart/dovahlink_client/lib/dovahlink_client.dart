@@ -27,6 +27,7 @@ export 'src/shared/enums.dart'
         HostVersionCompatibilityFailure,
         DovahLinkConnectionState,
         DovahLinkHostAvailability,
+        DovahLinkKnownHostSessionState,
         DovahLinkStateArea,
         DovahLinkStateStatus,
         DovahLinkTrustState,

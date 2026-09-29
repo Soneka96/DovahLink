@@ -794,4 +794,98 @@ void main() {
       },
     );
   });
+
+  group('Property knownHostSessionChanges behaves correctly', () {
+    test(
+      'Property knownHostSessionChanges stays connecting until admission and follows recovery',
+      () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(_currentHost().hostId);
+        final Future<void> expectation = expectLater(
+          state.knownHostSessionChanges,
+          emitsInOrder(<Object>[
+            (hostId: null, state: DovahLinkKnownHostSessionState.disconnected),
+            (hostId: hostId, state: DovahLinkKnownHostSessionState.connecting),
+            (hostId: hostId, state: DovahLinkKnownHostSessionState.connected),
+            (
+              hostId: hostId,
+              state: DovahLinkKnownHostSessionState.reconnecting,
+            ),
+            (
+              hostId: hostId,
+              state: DovahLinkKnownHostSessionState.reauthenticating,
+            ),
+            (
+              hostId: hostId,
+              state: DovahLinkKnownHostSessionState.reconnecting,
+            ),
+            (
+              hostId: hostId,
+              state: DovahLinkKnownHostSessionState.reauthenticating,
+            ),
+            (hostId: hostId, state: DovahLinkKnownHostSessionState.connected),
+            (
+              hostId: hostId,
+              state: DovahLinkKnownHostSessionState.disconnected,
+            ),
+          ]),
+        );
+
+        state.beginConnectAttempt(
+          Uri.parse('ws://127.0.0.1:58231/'),
+          knownHostId: hostId,
+        );
+        state.markConnected();
+        expect(
+          state.knownHostSessionState,
+          DovahLinkKnownHostSessionState.connecting,
+        );
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
+        );
+        state.markReconnecting();
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
+        state.resetAfterTeardown(preserveReconnecting: true);
+        state.markReconnecting();
+        state.markConnected();
+        state.admit(
+          sessionId: 'session-2',
+          trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
+        );
+        state.resetAfterTeardown(preserveReconnecting: false);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property knownHostSessionChanges leaves candidate claims unassociated',
+      () async {
+        final Future<void> expectation = expectLater(
+          state.knownHostSessionChanges,
+          emits((
+            hostId: null,
+            state: DovahLinkKnownHostSessionState.disconnected,
+          )),
+        );
+        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
+        state.markConnected();
+        state.admit(
+          sessionId: 'session-candidate',
+          trustState: DovahLinkTrustState.unpaired,
+          currentHost: _currentHost(),
+        );
+
+        expect(state.knownHostId, isNull);
+        expect(
+          state.knownHostSessionState,
+          DovahLinkKnownHostSessionState.disconnected,
+        );
+        await expectation;
+      },
+    );
+  });
 }

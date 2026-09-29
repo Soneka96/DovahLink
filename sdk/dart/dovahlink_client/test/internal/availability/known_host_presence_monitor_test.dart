@@ -91,6 +91,13 @@ class FakePresenceAvailabilityService implements IHostAvailabilityService {
     DovahLinkHostAvailability availability,
   ) => updates.add((hostId.value, availability));
 
+  /// Ignores session state because this fake isolates presence monitoring.
+  @override
+  void setSessionState(
+    DovahLinkHostId? hostId,
+    DovahLinkKnownHostSessionState sessionState,
+  ) {}
+
   /// Completes the no-resource fake's terminal lifecycle.
   @override
   Future<void> close() async {}

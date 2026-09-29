@@ -748,12 +748,68 @@ void main() {
           snapshots.last.single.availability,
           DovahLinkHostAvailability.online,
         );
+        expect(
+          snapshots.last.single.sessionState,
+          DovahLinkKnownHostSessionState.connected,
+        );
         await runtimeClient.disconnect();
         await Future<void>.delayed(Duration.zero);
         expect(
           snapshots.last.single.availability,
           DovahLinkHostAvailability.unknown,
         );
+        expect(
+          snapshots.last.single.sessionState,
+          DovahLinkKnownHostSessionState.disconnected,
+        );
+        await subscription.cancel();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges does not associate a candidate session with a matching Host claim',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(hostId: hostId),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        runtimeTransport.queueResponse(
+          _rawFixture('connection/hello-ack.json'),
+        );
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await runtimeClient.authenticateCandidate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          runtimeClient.connectionState,
+          DovahLinkConnectionState.connected,
+        );
+        expect(snapshots.last.single.host.hostId, hostId);
+        expect(
+          snapshots.last.single.sessionState,
+          DovahLinkKnownHostSessionState.disconnected,
+        );
+        await runtimeClient.disconnect();
         await subscription.cancel();
       },
     );
@@ -803,6 +859,10 @@ void main() {
           DovahLinkConnectionState.administrativelyInvalidated,
         );
         expect(
+          snapshots.last.single.sessionState,
+          DovahLinkKnownHostSessionState.disconnected,
+        );
+        expect(
           snapshots.last.single.availability,
           DovahLinkHostAvailability.online,
         );
@@ -845,19 +905,22 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        expect(snapshots, <List<DovahLinkKnownHostState>>[
-          <DovahLinkKnownHostState>[
-            Fixtures.buildDovahLinkKnownHostState(
-              host: Fixtures.buildDovahLinkHost(hostId: hostId),
-            ),
-          ],
-          <DovahLinkKnownHostState>[
-            Fixtures.buildDovahLinkKnownHostState(
-              host: Fixtures.buildDovahLinkHost(hostId: hostId),
-              availability: DovahLinkHostAvailability.offline,
-            ),
-          ],
-        ]);
+        expect(
+          snapshots.any(
+            (List<DovahLinkKnownHostState> snapshot) =>
+                snapshot.single.sessionState ==
+                DovahLinkKnownHostSessionState.connecting,
+          ),
+          isTrue,
+        );
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.offline,
+        );
+        expect(
+          snapshots.last.single.sessionState,
+          DovahLinkKnownHostSessionState.disconnected,
+        );
         await subscription.cancel();
         await runtimeClient.disconnect();
       },
@@ -916,6 +979,7 @@ void main() {
               endpoint: 'ws://127.0.0.1:58232/',
             ),
             availability: DovahLinkHostAvailability.online,
+            sessionState: DovahLinkKnownHostSessionState.connected,
           ),
         ]);
         await runtimeClient.disconnect();
@@ -3590,6 +3654,7 @@ void main() {
           Fixtures.buildDovahLinkKnownHostState(
             host: hostA,
             availability: DovahLinkHostAvailability.online,
+            sessionState: DovahLinkKnownHostSessionState.connected,
           ),
           Fixtures.buildDovahLinkKnownHostState(host: hostB),
         ]);
@@ -3620,6 +3685,7 @@ void main() {
           Fixtures.buildDovahLinkKnownHostState(
             host: hostA,
             availability: DovahLinkHostAvailability.online,
+            sessionState: DovahLinkKnownHostSessionState.connected,
           ),
           Fixtures.buildDovahLinkKnownHostState(host: hostB),
         ]);

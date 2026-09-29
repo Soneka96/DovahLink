@@ -181,10 +181,13 @@ current-state-bearing domain views. It does not imply replaying historical event
 streams; a late subscriber to an Event-mode domain still synchronizes through that domain's normal
 initial-snapshot path, not through event replay.
 
-`DovahLinkClient.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts
-and their `DovahLinkHostAvailability`. When storage provides a snapshot, it immediately provides the
+`DovahLinkClient.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts,
+their `DovahLinkHostAvailability`, and their exact-relationship `DovahLinkKnownHostSessionState`.
+When storage provides a snapshot, it immediately provides the
 current immutable collection, ordered deterministically by Host ID, then emits a complete replacement
-when either Host metadata or availability changes. Equivalent snapshots are suppressed, except the
+when Host metadata, availability, or session state changes. Session state is connected only after
+successful session admission for that durable Host ID; candidate claims never associate a session
+with a Known Host. Equivalent snapshots are suppressed, except the
 first complete snapshot after a stream error, which signals recovery even if its values are
 unchanged. An initial storage failure is reported to the subscriber, which remains attached for
 later recovery.

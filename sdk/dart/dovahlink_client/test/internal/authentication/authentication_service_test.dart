@@ -131,7 +131,10 @@ void main() {
     updatedState = null;
     clientIdResolver = MockClientIdResolver();
     clientIdCache = MockClientIdCache();
-    when(() => sessionService.connect(any())).thenAnswer((_) async {});
+    when(
+      () =>
+          sessionService.connect(any(), knownHostId: any(named: 'knownHostId')),
+    ).thenAnswer((_) async {});
     when(
       () => sessionService.disconnect(
         orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
@@ -724,9 +727,17 @@ void main() {
           buildHelloAckEnvelope(kind: ClientIdentityKind.unpaired),
         );
 
-        await service.authenticateKnownHost(
-          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+        final DovahLinkHostId knownHostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
         );
+        await service.authenticateKnownHost(knownHostId);
+
+        verify(
+          () => sessionService.connect(
+            Uri.parse('ws://127.0.0.1:58231/'),
+            knownHostId: knownHostId,
+          ),
+        ).called(1);
 
         verify(
           () => sessionAdmissionService.admitSession(
@@ -1458,7 +1469,12 @@ void main() {
             ),
           ),
         );
-        verifyNever(() => sessionService.connect(any()));
+        verifyNever(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        );
         verifyNever(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -1508,9 +1524,12 @@ void main() {
                   as PersistedClientState Function(PersistedClientState);
           current = update(current);
         });
-        when(() => sessionService.connect(any())).thenAnswer((
-          invocation,
-        ) async {
+        when(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).thenAnswer((invocation) async {
           connectedEndpoints.add(invocation.positionalArguments.single as Uri);
         });
         when(() => sessionService.currentEndpoint).thenAnswer(
@@ -1560,7 +1579,12 @@ void main() {
           throwsA(isA<DovahLinkKnownHostNotFoundException>()),
         );
 
-        verifyNever(() => sessionService.connect(any()));
+        verifyNever(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        );
         verifyNever(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -1608,7 +1632,12 @@ void main() {
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
         expect(result.hostName, 'Soneka-Desktop');
         expect(result.trustState, DovahLinkTrustState.trusted);
-        verify(() => sessionService.connect(any())).called(1);
+        verify(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).called(1);
         verify(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -1643,7 +1672,10 @@ void main() {
 
         verifyInOrder([
           () => sessionService.disconnect(orphanRetrySafeOperations: false),
-          () => sessionService.connect(any()),
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
         ]);
         verify(
           () => requestService.sendAndAwait(
@@ -1688,7 +1720,10 @@ void main() {
 
         verifyInOrder([
           () => sessionService.disconnect(orphanRetrySafeOperations: false),
-          () => sessionService.connect(any()),
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
         ]);
         verify(
           () => requestService.sendAndAwait(
@@ -1719,7 +1754,12 @@ void main() {
           Uri.parse('ws://127.0.0.1:1/'),
         );
 
-        verify(() => sessionService.connect(any())).called(1);
+        verify(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).called(1);
         verifyNever(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
@@ -1737,7 +1777,10 @@ void main() {
       'Method authenticate propagates a connect() failure without ever sending hello',
       () async {
         when(
-          () => sessionService.connect(any()),
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
         ).thenThrow(const DovahLinkConnectionException('unreachable'));
 
         await expectLater(
@@ -1769,7 +1812,10 @@ void main() {
           ),
         );
         when(
-          () => sessionService.connect(any()),
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
         ).thenThrow(const DovahLinkConnectionException('unreachable'));
 
         await expectLater(
@@ -1810,7 +1856,12 @@ void main() {
             credential: 'credential-a',
           ),
         );
-        when(() => sessionService.connect(any())).thenAnswer((_) async {
+        when(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).thenAnswer((_) async {
           service.cancelPendingAuthentication();
           throw const DovahLinkConnectionException('connect cancelled');
         });
@@ -1906,7 +1957,12 @@ void main() {
           service.authenticateCandidate(Uri.parse('ws://127.0.0.1:1/')),
           throwsA(isA<DovahLinkConnectionException>()),
         );
-        verifyNever(() => sessionService.connect(any()));
+        verifyNever(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        );
         verifyNever(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -1957,7 +2013,12 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
         expect(updatedState?.pendingPairingRecovery, isNull);
-        verify(() => sessionService.connect(any())).called(2);
+        verify(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).called(2);
         verifyNever(
           () => hostAvailabilityService.setAvailability(any(), any()),
         );
@@ -1987,7 +2048,12 @@ void main() {
           ),
         );
         int connectCallCount = 0;
-        when(() => sessionService.connect(any())).thenAnswer((_) async {
+        when(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).thenAnswer((_) async {
           connectCallCount++;
           if (connectCallCount == 2) {
             throw const DovahLinkConnectionException('retry unreachable');
@@ -2023,7 +2089,12 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
         expect(updatedState?.pendingPairingRecovery, isNull);
-        verify(() => sessionService.connect(any())).called(2);
+        verify(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).called(2);
         verify(
           () => hostAvailabilityService.setAvailability(
             DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
@@ -2105,7 +2176,12 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
         expect(updatedState?.pendingPairingRecovery, isNull);
-        verify(() => sessionService.connect(any())).called(2);
+        verify(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).called(2);
         final List<Object?> sentPayloads = verify(
           () => requestService.sendAndAwait(
             messageType: ProtocolMessageType.hello,
@@ -2172,7 +2248,12 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
         expect(updatedState?.pendingPairingRecovery, isNull);
-        verify(() => sessionService.connect(any())).called(2);
+        verify(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).called(2);
       },
     );
 
@@ -2221,7 +2302,12 @@ void main() {
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
         expect(updatedState?.pendingPairingRecovery, isNull);
-        verify(() => sessionService.connect(any())).called(2);
+        verify(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).called(2);
       },
     );
 
@@ -2261,7 +2347,12 @@ void main() {
             ),
           ),
         );
-        verify(() => sessionService.connect(any())).called(1);
+        verify(
+          () => sessionService.connect(
+            any(),
+            knownHostId: any(named: 'knownHostId'),
+          ),
+        ).called(1);
         verifyNever(() => storage.updateState(any()));
       },
     );

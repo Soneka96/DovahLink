@@ -35,6 +35,24 @@ enum DovahLinkConnectionState {
   reauthenticating,
 }
 
+/// The session lifecycle for one exact durable Known Host relationship.
+enum DovahLinkKnownHostSessionState {
+  /// No admitted or in-progress session belongs to this Known Host.
+  disconnected,
+
+  /// A Known Host connection or authentication attempt is in progress.
+  connecting,
+
+  /// An authenticated session is admitted for this Known Host.
+  connected,
+
+  /// Bounded recovery is retrying this Known Host after unexpected transport loss.
+  reconnecting,
+
+  /// Recovery transport is back and authentication is being re-established.
+  reauthenticating,
+}
+
 /// The SDK's current runtime evidence that a durable Known Host is reachable.
 enum DovahLinkHostAvailability {
   /// The SDK has not established current reachability evidence.

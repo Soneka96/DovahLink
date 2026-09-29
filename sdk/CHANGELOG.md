@@ -20,6 +20,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The SDK handshake result exposes the stable Host installation ID and current OS computer name.
 - The Dart SDK discovers the local loopback Host through a bounded sessionless metadata probe; its Host ID claim remains unauthenticated.
 - The SDK exposes the shared Host presence probe for local discovery and Known Host reachability.
+- `DovahLinkKnownHostState` exposes the exact Known Host session lifecycle separately from reachability.
 - `DovahLinkClient.close()` stops background presence monitoring and releases SDK-owned subscriptions.
 - DovahLinkConnectionException preserves an HTTP status when a peer rejects the metadata probe.
 
