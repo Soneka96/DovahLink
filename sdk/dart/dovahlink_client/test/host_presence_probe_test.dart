@@ -274,5 +274,30 @@ void main() {
         await receivedRequest.future.timeout(const Duration(seconds: 5));
       },
     );
+
+    test(
+      'Method probe closes an in-flight response when its cancellation signal fires',
+      () async {
+        final HttpServer server = await HttpServer.bind(
+          InternetAddress.loopbackIPv4,
+          0,
+        );
+        addTearDown(() => server.close(force: true));
+        final Completer<void> receivedRequest = Completer<void>();
+        server.listen((HttpRequest request) {
+          receivedRequest.complete();
+        });
+        final Completer<void> cancel = Completer<void>();
+        final Future<DovahLinkHost> probe = HostPresenceProbe().probe(
+          Uri.parse('ws://127.0.0.1:${server.port}/'),
+          cancel: cancel.future,
+        );
+        await receivedRequest.future.timeout(const Duration(seconds: 5));
+
+        cancel.complete();
+
+        await expectLater(probe, throwsA(isA<DovahLinkConnectionException>()));
+      },
+    );
   });
 }

@@ -13,6 +13,12 @@ const int kHostProbeResponseMaxBytes = 512;
 /// The total time allowed for one public Host discovery/presence probe.
 const Duration kHostProbeTimeout = Duration(seconds: 5);
 
+/// The cadence for refreshing Known Host reachability while the client is open.
+const Duration kKnownHostPresenceRefreshInterval = Duration(seconds: 30);
+
+/// The maximum number of sessionless Known Host probes running at once.
+const int kKnownHostPresenceMaxConcurrentProbes = 4;
+
 // ---- Request policy ----
 
 /// The bounded wait this SDK allows a request of each [TimeoutClass] before treating its

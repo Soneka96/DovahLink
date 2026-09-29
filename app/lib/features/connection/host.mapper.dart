@@ -27,6 +27,7 @@ final class HostMapper {
       DovahLinkHostAvailability.unknown => HostAvailability.unknown,
       DovahLinkHostAvailability.online => HostAvailability.online,
       DovahLinkHostAvailability.offline => HostAvailability.offline,
+      DovahLinkHostAvailability.checking => HostAvailability.checking,
     },
   );
 }

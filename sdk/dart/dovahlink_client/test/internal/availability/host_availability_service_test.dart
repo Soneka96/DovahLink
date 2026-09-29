@@ -35,6 +35,7 @@ void main() {
   });
 
   tearDown(() async {
+    await service.close();
     await knownHostsController.close();
   });
 
@@ -378,6 +379,24 @@ void main() {
           DovahLinkHostAvailability.unknown,
         );
         await firstStates.cancel();
+      },
+    );
+  });
+
+  group('Method close behaves correctly', () {
+    test(
+      'Method close cancels storage observation and closes the projection stream',
+      () async {
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            service.knownHostStatesChanges.listen((_) {});
+        await Future<void>.delayed(Duration.zero);
+        expect(knownHostsController.hasListener, isTrue);
+
+        await service.close();
+
+        expect(knownHostsController.hasListener, isFalse);
+        await subscription.cancel();
+        await service.close();
       },
     );
   });

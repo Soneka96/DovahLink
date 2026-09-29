@@ -41,11 +41,13 @@ void main() {
           DovahLinkHostAvailability.unknown,
           DovahLinkHostAvailability.online,
           DovahLinkHostAvailability.offline,
+          DovahLinkHostAvailability.checking,
         ];
         final List<HostAvailability> appAvailabilities = [
           HostAvailability.unknown,
           HostAvailability.online,
           HostAvailability.offline,
+          HostAvailability.checking,
         ];
 
         final List<KnownHost> mapped = [

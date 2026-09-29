@@ -23,10 +23,11 @@ abstract interface class IHostPresenceProbe {
   /// The returned identity is unauthenticated and must not authorize Known Host credentials or
   /// trust changes.
   /// @param endpoint The Host's WebSocket endpoint; only its scheme, host, and port are used.
+  /// @param cancel An optional signal that closes an in-flight request and stops its response read.
   /// @throws [DovahLinkConnectionException] if the endpoint cannot be reached or rejects the probe.
   /// @throws [DovahLinkProtocolException] if the response is malformed or exceeds its size bound.
   /// @throws [DovahLinkCompatibilityException] if the claimed Host version is unsupported.
-  Future<DovahLinkHost> probe(Uri endpoint);
+  Future<DovahLinkHost> probe(Uri endpoint, {Future<void>? cancel});
 }
 
 /// Reads public Host metadata through the bounded sessionless HTTP probe endpoint.
@@ -44,7 +45,7 @@ class HostPresenceProbe implements IHostPresenceProbe {
 
   /// Implements [IHostPresenceProbe.probe].
   @override
-  Future<DovahLinkHost> probe(Uri endpoint) async {
+  Future<DovahLinkHost> probe(Uri endpoint, {Future<void>? cancel}) async {
     if (endpoint.scheme != 'ws' && endpoint.scheme != 'wss') {
       throw ArgumentError.value(endpoint, 'endpoint', 'must use ws or wss');
     }
@@ -56,7 +57,7 @@ class HostPresenceProbe implements IHostPresenceProbe {
     );
     final HttpClient client = HttpClient()..connectionTimeout = _timeout;
     try {
-      return await (() async {
+      final Future<DovahLinkHost> requestResult = (() async {
         final HttpClientRequest request = await client.getUrl(probeUri);
         request.followRedirects = false;
         final HttpClientResponse response = await request.close();
@@ -116,6 +117,21 @@ class HostPresenceProbe implements IHostPresenceProbe {
           endpoint: endpoint,
         );
       }()).timeout(_timeout);
+      final Future<DovahLinkHost> futureWithCancellation;
+      if (cancel == null) {
+        futureWithCancellation = requestResult;
+      } else {
+        futureWithCancellation =
+            Future.any<DovahLinkHost>(<Future<DovahLinkHost>>[
+              requestResult,
+              cancel.then<DovahLinkHost>((_) {
+                throw const DovahLinkConnectionException(
+                  'The Host probe was cancelled.',
+                );
+              }),
+            ]);
+      }
+      return await futureWithCancellation;
     } on TimeoutException {
       throw const DovahLinkConnectionException('The Host probe timed out.');
     } on SocketException catch (error) {

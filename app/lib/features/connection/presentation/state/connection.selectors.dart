@@ -54,6 +54,7 @@ abstract final class ConnectionSelectors {
             ? knownHost.host.uri.toString()
             : knownHost.host.uri.authority,
         state: switch (knownHost.availability) {
+          HostAvailability.checking => DovahConnectionCardState.checking,
           HostAvailability.unknown => DovahConnectionCardState.unknown,
           HostAvailability.online => DovahConnectionCardState.available,
           HostAvailability.offline => DovahConnectionCardState.offline,

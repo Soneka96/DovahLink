@@ -60,26 +60,25 @@ identity decisions remain in [`../security/identity-and-transport.md`](../securi
 The SDK owns one runtime availability projection for durable Known Hosts. Availability means only
 whether the SDK has current runtime evidence that a Known Host is reachable; it is separate from
 trust, pairing, and connection lifecycle state. Keep it out of `DovahLinkHost` and out of persisted
-client state. Each persisted Known Host starts `unknown` after process startup, and no startup
-probe is run for availability.
+client state. `KnownHostPresenceMonitor` starts with the client, marks restored Hosts `checking`,
+and probes them through `IHostPresenceProbe` without creating protocol sessions.
 
 The availability owner holds only runtime values keyed by Host ID and combines them with the
-complete durable Known Host snapshot when it publishes the public projection. A newly added or
-metadata-refreshed Host with no runtime value projects as `unknown`; removal drops its runtime
-value. Do not duplicate Host metadata or persistence ownership in the availability owner.
+complete durable Known Host snapshot when it publishes the public projection. The monitor retains
+only Host IDs, probe endpoints, and generations needed to schedule and reject stale results; it does
+not own Host metadata or persistence. Added Hosts and endpoint changes enter `checking` and receive
+an immediate bounded probe; removal drops runtime state and cancels or ignores the old result.
+Periodic refresh runs every 30 seconds, each request is limited to 5 seconds, and at most four
+Hosts are probed concurrently with no overlapping request for one Host.
 
-Apply only these transitions: successful `authenticateKnownHost` admission and successful pairing
-that durably creates or updates a Known Host in the active session report `online`; an actual
-transport failure to connect during an explicit Known Host attempt reports `offline`. Preserve the
-previous value during reconnect attempts, and report `online` after recovery succeeds. Reconnect
-exhaustion reports `offline` only when typed reconnect failures establish that connection or
-transport reachability failed. Identity mismatch, compatibility failure, protocol response or
-rejection (including retryable protocol errors that exhaust the retry budget), and other semantic
-termination report `unknown`: reconnect `terminal` means stop retrying, not that the Known Host is
-unreachable. Reachability alone also does not authenticate the expected Known Host; if its endpoint
-responds as a different Host, the expected Known Host returns to `unknown`. Explicit
-`DovahLinkClient.disconnect()` reports `unknown` for its admitted Known Host because observation
-was deliberately stopped.
+An authenticated active session for a Known Host is stronger than a probe result: skip that Host
+while its session is healthy and ignore a weaker negative result that races successful admission.
+A compatible sessionless claim with the same Host ID reports `online`; a bounded connection failure
+reports `offline` only when no authenticated session is active. A different Host ID, HTTP rejection,
+malformed response, or incompatible version reports `unknown`, never trust repair or metadata
+mutation. Explicit `DovahLinkClient.disconnect()` reports `unknown` for its admitted Known Host but
+does not stop presence monitoring. Terminal `DovahLinkClient.close()` cancels the monitor, its timer,
+in-flight probes, and subscriptions; the app uses this lifecycle at shutdown.
 Administrative invalidation preserves the previous availability: its typed event requires an
 admitted session and
 does not establish that the Host became unreachable. Compatibility, malformed-protocol, identity,
@@ -87,9 +86,8 @@ credential, and trust outcomes are not blanket transport-failure signals.
 
 Candidate authentication and discovery never update a Known Host's availability based on a claimed
 Host ID. Recovery must carry the verified Known Host relationship ID from the admitted operation;
-do not infer it from an endpoint, display metadata, or discovery. Future TTL or other liveness policy
-belongs inside this SDK availability owner. No timer, polling, or discovery-based liveness policy
-exists today.
+do not infer it from an endpoint, display metadata, or discovery. The monitor owns only bounded
+reachability scheduling; `ReconnectService` remains responsible for recovering an established session.
 
 The owner suppresses equivalent successive projections. After a stream error, it emits the next
 valid complete snapshot even if the projection is unchanged, so subscribers can observe recovery

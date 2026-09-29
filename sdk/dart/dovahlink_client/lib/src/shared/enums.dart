@@ -45,6 +45,9 @@ enum DovahLinkHostAvailability {
 
   /// An explicit reachability attempt or bounded recovery definitively failed.
   offline,
+
+  /// The SDK is performing a bounded sessionless reachability check.
+  checking,
 }
 
 /// The client's trust standing, established by a successful `hello` and possibly upgraded by

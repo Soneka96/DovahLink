@@ -245,6 +245,7 @@ void main() {
             DovahConnectionCardState cardState,
           )
           in const [
+            (HostAvailability.checking, DovahConnectionCardState.checking),
             (HostAvailability.unknown, DovahConnectionCardState.unknown),
             (HostAvailability.online, DovahConnectionCardState.available),
             (HostAvailability.offline, DovahConnectionCardState.offline),

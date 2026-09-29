@@ -6,7 +6,7 @@ import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
 
 /// Defines the platform-neutral cleanup path for app-owned Dart resources.
 abstract interface class IAppShutdownService {
-  /// Stops app middleware and disconnects an SDK client that already exists.
+  /// Stops app middleware and closes an SDK client that already exists.
   ///
   /// Concurrent calls share one bounded cleanup operation. Cleanup failures do not escape.
   /// The deadline stops waiting but does not cancel cleanup already in progress.
@@ -14,7 +14,7 @@ abstract interface class IAppShutdownService {
   Future<void> shutdown();
 }
 
-/// Coordinates middleware cleanup and disconnect of an existing SDK client.
+/// Coordinates middleware cleanup and close of an existing SDK client.
 class AppShutdownService implements IAppShutdownService {
   /// Connection middleware whose SDK state observation belongs to the app lifecycle.
   final IConnectionMiddleware _connectionMiddleware;
@@ -47,8 +47,8 @@ class AppShutdownService implements IAppShutdownService {
   @override
   Future<void> shutdown() => _shutdownFuture ??= _performShutdown();
 
-  /// Starts both middleware cancellations and the existing-client disconnect before the deadline
-  /// wait, so disconnect invalidates authentication and reconnect work immediately. Their late
+  /// Starts both middleware cancellations and the existing-client close before the deadline
+  /// wait, so close invalidates authentication and reconnect work immediately. Their late
   /// completions perform no follow-up application work.
   Future<void> _performShutdown() async {
     final Completer<void> deadline = Completer<void>();
@@ -56,13 +56,9 @@ class AppShutdownService implements IAppShutdownService {
     try {
       final Future<void> connectionCleanup = _stopConnection();
       final Future<void> pairingCleanup = _stopPairing();
-      final Future<void> clientDisconnect = _disconnectExistingClient();
+      final Future<void> clientClose = _closeExistingClient();
       await Future.any<void>([
-        Future.wait<void>([
-          connectionCleanup,
-          pairingCleanup,
-          clientDisconnect,
-        ]),
+        Future.wait<void>([connectionCleanup, pairingCleanup, clientClose]),
         deadline.future,
       ]);
     } on Object {
@@ -77,7 +73,7 @@ class AppShutdownService implements IAppShutdownService {
     try {
       await _connectionMiddleware.shutdown();
     } on Object {
-      // Keep pairing cleanup and client disconnect running within the shutdown budget.
+      // Keep pairing cleanup and client close running within the shutdown budget.
     }
   }
 
@@ -86,14 +82,14 @@ class AppShutdownService implements IAppShutdownService {
     try {
       await _pairingMiddleware.shutdown();
     } on Object {
-      // A failed pairing cancellation must not prevent client disconnect.
+      // A failed pairing cancellation must not prevent client close.
     }
   }
 
-  /// Disconnects the already-created SDK client as the final bounded cleanup step.
-  Future<void> _disconnectExistingClient() async {
+  /// Closes the already-created SDK client as the final bounded cleanup step.
+  Future<void> _closeExistingClient() async {
     try {
-      await _existingClient.disconnectIfCreated();
+      await _existingClient.closeIfCreated();
     } on Object {
       // A failed transport must not keep the native window open.
     }

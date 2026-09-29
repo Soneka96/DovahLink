@@ -188,9 +188,15 @@ when either Host metadata or availability changes. Equivalent snapshots are supp
 first complete snapshot after a stream error, which signals recovery even if its values are
 unchanged. An initial storage failure is reported to the subscriber, which remains attached for
 later recovery.
-Availability starts as `unknown` for every persisted Host after process startup and is runtime-only;
-it is not part of `DovahLinkHost` or persisted client state. Keep `knownHostsChanges` for consumers
-that need durable Host metadata without runtime availability.
+Availability is runtime-only; it is not part of `DovahLinkHost` or persisted client state. The SDK
+starts bounded Known Host presence checks when a client is created, emitting `checking`, then
+`online`, `offline`, or `unknown` as the sessionless probe provides evidence. Keep
+`knownHostsChanges` for consumers that need durable Host metadata without runtime availability.
+
+`DovahLinkClient.disconnect()` ends only the current protocol session and leaves Known Host presence
+monitoring active. `DovahLinkClient.close()` is the terminal lifecycle operation that stops the
+monitor, cancels its timer and probes, closes its Known Host observation subscriptions, and
+disconnects the current session.
 
 Commands and authoritative state are separate API views. A command may report whether its operation
 was accepted or rejected and return operation-specific metadata, while the resulting persistent,

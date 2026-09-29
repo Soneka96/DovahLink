@@ -130,6 +130,9 @@ enum HostAvailability {
 
   /// An explicit reachability attempt or bounded recovery definitively failed.
   offline,
+
+  /// The SDK is performing a bounded sessionless reachability check.
+  checking,
 }
 
 /// Whether Flutter's projection of the SDK-owned Known Hosts stream is current and healthy.
@@ -217,6 +220,9 @@ enum DovahThemePreset {
 /// A presentation-only connection-card state supplied independently of the SDK's connection
 /// state.
 enum DovahConnectionCardState {
+  /// The SDK is currently checking this Known Host's reachability.
+  checking,
+
   /// The connection is reachable and ready to enter.
   available,
 
@@ -231,7 +237,8 @@ enum DovahConnectionCardState {
 
   /// Returns the concise user-visible label for this state.
   String get label => switch (this) {
-    DovahConnectionCardState.available => 'Connected',
+    DovahConnectionCardState.checking => 'Checking…',
+    DovahConnectionCardState.available => 'Online',
     DovahConnectionCardState.unknown => 'Not connected',
     DovahConnectionCardState.offline => 'Offline',
     DovahConnectionCardState.repair => 'Pair again',

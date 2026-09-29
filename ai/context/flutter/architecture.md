@@ -293,13 +293,13 @@ app-owned values before it enters app state or other layers.
 ## Application shutdown
 
 `AppShutdownService` is platform-neutral and owns one idempotent, three-second cleanup budget. It
-starts `PairingMiddleware.shutdown()` first and then starts SDK disconnect before awaiting either
-operation. Pairing shutdown immediately blocks new pairing work; SDK disconnect immediately
-invalidates pending authentication and reconnect work. The pairing client registration records its
-instance in the app lifecycle holder; shutdown must not resolve the lazy client registration just to
-disconnect an unused client. Late authentication, code-request, or confirmation results cannot
-dispatch follow-up pairing work after shutdown begins. The SDK disconnect is the final cleanup step,
-so late completions start no further application work. Windows registers `WindowsLifecycleBridge`,
+starts `PairingMiddleware.shutdown()` first and then starts SDK close before awaiting either
+operation. Pairing shutdown immediately blocks new pairing work; SDK close stops its Known Host
+monitor and invalidates pending authentication and reconnect work. The pairing client registration
+records its instance in the app lifecycle holder; shutdown must not resolve the lazy client
+registration just to close an unused client. Late authentication, code-request, or confirmation
+results cannot dispatch follow-up pairing work after shutdown begins. SDK close is the final cleanup
+step, so late completions start no further application work. Windows registers `WindowsLifecycleBridge`,
 which forwards native close and session-ending requests to the shared service. Android and iOS do not
 register that bridge, and
 ordinary background/pause lifecycle events do not invoke application shutdown.

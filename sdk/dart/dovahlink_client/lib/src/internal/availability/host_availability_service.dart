@@ -18,6 +18,9 @@ abstract interface class IHostAvailabilityService {
     DovahLinkHostId hostId,
     DovahLinkHostAvailability availability,
   );
+
+  /// Cancels durable-state observation and closes the runtime projection stream.
+  Future<void> close();
 }
 
 /// Implements [IHostAvailabilityService] over the durable Known Host projection.
@@ -44,6 +47,12 @@ class HostAvailabilityService implements IHostAvailabilityService {
 
   /// The durable-state subscription, started when state is first observed or updated.
   StreamSubscription<List<DovahLinkHost>>? _knownHostsSubscription;
+
+  /// The terminal stream cleanup operation shared by repeated calls.
+  Future<void>? _closeFuture;
+
+  /// Whether the service has completed or begun terminal cleanup.
+  bool _isClosed = false;
 
   /// Creates an availability owner over the client's durable Known Hosts.
   /// @param clientStateService Supplies complete committed Host metadata snapshots.
@@ -76,6 +85,9 @@ class HostAvailabilityService implements IHostAvailabilityService {
     DovahLinkHostId hostId,
     DovahLinkHostAvailability availability,
   ) {
+    if (_isClosed) {
+      return;
+    }
     _ensureKnownHostsObservation();
     if (availability == DovahLinkHostAvailability.unknown) {
       _availability.remove(hostId.value);
@@ -85,9 +97,27 @@ class HostAvailabilityService implements IHostAvailabilityService {
     _publishCurrentStates();
   }
 
+  /// Implements [IHostAvailabilityService.close].
+  @override
+  Future<void> close() {
+    final Future<void>? closing = _closeFuture;
+    if (closing != null) {
+      return closing;
+    }
+    _isClosed = true;
+    final StreamSubscription<List<DovahLinkHost>>? subscription =
+        _knownHostsSubscription;
+    _knownHostsSubscription = null;
+    final Future<void> closeChanges = subscription == null
+        ? _changes.close()
+        : subscription.cancel().then((_) => _changes.close());
+    _closeFuture = closeChanges;
+    return closeChanges;
+  }
+
   /// Starts the single durable-state listener on first use.
   void _ensureKnownHostsObservation() {
-    if (_knownHostsSubscription != null) {
+    if (_isClosed || _knownHostsSubscription != null) {
       return;
     }
     _knownHostsSubscription = _clientStateService.knownHostsChanges.listen(
@@ -99,6 +129,9 @@ class HostAvailabilityService implements IHostAvailabilityService {
   /// Reconciles runtime values with the latest durable Known Host collection.
   /// @param hosts The latest metadata snapshot from client state.
   void _updateKnownHosts(List<DovahLinkHost> hosts) {
+    if (_isClosed) {
+      return;
+    }
     final bool recoveredFromError = _lastError != null;
     final Set<String> hostIds = hosts
         .map((DovahLinkHost host) => host.hostId)
@@ -115,6 +148,9 @@ class HostAvailabilityService implements IHostAvailabilityService {
   /// @param error The storage error delivered by the state owner.
   /// @param stackTrace The stack trace delivered with [error].
   void _reportStorageError(Object error, StackTrace stackTrace) {
+    if (_isClosed) {
+      return;
+    }
     _lastError = error;
     _lastErrorStackTrace = stackTrace;
     _changes.addError(error, stackTrace);
@@ -160,6 +196,9 @@ class HostAvailabilityService implements IHostAvailabilityService {
     Iterable<DovahLinkKnownHostState> states, {
     bool force = false,
   }) {
+    if (_isClosed) {
+      return;
+    }
     final List<DovahLinkKnownHostState> next =
         List<DovahLinkKnownHostState>.unmodifiable(states);
     final List<DovahLinkKnownHostState>? current = _currentStates;

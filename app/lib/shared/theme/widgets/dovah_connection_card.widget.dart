@@ -54,6 +54,7 @@ class DovahConnectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
     final Color statusColor = switch (state) {
+      DovahConnectionCardState.checking => tokens.textMuted,
       DovahConnectionCardState.available => tokens.success,
       DovahConnectionCardState.unknown => tokens.textMuted,
       DovahConnectionCardState.offline => tokens.statusOffline,

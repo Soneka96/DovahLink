@@ -453,6 +453,67 @@ DovahLinkClient _buildFastReconnectClient(
   reconnectDeadline: const Duration(seconds: 30),
 );
 
+/// Controls sessionless probe results while exercising the composed SDK client.
+class ControllableClientPresenceProbe implements IHostPresenceProbe {
+  /// Pending probe endpoint and result pairs, in request order.
+  final List<({Uri endpoint, Completer<DovahLinkHost> response})> requests =
+      <({Uri endpoint, Completer<DovahLinkHost> response})>[];
+
+  /// The number of probes cancelled by terminal client close.
+  int cancellationCount = 0;
+
+  /// Records one probe and completes it only when the test supplies a claim or close cancels it.
+  @override
+  Future<DovahLinkHost> probe(Uri endpoint, {Future<void>? cancel}) {
+    final Completer<DovahLinkHost> response = Completer<DovahLinkHost>();
+    requests.add((endpoint: endpoint, response: response));
+    if (cancel != null) {
+      unawaited(
+        cancel.then((_) {
+          cancellationCount++;
+          if (!response.isCompleted) {
+            response.completeError(
+              const DovahLinkConnectionException('Probe cancelled.'),
+            );
+          }
+        }),
+      );
+    }
+    return response.future;
+  }
+
+  /// Completes request [index] with a valid Host claim.
+  /// @param index The recorded probe request to complete.
+  /// @param hostId The Host ID asserted in its response.
+  void succeed(int index, {required String hostId}) {
+    final ({Uri endpoint, Completer<DovahLinkHost> response}) request =
+        requests[index];
+    request.response.complete(
+      Fixtures.buildDovahLinkHost(
+        hostId: hostId,
+        endpoint: request.endpoint.toString(),
+      ),
+    );
+  }
+}
+
+/// Waits for the composed client to start [count] presence probes.
+/// @param probe The probe that records each request.
+/// @param count The minimum number of requests expected.
+Future<void> waitForClientPresenceProbes(
+  ControllableClientPresenceProbe probe,
+  int count,
+) async {
+  for (
+    int attempt = 0;
+    attempt < 20 && probe.requests.length < count;
+    attempt++
+  ) {
+    await pumpEventQueue();
+  }
+  expect(probe.requests.length, greaterThanOrEqualTo(count));
+}
+
 /// Runs public-client behavior tests.
 void main() {
   late FakeDovahLinkTransport transport;
@@ -466,6 +527,7 @@ void main() {
       transport: transport,
       storage: storage,
     );
+    addTearDown(client.close);
   });
 
   group('Method loadKnownHosts behaves correctly', () {
@@ -1764,6 +1826,7 @@ void main() {
         final DovahLinkClient defaultClient = DovahLinkClient(
           storage: InMemoryClientStorage(),
         );
+        addTearDown(defaultClient.close);
         addTearDown(defaultClient.disconnect);
         final Future<WebSocket> acceptedSocket = server.connections.first
             .timeout(timeout);
@@ -3937,6 +4000,7 @@ void main() {
         final DovahLinkClient realTransportClient = DovahLinkClient(
           storage: storage,
         );
+        addTearDown(realTransportClient.close);
 
         await expectLater(
           realTransportClient.hello(),
@@ -4229,4 +4293,90 @@ void main() {
       },
     );
   });
+
+  group(
+    'Behavior Known Host presence monitoring lifecycle behaves correctly',
+    () {
+      test(
+        'Behavior Known Host presence monitoring probes restored Hosts and survives disconnect until close',
+        () async {
+          final DovahLinkHost host = Fixtures.buildDovahLinkHost(
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          );
+          final InMemoryClientStorage monitorStorage = InMemoryClientStorage();
+          await monitorStorage.save(
+            Fixtures.buildPersistedClientState(host: host),
+          );
+          final FakeDovahLinkTransport monitorTransport =
+              FakeDovahLinkTransport();
+          final ControllableClientPresenceProbe presenceProbe =
+              ControllableClientPresenceProbe();
+          final StreamController<void> refreshTicks =
+              StreamController<void>.broadcast(sync: true);
+          final DovahLinkClient monitorClient = buildDovahLinkClientForTesting(
+            transport: monitorTransport,
+            storage: monitorStorage,
+            hostPresenceProbe: presenceProbe,
+            knownHostPresenceMonitoringEnabled: true,
+            hostPresenceRefreshTicks: refreshTicks.stream,
+          );
+          final List<List<DovahLinkKnownHostState>> snapshots = [];
+          final Completer<void> checkingObserved = Completer<void>();
+          final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+              monitorClient.knownHostStatesChanges.listen((
+                List<DovahLinkKnownHostState> snapshot,
+              ) {
+                snapshots.add(snapshot);
+                if (snapshot.isNotEmpty &&
+                    snapshot.single.availability ==
+                        DovahLinkHostAvailability.checking &&
+                    !checkingObserved.isCompleted) {
+                  checkingObserved.complete();
+                }
+              });
+          addTearDown(() async {
+            await subscription.cancel();
+            await monitorClient.close();
+            await refreshTicks.close();
+          });
+
+          await waitForClientPresenceProbes(presenceProbe, 1);
+          await checkingObserved.future.timeout(const Duration(seconds: 5));
+          final List<DovahLinkKnownHostState> checkingSnapshot = snapshots
+              .firstWhere(
+                (List<DovahLinkKnownHostState> snapshot) =>
+                    snapshot.single.availability ==
+                    DovahLinkHostAvailability.checking,
+              );
+          expect(checkingSnapshot.single.host, host);
+          expect(
+            checkingSnapshot.single.availability,
+            DovahLinkHostAvailability.checking,
+          );
+          presenceProbe.succeed(0, hostId: host.hostId);
+          for (int attempt = 0; attempt < 20; attempt++) {
+            await pumpEventQueue();
+            if (snapshots.isNotEmpty &&
+                snapshots.last.isNotEmpty &&
+                snapshots.last.single.availability ==
+                    DovahLinkHostAvailability.online) {
+              break;
+            }
+          }
+          expect(
+            snapshots.last.single.availability,
+            DovahLinkHostAvailability.online,
+          );
+
+          await monitorClient.disconnect();
+          refreshTicks.add(null);
+          await waitForClientPresenceProbes(presenceProbe, 2);
+          await monitorClient.close();
+
+          expect(presenceProbe.cancellationCount, 1);
+          expect(refreshTicks.hasListener, isFalse);
+        },
+      );
+    },
+  );
 }

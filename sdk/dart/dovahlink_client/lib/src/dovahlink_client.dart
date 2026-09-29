@@ -11,10 +11,12 @@ import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
+import 'package:dovahlink_client_sdk/src/host_presence_probe.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/known_host_presence_monitor.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
@@ -52,8 +54,8 @@ import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
-/// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
-/// disconnect. Owns its local [DovahLinkClient.clientId], Host-scoped credentials, pairing
+/// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair,
+/// disconnect, and close. Owns its local [DovahLinkClient.clientId], Host-scoped credentials, pairing
 /// recovery, and Known Hosts through its SDK-managed [IClientStorage] boundary, so a consumer never threads
 /// credentials through this API.
 ///
@@ -61,6 +63,9 @@ import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 class DovahLinkClient {
   /// Owns persisted client state and its semantic change streams.
   final IClientStateService _clientStateService;
+
+  /// The terminal cleanup operation shared by repeated callers.
+  Future<void>? _closeFuture;
 
   /// Creates a client. [storage] is required so every consumer makes its persistence choice
   /// explicit.
@@ -70,6 +75,7 @@ class DovahLinkClient {
         transport: WebSocketTransport(),
         storage: storage,
         timeoutDurations: kTimeoutClassDurations,
+        hostPresenceProbe: HostPresenceProbe(),
       );
 
   /// Assembles the client services over [transport], applies [timeoutDurations] and the supplied
@@ -79,10 +85,15 @@ class DovahLinkClient {
     required IDovahLinkTransport transport,
     required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
+    required IHostPresenceProbe hostPresenceProbe,
     bool reconnectEnabled = true,
+    bool knownHostPresenceMonitoringEnabled = true,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration reconnectDeadline = kReconnectDeadline,
     DateTime Function() reconnectNow = DateTime.now,
+    Duration hostPresenceRefreshInterval = kKnownHostPresenceRefreshInterval,
+    Stream<void>? hostPresenceRefreshTicks,
+    int hostPresenceMaxConcurrentProbes = kKnownHostPresenceMaxConcurrentProbes,
   }) : _clientStateService = ClientStateService(storage: storage) {
     _hostAvailabilityService = HostAvailabilityService(
       clientStateService: _clientStateService,
@@ -295,6 +306,18 @@ class DovahLinkClient {
       _sessionService.onOrdinaryTransportLoss =
           _reconnectService.onOrdinaryTransportLoss;
     }
+    _knownHostPresenceMonitor = KnownHostPresenceMonitor(
+      clientStateService: _clientStateService,
+      probe: hostPresenceProbe,
+      availabilityService: _hostAvailabilityService,
+      sessionService: _sessionService,
+      refreshInterval: hostPresenceRefreshInterval,
+      refreshTicks: hostPresenceRefreshTicks,
+      maxConcurrentProbes: hostPresenceMaxConcurrentProbes,
+    );
+    if (knownHostPresenceMonitoringEnabled) {
+      _knownHostPresenceMonitor.start();
+    }
   }
 
   /// Owns transport lifecycle, connection state, and stream ownership. This façade reads its
@@ -304,6 +327,9 @@ class DovahLinkClient {
 
   /// Owns the runtime availability map and complete Known Host projection.
   late final IHostAvailabilityService _hostAvailabilityService;
+
+  /// Owns sessionless startup and periodic presence checks until [close].
+  late final IKnownHostPresenceMonitor _knownHostPresenceMonitor;
 
   /// Owns pending requests, timeouts, and retry behavior for this client's session.
   late final IRequestService _requestService;
@@ -584,6 +610,17 @@ class DovahLinkClient {
     }
   }
 
+  /// Permanently closes this client and releases its monitoring and stream resources.
+  ///
+  /// Unlike [disconnect], this terminal operation stops Known Host presence monitoring. The
+  /// client must not be reused after [close] completes.
+  /// @return A future completing after the monitor stops, the session disconnects, and Known Host availability stream closes.
+  Future<void> close() => _closeFuture ??= (() async {
+    await _knownHostPresenceMonitor.close();
+    await disconnect();
+    await _hostAvailabilityService.close();
+  })();
+
   /// Removes one Known Host's credential while preserving its metadata and the local client ID.
   /// @param hostId The stable identifier of the Host whose credential is removed.
   Future<void> forgetCredential(DovahLinkHostId hostId) =>
@@ -597,6 +634,11 @@ class DovahLinkClient {
 /// @param reconnectAttemptDelays The bounded reconnect attempt schedule.
 /// @param reconnectDeadline The overall limit for one reconnect cycle.
 /// @param now The clock used to measure the reconnect deadline.
+/// @param hostPresenceProbe The probe used when monitoring is enabled.
+/// @param knownHostPresenceMonitoringEnabled Whether this test client starts the monitor.
+/// @param hostPresenceRefreshInterval The injected Known Host refresh cadence.
+/// @param hostPresenceRefreshTicks The injected deterministic refresh event stream.
+/// @param hostPresenceMaxConcurrentProbes The injected global probe concurrency bound.
 /// @return A client wired to the supplied transport and timing controls.
 @visibleForTesting
 DovahLinkClient buildDovahLinkClientForTesting({
@@ -607,12 +649,22 @@ DovahLinkClient buildDovahLinkClientForTesting({
   Duration reconnectDeadline = kReconnectDeadline,
   DateTime Function() now = DateTime.now,
   bool reconnectEnabled = true,
+  IHostPresenceProbe? hostPresenceProbe,
+  bool knownHostPresenceMonitoringEnabled = false,
+  Duration hostPresenceRefreshInterval = kKnownHostPresenceRefreshInterval,
+  Stream<void>? hostPresenceRefreshTicks,
+  int hostPresenceMaxConcurrentProbes = kKnownHostPresenceMaxConcurrentProbes,
 }) => DovahLinkClient._build(
   transport: transport,
   storage: storage,
   timeoutDurations: timeoutDurations,
+  hostPresenceProbe: hostPresenceProbe ?? HostPresenceProbe(),
   attemptDelays: reconnectAttemptDelays,
   reconnectDeadline: reconnectDeadline,
   reconnectNow: now,
   reconnectEnabled: reconnectEnabled,
+  knownHostPresenceMonitoringEnabled: knownHostPresenceMonitoringEnabled,
+  hostPresenceRefreshInterval: hostPresenceRefreshInterval,
+  hostPresenceRefreshTicks: hostPresenceRefreshTicks,
+  hostPresenceMaxConcurrentProbes: hostPresenceMaxConcurrentProbes,
 );

@@ -6,12 +6,13 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 void main() {
   group('Property values in DovahLinkHostAvailability behaves correctly', () {
     test(
-      'Property values in DovahLinkHostAvailability contains only reachability states',
+      'Property values in DovahLinkHostAvailability contains every reachability state',
       () {
         expect(DovahLinkHostAvailability.values, <DovahLinkHostAvailability>[
           DovahLinkHostAvailability.unknown,
           DovahLinkHostAvailability.online,
           DovahLinkHostAvailability.offline,
+          DovahLinkHostAvailability.checking,
         ]);
       },
     );

@@ -2,9 +2,9 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
 /// Defines shutdown access to an already-created SDK client.
 abstract interface class IExistingDovahLinkClient {
-  /// Disconnects the SDK client only when app composition has created it.
-  /// @return A future completing after disconnect, or immediately when no client exists.
-  Future<void> disconnectIfCreated();
+  /// Closes the SDK client only when app composition has created it.
+  /// @return A future completing after close, or immediately when no client exists.
+  Future<void> closeIfCreated();
 }
 
 /// Holds the shared SDK client created by app composition, if any.
@@ -21,9 +21,9 @@ class ExistingDovahLinkClient implements IExistingDovahLinkClient {
     _client = client;
   }
 
-  /// Implements [IExistingDovahLinkClient.disconnectIfCreated].
+  /// Implements [IExistingDovahLinkClient.closeIfCreated].
   @override
-  Future<void> disconnectIfCreated() async {
-    await _client?.disconnect();
+  Future<void> closeIfCreated() async {
+    await _client?.close();
   }
 }
