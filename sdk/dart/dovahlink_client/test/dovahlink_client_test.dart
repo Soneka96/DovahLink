@@ -642,6 +642,207 @@ void main() {
         expect(runtimeTransport.connectCalls, isEmpty);
       },
     );
+
+    test(
+      'Property knownHostStatesChanges reports online after Known Host admission',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+            ),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        runtimeTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          snapshots.single.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        await runtimeClient.authenticateKnownHost(DovahLinkHostId(hostId));
+        await Future<void>.delayed(Duration.zero);
+
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.online,
+        );
+        await subscription.cancel();
+        await runtimeClient.disconnect();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges reports offline after an explicit transport connection failure',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(hostId: hostId),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport = FakeDovahLinkTransport()
+          ..failConnectWith = const SocketException('refused');
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        await Future<void>.delayed(Duration.zero);
+
+        await expectLater(
+          runtimeClient.authenticateKnownHost(DovahLinkHostId(hostId)),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(snapshots, <List<DovahLinkKnownHostState>>[
+          <DovahLinkKnownHostState>[
+            Fixtures.buildDovahLinkKnownHostState(
+              host: Fixtures.buildDovahLinkHost(hostId: hostId),
+            ),
+          ],
+          <DovahLinkKnownHostState>[
+            Fixtures.buildDovahLinkKnownHostState(
+              host: Fixtures.buildDovahLinkHost(hostId: hostId),
+              availability: DovahLinkHostAvailability.offline,
+            ),
+          ],
+        ]);
+        await subscription.cancel();
+        await runtimeClient.disconnect();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges reports online when active pairing creates a Known Host',
+      () async {
+        const String hostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        final JsonMap candidateHelloAck =
+            jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                as JsonMap;
+        final JsonMap candidatePayload =
+            candidateHelloAck['payload'] as JsonMap;
+        candidatePayload['hostId'] = hostId;
+        candidatePayload['clientIdentityKind'] = 'unpaired';
+        runtimeTransport.queueResponse(jsonEncode(candidateHelloAck));
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await runtimeClient.authenticateCandidate(
+          Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(snapshots, <List<DovahLinkKnownHostState>>[
+          const <DovahLinkKnownHostState>[],
+        ]);
+
+        final JsonMap pairingOutcome =
+            jsonDecode(
+                  _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+                )
+                as JsonMap;
+        pairingOutcome['sessionId'] = 'session-paired-1';
+        runtimeTransport.queueResponse(jsonEncode(pairingOutcome));
+        await runtimeClient.confirmPairingCode(code: '123456');
+        await Future<void>.delayed(Duration.zero);
+
+        expect(snapshots.last, <DovahLinkKnownHostState>[
+          Fixtures.buildDovahLinkKnownHostState(
+            host: Fixtures.buildDovahLinkHost(
+              hostId: hostId,
+              hostName: 'Soneka-Desktop',
+              endpoint: 'ws://127.0.0.1:58232/',
+            ),
+            availability: DovahLinkHostAvailability.online,
+          ),
+        ]);
+        await subscription.cancel();
+        await runtimeClient.disconnect();
+      },
+    );
+
+    test(
+      'Property knownHostStatesChanges ignores a candidate claiming an existing Known Host ID',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final InMemoryClientStorage runtimeStorage = InMemoryClientStorage();
+        await runtimeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: Fixtures.buildDovahLinkHost(hostId: hostId),
+          ),
+        );
+        final FakeDovahLinkTransport runtimeTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
+          transport: runtimeTransport,
+          storage: runtimeStorage,
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+        final JsonMap response =
+            jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                as JsonMap;
+        (response['payload'] as JsonMap)['clientIdentityKind'] = 'unpaired';
+        runtimeTransport.queueResponse(jsonEncode(response));
+        runtimeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        await runtimeClient.authenticateCandidate(
+          Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(snapshots, hasLength(1));
+        expect(
+          snapshots.single.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        await subscription.cancel();
+        await runtimeClient.disconnect();
+      },
+    );
   });
 
   group('Property character state streams behave correctly', () {

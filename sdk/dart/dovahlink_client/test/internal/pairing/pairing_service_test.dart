@@ -5,9 +5,11 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
@@ -40,6 +42,10 @@ class MockSessionService extends Mock implements ISessionService {}
 /// test file; this file only proves [PairingService] reads and writes the right state, and
 /// never touches it on a rejected outcome.
 class MockClientStateService extends Mock implements IClientStateService {}
+
+/// Mocks the single owner of runtime Known Host availability.
+class MockHostAvailabilityService extends Mock
+    implements IHostAvailabilityService {}
 
 /// Holds a state update until a pairing test releases it to control lifecycle timing.
 class GatedClientStateService implements IClientStateService {
@@ -183,6 +189,7 @@ void main() {
   late MockSessionTrustService sessionTrustService;
   late MockSessionService sessionService;
   late MockClientStateService storage;
+  late MockHostAvailabilityService hostAvailabilityService;
   late PersistedClientState? updatedState;
   late PairingService service;
 
@@ -197,6 +204,10 @@ void main() {
     );
     registerFallbackValue(Fixtures.buildPersistedClientState());
     registerFallbackValue((PersistedClientState state) => state);
+    registerFallbackValue(
+      DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+    );
+    registerFallbackValue(DovahLinkHostAvailability.unknown);
   });
 
   setUp(() {
@@ -204,6 +215,7 @@ void main() {
     sessionTrustService = MockSessionTrustService();
     sessionService = MockSessionService();
     storage = MockClientStateService();
+    hostAvailabilityService = MockHostAvailabilityService();
     updatedState = null;
     when(() => sessionTrustService.markTrusted()).thenReturn(null);
     when(() => sessionService.currentHost).thenReturn(_currentHost());
@@ -216,11 +228,15 @@ void main() {
               as PersistedClientState Function(PersistedClientState);
       updatedState = update(await storage.load());
     });
+    when(
+      () => hostAvailabilityService.setAvailability(any(), any()),
+    ).thenReturn(null);
     service = PairingService(
       sessionService: sessionService,
       sessionTrustService: sessionTrustService,
       requestService: requestService,
       clientStateService: storage,
+      hostAvailabilityService: hostAvailabilityService,
     );
   });
 
@@ -843,7 +859,13 @@ void main() {
 
         await service.confirmPairingCode(code: '123456');
 
-        verify(() => storage.updateState(any())).called(1);
+        verifyInOrder([
+          () => storage.updateState(any()),
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(_currentHost().hostId),
+            DovahLinkHostAvailability.online,
+          ),
+        ]);
         expect(
           updatedState,
           _state(
@@ -852,6 +874,37 @@ void main() {
             recoveryState: PairingRecoveryState.confirming,
             knownHost: _currentHost(),
           ),
+        );
+      },
+    );
+
+    test(
+      'Method confirmPairingCode does not report online when durable persistence fails',
+      () async {
+        when(
+          () => storage.updateState(any()),
+        ).thenThrow(StateError('storage write failed'));
+        stubSendAndAwait(
+          requestService,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
+            credential: 'new-cred',
+          ),
+        );
+
+        await expectLater(
+          service.confirmPairingCode(code: '123456'),
+          throwsA(
+            isA<StateError>().having(
+              (StateError error) => error.message,
+              'message',
+              'storage write failed',
+            ),
+          ),
+        );
+
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
         );
       },
     );
@@ -877,6 +930,7 @@ void main() {
           sessionTrustService: sessionTrustService,
           requestService: requestService,
           clientStateService: gatedStorage,
+          hostAvailabilityService: hostAvailabilityService,
         );
         stubSendAndAwait(
           requestService,
@@ -890,6 +944,12 @@ void main() {
           code: '123456',
         );
         await gatedStorage.updateStarted.future;
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(hostA.hostId),
+            DovahLinkHostAvailability.online,
+          ),
+        );
         currentHost = hostB;
         updateGate.complete();
 
@@ -901,6 +961,18 @@ void main() {
             credential: 'new-cred',
             recoveryState: PairingRecoveryState.confirming,
             knownHost: hostA,
+          ),
+        );
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(hostA.hostId),
+            DovahLinkHostAvailability.online,
+          ),
+        );
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(hostB.hostId),
+            DovahLinkHostAvailability.online,
           ),
         );
       },
@@ -924,6 +996,9 @@ void main() {
         );
 
         verifyNever(() => storage.updateState(any()));
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
       },
     );
 

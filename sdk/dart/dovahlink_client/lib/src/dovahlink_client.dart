@@ -254,6 +254,7 @@ class DovahLinkClient {
       sessionAdmissionService: sessionAdmissionService,
       requestService: _requestService,
       clientStateService: _clientStateService,
+      hostAvailabilityService: _hostAvailabilityService,
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
     );
@@ -281,6 +282,7 @@ class DovahLinkClient {
       sessionTrustService: sessionTrustService,
       requestService: _requestService,
       clientStateService: _clientStateService,
+      hostAvailabilityService: _hostAvailabilityService,
     );
     _reconnectService = ReconnectService(
       sessionService: _sessionService,

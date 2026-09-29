@@ -14,6 +14,7 @@ import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
@@ -38,6 +39,10 @@ class MockRequestService extends Mock implements IRequestService {}
 
 /// Mocks persisted-state ownership so these tests can inspect authentication updates.
 class MockClientStateService extends Mock implements IClientStateService {}
+
+/// Mocks the single owner of runtime Known Host availability.
+class MockHostAvailabilityService extends Mock
+    implements IHostAvailabilityService {}
 
 /// Mocks client ID resolution so these tests can verify [AuthenticationService] uses its result.
 class MockClientIdResolver extends Mock implements ClientIdResolver {}
@@ -85,6 +90,7 @@ void main() {
   late MockSessionAdmissionService sessionAdmissionService;
   late MockRequestService requestService;
   late MockClientStateService storage;
+  late MockHostAvailabilityService hostAvailabilityService;
   late PersistedClientState? updatedState;
   late MockClientIdResolver clientIdResolver;
   late MockClientIdCache clientIdCache;
@@ -102,6 +108,10 @@ void main() {
     registerFallbackValue(Uri.parse('ws://127.0.0.1:0/'));
     registerFallbackValue(DovahLinkTrustState.unpaired);
     registerFallbackValue(
+      DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+    );
+    registerFallbackValue(DovahLinkHostAvailability.unknown);
+    registerFallbackValue(
       DovahLinkHost(
         hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
         hostName: 'LOCAL-HOST',
@@ -117,6 +127,7 @@ void main() {
     sessionAdmissionService = MockSessionAdmissionService();
     requestService = MockRequestService();
     storage = MockClientStateService();
+    hostAvailabilityService = MockHostAvailabilityService();
     updatedState = null;
     clientIdResolver = MockClientIdResolver();
     clientIdCache = MockClientIdCache();
@@ -150,6 +161,9 @@ void main() {
       updatedState = update(await storage.load());
     });
     when(
+      () => hostAvailabilityService.setAvailability(any(), any()),
+    ).thenReturn(null);
+    when(
       () => clientIdResolver.resolve(any()),
     ).thenAnswer((_) async => 'client-1');
     service = AuthenticationService(
@@ -157,6 +171,7 @@ void main() {
       sessionAdmissionService: sessionAdmissionService,
       requestService: requestService,
       clientStateService: storage,
+      hostAvailabilityService: hostAvailabilityService,
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
     );
@@ -520,6 +535,12 @@ void main() {
         await service.authenticateKnownHost(DovahLinkHostId(hostId));
 
         verify(() => storage.updateState(any())).called(1);
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(hostId),
+            DovahLinkHostAvailability.online,
+          ),
+        ).called(1);
         expect(
           updatedState,
           PersistedClientState(
@@ -593,6 +614,9 @@ void main() {
             currentHost: any(named: 'currentHost'),
           ),
         );
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
         verify(
           () => sessionService.disconnect(orphanRetrySafeOperations: true),
         ).called(1);
@@ -653,6 +677,9 @@ void main() {
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
           ),
+        );
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
         );
         verifyNever(() => storage.updateState(any()));
         verify(() => storage.load()).called(1);
@@ -877,6 +904,9 @@ void main() {
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
           ),
+        );
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
         );
         verify(
           () => sessionService.disconnect(orphanRetrySafeOperations: true),
@@ -1599,6 +1629,9 @@ void main() {
           ),
         );
         expect(result.hostVersion, '0.5.0');
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
       },
     );
 
@@ -1620,6 +1653,139 @@ void main() {
             expectedType: any(named: 'expectedType'),
             policy: any(named: 'policy'),
           ),
+        );
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+      },
+    );
+
+    test(
+      'Method authenticateKnownHost marks offline only when transport connection fails',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        when(() => storage.load()).thenAnswer(
+          (_) async => Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-a',
+          ),
+        );
+        when(
+          () => sessionService.connect(any()),
+        ).thenThrow(const DovahLinkConnectionException('unreachable'));
+
+        await expectLater(
+          service.authenticateKnownHost(DovahLinkHostId(hostId)),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(hostId),
+            DovahLinkHostAvailability.offline,
+          ),
+        ).called(1);
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(hostId),
+            DovahLinkHostAvailability.online,
+          ),
+        );
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticateKnownHost does not mark offline when disconnect cancels a failed connect',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        when(() => storage.load()).thenAnswer(
+          (_) async => Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-a',
+          ),
+        );
+        when(() => sessionService.connect(any())).thenAnswer((_) async {
+          service.cancelPendingAuthentication();
+          throw const DovahLinkConnectionException('connect cancelled');
+        });
+
+        await expectLater(
+          service.authenticateKnownHost(DovahLinkHostId(hostId)),
+          throwsA(
+            isA<DovahLinkConnectionException>().having(
+              (DovahLinkConnectionException error) => error.message,
+              'message',
+              'Authentication was cancelled by disconnect.',
+            ),
+          ),
+        );
+
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+      },
+    );
+
+    test(
+      'Method authenticateCandidate leaves Known Host availability unchanged for a matching Host ID claim',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        when(() => storage.load()).thenAnswer(
+          (_) async => Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+          ),
+        );
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: hostId,
+            kind: ClientIdentityKind.unpaired,
+          ),
+        );
+
+        await service.authenticateCandidate(Uri.parse('ws://127.0.0.1:58232/'));
+
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+      },
+    );
+
+    test(
+      'Method authenticateKnownHost leaves availability unchanged for unsupported Host versions',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        when(() => storage.load()).thenAnswer(
+          (_) async => Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'credential-a',
+          ),
+        );
+        stubSendAndAwait(
+          requestService,
+          buildHelloAckEnvelope(
+            hostId: hostId,
+            hostVersion: '0.6.0',
+            kind: ClientIdentityKind.paired,
+          ),
+        );
+
+        await expectLater(
+          service.authenticateKnownHost(DovahLinkHostId(hostId)),
+          throwsA(isA<DovahLinkCompatibilityException>()),
+        );
+
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
         );
       },
     );
@@ -1694,6 +1860,9 @@ void main() {
         expect(updatedState?.knownHosts.values.single.credential, isNull);
         expect(updatedState?.pendingPairingRecovery, isNull);
         verify(() => sessionService.connect(any())).called(2);
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
         verify(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -1757,6 +1926,12 @@ void main() {
         expect(updatedState?.knownHosts.values.single.credential, isNull);
         expect(updatedState?.pendingPairingRecovery, isNull);
         verify(() => sessionService.connect(any())).called(2);
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+            DovahLinkHostAvailability.offline,
+          ),
+        ).called(1);
         verify(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -1840,6 +2015,12 @@ void main() {
         expect((sentPayloads.last as JsonMap)['auth'], <String, dynamic>{
           'method': 'unpaired',
         });
+        verify(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+            DovahLinkHostAvailability.online,
+          ),
+        ).called(1);
       },
     );
 

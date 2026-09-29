@@ -8,6 +8,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/compatibility/host_version_compatibility.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
@@ -104,6 +105,9 @@ class AuthenticationService implements IAuthenticationService {
   /// The owner of persisted identity, credentials, recovery state, and Known Host metadata.
   final IClientStateService _clientStateService;
 
+  /// The single owner of runtime Known Host reachability values.
+  final IHostAvailabilityService _hostAvailabilityService;
+
   /// Resolves this installation's persisted client ID on first use.
   final ClientIdResolver _clientIdResolver;
 
@@ -113,11 +117,13 @@ class AuthenticationService implements IAuthenticationService {
   final ClientIdCache _clientIdCache;
 
   /// Creates an authentication service over [sessionService], [sessionAdmissionService],
-  /// [requestService], [clientStateService], [clientIdResolver], and [clientIdCache].
+  /// [requestService], [clientStateService], [hostAvailabilityService], [clientIdResolver], and
+  /// [clientIdCache].
   /// @param sessionService Connects to the Host and reads live session state.
   /// @param sessionAdmissionService Admits a validated Host session.
   /// @param requestService Sends authentication requests.
   /// @param clientStateService Owns persisted client state and its semantic streams.
+  /// @param hostAvailabilityService Owns runtime reachability state for Known Hosts.
   /// @param clientIdResolver Resolves the stable local client ID.
   /// @param clientIdCache Shares the resolved client ID with request transmission.
   AuthenticationService({
@@ -125,12 +131,14 @@ class AuthenticationService implements IAuthenticationService {
     required ISessionAdmissionService sessionAdmissionService,
     required IRequestService requestService,
     required IClientStateService clientStateService,
+    required IHostAvailabilityService hostAvailabilityService,
     required ClientIdResolver clientIdResolver,
     required ClientIdCache clientIdCache,
   }) : _sessionService = sessionService,
        _sessionAdmissionService = sessionAdmissionService,
        _requestService = requestService,
        _clientStateService = clientStateService,
+       _hostAvailabilityService = hostAvailabilityService,
        _clientIdResolver = clientIdResolver,
        _clientIdCache = clientIdCache;
 
@@ -348,8 +356,10 @@ class AuthenticationService implements IAuthenticationService {
   /// Implements [IAuthenticationService.authenticateKnownHost].
   @override
   Future<HelloResult> authenticateKnownHost(DovahLinkHostId hostId) async {
+    final int generation = _authenticationGeneration;
     final String id = hostId.value;
     final PersistedClientState state = await _clientStateService.load();
+    _ensureAuthenticationCurrent(generation);
     final PersistedKnownHost? relationship = state.knownHosts[id];
     if (relationship == null) {
       throw DovahLinkKnownHostNotFoundException(id);
@@ -361,7 +371,17 @@ class AuthenticationService implements IAuthenticationService {
         reportedHostId: id,
       );
     }
-    return _authenticate(relationship.host.endpoint, id, state);
+    final HelloResult result = await _authenticate(
+      relationship.host.endpoint,
+      id,
+      state,
+    );
+    _ensureAuthenticationCurrent(generation);
+    _hostAvailabilityService.setAvailability(
+      hostId,
+      DovahLinkHostAvailability.online,
+    );
+    return result;
   }
 
   /// Connects and authenticates with only the explicitly selected relationship.
@@ -396,7 +416,7 @@ class AuthenticationService implements IAuthenticationService {
       await _sessionService.disconnect(orphanRetrySafeOperations: false);
       _ensureAuthenticationCurrent(generation);
     }
-    await _sessionService.connect(uri);
+    await _connect(uri, knownHostId, generation);
     _ensureAuthenticationCurrent(generation);
     try {
       final HelloResult result = await _hello(
@@ -415,7 +435,7 @@ class AuthenticationService implements IAuthenticationService {
       }
       await _forgetCredential(knownHostId, generation);
       _ensureAuthenticationCurrent(generation);
-      await _sessionService.connect(uri);
+      await _connect(uri, knownHostId, generation);
       _ensureAuthenticationCurrent(generation);
       final HelloResult result = await _hello(generation);
       _ensureAuthenticationCurrent(generation);
@@ -426,6 +446,25 @@ class AuthenticationService implements IAuthenticationService {
         trustState: result.trustState,
         recoveredFromRejectedCredential: reason,
       );
+    }
+  }
+
+  /// Connects for an explicit authentication attempt and reports typed transport failure for its
+  /// selected Known Host only.
+  /// @param uri The endpoint for this authentication attempt.
+  /// @param knownHostId The selected Known Host ID, or `null` for an untrusted candidate.
+  Future<void> _connect(Uri uri, String? knownHostId, int generation) async {
+    try {
+      await _sessionService.connect(uri);
+    } on DovahLinkConnectionException {
+      _ensureAuthenticationCurrent(generation);
+      if (knownHostId != null) {
+        _hostAvailabilityService.setAvailability(
+          DovahLinkHostId(knownHostId),
+          DovahLinkHostAvailability.offline,
+        );
+      }
+      rethrow;
     }
   }
 

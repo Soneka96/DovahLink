@@ -1,8 +1,10 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
@@ -94,21 +96,27 @@ class PairingService implements IPairingService {
   /// The owner of persisted credentials, recovery state, and Known Host metadata.
   final IClientStateService _clientStateService;
 
-  /// Creates a pairing service over [sessionService], [sessionTrustService], [requestService], and
-  /// [clientStateService].
+  /// The single owner of runtime Known Host reachability values.
+  final IHostAvailabilityService _hostAvailabilityService;
+
+  /// Creates a pairing service over [sessionService], [sessionTrustService], [requestService],
+  /// [clientStateService], and [hostAvailabilityService].
   /// @param sessionService Reads the current Host context from the admitted session.
   /// @param sessionTrustService Upgrades the session after a successful pairing acknowledgement.
   /// @param requestService Sends pairing messages.
   /// @param clientStateService Atomically persists client credentials and Host association.
+  /// @param hostAvailabilityService Owns runtime reachability state for Known Hosts.
   PairingService({
     required ISessionService sessionService,
     required ISessionTrustService sessionTrustService,
     required IRequestService requestService,
     required IClientStateService clientStateService,
+    required IHostAvailabilityService hostAvailabilityService,
   }) : _sessionService = sessionService,
        _sessionTrustService = sessionTrustService,
        _requestService = requestService,
-       _clientStateService = clientStateService;
+       _clientStateService = clientStateService,
+       _hostAvailabilityService = hostAvailabilityService;
 
   /// Implements [IPairingService.requestPairing].
   @override
@@ -280,6 +288,12 @@ class PairingService implements IPairingService {
         ),
       );
     });
+    if (_sessionService.currentHost?.hostId == currentHost.hostId) {
+      _hostAvailabilityService.setAvailability(
+        DovahLinkHostId(currentHost.hostId),
+        DovahLinkHostAvailability.online,
+      );
+    }
   }
 
   /// Implements [IPairingService.acknowledgeTrustedCredential].
