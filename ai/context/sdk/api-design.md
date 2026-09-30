@@ -17,6 +17,73 @@ The SDK exposes authoritative local candidate discovery through
 the canonical loopback Host endpoint only; this does not provide LAN or mDNS discovery,
 multi-instance selection, or automatic connection.
 
+## Grouped client API migration specification
+
+The supported client surface is being organized into views over the existing `DovahLinkClient`
+engine. These groups are API boundaries only; they do not create separate clients, service graphs,
+or mutable state owners:
+
+```text
+DovahLinkClient
+  hosts         durable Known Hosts and their runtime projection
+  connections   one active session's connection and authentication lifecycle
+  pairing       discovery candidates and pairing operations
+  currentHost   typed game state for the admitted active Host
+```
+
+The intended mapping is:
+
+| Current public operation or stream | Grouped API | Existing owner and semantics |
+| --- | --- | --- |
+| `loadKnownHosts()` | `hosts.loadKnownHosts()` | `ClientStateService`; complete durable metadata snapshot, immutable and Host-ID sorted; storage errors remain typed. This is the one-shot metadata query, distinct from the runtime projection stream. |
+| `knownHostsChanges` | `hosts.knownHostsChanges` | `ClientStateService`; current complete durable snapshot on listen, then committed changes; storage errors are stream errors and the listener can recover. |
+| `knownHostStatesChanges` | `hosts.knownHostStatesChanges` | `HostAvailabilityService`; durable metadata plus runtime availability and exact-relationship session state; availability is not persisted. |
+| `discoverHosts()` and `candidateHostsChanges` | `pairing.discovery` and `pairing.candidates` / `pairing.candidatesChanges` | `DovahLinkClient` reconciliation over `DovahLinkDiscoveryService` and `ClientStateService`; candidates remain runtime-only and claims matching Known Host IDs are excluded. |
+| `connect(uri)`, `hello()`, `authenticateCandidate(uri)`, `authenticateKnownHost(hostId)`, `disconnect()`, `connectionState`, `connectionStateChanges` | `connections.connectCandidate(uri)`, `connections.connectKnownHost(hostId)`, `connections.disconnect()`, `connections.state`, and `connections.stateChanges` | `SessionService`, `AuthenticationService`, and existing reconnect services; candidate/Known Host operations complete hello admission, while the internal transport-open phase is not presented as a usable session. State becomes `connected` only after session admission. Candidate authentication never selects a Known Host credential. |
+| `requestPairing()`, `requestPairingRenotify()`, `cancelPairing()`, `confirmPairingCode()`, `acknowledgeTrustedCredential()`, `recoverPendingPairing()` | `pairing.requestCode()`, `pairing.renotify()`, `pairing.cancel()`, `pairing.confirmCode(...)`, and the SDK's authentication/recovery operation | `PairingService`, `AuthenticationService`, and `ClientStateService`; confirmation includes the credential acknowledgement sequence, while crash/relaunch recovery remains available through authentication. Existing typed outcomes, Host-scoped credential persistence, cancellation, and pending-confirmation recovery are preserved. |
+| `characterXpChanges`, `characterHealthChanges`, `characterMagickaChanges`, `characterStaminaChanges`, `characterLevelChanges`, and state subscribe/unsubscribe operations | `currentHost` streams and subscription operations | Existing state trackers and `SubscriptionService`; retain per-domain replay, synchronization, error, and recovery behavior. |
+
+The group names describe SDK concepts, not Flutter's visually selected Host. `connections` reports
+the SDK's active transport/session lifecycle; `currentHost` refers to the Host admitted by that
+session. A candidate or a UI selection is not an admitted Host. No grouped operation may infer
+trust from discovery metadata or use a Known Host credential based only on a candidate's Host-ID
+claim.
+
+The Flutter app will map these grouped values into Redux and retain navigation, dialog lifetime,
+user input, and display decisions. Today `PairingMiddleware` schedules an initial retry after a
+network failure using a three-second timer, a flow generation, and the disconnected presentation
+phase as eligibility. Move that same retry behavior, cancellation, and stale-attempt protection into
+the SDK; keep established-session recovery as a distinct SDK lifecycle. Pairing orchestration today
+spans `PairingRemoteDataSource.authenticate` (authentication followed by pending-confirmation
+recovery), `confirmPairingCode` (confirmation followed by credential acknowledgement), and
+Flutter's failure/status interpretation. Move protocol ordering and authoritative outcomes into SDK
+operations, while retaining user-facing wording, failure-to-presentation mapping, navigation, and
+dialog lifecycle in Flutter.
+
+The current owner audit is:
+
+| Concern | Current implementation and owner | Correct owner / required change | Dependencies and regression risk |
+| --- | --- | --- | --- |
+| Known Host persistence and candidate reconciliation | `ClientStateService` owns durable Host metadata; `DovahLinkClient` reconciles runtime candidates against committed Known Hosts. | Keep both SDK-owned; expose them through `hosts` and `pairing`. | Preserve storage errors, deterministic snapshots, race suppression, and the rule that candidate claims never select credentials. |
+| Known Host availability and session projection | `HostAvailabilityService` owns runtime availability; `SessionService` supplies the admitted relationship lifecycle. | Keep the existing projection owner and expose its complete typed view through `hosts`. | Preserve replay, recovery after stream errors, runtime-only availability, and exact relationship matching. |
+| Connection/authentication and established recovery | `SessionService`, `AuthenticationService`, and `ReconnectService` own one session engine and its recovery. | Keep the services; expose them through `connections`. | Transport-open is not session admission. Initial retries must not replace or interfere with established-session recovery. |
+| Initial retry | `PairingMiddleware` owns timer, flow generation, cancellation, and presentation eligibility. | Move retry scheduling and attempt validity into the SDK; Flutter continues to present disconnected/offline state. | Preserve the current three-second user experience, dialog cancellation, deliberate disconnect, shutdown, invalidation, and Host-switch behavior. |
+| Pairing protocol sequencing | `PairingService` owns wire operations; `PairingRemoteDataSource` sequences authentication/recovery and confirmation/acknowledgement. | Move those protocol sequences into SDK-owned cohesive operations; retain typed failures. | Preserve crash recovery, retriable wrong-code/pacing outcomes, expiry, cooldown, credential rejection, and administrative invalidation. |
+| Redux and presentation | Connection middleware mirrors SDK projections; pairing middleware coordinates UI events and presentation lifecycle. | Keep Redux projection, selection, wording, navigation, and dialog lifecycle in Flutter; remove only the SDK retry/protocol logic migrated above. | Avoid treating app selection as SDK session identity or deleting useful error-to-presentation mapping. |
+| SDK composition and shutdown | `app/lib/injection_container.dart` constructs one `DovahLinkClient`; `AppShutdownService` closes it with middleware cleanup. | Keep one client composition root and terminal shutdown; groups reference the same engine. | Preserve idempotent close and ensure no late operation republishes after shutdown. |
+
+No separate SDK component construction was found in Flutter production code. `PairingRemoteDataSource`,
+repositories, and use cases form application boundaries; remove one only after its behavior has moved
+and its consumer tests prove that no presentation-independent mapping or orchestration remains.
+
+The in-repository Flutter application and SDK tests are the known consumers. The SDK is not
+published as a stable public package and has no publication workflow; therefore the migration can
+replace the current flat entry points after repository consumers move, instead of retaining
+permanent duplicate aliases. The wire protocol and supported Host compatibility range do not change.
+
+This migration specification does not authorize multiple active sessions, multi-Host game-state
+fetching, a new protocol version, SAS, or changes to Host/Adapter behavior.
+
 ## Expert capabilities
 
 Advanced developers may inspect lifecycle and diagnostic information: connection state, connected
