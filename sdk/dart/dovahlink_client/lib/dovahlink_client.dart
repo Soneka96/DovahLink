@@ -4,6 +4,8 @@
 library;
 
 export 'src/dovahlink_client.dart' show DovahLinkClient;
+export 'src/dovahlink_connections.dart' show IDovahLinkConnections;
+export 'src/dovahlink_current_host.dart' show IDovahLinkCurrentHost;
 export 'src/dovahlink_compatibility_exception.dart'
     show DovahLinkCompatibilityException;
 export 'src/dovahlink_discovery_service.dart'

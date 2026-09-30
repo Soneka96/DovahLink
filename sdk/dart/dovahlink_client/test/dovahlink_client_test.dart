@@ -553,6 +553,41 @@ void main() {
     addTearDown(client.close);
   });
 
+  group('Behavior grouped API composition behaves correctly', () {
+    test(
+      'Behavior grouped API composition exposes one admitted candidate session',
+      () async {
+        final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+
+        final HelloResult result = await client.connections.connectCandidate(
+          endpoint,
+        );
+
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+        expect(client.currentHost.host?.hostId, result.hostId);
+        expect(client.currentHost.host?.hostName, result.hostName);
+        expect(client.currentHost.trustState, DovahLinkTrustState.unpaired);
+        expect(client.currentHost.sessionId, 'session-1');
+        expect(
+          (await client.currentHost.characterXpChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(await client.hosts.loadKnownHosts(), isEmpty);
+
+        await client.connections.disconnect();
+
+        expect(client.connections.state, DovahLinkConnectionState.disconnected);
+        expect(client.currentHost.host, isNull);
+        expect(client.currentHost.trustState, isNull);
+        expect(client.currentHost.sessionId, isNull);
+      },
+    );
+  });
+
   group('Method loadKnownHosts behaves correctly', () {
     test(
       'Method loadKnownHosts returns persisted Hosts without credentials',

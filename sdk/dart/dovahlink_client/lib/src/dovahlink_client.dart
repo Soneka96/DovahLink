@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connections.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_current_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_discovery_service.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
@@ -354,6 +356,21 @@ class DovahLinkClient {
     if (knownHostPresenceMonitoringEnabled) {
       _knownHostPresenceMonitor.start();
     }
+    connections = DovahLinkConnections(
+      sessionService: _sessionService,
+      authenticationService: _authenticationService,
+      reconnectService: _reconnectService,
+      subscriptionService: _subscriptionService,
+    );
+    currentHost = DovahLinkCurrentHost(
+      sessionService: _sessionService,
+      subscriptionService: _subscriptionService,
+      characterXpChanges: _characterXpTracker.changes,
+      characterHealthChanges: _characterHealthTracker.changes,
+      characterMagickaChanges: _characterMagickaTracker.changes,
+      characterStaminaChanges: _characterStaminaTracker.changes,
+      characterLevelChanges: _characterLevelTracker.changes,
+    );
   }
 
   /// Owns transport lifecycle, connection state, and stream ownership. This façade reads its
@@ -366,6 +383,12 @@ class DovahLinkClient {
 
   /// Exposes this client's Known Host views over the existing state owners.
   late final IDovahLinkHosts hosts;
+
+  /// Exposes connection operations over this client's existing session engine.
+  late final IDovahLinkConnections connections;
+
+  /// Exposes the current admitted Host context and existing typed state streams.
+  late final IDovahLinkCurrentHost currentHost;
 
   /// Mirrors the session owner's exact Known Host projection into complete Known Host snapshots.
   late final StreamSubscription<KnownHostSessionSnapshot>
@@ -418,19 +441,18 @@ class DovahLinkClient {
   /// [DovahLinkConnectionState.connected] once that attempt's `hello` actually admits a session, or
   /// to [DovahLinkConnectionState.disconnected] once the recovery cycle is exhausted first; no
   /// action from this client is required to observe or drive that recovery.
-  DovahLinkConnectionState get connectionState =>
-      _sessionService.connectionState;
+  DovahLinkConnectionState get connectionState => connections.state;
 
   /// Emits [DovahLinkClient.connectionState] immediately on listen and then every real transition,
   /// including administrative invalidation.
   Stream<DovahLinkConnectionState> get connectionStateChanges =>
-      _sessionService.connectionStateChanges;
+      connections.stateChanges;
 
   /// The current trust standing, or `null` before [DovahLinkClient.hello] succeeds.
-  DovahLinkTrustState? get trustState => _sessionService.currentTrustState;
+  DovahLinkTrustState? get trustState => currentHost.trustState;
 
   /// The server-issued session identifier, or `null` before [DovahLinkClient.hello] succeeds.
-  String? get sessionId => _sessionService.currentSessionId;
+  String? get sessionId => currentHost.sessionId;
 
   /// This installation's stable client ID, or `null` before [DovahLinkClient.hello] has resolved
   /// it.
@@ -439,9 +461,7 @@ class DovahLinkClient {
   /// Loads this client's persisted Known Hosts without exposing credentials or storage details.
   /// @return An immutable, Host-ID-sorted collection, empty when no Host is known.
   /// @throws [DovahLinkStorageException] if persisted state cannot be read safely.
-  Future<List<DovahLinkHost>> loadKnownHosts() async {
-    return hosts.loadKnownHosts();
-  }
+  Future<List<DovahLinkHost>> loadKnownHosts() => hosts.loadKnownHosts();
 
   /// Discovers Hosts and returns only identities that are not currently Known Hosts.
   ///
@@ -587,32 +607,32 @@ class DovahLinkClient {
   /// [DovahLinkConnectionState.administrativelyInvalidated], or
   /// `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason =>
-      _sessionService.invalidationReason;
+      connections.invalidationReason;
 
   /// Emits typed character experience values with their independent synchronization status.
   /// @return The current experience view immediately on listen and after each accepted update.
   Stream<StateSynchronization<CharacterXpState>> get characterXpChanges =>
-      _characterXpTracker.changes;
+      currentHost.characterXpChanges;
 
   /// Emits typed character health values with their independent synchronization status.
   /// @return The current health view immediately on listen and after each accepted update.
   Stream<StateSynchronization<CharacterHealthState>>
-  get characterHealthChanges => _characterHealthTracker.changes;
+  get characterHealthChanges => currentHost.characterHealthChanges;
 
   /// Emits typed character magicka values with their independent synchronization status.
   /// @return The current magicka view immediately on listen and after each accepted update.
   Stream<StateSynchronization<CharacterMagickaState>>
-  get characterMagickaChanges => _characterMagickaTracker.changes;
+  get characterMagickaChanges => currentHost.characterMagickaChanges;
 
   /// Emits typed character stamina values with their independent synchronization status.
   /// @return The current stamina view immediately on listen and after each accepted update.
   Stream<StateSynchronization<CharacterStaminaState>>
-  get characterStaminaChanges => _characterStaminaTracker.changes;
+  get characterStaminaChanges => currentHost.characterStaminaChanges;
 
   /// Emits typed character level values with their independent synchronization status.
   /// @return The current level view immediately on listen and after each accepted update.
   Stream<StateSynchronization<CharacterLevelState>> get characterLevelChanges =>
-      _characterLevelTracker.changes;
+      currentHost.characterLevelChanges;
 
   /// Adds [area] to this client's local desired state-area set before synchronizing it with the
   /// current Host session. A synchronization failure does not necessarily roll back that intent;
@@ -622,7 +642,7 @@ class DovahLinkClient {
   /// @throws [DovahLinkConnectionException] if no trusted session is active.
   /// @throws [DovahLinkProtocolException] if the Host returns a malformed acknowledgement.
   Future<Set<DovahLinkStateArea>> subscribeStateArea(DovahLinkStateArea area) =>
-      _subscriptionService.subscribeStateArea(area);
+      currentHost.subscribeStateArea(area);
 
   /// Removes [area] from this client's local desired state-area set before synchronizing that
   /// change with the current Host session. A synchronization failure does not necessarily roll
@@ -633,7 +653,7 @@ class DovahLinkClient {
   /// @throws [DovahLinkProtocolException] if the Host returns a malformed acknowledgement.
   Future<Set<DovahLinkStateArea>> unsubscribeStateArea(
     DovahLinkStateArea area,
-  ) => _subscriptionService.unsubscribeStateArea(area);
+  ) => currentHost.unsubscribeStateArea(area);
 
   /// Establishes the transport connection to [uri]. Must be called before [DovahLinkClient.hello].
   /// @throws [DovahLinkConnectionException] if the socket cannot be established.
@@ -664,7 +684,7 @@ class DovahLinkClient {
   /// @throws [DovahLinkCompatibilityException] if the Host version is outside the SDK's supported
   ///     range.
   Future<HelloResult> authenticateCandidate(Uri uri) =>
-      _authenticationService.authenticateCandidate(uri);
+      connections.connectCandidate(uri);
 
   /// Authenticates a Known Host using its SDK-owned current endpoint and credential.
   /// @param hostId The stable identifier of the Host to authenticate.
@@ -676,7 +696,7 @@ class DovahLinkClient {
   /// @throws [DovahLinkCompatibilityException] if the Host version is unsupported.
   /// @return The result of the authenticated Known Host handshake.
   Future<HelloResult> authenticateKnownHost(DovahLinkHostId hostId) =>
-      _authenticationService.authenticateKnownHost(hostId);
+      connections.connectKnownHost(hostId);
 
   /// Starts, or queries the status of, a pairing challenge. Valid only on an
   /// [DovahLinkTrustState.unpaired] session.
@@ -761,12 +781,7 @@ class DovahLinkClient {
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
   /// preserved, not reset to generic disconnect. A Known Host session deliberately disconnected
   /// by the client ends its session without clearing current reachability evidence.
-  Future<void> disconnect() async {
-    _authenticationService.cancelPendingAuthentication();
-    _reconnectService.stopRecovery();
-    _subscriptionService.clearDesiredStateAreas();
-    await _sessionService.disconnect();
-  }
+  Future<void> disconnect() => connections.disconnect();
 
   /// Permanently closes this client and releases its monitoring and stream resources.
   ///
@@ -780,7 +795,7 @@ class DovahLinkClient {
       _knownHostPresenceMonitor.close,
     ).catchError((Object _, StackTrace __) {});
     final Future<void> sessionCleanup = Future<void>.sync(
-      disconnect,
+      connections.disconnect,
     ).catchError((Object _, StackTrace __) {});
     await Future.wait<void>(<Future<void>>[monitorCleanup, sessionCleanup]);
     await _knownHostSessionSubscription.cancel().catchError(
