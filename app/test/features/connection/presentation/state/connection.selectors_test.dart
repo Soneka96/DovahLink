@@ -20,6 +20,7 @@ void main() {
     Host? selectedHost,
     ConnectionHostSelectionSource selectedHostSource =
         ConnectionHostSelectionSource.candidate,
+    String? pendingPairingHostId,
     ConnectionDiscoveryStatus discoveryStatus = ConnectionDiscoveryStatus.idle,
     ConnectionFailureReason? discoveryFailure,
     PairingState? pairingState,
@@ -29,6 +30,7 @@ void main() {
       knownHosts: knownHosts,
       selectedHost: selectedHost,
       selectedHostSource: selectedHostSource,
+      pendingPairingHostId: pendingPairingHostId,
       discoveryStatus: discoveryStatus,
       discoveryFailure: discoveryFailure,
     ),
@@ -133,6 +135,34 @@ void main() {
             ),
           ),
           ConnectionFailureReason.invalidResponse,
+        );
+      },
+    );
+  });
+
+  group('Selector pendingPairingHostIdSelector behaves correctly', () {
+    test(
+      'Selector pendingPairingHostIdSelector returns the retained candidate ID',
+      () {
+        const String hostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+        expect(
+          ConnectionSelectors.pendingPairingHostIdSelector(
+            stateWith(const <Host>[], pendingPairingHostId: hostId),
+          ),
+          hostId,
+        );
+      },
+    );
+
+    test(
+      'Selector pendingPairingHostIdSelector returns null when no pairing selection is retained',
+      () {
+        expect(
+          ConnectionSelectors.pendingPairingHostIdSelector(
+            stateWith(const <Host>[]),
+          ),
+          isNull,
         );
       },
     );

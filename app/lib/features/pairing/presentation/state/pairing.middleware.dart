@@ -205,6 +205,8 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     PairingCancelRequestedAction action,
   ) async {
     final int generation = _pairingFlowGeneration;
+    final String? pendingPairingHostId =
+        ConnectionSelectors.pendingPairingHostIdSelector(store.state);
     final result = await sl<CancelPairingUseCase>()(NoParams());
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
@@ -214,6 +216,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
         store.dispatch(PairingFailedAction(failure.message));
       },
       (_) {
+        if (pendingPairingHostId != null) {
+          store.dispatch(
+            ConnectionCandidatePairingEndedAction(pendingPairingHostId),
+          );
+        }
         store.dispatch(const PairingCancelSucceededAction());
       },
     );
@@ -299,7 +306,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        if (candidateHostId != null) {
+        if (candidateHostId != null && failure is! PairingRetriableFailure) {
           store.dispatch(
             ConnectionCandidatePairingEndedAction(candidateHostId),
           );
@@ -335,11 +342,18 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingDisposedAction action,
   ) async {
+    final String? pendingPairingHostId =
+        ConnectionSelectors.pendingPairingHostIdSelector(store.state);
     _pairingFlowGeneration++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     if (action.wasTrusted) {
       return;
+    }
+    if (pendingPairingHostId != null) {
+      store.dispatch(
+        ConnectionCandidatePairingEndedAction(pendingPairingHostId),
+      );
     }
     await sl<DisconnectUseCase>()(NoParams());
   }

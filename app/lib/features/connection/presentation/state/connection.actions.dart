@@ -37,7 +37,7 @@ class ConnectionCandidatePairingStartedAction extends Equatable {
   List<Object?> get props => [hostId];
 }
 
-/// Releases a candidate selection retained for a failed pairing confirmation.
+/// Releases a candidate selection retained while an untrusted pairing flow is active.
 class ConnectionCandidatePairingEndedAction extends Equatable {
   /// The candidate whose pairing confirmation ended.
   final String hostId;

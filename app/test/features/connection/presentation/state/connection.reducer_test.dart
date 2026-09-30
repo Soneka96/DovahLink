@@ -9,7 +9,10 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart'
-    show PairingConfirmedAction, PairingSessionTrustedAction;
+    show
+        PairingConfirmFailedWithAttemptsRemainingAction,
+        PairingConfirmedAction,
+        PairingSessionTrustedAction;
 
 /// Exercises connection reducer transitions.
 void main() {
@@ -233,7 +236,7 @@ void main() {
     );
 
     test(
-      'ConnectionCandidatesChangedAction retains pending selection until Known Host confirmation',
+      'ConnectionCandidatesChangedAction retains selection after retriable confirmation failure until Known Host confirmation',
       () {
         final Host candidate = Fixtures.buildHost(
           hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -242,9 +245,15 @@ void main() {
           ConnectionState(hosts: <Host>[candidate], selectedHost: candidate),
           ConnectionCandidatePairingStartedAction(candidate.hostId),
         );
+        final ConnectionState retriable = connectionReducer(
+          pending,
+          const PairingConfirmFailedWithAttemptsRemainingAction(
+            message: 'Try the code again.',
+          ),
+        );
 
         final ConnectionState removed = connectionReducer(
-          pending,
+          retriable,
           ConnectionCandidatesChangedAction(<Host>[]),
         );
 
@@ -305,8 +314,12 @@ void main() {
           ConnectionState(hosts: <Host>[candidate], selectedHost: candidate),
           ConnectionCandidatePairingStartedAction(candidate.hostId),
         );
-        final ConnectionState known = connectionReducer(
+        final ConnectionState confirmed = connectionReducer(
           pending,
+          const PairingConfirmedAction(),
+        );
+        final ConnectionState known = connectionReducer(
+          confirmed,
           ConnectionKnownHostsChangedAction(<KnownHost>[
             Fixtures.buildKnownHost(host: authoritativeHost),
           ]),
@@ -327,7 +340,7 @@ void main() {
     );
 
     test(
-      'ConnectionCandidatesChangedAction rebinds to Known Host metadata when candidate removal arrives first',
+      'ConnectionCandidatesChangedAction rebinds to Known Host metadata after a retriable failure and candidate removal',
       () {
         final Host candidate = Fixtures.buildHost(
           hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
@@ -340,12 +353,22 @@ void main() {
           ConnectionState(hosts: <Host>[candidate], selectedHost: candidate),
           ConnectionCandidatePairingStartedAction(candidate.hostId),
         );
-        final ConnectionState removed = connectionReducer(
+        final ConnectionState retriable = connectionReducer(
           pending,
+          const PairingConfirmFailedWithAttemptsRemainingAction(
+            message: 'Try the code again.',
+          ),
+        );
+        final ConnectionState removed = connectionReducer(
+          retriable,
           ConnectionCandidatesChangedAction(<Host>[]),
         );
-        final ConnectionState result = connectionReducer(
+        final ConnectionState confirmed = connectionReducer(
           removed,
+          const PairingConfirmedAction(),
+        );
+        final ConnectionState result = connectionReducer(
+          confirmed,
           ConnectionKnownHostsChangedAction(<KnownHost>[
             Fixtures.buildKnownHost(host: authoritativeHost),
           ]),
@@ -461,7 +484,12 @@ void main() {
     test(
       'PairingConfirmedAction alone does not create a Known Host projection',
       () {
-        final ConnectionState state = ConnectionState.initial();
+        final Host candidate = Fixtures.buildHost();
+        final ConnectionState state = ConnectionState(
+          hosts: <Host>[candidate],
+          selectedHost: candidate,
+          pendingPairingHostId: candidate.hostId,
+        );
 
         final ConnectionState result = connectionReducer(
           state,
@@ -470,6 +498,8 @@ void main() {
 
         expect(identical(result, state), isTrue);
         expect(result.knownHosts, isEmpty);
+        expect(result.selectedHost, candidate);
+        expect(result.pendingPairingHostId, candidate.hostId);
       },
     );
 

@@ -36,6 +36,12 @@ abstract final class ConnectionSelectors {
     AppState state,
   ) => state.connection.selectedHostSource;
 
+  /// Returns the candidate whose selection is retained while pairing awaits SDK confirmation.
+  /// @param state The current application state.
+  /// @return The pending candidate Host ID, or `null` when none is retained.
+  static String? pendingPairingHostIdSelector(AppState state) =>
+      state.connection.pendingPairingHostId;
+
   /// Returns whether the selected Known Host is in SDK-reported bounded recovery.
   static bool selectedHostIsRecoveringSelector(AppState state) {
     final Host? selectedHost = selectedHostSelector(state);

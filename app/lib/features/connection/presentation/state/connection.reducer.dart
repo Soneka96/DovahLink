@@ -162,7 +162,7 @@ ConnectionState connectionCandidatePairingStartedReducer(
   ConnectionCandidatePairingStartedAction action,
 ) => state.copyWith(pendingPairingHostId: Some(action.hostId));
 
-/// Releases a pending selection after failed confirmation, clearing it if the candidate vanished.
+/// Releases a pending selection when its untrusted pairing operation ends.
 /// @param state The current connection projection.
 /// @param action The candidate pairing confirmation that ended.
 ConnectionState connectionCandidatePairingEndedReducer(
