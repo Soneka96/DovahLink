@@ -73,7 +73,9 @@ only Host IDs, probe endpoints, and generations needed to schedule and reject st
 not own Host metadata or persistence. Added Hosts and endpoint changes enter `checking` and receive
 an immediate bounded probe; removal drops runtime state and cancels or ignores the old result.
 Periodic refresh runs every 30 seconds, each request is limited to 5 seconds, and at most four
-Hosts are probed concurrently with no overlapping request for one Host.
+Hosts are probed concurrently with no overlapping request for one Host. Periodic refresh retains
+the previous availability while a probe runs; `checking` is used for startup, newly added
+Hosts, and endpoint changes.
 
 An authenticated active session for a Known Host is stronger than a probe result: skip that Host
 while its session is healthy and ignore a weaker negative result that races successful admission.

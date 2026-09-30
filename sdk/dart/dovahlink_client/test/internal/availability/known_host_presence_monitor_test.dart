@@ -329,6 +329,26 @@ void main() {
           await Future<void>.delayed(Duration.zero);
         }
         expect(probe.calls.length, hosts.length);
+
+        final int updatesBeforePeriodicRefresh =
+            availabilityService.updates.length;
+        monitor.refreshPresence();
+        await waitForProbeCount(probe, hosts.length + 2);
+        expect(probe.calls, hasLength(hosts.length + 2));
+        expect(
+          availabilityService.updates,
+          hasLength(updatesBeforePeriodicRefresh),
+        );
+
+        for (int index = hosts.length; index < hosts.length * 2; index++) {
+          await waitForProbeCount(probe, index + 1);
+          probe.succeed(index, hostId: hosts[index - hosts.length].hostId);
+          await Future<void>.delayed(Duration.zero);
+          expect(
+            availabilityService.updates,
+            hasLength(updatesBeforePeriodicRefresh + index - hosts.length + 1),
+          );
+        }
       },
     );
 
@@ -347,8 +367,14 @@ void main() {
           DovahLinkHostAvailability.online,
         ));
 
+        final int updatesBeforeRefresh = availabilityService.updates.length;
         refreshTicks.add(null);
         await waitForProbeCount(probe, 2);
+        expect(availabilityService.updates, hasLength(updatesBeforeRefresh));
+        expect(availabilityService.updates.last, (
+          hostAId,
+          DovahLinkHostAvailability.online,
+        ));
         probe.fail(
           1,
           const DovahLinkConnectionException('Could not reach the Host.'),
@@ -357,6 +383,41 @@ void main() {
         expect(availabilityService.updates.last, (
           hostAId,
           DovahLinkHostAvailability.offline,
+        ));
+      },
+    );
+
+    test(
+      'Method refreshPresence retains offline availability until a matching probe succeeds',
+      () async {
+        clientStateService.emit(<DovahLinkHost>[
+          Fixtures.buildDovahLinkHost(hostId: hostAId),
+        ]);
+        monitor.start();
+        await waitForProbeCount(probe, 1);
+        probe.fail(
+          0,
+          const DovahLinkConnectionException('Could not reach the Host.'),
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(availabilityService.updates.last, (
+          hostAId,
+          DovahLinkHostAvailability.offline,
+        ));
+
+        final int updatesBeforeRefresh = availabilityService.updates.length;
+        refreshTicks.add(null);
+        await waitForProbeCount(probe, 2);
+        expect(availabilityService.updates, hasLength(updatesBeforeRefresh));
+        expect(availabilityService.updates.last, (
+          hostAId,
+          DovahLinkHostAvailability.offline,
+        ));
+        probe.succeed(1, hostId: hostAId);
+        await Future<void>.delayed(Duration.zero);
+        expect(availabilityService.updates.last, (
+          hostAId,
+          DovahLinkHostAvailability.online,
         ));
       },
     );

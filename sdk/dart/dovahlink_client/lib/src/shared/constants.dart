@@ -16,7 +16,7 @@ const Duration kHostProbeTimeout = Duration(seconds: 5);
 /// The cadence for refreshing Known Host reachability while the client is open.
 const Duration kKnownHostPresenceRefreshInterval = Duration(seconds: 30);
 
-/// The maximum number of sessionless Known Host probes running at once.
+/// The maximum concurrent sessionless Known Host probes; this does not limit saved Hosts.
 const int kKnownHostPresenceMaxConcurrentProbes = 4;
 
 // ---- Request policy ----

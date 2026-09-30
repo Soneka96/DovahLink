@@ -192,8 +192,9 @@ first complete snapshot after a stream error, which signals recovery even if its
 unchanged. An initial storage failure is reported to the subscriber, which remains attached for
 later recovery.
 Availability is runtime-only; it is not part of `DovahLinkHost` or persisted client state. The SDK
-starts bounded Known Host presence checks when a client is created, emitting `checking`, then
-`online`, `offline`, or `unknown` as the sessionless probe provides evidence. Keep
+starts bounded Known Host presence checks when a client is created. Startup, new Hosts, and
+endpoint changes may emit `checking`; periodic refresh retains the previous availability
+while a probe runs, then publishes `online`, `offline`, or `unknown` when evidence arrives. Keep
 `knownHostsChanges` for consumers that need durable Host metadata without runtime availability.
 
 `DovahLinkClient.disconnect()` ends the current protocol session without clearing Known Host

@@ -164,13 +164,13 @@ class KnownHostPresenceMonitor implements IKnownHostPresenceMonitor {
     pumpQueue();
   }
 
-  /// Schedules a bounded refresh for every current Host without overlapping its own probe.
+  /// Refreshes every current Host while retaining its previous availability during the probe.
   void refreshPresence() {
     if (!_started || _isClosed) {
       return;
     }
     for (final String hostId in _endpoints.keys) {
-      scheduleProbe(hostId, showChecking: true);
+      scheduleProbe(hostId, showChecking: false);
     }
     pumpQueue();
   }
