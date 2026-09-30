@@ -15,9 +15,9 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 - Known Host cards show Checking during startup and endpoint checks while retaining stable availability
   during periodic refresh.
-- Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions; matching candidate ID claims are recorded as unverified correlations and remain candidate selections.
+- Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions.
 - The app distinguishes loading, ready, and failed Known Hosts observations while retaining the last successful collection on stream errors.
-- The connection state mirrors the complete SDK-owned Known Hosts list separately from discovery candidates.
+- The connection state mirrors the SDK-owned Known Hosts and reconciled candidate collections without filtering either list.
 - The Connections screen discovers the local Host on demand and shows searching, available, empty, and failure states.
 - Discovery failures use app-owned semantic reasons in Redux, with user-facing copy beside the enum.
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
@@ -35,6 +35,10 @@ Repository releases share root `VERSION`. When an app change is included in a re
 ### Changed
 
 - Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
+- Host card identity and selection follow normalized Host IDs across endpoint changes; successful
+  pairing promotes the selected target to Known Host authentication.
+- Pairing stays Offline during automatic retries, shows SDK-reported recovery as Reconnecting, and
+  omits the spinner while waiting offline.
 - Pairing shows while a code redisplay is being sent to Skyrim and prevents repeated requests
   until the Host responds.
 - Custom Dovah controls suppress Material splash and state overlays.

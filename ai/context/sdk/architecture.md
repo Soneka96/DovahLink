@@ -156,6 +156,21 @@ protocol and compatibility failures. A discovered `hostId` alone must not author
 credential disclosure, pairing bypass, durable Known Host updates, or another security-sensitive
 decision.
 
+`DovahLinkClient.discoverHosts()` owns the complete runtime candidate projection. It filters each
+validated discovery claim against the latest committed Known Host collection by normalized
+`hostId`, never by endpoint or display name, and suppresses duplicate Host IDs. The current
+projection is available through `candidateHostsChanges`; it is runtime-only and is never written to
+`IClientStorage`. After discovery begins, the client follows committed Known Host changes and
+removes matching candidates automatically, including when pairing commits a new Known Host.
+Discovery generations prevent an older in-flight result from replacing a newer result, and each
+result is reconciled against the latest persisted snapshot before publication. An empty or failed
+probe does not mutate durable Known Hosts; a storage failure prevents successful reconciliation
+and is surfaced through the SDK's typed error/stream conventions. Flutter mirrors this candidate
+stream and `knownHostStatesChanges`; it does not duplicate identity filtering or membership rules.
+
+TODO(SAS): replace the unauthenticated development Host claim with the approved SAS identity
+establishment; a probe's `hostId` is not proof of Host identity.
+
 ## Feature and capability organization
 
 Organize the SDK around the capabilities it actually implements (connection/session,

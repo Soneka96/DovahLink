@@ -83,25 +83,26 @@ of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with 
 `HostAvailability` and `KnownHostSessionState` values. An admitted session renders `Connected`;
 connecting and recovery phases render separately; only a disconnected Known Host falls back to
 reachability (`Online`, `Offline`, `Checking`, or unknown). Discovery candidates and selected-Host
-state remain `Host` values without availability. The SDK owns the runtime projection, and Flutter
-maps its `DovahLinkKnownHostState` values into `KnownHost` before they enter Redux. A candidate whose
-claimed Host ID matches a Known Host is marked as an unverified presentation correlation only; it
-remains a candidate and does not authorize credentials or change selection routing.
+state remain `Host` values without availability. The SDK owns both the complete Known Host runtime
+projection and the reconciled candidate collection; Flutter maps each stream independently into
+Redux. Candidate membership already excludes normalized Host IDs in the authoritative Known Host
+collection. Flutter does not filter, merge, or reinterpret the two collections.
 `knownHostsStatus` starts as `loading`, becomes `ready` on any complete snapshot
 (including an empty one), and becomes `failed` on a stream error. An observation error preserves the
 last successful `knownHosts` value; a later snapshot restores `ready`.
-`ConnectionKnownHostsChangedAction` replaces the entire list; pairing actions and discovery results
-do not derive or change it. `ConnectionMiddleware` owns the stream subscription. `HostMapper.fromSdk`
-converts SDK `DovahLinkHost` values to app `Host` values, while `HostMapper.fromSdkKnownHostState`
-converts the SDK runtime projection to `KnownHost`. Discovery remains a command/result that returns
-reachable Host candidates. A candidate, including one whose claimed `hostId` matches a Known Host,
-does not establish identity, trust, or authorization and does not mutate Known Hosts state.
+`ConnectionKnownHostsChangedAction` and `ConnectionCandidatesChangedAction` each mirror the entire
+SDK projection. `ConnectionMiddleware` owns both stream subscriptions; `HostMapper.fromSdk` maps
+SDK `DovahLinkHost` values to app `Host` values, while `HostMapper.fromSdkKnownHostState` maps the
+runtime projection to `KnownHost`. Discovery calls `DovahLinkClient.discoverHosts()` on the
+application's shared SDK client. Empty or failed discovery does not remove saved Known Hosts, and a
+failed request preserves the SDK's last candidate collection.
 
 Host selection records whether the selected `Host` is an ephemeral discovery candidate or durable
-Known Host intent. Discovery refresh clears a candidate selection when its endpoint disappears or
-discovery fails, and keeps it when that endpoint remains. Discovery loss does not clear a Known Host
-selection. Pairing sends candidate endpoints through candidate authentication and Known Host IDs
-through `authenticateKnownHost`; it never sends a mapped Host snapshot as an SDK command.
+Known Host intent. Selection refreshes and card keys use normalized Host IDs, so endpoint changes
+preserve the same Host selection and widget identity. When an SDK candidate disappears, its
+candidate selection is cleared; after the SDK confirms pairing, the selected target uses Known Host
+authentication. Pairing sends candidate endpoints through candidate authentication and Known Host
+IDs through `authenticateKnownHost`; it never sends a mapped Host snapshot as an SDK command.
 
 ## Feature structure
 

@@ -12,9 +12,10 @@ Ping/Pong, heartbeat implementation, ports once discovery/selection own them, cr
 storage, session teardown, retry/backoff, revision recovery, snapshot reconciliation, stale-session
 suppression, subscription recovery, and Host compatibility mechanics. The long-term simple
 experience trends toward: find/select a DovahLink instance, pair if necessary, listen to typed state.
-The current SDK exposes local loopback discovery through [DovahLinkDiscoveryService]. It probes the
-canonical local Host endpoint only; this does not provide LAN or mDNS discovery, multi-instance
-selection, or automatic connection.
+The SDK exposes authoritative local candidate discovery through
+`DovahLinkClient.discoverHosts()` and its replaying `candidateHostsChanges` stream. Discovery probes
+the canonical loopback Host endpoint only; this does not provide LAN or mDNS discovery,
+multi-instance selection, or automatic connection.
 
 ## Expert capabilities
 
@@ -44,16 +45,25 @@ Trusted sessions may refresh metadata only for the matching Known Host ID; disco
 refresh persisted metadata. SDK-owned Host IDs are stored and compared in canonical lowercase form;
 the typed `DovahLinkHostId` accepts either UUID casing at its boundary.
 
+`DovahLinkClient.discoverHosts()` returns the complete immutable collection of current candidates,
+ordered by normalized Host ID. The SDK removes every claim whose ID belongs to the latest committed
+Known Host collection, keeps candidates in runtime memory only, and updates `candidateHostsChanges`
+when discovery or a committed Known Host change changes membership. Each successful discovery
+reconciles against the latest persisted state; a stale asynchronous result cannot reintroduce a
+Known Host. A storage/load failure is surfaced instead of treating an unverified collection as a
+successful reconciliation. Empty or failed discovery does not delete persisted Known Hosts.
+
 `DovahLinkDiscoveryService.discover()` uses [IHostPresenceProbe] to query the sessionless local Host
-metadata endpoint. The response's `hostId`, `hostName`, and `hostVersion` are validated for identity
-shape and Host compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the
-peer claims, `hostName` is mutable display metadata, and `endpoint` is the current location.
-Discovery identifies a candidate; it does not authenticate Host identity or prove the peer owns an
-identity previously trusted under that ID. A discovered `hostId` alone must never authorize trust,
-credential disclosure, pairing bypass, or another security-sensitive decision. An unreachable
-endpoint returns no candidate; an HTTP rejection preserves its status in
-`DovahLinkConnectionException`, while malformed metadata and incompatible Host versions remain
-typed failures. The probe sends no credential and never creates a protocol session.
+metadata endpoint and returns its validated Host claim to the SDK client for reconciliation. The
+response's `hostId`, `hostName`, and `hostVersion` are validated for identity shape and Host
+compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the peer claims,
+`hostName` is mutable display metadata, and `endpoint` is the current location. The claim does not
+authenticate Host identity or prove the peer owns an identity previously trusted under that ID. A
+discovered `hostId` alone must never authorize trust, credential disclosure, pairing bypass, or
+another security-sensitive decision. An unreachable or timed-out endpoint returns no claim; an HTTP
+rejection preserves its status in `DovahLinkConnectionException`, while malformed metadata and
+incompatible Host versions remain typed failures. The probe sends no credential and never creates a
+protocol session.
 
 ## No duplicate stacks, no speculative surface
 

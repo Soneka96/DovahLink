@@ -20,12 +20,14 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The SDK handshake result exposes the stable Host installation ID and current OS computer name.
 - The Dart SDK discovers the local loopback Host through a bounded sessionless metadata probe; its Host ID claim remains unauthenticated.
 - The SDK exposes the shared Host presence probe for local discovery and Known Host reachability.
+- `DovahLinkClient.discoverHosts()` and `candidateHostsChanges` expose SDK-reconciled, runtime-only candidates.
 - `DovahLinkKnownHostState` exposes the exact Known Host session lifecycle separately from reachability.
 - `DovahLinkClient.close()` stops background presence monitoring and releases SDK-owned subscriptions.
 - DovahLinkConnectionException preserves an HTTP status when a peer rejects the metadata probe.
 
 ### Changed
 
+- Discovery reconciles claims with committed Known Hosts by normalized Host ID; candidates are never persisted.
 - Pairing credentials no longer leave the SDK API, and candidate authentication never selects a Known Host credential.
 - Persisted client state moves to format 3; unreleased singleton bearer state requires pairing again.
 - The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
@@ -33,6 +35,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- Pairing commits remove a Host from candidates, and stale discovery results cannot restore it.
+- `DovahLinkClient.close()` starts session teardown alongside monitor cleanup and continues after independent cleanup failures.
 - Deliberate disconnect preserves Known Host reachability evidence while ending its session.
 - Periodic Known Host refresh keeps the previous availability while its probe is pending.
 - Host UUID casing is canonicalized across persisted Known Hosts, pairing recovery, and authentication.

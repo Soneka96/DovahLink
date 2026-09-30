@@ -9,19 +9,19 @@ import 'package:dovahlink_client_sdk/src/host_presence_probe.dart';
 /// The SDK's current loopback endpoint for the public Host listener.
 final Uri _localHostEndpoint = Uri.parse('ws://127.0.0.1:58231/');
 
-/// Defines the SDK's Host discovery capability.
+/// Defines one low-level local Host metadata probe used by the client.
 abstract interface class IDovahLinkDiscoveryService {
-  /// Returns the local Host candidate after metadata and compatibility validation.
+  /// Returns the validated local Host claim before Known Host reconciliation.
   ///
-  /// An empty list means the endpoint could not be reached. A candidate's claimed identity does
-  /// not authenticate it or prove ownership of a previously known identity.
-  /// @throws [DovahLinkConnectionException] if an HTTP response rejects the probe or the request times out.
+  /// The client owns candidate membership. An empty list means the endpoint could not be reached
+  /// or the request timed out. A claim's Host ID is unauthenticated.
+  /// @throws [DovahLinkConnectionException] if an HTTP response rejects the probe.
   /// @throws [DovahLinkProtocolException] if the response is malformed.
   /// @throws [DovahLinkCompatibilityException] if the Host version is unsupported.
   Future<List<DovahLinkHost>> discover();
 }
 
-/// Finds the local Host candidate through its sessionless metadata probe.
+/// Reads the local Host claim through its sessionless metadata probe.
 class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
   /// The candidate location this service probes.
   final Uri _endpoint;
@@ -44,14 +44,16 @@ class DovahLinkDiscoveryService implements IDovahLinkDiscoveryService {
   }) : _endpoint = endpoint,
        _hostPresenceProbe = hostPresenceProbe;
 
-  /// Returns the Host metadata asserted by the local endpoint. Validation does not authenticate a
-  /// peer as an installation previously known under [DovahLinkHost.hostId].
+  /// Returns the Host metadata asserted by the local endpoint for client reconciliation.
+  /// Validation does not authenticate a peer as an installation previously known under
+  /// [DovahLinkHost.hostId].
   ///
   /// The endpoint is the current location, not part of identity. This request sends no credential,
   /// creates no session, and never pairs or reconnects. A discovered `hostId` alone must not
   /// authorize trust, credential disclosure, pairing bypass, or another security-sensitive decision.
-  /// @return The validated Host candidate, or an empty list when the endpoint cannot be reached.
-  /// @throws [DovahLinkConnectionException] if an HTTP response rejects the probe or the request times out.
+  /// @return The validated Host claim, or an empty list when the endpoint cannot be reached or the
+  /// request times out.
+  /// @throws [DovahLinkConnectionException] if an HTTP response rejects the probe.
   /// @throws [DovahLinkProtocolException] if a reachable endpoint returns malformed metadata.
   /// @throws [DovahLinkCompatibilityException] if the endpoint reports an unsupported Host version.
   @override

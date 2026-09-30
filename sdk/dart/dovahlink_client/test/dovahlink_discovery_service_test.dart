@@ -43,7 +43,7 @@ void main() {
     );
 
     test(
-      'Method discover preserves a matching Known Host ID as an unverified claim',
+      'Method discover returns a matching Host claim for client reconciliation',
       () async {
         final DovahLinkHost knownHost = Fixtures.buildDovahLinkHost(
           endpoint: 'ws://127.0.0.1:58230/',
@@ -70,20 +70,26 @@ void main() {
     );
 
     test(
-      'Method discover returns no candidates when the endpoint cannot be reached',
+      'Method discover returns no claim when the endpoint is unreachable or times out',
       () async {
-        when(() => probe.probe(endpoint)).thenThrow(
-          const DovahLinkConnectionException('Could not reach the Host.'),
-        );
+        final List<DovahLinkConnectionException> failures =
+            <DovahLinkConnectionException>[
+              const DovahLinkConnectionException('Could not reach the Host.'),
+              const DovahLinkConnectionException('The Host probe timed out.'),
+            ];
         final IDovahLinkDiscoveryService service =
             buildDovahLinkDiscoveryServiceForTesting(
               endpoint: endpoint,
               hostPresenceProbe: probe,
             );
 
-        expect(await service.discover(), isEmpty);
+        for (final DovahLinkConnectionException failure in failures) {
+          when(() => probe.probe(endpoint)).thenThrow(failure);
 
-        verify(() => probe.probe(endpoint)).called(1);
+          expect(await service.discover(), isEmpty);
+        }
+
+        verify(() => probe.probe(endpoint)).called(failures.length);
       },
     );
 
