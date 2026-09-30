@@ -182,6 +182,60 @@ void main() {
     );
   });
 
+  group('Selector selectedHostIsRecoveringSelector behaves correctly', () {
+    test(
+      'selectedHostIsRecoveringSelector reflects SDK recovery for the selected Known Host',
+      () {
+        final Host host = Fixtures.buildHost();
+        final AppState state = stateWith(
+          const <Host>[],
+          knownHosts: <KnownHost>[
+            Fixtures.buildKnownHost(
+              host: host,
+              sessionState: KnownHostSessionState.reauthenticating,
+            ),
+          ],
+          selectedHost: host,
+          selectedHostSource: ConnectionHostSelectionSource.knownHost,
+        );
+
+        expect(
+          ConnectionSelectors.selectedHostIsRecoveringSelector(state),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'selectedHostIsRecoveringSelector ignores candidates and disconnected Known Hosts',
+      () {
+        final Host host = Fixtures.buildHost();
+        final AppState candidateState = stateWith(
+          [host],
+          selectedHost: host,
+          selectedHostSource: ConnectionHostSelectionSource.candidate,
+        );
+        final AppState disconnectedState = stateWith(
+          const <Host>[],
+          knownHosts: <KnownHost>[Fixtures.buildKnownHost(host: host)],
+          selectedHost: host,
+          selectedHostSource: ConnectionHostSelectionSource.knownHost,
+        );
+
+        expect(
+          ConnectionSelectors.selectedHostIsRecoveringSelector(candidateState),
+          isFalse,
+        );
+        expect(
+          ConnectionSelectors.selectedHostIsRecoveringSelector(
+            disconnectedState,
+          ),
+          isFalse,
+        );
+      },
+    );
+  });
+
   group('Selector selectedHostNameSelector behaves correctly', () {
     test(
       'Selector selectedHostNameSelector returns null before any selection',

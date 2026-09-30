@@ -50,6 +50,7 @@ void main() {
     when(() => sectionViewModel.error).thenReturn(null);
     when(() => sectionViewModel.isRepair).thenReturn(false);
     when(() => sectionViewModel.isBlocked).thenReturn(false);
+    when(() => sectionViewModel.isReconnecting).thenReturn(false);
     when(() => sectionViewModel.canDismiss).thenReturn(true);
     when(() => sectionViewModel.onStart).thenReturn(() {});
     when(() => sectionViewModel.onRequestCode).thenReturn(() {});

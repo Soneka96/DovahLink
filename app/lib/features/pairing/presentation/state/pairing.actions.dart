@@ -5,12 +5,15 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 /// Requests a new pairing session: connect, authenticate, and recover any
 /// interrupted pairing confirmation.
 class PairingStartedAction extends Equatable {
+  /// Whether this connection attempt is an automatic retry of an earlier failure.
+  final bool isAutomaticRetry;
+
   /// Creates a pairing-start request.
-  const PairingStartedAction();
+  const PairingStartedAction({this.isAutomaticRetry = false});
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [];
+  List<Object?> get props => [isAutomaticRetry];
 }
 
 /// Carries the result of authenticating a host session.

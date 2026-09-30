@@ -116,6 +116,7 @@ void main() {
     when(() => pairingViewModel.error).thenReturn(null);
     when(() => pairingViewModel.isRepair).thenReturn(false);
     when(() => pairingViewModel.isBlocked).thenReturn(false);
+    when(() => pairingViewModel.isReconnecting).thenReturn(false);
     when(() => pairingViewModel.canDismiss).thenReturn(true);
     when(
       () => pairingViewModel.onStart,

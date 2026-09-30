@@ -65,16 +65,18 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
 ]);
 
 /// Handles [PairingStartedAction].
-/// Updates [PairingState.phase] and [PairingState.error], and clears pending redisplay state.
+/// Explicit starts enter connecting; automatic retries preserve the existing offline presentation.
 PairingState pairingStartedReducer(
   PairingState state,
   PairingStartedAction action,
-) => state.copyWith(
-  phase: PairingPhase.connecting,
-  error: const None(),
-  isRenotifyPending: false,
-  credentialRejectionReason: const None(),
-);
+) => action.isAutomaticRetry
+    ? state
+    : state.copyWith(
+        phase: PairingPhase.connecting,
+        error: const None(),
+        isRenotifyPending: false,
+        credentialRejectionReason: const None(),
+      );
 
 /// Handles [PairingAuthenticatedAction].
 /// Updates [PairingState.phase], [PairingState.hostVersion], [PairingState.error], and

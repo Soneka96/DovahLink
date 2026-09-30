@@ -440,6 +440,40 @@ void main() {
     );
 
     test(
+      'PairingStartedAction maps a successful automatic retry to the SDK authenticated state without scheduling another retry',
+      () {
+        fakeAsync((FakeAsync async) {
+          final PairingMiddleware retryMiddleware = PairingMiddleware(
+            reconnectDelay: const Duration(seconds: 3),
+          );
+          final PairingHandshake handshake = Fixtures.buildPairingHandshake(
+            trusted: true,
+          );
+          when(
+            () => mockAuthenticate(any()),
+          ).thenAnswer((_) async => Right(handshake));
+
+          retryMiddleware.call(
+            store,
+            const PairingStartedAction(isAutomaticRetry: true),
+            next,
+          );
+          async.flushMicrotasks();
+
+          expect(actionLog, [
+            const PairingStartedAction(isAutomaticRetry: true),
+            isA<PairingAuthenticatedAction>(),
+            const PairingSessionTrustedAction(),
+          ]);
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+          expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
+          verify(() => mockAuthenticate(any())).called(1);
+        });
+      },
+    );
+
+    test(
       'PairingStartedAction dispatches PairingAuthenticatedAction carrying the credential-rejected message through',
       () async {
         final PairingHandshake handshake = Fixtures.buildPairingHandshake(
@@ -544,7 +578,7 @@ void main() {
     });
 
     test(
-      'PairingStartedAction schedules a retry that dispatches PairingStartedAction again after reconnectDelay when the Store still reports disconnected',
+      'PairingStartedAction dispatches marked automatic retries after each failed attempt',
       () {
         fakeAsync((FakeAsync async) {
           const Duration delay = Duration(seconds: 3);
@@ -565,18 +599,31 @@ void main() {
           async.elapse(delay);
           async.flushMicrotasks();
 
-          // The retry's redispatch is only ever logged here, never fed back
-          // through the middleware -- it does not itself call authenticate
-          // again, matching how a directly-invoked middleware call never
-          // recurses through its own dispatched actions.
+          final PairingStartedAction firstRetry = actionLog
+              .whereType<PairingStartedAction>()
+              .last;
+          expect(firstRetry.isAutomaticRetry, isTrue);
+
+          actionLog.clear();
+          retryMiddleware.call(store, firstRetry, next);
+          async.flushMicrotasks();
+          async.elapse(delay);
+          async.flushMicrotasks();
+
+          expect(
+            actionLog.whereType<PairingStartedAction>().every(
+              (PairingStartedAction action) => action.isAutomaticRetry,
+            ),
+            isTrue,
+          );
           expect(actionLog.whereType<PairingStartedAction>(), hasLength(2));
-          verify(() => mockAuthenticate(any())).called(1);
+          verify(() => mockAuthenticate(any())).called(2);
         });
       },
     );
 
     test(
-      'PairingStartedAction does not retry once the Store no longer reports disconnected (e.g. disposed) before reconnectDelay elapses',
+      'PairingDisposedAction cancels a pending automatic retry while waiting offline',
       () {
         fakeAsync((FakeAsync async) {
           const Duration delay = Duration(seconds: 3);
@@ -590,21 +637,28 @@ void main() {
           when(
             () => store.state,
           ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
+          when(
+            () => mockDisconnect(any()),
+          ).thenAnswer((_) async => const Right(unit));
 
           retryMiddleware.call(store, const PairingStartedAction(), next);
           async.flushMicrotasks();
 
-          // Disposes well before delay elapses -- PairingDisposedAction's
-          // reducer would reset the phase away from disconnected; simulated
-          // directly since no real reducer runs against a mocked Store.
           when(
             () => store.state,
           ).thenReturn(_stateWithPhase(PairingPhase.none));
+          retryMiddleware.call(
+            store,
+            const PairingDisposedAction(wasTrusted: false),
+            next,
+          );
+          async.flushMicrotasks();
           async.elapse(delay);
           async.flushMicrotasks();
 
           expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
           verify(() => mockAuthenticate(any())).called(1);
+          verify(() => mockDisconnect(any())).called(1);
         });
       },
     );

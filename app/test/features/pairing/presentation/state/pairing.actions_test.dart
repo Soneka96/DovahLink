@@ -5,6 +5,22 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Exercises pairing action construction and equality.
 void main() {
+  group('Behavior equality in PairingStartedAction behaves correctly', () {
+    test(
+      'PairingStartedAction distinguishes user starts from automatic retries',
+      () {
+        const PairingStartedAction userStart = PairingStartedAction();
+        const PairingStartedAction automaticRetry = PairingStartedAction(
+          isAutomaticRetry: true,
+        );
+
+        expect(userStart.isAutomaticRetry, isFalse);
+        expect(automaticRetry.isAutomaticRetry, isTrue);
+        expect(userStart, isNot(automaticRetry));
+      },
+    );
+  });
+
   group('Behavior equality in PairingAuthenticatedAction behaves correctly', () {
     test(
       'Behavior equality in PairingAuthenticatedAction includes the typed rejection reason',

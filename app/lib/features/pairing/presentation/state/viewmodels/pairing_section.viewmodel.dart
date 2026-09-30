@@ -31,6 +31,9 @@ class PairingSectionViewModel extends Equatable {
   /// Whether the Host blocked this device from pairing.
   final bool isBlocked;
 
+  /// Whether the selected Known Host is in SDK-reported recovery.
+  final bool isReconnecting;
+
   /// Whether the section may be dismissed right now.
   final bool canDismiss;
 
@@ -57,6 +60,7 @@ class PairingSectionViewModel extends Equatable {
 
     /// Whether pairing is blocked and cannot be repaired from this dialog.
     required this.isBlocked,
+    required this.isReconnecting,
     required this.canDismiss,
     required this.onStart,
     required this.onRequestCode,
@@ -76,6 +80,9 @@ class PairingSectionViewModel extends Equatable {
       error: PairingSelectors.errorSelector(state),
       isRepair: PairingSelectors.isRepairSelector(state),
       isBlocked: PairingSelectors.isBlockedSelector(state),
+      isReconnecting: ConnectionSelectors.selectedHostIsRecoveringSelector(
+        state,
+      ),
       canDismiss: PairingSelectors.canDismissSelector(state),
       onStart: () => store.dispatch(const PairingStartedAction()),
       onRequestCode: () => store.dispatch(const PairingCodeRequestedAction()),
@@ -100,6 +107,7 @@ class PairingSectionViewModel extends Equatable {
     error,
     isRepair,
     isBlocked,
+    isReconnecting,
     canDismiss,
   ];
 }

@@ -206,8 +206,8 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     );
   }
 
-  /// Silently retries [PairingStartedAction] after [reconnectDelay] while the app is open and the
-  /// pairing state is still [PairingPhase.disconnected].
+  /// Silently retries authentication after [reconnectDelay] while the app is open and the pairing
+  /// state is still [PairingPhase.disconnected]. The retry marker preserves Offline presentation.
   /// @param store The application store used to check the current pairing phase and dispatch retry.
   void _scheduleReconnect(Store<AppState> store) {
     if (_isShuttingDown) {
@@ -219,7 +219,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       if (!_isShuttingDown &&
           PairingSelectors.phaseSelector(store.state) ==
               PairingPhase.disconnected) {
-        store.dispatch(const PairingStartedAction());
+        store.dispatch(const PairingStartedAction(isAutomaticRetry: true));
       }
     });
   }
@@ -306,13 +306,16 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   /// Handles [PairingDisposedAction] by disconnecting through
   /// [DisconnectUseCase], unless [PairingDisposedAction.wasTrusted] -- pairing
   /// had already succeeded, so the established trust and connection are kept
-  /// rather than torn down on the way out. Otherwise, best-effort cleanup:
+  /// rather than torn down on the way out. Always cancels a pending initial
+  /// connection retry. Otherwise, best-effort cleanup:
   /// the reducer has already reset [AppState.pairing] by the time this runs,
   /// and there is no surviving screen to report a disconnect failure to.
   Future<void> _pairingDisposed(
     Store<AppState> store,
     PairingDisposedAction action,
   ) async {
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     if (action.wasTrusted) {
       return;
     }

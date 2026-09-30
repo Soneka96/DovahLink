@@ -36,6 +36,23 @@ abstract final class ConnectionSelectors {
     AppState state,
   ) => state.connection.selectedHostSource;
 
+  /// Returns whether the selected Known Host is in SDK-reported bounded recovery.
+  static bool selectedHostIsRecoveringSelector(AppState state) {
+    final Host? selectedHost = selectedHostSelector(state);
+    if (selectedHost == null ||
+        selectedHostSourceSelector(state) !=
+            ConnectionHostSelectionSource.knownHost) {
+      return false;
+    }
+    for (final KnownHost knownHost in state.connection.knownHosts) {
+      if (knownHost.host.hostId == selectedHost.hostId) {
+        return knownHost.sessionState == KnownHostSessionState.reconnecting ||
+            knownHost.sessionState == KnownHostSessionState.reauthenticating;
+      }
+    }
+    return false;
+  }
+
   /// Returns the display name of the Host the user most recently selected, or `null` before any
   /// selection.
   static String? selectedHostNameSelector(AppState state) =>

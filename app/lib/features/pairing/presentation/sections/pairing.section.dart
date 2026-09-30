@@ -48,41 +48,50 @@ class PairingSection extends StatelessWidget {
 
         return PopScope(
           canPop: viewModel.canDismiss,
-          child: switch (viewModel.phase) {
-            PairingPhase.unpaired when viewModel.isBlocked => PairingBlocked(
-              onClose: close,
-            ),
-            PairingPhase.unpaired when viewModel.isRepair => PairingRepair(
-              hostName: viewModel.hostName,
-              message: viewModel.error,
-              onCancel: close,
-              onRequestCode: viewModel.onRequestCode,
-            ),
-            PairingPhase.none ||
-            PairingPhase.connecting ||
-            PairingPhase.disconnected ||
-            PairingPhase.unpaired ||
-            PairingPhase.requestingCode ||
-            PairingPhase.confirming => PairingProgress(
-              phase: viewModel.phase,
-              hostName: viewModel.hostName,
-              onClose: close,
-            ),
-            PairingPhase.awaitingCode => PairingCodeEntry(
-              hostName: viewModel.hostName,
-              message: viewModel.error,
-              onSubmit: viewModel.onSubmitCode,
-            ),
-            PairingPhase.trusted => PairingSuccess(
-              hostName: viewModel.hostName,
-              onDone: close,
-            ),
-            PairingPhase.failed => PairingFailure(
-              message: viewModel.error ?? 'Pairing could not be completed.',
-              onClose: close,
-              onRetry: viewModel.onStart,
-            ),
-          },
+          child: viewModel.isReconnecting
+              ? PairingProgress(
+                  phase: PairingPhase.disconnected,
+                  hostName: viewModel.hostName,
+                  isReconnecting: true,
+                  onClose: close,
+                )
+              : switch (viewModel.phase) {
+                  PairingPhase.unpaired when viewModel.isBlocked =>
+                    PairingBlocked(onClose: close),
+                  PairingPhase.unpaired when viewModel.isRepair =>
+                    PairingRepair(
+                      hostName: viewModel.hostName,
+                      message: viewModel.error,
+                      onCancel: close,
+                      onRequestCode: viewModel.onRequestCode,
+                    ),
+                  PairingPhase.none ||
+                  PairingPhase.connecting ||
+                  PairingPhase.disconnected ||
+                  PairingPhase.unpaired ||
+                  PairingPhase.requestingCode ||
+                  PairingPhase.confirming => PairingProgress(
+                    phase: viewModel.phase,
+                    hostName: viewModel.hostName,
+                    isReconnecting: viewModel.isReconnecting,
+                    onClose: close,
+                  ),
+                  PairingPhase.awaitingCode => PairingCodeEntry(
+                    hostName: viewModel.hostName,
+                    message: viewModel.error,
+                    onSubmit: viewModel.onSubmitCode,
+                  ),
+                  PairingPhase.trusted => PairingSuccess(
+                    hostName: viewModel.hostName,
+                    onDone: close,
+                  ),
+                  PairingPhase.failed => PairingFailure(
+                    message:
+                        viewModel.error ?? 'Pairing could not be completed.',
+                    onClose: close,
+                    onRetry: viewModel.onStart,
+                  ),
+                },
         );
       },
     );
