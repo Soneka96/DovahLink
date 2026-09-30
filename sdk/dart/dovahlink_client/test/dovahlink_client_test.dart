@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
@@ -497,6 +498,10 @@ class ControllableClientPresenceProbe implements IHostPresenceProbe {
   }
 }
 
+/// Controls discovery results while exercising the composed SDK client.
+class MockDovahLinkDiscoveryService extends Mock
+    implements IDovahLinkDiscoveryService {}
+
 /// Waits for the composed client to start [count] presence probes.
 /// @param probe The probe that records each request.
 /// @param count The minimum number of requests expected.
@@ -650,6 +655,383 @@ void main() {
             endpoint: Uri.parse('ws://127.0.0.1:58230/'),
           ),
         ]);
+      },
+    );
+  });
+
+  group('Method discoverHosts behaves correctly', () {
+    test(
+      'Method discoverHosts removes Known Host IDs regardless of endpoint and ID casing',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        final DovahLinkHost knownA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+          endpoint: 'ws://127.0.0.1:58230/',
+        );
+        final DovahLinkHost knownB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final DovahLinkHost claimedA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId.toUpperCase(),
+          endpoint: 'ws://127.0.0.1:58232/',
+        );
+        final DovahLinkHost candidateC = Fixtures.buildDovahLinkHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        await storage.save(
+          PersistedClientState(
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: PersistedKnownHost(host: knownA),
+              hostBId: PersistedKnownHost(host: knownB),
+            },
+          ),
+        );
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(
+          () => discovery.discover(),
+        ).thenAnswer((_) async => <DovahLinkHost>[claimedA, candidateC]);
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: storage,
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+        final StreamIterator<List<DovahLinkHost>> candidates = StreamIterator(
+          discoveryClient.candidateHostsChanges,
+        );
+        addTearDown(candidates.cancel);
+
+        expect(await candidates.moveNext(), isTrue);
+        expect(candidates.current, isEmpty);
+        expect(await discoveryClient.discoverHosts(), <DovahLinkHost>[
+          candidateC,
+        ]);
+        expect(await candidates.moveNext(), isTrue);
+        expect(candidates.current, <DovahLinkHost>[candidateC]);
+        expect(await discoveryClient.loadKnownHosts(), <DovahLinkHost>[
+          knownA,
+          knownB,
+        ]);
+      },
+    );
+
+    test(
+      'Method discoverHosts keeps different Host IDs at one endpoint distinct',
+      () async {
+        final Uri sharedEndpoint = Uri.parse('ws://127.0.0.1:58232/');
+        final List<DovahLinkHost> discovered = <DovahLinkHost>[
+          Fixtures.buildDovahLinkHost(
+            hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+            endpoint: sharedEndpoint.toString(),
+          ),
+          Fixtures.buildDovahLinkHost(
+            hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            endpoint: sharedEndpoint.toString(),
+          ),
+        ];
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(() => discovery.discover()).thenAnswer((_) async => discovered);
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: InMemoryClientStorage(),
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+
+        expect(await discoveryClient.discoverHosts(), discovered);
+      },
+    );
+
+    test(
+      'Method discoverHosts ignores an older discovery that finishes last',
+      () async {
+        final DovahLinkHost olderCandidate = Fixtures.buildDovahLinkHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final DovahLinkHost newerCandidate = Fixtures.buildDovahLinkHost(
+          hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        );
+        final Completer<List<DovahLinkHost>> olderResult =
+            Completer<List<DovahLinkHost>>();
+        final Completer<List<DovahLinkHost>> newerResult =
+            Completer<List<DovahLinkHost>>();
+        final Completer<void> olderStarted = Completer<void>();
+        final Completer<void> newerStarted = Completer<void>();
+        int callCount = 0;
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(() => discovery.discover()).thenAnswer((_) {
+          callCount++;
+          if (callCount == 1) {
+            olderStarted.complete();
+            return olderResult.future;
+          }
+          newerStarted.complete();
+          return newerResult.future;
+        });
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: InMemoryClientStorage(),
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+
+        final Future<List<DovahLinkHost>> olderDiscovery = discoveryClient
+            .discoverHosts();
+        await olderStarted.future.timeout(const Duration(seconds: 5));
+        final Future<List<DovahLinkHost>> newerDiscovery = discoveryClient
+            .discoverHosts();
+        await newerStarted.future.timeout(const Duration(seconds: 5));
+        newerResult.complete(<DovahLinkHost>[newerCandidate]);
+        expect(await newerDiscovery, <DovahLinkHost>[newerCandidate]);
+        olderResult.complete(<DovahLinkHost>[olderCandidate]);
+        expect(await olderDiscovery, <DovahLinkHost>[newerCandidate]);
+      },
+    );
+
+    test(
+      'Method discoverHosts replaces candidates without persisting them or accumulating duplicates',
+      () async {
+        final DovahLinkHost candidate = Fixtures.buildDovahLinkHost();
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(
+          () => discovery.discover(),
+        ).thenAnswer((_) async => <DovahLinkHost>[candidate, candidate]);
+        final InMemoryClientStorage candidateStorage = InMemoryClientStorage();
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: candidateStorage,
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+
+        expect(await discoveryClient.discoverHosts(), <DovahLinkHost>[
+          candidate,
+        ]);
+        expect(await discoveryClient.discoverHosts(), <DovahLinkHost>[
+          candidate,
+        ]);
+        expect((await candidateStorage.load()).knownHosts, isEmpty);
+      },
+    );
+
+    test(
+      'Method discoverHosts leaves persisted Known Hosts intact after empty discovery',
+      () async {
+        final DovahLinkHost knownHost = Fixtures.buildDovahLinkHost();
+        await storage.save(
+          PersistedClientState(
+            knownHosts: <String, PersistedKnownHost>{
+              knownHost.hostId: PersistedKnownHost(host: knownHost),
+            },
+          ),
+        );
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(
+          () => discovery.discover(),
+        ).thenAnswer((_) async => const <DovahLinkHost>[]);
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: storage,
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+
+        expect(await discoveryClient.discoverHosts(), isEmpty);
+        expect(await discoveryClient.loadKnownHosts(), <DovahLinkHost>[
+          knownHost,
+        ]);
+      },
+    );
+
+    test(
+      'Method discoverHosts does not publish when a Known Host commits during discovery',
+      () async {
+        const String hostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final DovahLinkHost claimedHost = Fixtures.buildDovahLinkHost(
+          hostId: hostId,
+          endpoint: 'ws://127.0.0.1:58232/',
+        );
+        final Completer<List<DovahLinkHost>> discoveryResult =
+            Completer<List<DovahLinkHost>>();
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(
+          () => discovery.discover(),
+        ).thenAnswer((_) => discoveryResult.future);
+        final FakeDovahLinkTransport pairingTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: pairingTransport,
+          storage: InMemoryClientStorage(),
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+        final StreamIterator<List<DovahLinkHost>> candidates = StreamIterator(
+          discoveryClient.candidateHostsChanges,
+        );
+        addTearDown(candidates.cancel);
+        expect(await candidates.moveNext(), isTrue);
+        expect(candidates.current, isEmpty);
+
+        final Future<List<DovahLinkHost>> pendingDiscovery = discoveryClient
+            .discoverHosts();
+        await pumpEventQueue();
+        final JsonMap helloAck =
+            jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                as JsonMap;
+        final JsonMap helloPayload = helloAck['payload'] as JsonMap;
+        helloPayload['hostId'] = hostId;
+        helloPayload['clientIdentityKind'] = 'unpaired';
+        pairingTransport.queueResponse(jsonEncode(helloAck));
+        pairingTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await discoveryClient.authenticateCandidate(claimedHost.endpoint);
+        pairingTransport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+        );
+        await discoveryClient.confirmPairingCode(code: '123456');
+
+        discoveryResult.complete(<DovahLinkHost>[claimedHost]);
+        expect(await pendingDiscovery, isEmpty);
+        expect(await discoveryClient.loadKnownHosts(), hasLength(1));
+      },
+    );
+
+    test(
+      'Method discoverHosts surfaces authoritative storage failures',
+      () async {
+        final TrackingClientStorage failingStorage = TrackingClientStorage(
+          Fixtures.buildPersistedClientState(),
+        )..loadError = const DovahLinkStorageException('corrupt state');
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(() => discovery.discover()).thenAnswer(
+          (_) async => <DovahLinkHost>[Fixtures.buildDovahLinkHost()],
+        );
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: failingStorage,
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+
+        await expectLater(
+          discoveryClient.discoverHosts(),
+          throwsA(isA<DovahLinkStorageException>()),
+        );
+      },
+    );
+  });
+
+  group('Property candidateHostsChanges behaves correctly', () {
+    test(
+      'Property candidateHostsChanges reports storage errors and receives later candidate state',
+      () async {
+        final TrackingClientStorage failingStorage = TrackingClientStorage(
+          Fixtures.buildPersistedClientState(),
+        )..loadError = const DovahLinkStorageException('corrupt state');
+        final DovahLinkHost candidate = Fixtures.buildDovahLinkHost();
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(
+          () => discovery.discover(),
+        ).thenAnswer((_) async => <DovahLinkHost>[candidate]);
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: failingStorage,
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+        final Completer<void> storageFailure = Completer<void>();
+        final Completer<List<DovahLinkHost>> candidatePublished =
+            Completer<List<DovahLinkHost>>();
+        final StreamSubscription<List<DovahLinkHost>> subscription =
+            discoveryClient.candidateHostsChanges.listen(
+              (List<DovahLinkHost> hosts) {
+                if (hosts.isNotEmpty && !candidatePublished.isCompleted) {
+                  candidatePublished.complete(hosts);
+                }
+              },
+              onError: (Object error, StackTrace stackTrace) {
+                if (error is DovahLinkStorageException &&
+                    !storageFailure.isCompleted) {
+                  storageFailure.complete();
+                }
+              },
+            );
+        addTearDown(subscription.cancel);
+        await expectLater(
+          discoveryClient.discoverHosts(),
+          throwsA(isA<DovahLinkStorageException>()),
+        );
+        await storageFailure.future.timeout(const Duration(seconds: 5));
+        failingStorage.loadError = null;
+        expect(await discoveryClient.discoverHosts(), <DovahLinkHost>[
+          candidate,
+        ]);
+        expect(await candidatePublished.future, <DovahLinkHost>[candidate]);
+      },
+    );
+
+    test(
+      'Property candidateHostsChanges removes a candidate after pairing commits its Known Host relationship',
+      () async {
+        const String hostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+        final DovahLinkHost candidate = Fixtures.buildDovahLinkHost(
+          hostId: hostId,
+          endpoint: 'ws://127.0.0.1:58232/',
+        );
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(
+          () => discovery.discover(),
+        ).thenAnswer((_) async => <DovahLinkHost>[candidate]);
+        final FakeDovahLinkTransport pairingTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient discoveryClient = buildDovahLinkClientForTesting(
+          transport: pairingTransport,
+          storage: InMemoryClientStorage(),
+          discoveryService: discovery,
+        );
+        addTearDown(discoveryClient.close);
+        final StreamIterator<List<DovahLinkHost>> candidates = StreamIterator(
+          discoveryClient.candidateHostsChanges,
+        );
+        addTearDown(candidates.cancel);
+        expect(await candidates.moveNext(), isTrue);
+        expect(candidates.current, isEmpty);
+        expect(await discoveryClient.discoverHosts(), <DovahLinkHost>[
+          candidate,
+        ]);
+        expect(await candidates.moveNext(), isTrue);
+        expect(candidates.current, <DovahLinkHost>[candidate]);
+
+        final JsonMap helloAck =
+            jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                as JsonMap;
+        final JsonMap helloPayload = helloAck['payload'] as JsonMap;
+        helloPayload['hostId'] = hostId;
+        helloPayload['clientIdentityKind'] = 'unpaired';
+        pairingTransport.queueResponse(jsonEncode(helloAck));
+        pairingTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await discoveryClient.authenticateCandidate(candidate.endpoint);
+        pairingTransport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+        );
+        await discoveryClient.confirmPairingCode(code: '123456');
+
+        expect(await candidates.moveNext(), isTrue);
+        expect(candidates.current, isEmpty);
+        expect(await discoveryClient.loadKnownHosts(), hasLength(1));
       },
     );
   });
