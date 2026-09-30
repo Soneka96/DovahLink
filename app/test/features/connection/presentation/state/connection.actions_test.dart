@@ -128,23 +128,18 @@ void main() {
   );
 
   group(
-    'Property hosts in ConnectionDiscoverySucceededAction behaves correctly',
+    'Property hasCandidates in ConnectionDiscoverySucceededAction behaves correctly',
     () {
       test(
-        'ConnectionDiscoverySucceededAction carries multiple candidates in order',
+        'ConnectionDiscoverySucceededAction records only candidate presence',
         () {
-          final List<Host> hosts = [
-            Fixtures.buildHost(displayName: 'Local Host'),
-            Fixtures.buildHost(
-              hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-              displayName: 'Second Host',
-              uri: Uri.parse('ws://192.168.1.11:58231/'),
-            ),
-          ];
-          final ConnectionDiscoverySucceededAction action =
-              ConnectionDiscoverySucceededAction(hosts);
+          const ConnectionDiscoverySucceededAction available =
+              ConnectionDiscoverySucceededAction(hasCandidates: true);
+          const ConnectionDiscoverySucceededAction empty =
+              ConnectionDiscoverySucceededAction(hasCandidates: false);
 
-          expect(action.hosts, hosts);
+          expect(available.hasCandidates, isTrue);
+          expect(empty.hasCandidates, isFalse);
         },
       );
     },

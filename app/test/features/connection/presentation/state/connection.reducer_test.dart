@@ -248,7 +248,7 @@ void main() {
       );
       final ConnectionState succeeded = connectionReducer(
         started,
-        ConnectionDiscoverySucceededAction([Fixtures.buildHost()]),
+        const ConnectionDiscoverySucceededAction(hasCandidates: true),
       );
       final ConnectionState failed = connectionReducer(
         succeeded,
@@ -448,114 +448,45 @@ void main() {
 
   group('Action ConnectionDiscoverySucceededAction behaves correctly', () {
     test(
-      'ConnectionDiscoverySucceededAction stores every candidate in order',
+      'ConnectionDiscoverySucceededAction records availability without replacing SDK candidates',
       () {
-        const ConnectionState state = ConnectionState(
+        final Host latestCandidate = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final ConnectionState state = ConnectionState(
+          hosts: <Host>[latestCandidate],
+          selectedHost: latestCandidate,
           discoveryStatus: ConnectionDiscoveryStatus.failed,
           discoveryFailure: ConnectionFailureReason.hostUnavailable,
         );
-        final List<Host> hosts = [
-          Fixtures.buildHost(),
-          Fixtures.buildHost(
-            displayName: 'Second Host',
-            uri: Uri.parse('ws://192.168.1.11:58231/'),
-          ),
-        ];
 
         final ConnectionState result = connectionReducer(
           state,
-          ConnectionDiscoverySucceededAction(hosts),
+          const ConnectionDiscoverySucceededAction(hasCandidates: true),
         );
 
-        expect(result.hosts, hosts);
+        expect(result.hosts, <Host>[latestCandidate]);
+        expect(result.selectedHost, latestCandidate);
         expect(result.discoveryStatus, ConnectionDiscoveryStatus.available);
         expect(result.discoveryFailure, isNull);
       },
     );
 
     test(
-      'ConnectionDiscoverySucceededAction records an empty discovery result',
+      'ConnectionDiscoverySucceededAction records empty results without clearing SDK candidates',
       () {
-        final ConnectionState result = connectionReducer(
-          ConnectionState.initial(),
-          const ConnectionDiscoverySucceededAction(<Host>[]),
-        );
-
-        expect(result.hosts, isEmpty);
-        expect(result.discoveryStatus, ConnectionDiscoveryStatus.empty);
-      },
-    );
-
-    test(
-      'ConnectionDiscoverySucceededAction clears a candidate that disappeared',
-      () {
-        final Host selected = Fixtures.buildHost(
-          displayName: 'Same Name',
-          uri: Uri.parse('ws://127.0.0.1:58231/'),
-        );
-        final ConnectionState result = connectionReducer(
-          ConnectionState(selectedHost: selected),
-          const ConnectionDiscoverySucceededAction(<Host>[]),
-        );
-
-        expect(result.selectedHost, isNull);
-      },
-    );
-
-    test(
-      'ConnectionDiscoverySucceededAction refreshes selection across endpoint changes',
-      () {
-        final Host selected = Fixtures.buildHost(
-          displayName: 'Before Refresh',
-          uri: Uri.parse('ws://127.0.0.1:58231/'),
-        );
-        final Host refreshed = Fixtures.buildHost(
-          displayName: 'After Refresh',
-          uri: selected.uri,
-        );
-        final ConnectionState result = connectionReducer(
-          ConnectionState(selectedHost: selected),
-          ConnectionDiscoverySucceededAction(<Host>[refreshed]),
-        );
-
-        expect(result.selectedHost, refreshed);
-      },
-    );
-
-    test(
-      'ConnectionDiscoverySucceededAction identifies candidates by Host ID',
-      () {
-        final Host selected = Fixtures.buildHost(
-          displayName: 'Same Name',
-          uri: Uri.parse('ws://127.0.0.1:58231/'),
-        );
-        final Host other = Fixtures.buildHost(
-          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-          displayName: 'Same Name',
-          uri: selected.uri,
-        );
-        final ConnectionState result = connectionReducer(
-          ConnectionState(selectedHost: selected),
-          ConnectionDiscoverySucceededAction(<Host>[other]),
-        );
-
-        expect(result.selectedHost, isNull);
-      },
-    );
-
-    test(
-      'ConnectionDiscoverySucceededAction preserves a Known Host selection after discovery loss',
-      () {
-        final Host knownHost = Fixtures.buildHost();
+        final Host latestCandidate = Fixtures.buildHost();
         final ConnectionState result = connectionReducer(
           ConnectionState(
-            selectedHost: knownHost,
-            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+            hosts: <Host>[latestCandidate],
+            selectedHost: latestCandidate,
           ),
-          const ConnectionDiscoverySucceededAction(<Host>[]),
+          const ConnectionDiscoverySucceededAction(hasCandidates: false),
         );
 
-        expect(result.selectedHost, knownHost);
+        expect(result.hosts, <Host>[latestCandidate]);
+        expect(result.selectedHost, latestCandidate);
+        expect(result.discoveryStatus, ConnectionDiscoveryStatus.empty);
       },
     );
   });

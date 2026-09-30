@@ -111,23 +111,19 @@ ConnectionState connectionDiscoveryStartedReducer(
   discoveryFailure: const None(),
 );
 
-/// Handles [ConnectionDiscoverySucceededAction].
-/// Stores all candidates and distinguishes available from empty results.
+/// Handles [ConnectionDiscoverySucceededAction] without changing SDK-owned candidates.
+/// @param state The current connection projection.
+/// @param action The discovery operation's candidate-presence result.
+/// @return The projection with its discovery status updated.
 ConnectionState connectionDiscoverySucceededReducer(
   ConnectionState state,
   ConnectionDiscoverySucceededAction action,
-) {
-  final ConnectionState withCandidates = connectionCandidatesChangedReducer(
-    state,
-    ConnectionCandidatesChangedAction(action.hosts),
-  );
-  return withCandidates.copyWith(
-    discoveryStatus: withCandidates.hosts.isEmpty
-        ? ConnectionDiscoveryStatus.empty
-        : ConnectionDiscoveryStatus.available,
-    discoveryFailure: const None(),
-  );
-}
+) => state.copyWith(
+  discoveryStatus: action.hasCandidates
+      ? ConnectionDiscoveryStatus.available
+      : ConnectionDiscoveryStatus.empty,
+  discoveryFailure: const None(),
+);
 
 /// Handles [ConnectionDiscoveryFailedAction].
 /// Clears candidates and preserves the semantic failure reason for presentation.

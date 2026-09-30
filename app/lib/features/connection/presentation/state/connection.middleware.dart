@@ -160,7 +160,7 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
           .discoverHosts();
       store.dispatch(
         ConnectionDiscoverySucceededAction(
-          discoveredHosts.map(HostMapper.fromSdk).toList(growable: false),
+          hasCandidates: discoveredHosts.isNotEmpty,
         ),
       );
     } on Object catch (error) {

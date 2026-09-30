@@ -500,7 +500,7 @@ void main() {
     'ConnectionMiddleware processes ConnectionDiscoveryRequestedAction correctly',
     () {
       test(
-        'ConnectionDiscoveryRequestedAction maps the discovered Host after the request',
+        'ConnectionDiscoveryRequestedAction reports candidate presence after the request',
         () async {
           final HelloResult reportedHello = Fixtures.buildSdkHelloResult(
             trustState: DovahLinkTrustState.unpaired,
@@ -533,19 +533,14 @@ void main() {
           expect(actions, [
             action,
             const ConnectionDiscoveryStartedAction(),
-            ConnectionDiscoverySucceededAction([
-              Fixtures.buildHost(
-                hostId: reportedHello.hostId,
-                displayName: reportedHello.hostName,
-              ),
-            ]),
+            const ConnectionDiscoverySucceededAction(hasCandidates: true),
           ]);
           verify(() => mockClient.discoverHosts()).called(1);
         },
       );
 
       test(
-        'ConnectionDiscoveryRequestedAction dispatches an empty list when no Host responds',
+        'ConnectionDiscoveryRequestedAction reports empty results when no Host responds',
         () async {
           when(
             () => mockClient.discoverHosts(),
@@ -569,7 +564,7 @@ void main() {
           expect(actions, [
             action,
             const ConnectionDiscoveryStartedAction(),
-            const ConnectionDiscoverySucceededAction(<Host>[]),
+            const ConnectionDiscoverySucceededAction(hasCandidates: false),
           ]);
           verify(() => mockClient.discoverHosts()).called(1);
         },
@@ -763,6 +758,7 @@ void main() {
           final Store<AppState> integrationStore = const CreateStore()(
             middleware: [recordActions, middleware.call],
           );
+          middleware.initialize(integrationStore);
           const ConnectionDiscoveryRequestedAction request =
               ConnectionDiscoveryRequestedAction();
 
@@ -785,6 +781,17 @@ void main() {
           ]);
           verify(() => mockClient.discoverHosts()).called(1);
 
+          final DovahLinkHost latestCandidate = DovahLinkHost(
+            hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+            hostName: 'NEWER-SDK-SNAPSHOT',
+            endpoint: defaultHostUri,
+          );
+          candidateHostsController.add(<DovahLinkHost>[latestCandidate]);
+          await pumpEventQueue();
+          expect(integrationStore.state.connection.hosts, <Host>[
+            HostMapper.fromSdk(latestCandidate),
+          ]);
+
           discovery.complete(<DovahLinkHost>[
             DovahLinkHost(
               hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
@@ -798,9 +805,13 @@ void main() {
             request,
             const ConnectionDiscoveryStartedAction(),
             request,
-            ConnectionDiscoverySucceededAction([
-              Fixtures.buildHost(displayName: 'SKYRIM-PC'),
+            ConnectionCandidatesChangedAction(<Host>[
+              HostMapper.fromSdk(latestCandidate),
             ]),
+            const ConnectionDiscoverySucceededAction(hasCandidates: true),
+          ]);
+          expect(integrationStore.state.connection.hosts, <Host>[
+            HostMapper.fromSdk(latestCandidate),
           ]);
           expect(
             integrationStore.state.connection.discoveryStatus,
@@ -814,10 +825,13 @@ void main() {
           integrationStore.dispatch(request);
           await resultDispatched.future.timeout(const Duration(seconds: 1));
 
-          expect(actions.skip(4), [
+          expect(actions.skip(5), [
             request,
             const ConnectionDiscoveryStartedAction(),
-            const ConnectionDiscoverySucceededAction(<Host>[]),
+            const ConnectionDiscoverySucceededAction(hasCandidates: false),
+          ]);
+          expect(integrationStore.state.connection.hosts, <Host>[
+            HostMapper.fromSdk(latestCandidate),
           ]);
           expect(
             integrationStore.state.connection.discoveryStatus,

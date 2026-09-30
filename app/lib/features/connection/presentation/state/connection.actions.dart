@@ -83,17 +83,18 @@ class ConnectionDiscoveryStartedAction extends Equatable {
   List<Object?> get props => [];
 }
 
-/// Carries every Host candidate returned by discovery.
+/// Reports a successful discovery operation without carrying candidate membership.
 class ConnectionDiscoverySucceededAction extends Equatable {
-  /// The candidates returned by discovery.
-  final List<Host> hosts;
+  /// Whether the completed discovery result contained any SDK candidate.
+  final bool hasCandidates;
 
-  /// Creates a discovery-success action with [hosts].
-  const ConnectionDiscoverySucceededAction(this.hosts);
+  /// Creates a discovery-success action with its empty-results status.
+  /// @param hasCandidates Whether the completed SDK discovery result had candidates.
+  const ConnectionDiscoverySucceededAction({required this.hasCandidates});
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [hosts];
+  List<Object?> get props => [hasCandidates];
 }
 
 /// Carries the app-owned meaning of a discovery failure.
