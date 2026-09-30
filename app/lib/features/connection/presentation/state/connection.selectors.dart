@@ -59,7 +59,8 @@ abstract final class ConnectionSelectors {
       selectedHostSelector(state)?.displayName;
 
   /// Returns the SDK-mapped Known Host cards followed by its candidate cards.
-  /// Session phases override weaker reachability evidence.
+  /// SDK recovery phases override reachability; automatic attempts follow it while pairing is
+  /// disconnected.
   static List<HostCardViewData> hostCardsSelector(AppState state) {
     final List<KnownHost> knownHosts = state.connection.knownHosts;
     return [
@@ -73,13 +74,15 @@ abstract final class ConnectionSelectors {
               ? knownHost.host.uri.toString()
               : knownHost.host.uri.authority,
           state: switch (knownHost.sessionState) {
-            KnownHostSessionState.connecting =>
+            KnownHostSessionState.connecting
+                when state.pairing.phase != PairingPhase.disconnected =>
               DovahConnectionCardState.connecting,
             KnownHostSessionState.connected =>
               DovahConnectionCardState.connected,
             KnownHostSessionState.reconnecting ||
             KnownHostSessionState.reauthenticating =>
               DovahConnectionCardState.reconnecting,
+            KnownHostSessionState.connecting ||
             KnownHostSessionState.disconnected =>
               switch (knownHost.availability) {
                 HostAvailability.checking => DovahConnectionCardState.checking,

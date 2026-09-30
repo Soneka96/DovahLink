@@ -39,8 +39,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Pairing selection rebinds from the SDK's Known Host projection after successful confirmation.
 - Host card identity and selection follow normalized Host IDs across endpoint changes; successful
   pairing promotes the selected target to Known Host authentication.
-- Pairing stays Offline during automatic retries, shows SDK-reported recovery as Reconnecting, and
-  omits the spinner while waiting offline.
+- Pairing and Known Host cards stay Offline during automatic retries; pairing omits its spinner,
+  explicit attempts show Connecting, and SDK recovery shows Reconnecting.
 - Pairing shows while a code redisplay is being sent to Skyrim and prevents repeated requests
   until the Host responds.
 - Custom Dovah controls suppress Material splash and state overlays.

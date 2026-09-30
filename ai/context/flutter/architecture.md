@@ -81,12 +81,14 @@ success.
 For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
 of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with independent
 `HostAvailability` and `KnownHostSessionState` values. An admitted session renders `Connected`;
-connecting and recovery phases render separately; only a disconnected Known Host falls back to
-reachability (`Online`, `Offline`, `Checking`, or unknown). Discovery candidates and selected-Host
-state remain `Host` values without availability. The SDK owns both the complete Known Host runtime
-projection and the reconciled candidate collection; Flutter maps each stream independently into
-Redux. Candidate membership already excludes normalized Host IDs in the authoritative Known Host
-collection. Flutter does not filter, merge, or reinterpret the two collections.
+bounded recovery renders `Reconnecting`, and explicit attempts render `Connecting`. During automatic
+retries, a transient `connecting` phase follows reachability while pairing remains disconnected, so
+an offline Known Host card stays `Offline`. A disconnected Known Host also falls back to reachability
+(`Online`, `Offline`, `Checking`, or unknown). Discovery candidates and selected-Host state remain
+`Host` values without availability. The SDK owns both the complete Known Host runtime projection and
+the reconciled candidate collection; Flutter maps each stream independently into Redux. Candidate
+membership already excludes normalized Host IDs in the authoritative Known Host collection. Flutter
+does not filter, merge, or reinterpret the two collections.
 `knownHostsStatus` starts as `loading`, becomes `ready` on any complete snapshot
 (including an empty one), and becomes `failed` on a stream error. An observation error preserves the
 last successful `knownHosts` value; a later snapshot restores `ready`.
