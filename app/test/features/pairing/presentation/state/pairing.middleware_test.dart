@@ -1056,6 +1056,287 @@ void main() {
     );
   });
 
+  group('PairingMiddleware processes PairingCodeRequestedAction correctly', () {
+    test(
+      'PairingCodeRequestedAction suppresses a late successful request after disposal',
+      () async {
+        final Completer<Either<Failure, int?>> request =
+            Completer<Either<Failure, int?>>();
+        when(() => mockRequestPairing(any())).thenAnswer((_) => request.future);
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
+
+        middleware.call(store, const PairingCodeRequestedAction(), next);
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await pumpEventQueue();
+        request.complete(const Right(60));
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingCodeRequestedAction(),
+          const PairingDisposedAction(wasTrusted: false),
+        ]);
+      },
+    );
+
+    test(
+      'PairingCodeRequestedAction suppresses a late failure after disposal',
+      () async {
+        final Completer<Either<Failure, int?>> request =
+            Completer<Either<Failure, int?>>();
+        when(() => mockRequestPairing(any())).thenAnswer((_) => request.future);
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
+
+        middleware.call(store, const PairingCodeRequestedAction(), next);
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await pumpEventQueue();
+        request.complete(const Left(PairingFailure('expired')));
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingCodeRequestedAction(),
+          const PairingDisposedAction(wasTrusted: false),
+        ]);
+      },
+    );
+  });
+
+  group('PairingMiddleware processes PairingCodeSubmittedAction correctly', () {
+    test(
+      'PairingCodeSubmittedAction suppresses a late success after disposal',
+      () async {
+        final Completer<Either<Failure, Unit>> confirmation =
+            Completer<Either<Failure, Unit>>();
+        when(
+          () => mockConfirmPairingCode(any()),
+        ).thenAnswer((_) => confirmation.future);
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
+
+        middleware.call(
+          store,
+          const PairingCodeSubmittedAction(code: '123456'),
+          next,
+        );
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await pumpEventQueue();
+        confirmation.complete(const Right(unit));
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingCodeSubmittedAction(code: '123456'),
+          ConnectionCandidatePairingStartedAction(Fixtures.buildHost().hostId),
+          const PairingDisposedAction(wasTrusted: false),
+        ]);
+        expect(actionLog.whereType<PairingConfirmedAction>(), isEmpty);
+        expect(actionLog.whereType<PairingSessionTrustedAction>(), isEmpty);
+        expect(
+          actionLog.whereType<ConnectionCandidatePairingEndedAction>(),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'PairingCodeSubmittedAction suppresses a late failure after disposal',
+      () async {
+        final Completer<Either<Failure, Unit>> confirmation =
+            Completer<Either<Failure, Unit>>();
+        when(
+          () => mockConfirmPairingCode(any()),
+        ).thenAnswer((_) => confirmation.future);
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
+
+        middleware.call(
+          store,
+          const PairingCodeSubmittedAction(code: '123456'),
+          next,
+        );
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await pumpEventQueue();
+        confirmation.complete(const Left(PairingFailure('expired')));
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingCodeSubmittedAction(code: '123456'),
+          ConnectionCandidatePairingStartedAction(Fixtures.buildHost().hostId),
+          const PairingDisposedAction(wasTrusted: false),
+        ]);
+        expect(actionLog.whereType<PairingFailedAction>(), isEmpty);
+        expect(
+          actionLog.whereType<ConnectionCandidatePairingEndedAction>(),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'PairingCodeSubmittedAction ignores an older flow after a new flow starts',
+      () async {
+        final Completer<Either<Failure, Unit>> oldConfirmation =
+            Completer<Either<Failure, Unit>>();
+        when(
+          () => mockConfirmPairingCode(any()),
+        ).thenAnswer((_) => oldConfirmation.future);
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
+        when(() => mockAuthenticate(any())).thenAnswer(
+          (_) async => Right(Fixtures.buildPairingHandshake(trusted: true)),
+        );
+
+        middleware.call(
+          store,
+          const PairingCodeSubmittedAction(code: '123456'),
+          next,
+        );
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await pumpEventQueue();
+        middleware.call(store, const PairingStartedAction(), next);
+        oldConfirmation.complete(const Right(unit));
+        await pumpEventQueue();
+
+        expect(actionLog.whereType<PairingConfirmedAction>(), isEmpty);
+        expect(actionLog.whereType<PairingFailedAction>(), isEmpty);
+        expect(
+          actionLog.whereType<ConnectionCandidatePairingEndedAction>(),
+          isEmpty,
+        );
+        expect(actionLog.whereType<PairingAuthenticatedAction>(), hasLength(1));
+        verify(() => mockAuthenticate(any())).called(1);
+      },
+    );
+  });
+
+  group(
+    'PairingMiddleware processes PairingRenotifyRequestedAction correctly',
+    () {
+      test(
+        'PairingRenotifyRequestedAction suppresses late results after disposal',
+        () async {
+          final Completer<Either<Failure, int?>> successfulRenotify =
+              Completer<Either<Failure, int?>>();
+          final Completer<Either<Failure, int?>> cooledDownRenotify =
+              Completer<Either<Failure, int?>>();
+          final Completer<Either<Failure, int?>> failedRenotify =
+              Completer<Either<Failure, int?>>();
+          final MockRequestPairingRenotifyUseCase mockRenotify =
+              sl<RequestPairingRenotifyUseCase>()
+                  as MockRequestPairingRenotifyUseCase;
+          int renotifyCallCount = 0;
+          when(() => mockRenotify(any())).thenAnswer(
+            (_) => switch (renotifyCallCount++) {
+              0 => successfulRenotify.future,
+              1 => cooledDownRenotify.future,
+              _ => failedRenotify.future,
+            },
+          );
+          when(
+            () => mockDisconnect(any()),
+          ).thenAnswer((_) async => const Right(unit));
+
+          middleware.call(store, const PairingRenotifyRequestedAction(), next);
+          middleware.call(store, const PairingRenotifyRequestedAction(), next);
+          middleware.call(store, const PairingRenotifyRequestedAction(), next);
+          middleware.call(
+            store,
+            const PairingDisposedAction(wasTrusted: false),
+            next,
+          );
+          await pumpEventQueue();
+          successfulRenotify.complete(const Right(null));
+          cooledDownRenotify.complete(const Right(5));
+          failedRenotify.complete(const Left(PairingFailure('no challenge')));
+          await pumpEventQueue();
+
+          expect(actionLog, [
+            const PairingRenotifyRequestedAction(),
+            const PairingRenotifyRequestedAction(),
+            const PairingRenotifyRequestedAction(),
+            const PairingDisposedAction(wasTrusted: false),
+          ]);
+          expect(actionLog.whereType<PairingRenotifyCooldownAction>(), isEmpty);
+          expect(
+            actionLog.whereType<PairingRenotifySucceededAction>(),
+            isEmpty,
+          );
+          expect(actionLog.whereType<PairingFailedAction>(), isEmpty);
+        },
+      );
+    },
+  );
+
+  group('PairingMiddleware processes PairingCancelRequestedAction correctly', () {
+    test(
+      'PairingCancelRequestedAction suppresses late success and failure after disposal',
+      () async {
+        final Completer<Either<Failure, Unit>> successfulCancellation =
+            Completer<Either<Failure, Unit>>();
+        final Completer<Either<Failure, Unit>> failedCancellation =
+            Completer<Either<Failure, Unit>>();
+        final MockCancelPairingUseCase mockCancellation =
+            sl<CancelPairingUseCase>() as MockCancelPairingUseCase;
+        int cancellationCallCount = 0;
+        when(() => mockCancellation(any())).thenAnswer(
+          (_) => cancellationCallCount++ == 0
+              ? successfulCancellation.future
+              : failedCancellation.future,
+        );
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
+
+        middleware.call(store, const PairingCancelRequestedAction(), next);
+        middleware.call(store, const PairingCancelRequestedAction(), next);
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await pumpEventQueue();
+        successfulCancellation.complete(const Right(unit));
+        failedCancellation.complete(
+          const Left(PairingFailure('cancel failed')),
+        );
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingCancelRequestedAction(),
+          const PairingCancelRequestedAction(),
+          const PairingDisposedAction(wasTrusted: false),
+        ]);
+        expect(actionLog.whereType<PairingCancelSucceededAction>(), isEmpty);
+        expect(actionLog.whereType<PairingFailedAction>(), isEmpty);
+      },
+    );
+  });
+
   group('PairingMiddleware processes PairingCodeSubmittedAction correctly', () {
     test(
       'PairingCodeSubmittedAction dispatches PairingConfirmedAction and forwards code/displayName when confirmation succeeds',

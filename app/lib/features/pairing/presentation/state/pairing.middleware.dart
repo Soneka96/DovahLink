@@ -177,8 +177,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingRenotifyRequestedAction action,
   ) async {
+    final int generation = _pairingFlowGeneration;
     final result = await sl<RequestPairingRenotifyUseCase>()(NoParams());
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
@@ -203,8 +204,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCancelRequestedAction action,
   ) async {
+    final int generation = _pairingFlowGeneration;
     final result = await sl<CancelPairingUseCase>()(NoParams());
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
@@ -248,8 +250,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCodeRequestedAction action,
   ) async {
+    final int generation = _pairingFlowGeneration;
     final result = await sl<RequestPairingUseCase>()(NoParams());
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
@@ -270,6 +273,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCodeSubmittedAction action,
   ) async {
+    final int generation = _pairingFlowGeneration;
     // The SDK candidate stream can remove this selection before confirmation completes.
     final Host? selectedHost = ConnectionSelectors.selectedHostSelector(
       store.state,
@@ -290,7 +294,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
         displayName: action.displayName,
       ),
     );
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
