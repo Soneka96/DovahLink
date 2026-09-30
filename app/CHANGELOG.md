@@ -41,6 +41,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
   pairing promotes the selected target to Known Host authentication.
 - Pairing and Known Host cards stay Offline during automatic retries; pairing omits its spinner,
   explicit attempts show Connecting, and SDK recovery shows Reconnecting.
+- Closing pairing ignores late authentication results and prevents stale retries from affecting a
+  new flow.
 - Pairing shows while a code redisplay is being sent to Skyrim and prevents repeated requests
   until the Host responds.
 - Custom Dovah controls suppress Material splash and state overlays.

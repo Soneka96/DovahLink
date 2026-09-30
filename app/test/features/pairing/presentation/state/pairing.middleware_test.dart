@@ -623,6 +623,43 @@ void main() {
     );
 
     test(
+      'PairingStartedAction lets an explicit retry replace a scheduled automatic retry',
+      () {
+        fakeAsync((FakeAsync async) {
+          const Duration delay = Duration(seconds: 3);
+          final PairingMiddleware retryMiddleware = PairingMiddleware(
+            reconnectDelay: delay,
+          );
+          int authenticationCount = 0;
+          when(
+            () => store.state,
+          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
+          when(() => mockAuthenticate(any())).thenAnswer((_) async {
+            authenticationCount++;
+            if (authenticationCount == 1) {
+              return const Left(NetworkFailure('unreachable'));
+            }
+            return Right(Fixtures.buildPairingHandshake(trusted: true));
+          });
+          when(
+            () => mockObserveConnectionStatus(any()),
+          ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+
+          retryMiddleware.call(store, const PairingStartedAction(), next);
+          async.flushMicrotasks();
+          retryMiddleware.call(store, const PairingStartedAction(), next);
+          async.flushMicrotasks();
+          async.elapse(delay);
+          async.flushMicrotasks();
+
+          expect(actionLog.whereType<PairingStartedAction>(), hasLength(2));
+          expect(actionLog.last, const PairingSessionTrustedAction());
+          verify(() => mockAuthenticate(any())).called(2);
+        });
+      },
+    );
+
+    test(
       'PairingDisposedAction cancels a pending automatic retry while waiting offline',
       () {
         fakeAsync((FakeAsync async) {
@@ -658,6 +695,148 @@ void main() {
 
           expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
           verify(() => mockAuthenticate(any())).called(1);
+          verify(() => mockDisconnect(any())).called(1);
+        });
+      },
+    );
+
+    test(
+      'PairingDisposedAction suppresses an authentication failure that completes late',
+      () {
+        fakeAsync((FakeAsync async) {
+          const Duration delay = Duration(seconds: 3);
+          final PairingMiddleware pendingMiddleware = PairingMiddleware(
+            reconnectDelay: delay,
+          );
+          final Completer<Either<Failure, PairingHandshake>> authentication =
+              Completer<Either<Failure, PairingHandshake>>();
+          when(
+            () => store.state,
+          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
+          when(
+            () => mockAuthenticate(any()),
+          ).thenAnswer((_) => authentication.future);
+          when(
+            () => mockDisconnect(any()),
+          ).thenAnswer((_) async => const Right(unit));
+
+          pendingMiddleware.call(store, const PairingStartedAction(), next);
+          async.flushMicrotasks();
+          pendingMiddleware.call(
+            store,
+            const PairingDisposedAction(wasTrusted: false),
+            next,
+          );
+          async.flushMicrotasks();
+          authentication.complete(const Left(NetworkFailure('unreachable')));
+          async.flushMicrotasks();
+          async.elapse(delay);
+          async.flushMicrotasks();
+
+          expect(actionLog, [
+            isA<PairingStartedAction>(),
+            const PairingDisposedAction(wasTrusted: false),
+          ]);
+          verify(() => mockAuthenticate(any())).called(1);
+          verify(() => mockDisconnect(any())).called(1);
+        });
+      },
+    );
+
+    test(
+      'PairingDisposedAction suppresses a successful authentication that completes late',
+      () {
+        fakeAsync((FakeAsync async) {
+          final PairingMiddleware pendingMiddleware = PairingMiddleware();
+          final Completer<Either<Failure, PairingHandshake>> authentication =
+              Completer<Either<Failure, PairingHandshake>>();
+          when(
+            () => mockAuthenticate(any()),
+          ).thenAnswer((_) => authentication.future);
+          when(
+            () => mockDisconnect(any()),
+          ).thenAnswer((_) async => const Right(unit));
+
+          pendingMiddleware.call(store, const PairingStartedAction(), next);
+          async.flushMicrotasks();
+          pendingMiddleware.call(
+            store,
+            const PairingDisposedAction(wasTrusted: false),
+            next,
+          );
+          async.flushMicrotasks();
+          authentication.complete(
+            Right(Fixtures.buildPairingHandshake(trusted: false)),
+          );
+          async.flushMicrotasks();
+
+          expect(actionLog, [
+            isA<PairingStartedAction>(),
+            const PairingDisposedAction(wasTrusted: false),
+          ]);
+          verify(() => mockAuthenticate(any())).called(1);
+          verify(() => mockDisconnect(any())).called(1);
+        });
+      },
+    );
+
+    test(
+      'PairingStartedAction lets a new flow succeed and ignores the older result',
+      () {
+        fakeAsync((FakeAsync async) {
+          const Duration delay = Duration(seconds: 3);
+          final PairingMiddleware flowMiddleware = PairingMiddleware(
+            reconnectDelay: delay,
+          );
+          final Completer<Either<Failure, PairingHandshake>>
+          olderAuthentication = Completer<Either<Failure, PairingHandshake>>();
+          final Completer<Either<Failure, PairingHandshake>>
+          currentAuthentication =
+              Completer<Either<Failure, PairingHandshake>>();
+          int authenticationCount = 0;
+          when(
+            () => store.state,
+          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
+          when(() => mockAuthenticate(any())).thenAnswer((_) {
+            authenticationCount++;
+            return authenticationCount == 1
+                ? olderAuthentication.future
+                : currentAuthentication.future;
+          });
+          when(
+            () => mockDisconnect(any()),
+          ).thenAnswer((_) async => const Right(unit));
+          when(
+            () => mockObserveConnectionStatus(any()),
+          ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+
+          flowMiddleware.call(store, const PairingStartedAction(), next);
+          async.flushMicrotasks();
+          flowMiddleware.call(
+            store,
+            const PairingDisposedAction(wasTrusted: false),
+            next,
+          );
+          async.flushMicrotasks();
+          flowMiddleware.call(store, const PairingStartedAction(), next);
+          async.flushMicrotasks();
+          currentAuthentication.complete(
+            Right(Fixtures.buildPairingHandshake(trusted: true)),
+          );
+          async.flushMicrotasks();
+          final int actionsAfterCurrentFlow = actionLog.length;
+
+          olderAuthentication.complete(
+            Right(Fixtures.buildPairingHandshake(trusted: false)),
+          );
+          async.flushMicrotasks();
+          async.elapse(delay);
+          async.flushMicrotasks();
+
+          expect(actionLog.length, actionsAfterCurrentFlow);
+          expect(actionLog.whereType<PairingStartedAction>(), hasLength(2));
+          expect(actionLog.last, const PairingSessionTrustedAction());
+          verify(() => mockAuthenticate(any())).called(2);
           verify(() => mockDisconnect(any())).called(1);
         });
       },
