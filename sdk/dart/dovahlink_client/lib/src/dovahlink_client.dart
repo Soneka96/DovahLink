@@ -741,15 +741,29 @@ class DovahLinkClient {
   ///
   /// Unlike [disconnect], this terminal operation stops Known Host presence monitoring. The
   /// client must not be reused after [close] completes.
-  /// @return A future completing after the monitor stops, the session disconnects, and Known Host availability stream closes.
+  /// @return A future completing after independent monitoring and session teardown, subscriptions,
+  /// and client state streams have each finished best-effort cleanup.
   Future<void> close() => _closeFuture ??= (() async {
     _isClosed = true;
-    await _knownHostPresenceMonitor.close();
-    await disconnect();
-    await _knownHostSessionSubscription.cancel();
-    await _hostAvailabilityService.close();
-    await _knownHostCandidateSubscription?.cancel();
-    await _candidateHostsController.close();
+    final Future<void> monitorCleanup = Future<void>.sync(
+      _knownHostPresenceMonitor.close,
+    ).catchError((Object _, StackTrace __) {});
+    final Future<void> sessionCleanup = Future<void>.sync(
+      disconnect,
+    ).catchError((Object _, StackTrace __) {});
+    await Future.wait<void>(<Future<void>>[monitorCleanup, sessionCleanup]);
+    await _knownHostSessionSubscription.cancel().catchError(
+      (Object _, StackTrace __) {},
+    );
+    await _hostAvailabilityService.close().catchError(
+      (Object _, StackTrace __) {},
+    );
+    await _knownHostCandidateSubscription?.cancel().catchError(
+      (Object _, StackTrace __) {},
+    );
+    await _candidateHostsController.close().catchError(
+      (Object _, StackTrace __) {},
+    );
   })();
 
   /// Removes one Known Host's credential while preserving its metadata and the local client ID.

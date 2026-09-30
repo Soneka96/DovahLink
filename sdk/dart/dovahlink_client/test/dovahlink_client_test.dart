@@ -463,6 +463,9 @@ class ControllableClientPresenceProbe implements IHostPresenceProbe {
   /// The number of probes cancelled by terminal client close.
   int cancellationCount = 0;
 
+  /// Holds cancellation completion to prove client close starts session teardown independently.
+  Completer<void>? cancellationGate;
+
   /// Records one probe and completes it only when the test supplies a claim or close cancels it.
   @override
   Future<DovahLinkHost> probe(Uri endpoint, {Future<void>? cancel}) {
@@ -470,7 +473,8 @@ class ControllableClientPresenceProbe implements IHostPresenceProbe {
     requests.add((endpoint: endpoint, response: response));
     if (cancel != null) {
       unawaited(
-        cancel.then((_) {
+        cancel.then((_) async {
+          await cancellationGate?.future;
           cancellationCount++;
           if (!response.isCompleted) {
             response.completeError(
@@ -4870,4 +4874,263 @@ void main() {
       );
     },
   );
+
+  group('Method close behaves correctly', () {
+    test(
+      'Method close starts active-session teardown before delayed presence cleanup and shares its future',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final DovahLinkHost host = Fixtures.buildDovahLinkHost(hostId: hostId);
+        final InMemoryClientStorage closeStorage = InMemoryClientStorage();
+        await closeStorage.save(
+          _persistedState(
+            clientId: 'client-1',
+            credential: 'known-host-credential',
+            knownHost: host,
+          ),
+        );
+        final FakeDovahLinkTransport closeTransport = FakeDovahLinkTransport();
+        final ControllableClientPresenceProbe presenceProbe =
+            ControllableClientPresenceProbe();
+        final Completer<void> probeCancellation = Completer<void>();
+        final Completer<void> transportClose = Completer<void>();
+        presenceProbe.cancellationGate = probeCancellation;
+        closeTransport.closeGate = transportClose;
+        final StreamController<void> refreshTicks =
+            StreamController<void>.broadcast(sync: true);
+        final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+          transport: closeTransport,
+          storage: closeStorage,
+          hostPresenceProbe: presenceProbe,
+          knownHostPresenceMonitoringEnabled: true,
+          hostPresenceRefreshTicks: refreshTicks.stream,
+        );
+        addTearDown(() async {
+          if (!transportClose.isCompleted) {
+            transportClose.complete();
+          }
+          if (!probeCancellation.isCompleted) {
+            probeCancellation.complete();
+          }
+          await closeClient.close();
+          await refreshTicks.close();
+        });
+        await waitForClientPresenceProbes(presenceProbe, 1);
+        closeTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        closeTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await closeClient.authenticateKnownHost(DovahLinkHostId(hostId));
+        final Future<DovahLinkConnectionState> disconnected = closeClient
+            .connectionStateChanges
+            .firstWhere(
+              (DovahLinkConnectionState state) =>
+                  state == DovahLinkConnectionState.disconnected,
+            );
+
+        final Future<void> firstClose = closeClient.close();
+        expect(identical(firstClose, closeClient.close()), isTrue);
+        for (int attempt = 0; attempt < 20; attempt++) {
+          await pumpEventQueue();
+          if (closeTransport.closeCallCount > 0) {
+            break;
+          }
+        }
+        expect(closeTransport.closeCallCount, 1);
+        expect(presenceProbe.cancellationCount, 0);
+
+        transportClose.complete();
+        await disconnected.timeout(const Duration(seconds: 5));
+        bool closeCompleted = false;
+        firstClose.then((_) => closeCompleted = true);
+        await pumpEventQueue();
+        expect(closeCompleted, isFalse);
+
+        probeCancellation.complete();
+        await firstClose;
+        expect(presenceProbe.cancellationCount, 1);
+      },
+    );
+
+    test('Method close cancels a pending candidate authentication', () async {
+      final FakeDovahLinkTransport closeTransport = FakeDovahLinkTransport();
+      final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+        transport: closeTransport,
+        storage: InMemoryClientStorage(),
+      );
+      addTearDown(closeClient.close);
+      final Future<HelloResult> pendingAuthentication = closeClient
+          .authenticateCandidate(Uri.parse('ws://127.0.0.1:58232/'));
+      final Future<void> authenticationFails = expectLater(
+        pendingAuthentication,
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+      await pumpEventQueue();
+
+      await closeClient.close();
+      await authenticationFails;
+
+      expect(closeTransport.closeCalled, isTrue);
+      expect(
+        closeClient.connectionState,
+        DovahLinkConnectionState.disconnected,
+      );
+    });
+
+    test('Method close stops a pending bounded recovery attempt', () async {
+      const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+      final DovahLinkHost host = Fixtures.buildDovahLinkHost(hostId: hostId);
+      final InMemoryClientStorage closeStorage = InMemoryClientStorage();
+      await closeStorage.save(
+        _persistedState(
+          clientId: 'client-1',
+          credential: 'known-host-credential',
+          knownHost: host,
+        ),
+      );
+      final FakeDovahLinkTransport closeTransport = FakeDovahLinkTransport();
+      final Completer<void> transportClose = Completer<void>();
+      final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+        transport: closeTransport,
+        storage: closeStorage,
+        reconnectAttemptDelays: const <Duration>[Duration(days: 1)],
+        reconnectDeadline: const Duration(days: 2),
+      );
+      addTearDown(() async {
+        if (!transportClose.isCompleted) {
+          transportClose.complete();
+        }
+        await closeClient.close();
+      });
+      closeTransport.queueResponse(
+        _rawFixture('connection/hello-ack-paired.json'),
+      );
+      closeTransport.queueResponse(
+        _rawFixture('capabilities/capabilities-host.json'),
+      );
+      await closeClient.authenticateKnownHost(DovahLinkHostId(hostId));
+
+      closeTransport.failMessagesWith(const SocketException('dropped'));
+      for (int attempt = 0; attempt < 20; attempt++) {
+        await pumpEventQueue();
+        if (closeClient.connectionState ==
+            DovahLinkConnectionState.reauthenticating) {
+          break;
+        }
+      }
+      expect(
+        closeClient.connectionState,
+        DovahLinkConnectionState.reauthenticating,
+        reason: 'Outgoing messages: ${closeTransport.sent}',
+      );
+      expect(closeTransport.connectCalls, hasLength(2));
+
+      final int closeCallCountBeforeClose = closeTransport.closeCallCount;
+      closeTransport.closeGate = transportClose;
+      final Future<void> closing = closeClient.close();
+      for (int attempt = 0; attempt < 20; attempt++) {
+        await pumpEventQueue();
+        if (closeTransport.closeCallCount > closeCallCountBeforeClose) {
+          break;
+        }
+      }
+      expect(closeTransport.closeCallCount, closeCallCountBeforeClose + 1);
+      closeTransport.queueRawResponse(
+        _rawFixture('connection/hello-ack-paired.json'),
+      );
+      transportClose.complete();
+      await closing;
+      await pumpEventQueue();
+
+      expect(
+        closeClient.connectionState,
+        DovahLinkConnectionState.disconnected,
+      );
+      expect(closeClient.sessionId, isNull);
+      expect(closeClient.trustState, isNull);
+      expect(closeTransport.connectCalls, hasLength(2));
+    });
+
+    test(
+      'Method close continues session teardown after monitor cleanup fails',
+      () async {
+        int cancellationCount = 0;
+        final Stream<void> failingRefreshTicks = Stream<void>.multi((
+          MultiStreamController<void> sink,
+        ) {
+          sink.onCancel = () {
+            cancellationCount++;
+            return Future<void>.error(StateError('monitor cleanup failed'));
+          };
+        }, isBroadcast: true);
+        final FakeDovahLinkTransport closeTransport = FakeDovahLinkTransport();
+        final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+          transport: closeTransport,
+          storage: InMemoryClientStorage(),
+          knownHostPresenceMonitoringEnabled: true,
+          hostPresenceRefreshTicks: failingRefreshTicks,
+        );
+        await _connectAndHello(closeTransport, closeClient);
+
+        await expectLater(closeClient.close(), completes);
+
+        expect(cancellationCount, 1);
+        expect(closeTransport.closeCalled, isTrue);
+        expect(
+          closeClient.connectionState,
+          DovahLinkConnectionState.disconnected,
+        );
+      },
+    );
+
+    test(
+      'Method close suppresses a stale presence result after terminal cleanup starts',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final DovahLinkHost host = Fixtures.buildDovahLinkHost(hostId: hostId);
+        final InMemoryClientStorage closeStorage = InMemoryClientStorage();
+        await closeStorage.save(Fixtures.buildPersistedClientState(host: host));
+        final ControllableClientPresenceProbe presenceProbe =
+            ControllableClientPresenceProbe();
+        final Completer<void> probeCancellation = Completer<void>();
+        presenceProbe.cancellationGate = probeCancellation;
+        final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: closeStorage,
+          hostPresenceProbe: presenceProbe,
+          knownHostPresenceMonitoringEnabled: true,
+          hostPresenceRefreshTicks: const Stream<void>.empty(),
+        );
+        final List<List<DovahLinkKnownHostState>> snapshots =
+            <List<DovahLinkKnownHostState>>[];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            closeClient.knownHostStatesChanges.listen(snapshots.add);
+        addTearDown(() async {
+          await subscription.cancel();
+          if (!probeCancellation.isCompleted) {
+            probeCancellation.complete();
+          }
+          await closeClient.close();
+        });
+        await waitForClientPresenceProbes(presenceProbe, 1);
+
+        final Future<void> closing = closeClient.close();
+        presenceProbe.succeed(0, hostId: hostId);
+        probeCancellation.complete();
+        await closing;
+
+        expect(
+          snapshots
+              .expand((List<DovahLinkKnownHostState> values) => values)
+              .where(
+                (DovahLinkKnownHostState state) =>
+                    state.availability == DovahLinkHostAvailability.online,
+              ),
+          isEmpty,
+        );
+      },
+    );
+  });
 }
