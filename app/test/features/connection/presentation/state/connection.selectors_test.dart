@@ -1,9 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.reducer.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -13,20 +16,25 @@ import '../../../../fixtures/fixtures.dart';
 void main() {
   AppState stateWith(
     List<Host> hosts, {
+    List<KnownHost> knownHosts = const <KnownHost>[],
     Host? selectedHost,
     ConnectionHostSelectionSource selectedHostSource =
         ConnectionHostSelectionSource.candidate,
+    String? pendingPairingHostId,
     ConnectionDiscoveryStatus discoveryStatus = ConnectionDiscoveryStatus.idle,
     ConnectionFailureReason? discoveryFailure,
+    PairingState? pairingState,
   }) => AppState(
     connection: ConnectionState(
       hosts: hosts,
+      knownHosts: knownHosts,
       selectedHost: selectedHost,
       selectedHostSource: selectedHostSource,
+      pendingPairingHostId: pendingPairingHostId,
       discoveryStatus: discoveryStatus,
       discoveryFailure: discoveryFailure,
     ),
-    pairing: PairingState.initial(),
+    pairing: pairingState ?? PairingState.initial(),
   );
 
   group('Selector hostsSelector behaves correctly', () {
@@ -132,6 +140,34 @@ void main() {
     );
   });
 
+  group('Selector pendingPairingHostIdSelector behaves correctly', () {
+    test(
+      'Selector pendingPairingHostIdSelector returns the retained candidate ID',
+      () {
+        const String hostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+
+        expect(
+          ConnectionSelectors.pendingPairingHostIdSelector(
+            stateWith(const <Host>[], pendingPairingHostId: hostId),
+          ),
+          hostId,
+        );
+      },
+    );
+
+    test(
+      'Selector pendingPairingHostIdSelector returns null when no pairing selection is retained',
+      () {
+        expect(
+          ConnectionSelectors.pendingPairingHostIdSelector(
+            stateWith(const <Host>[]),
+          ),
+          isNull,
+        );
+      },
+    );
+  });
+
   group('Selector selectedHostSelector behaves correctly', () {
     test('Selector selectedHostSelector returns null before any selection', () {
       expect(
@@ -179,6 +215,60 @@ void main() {
     );
   });
 
+  group('Selector selectedHostIsRecoveringSelector behaves correctly', () {
+    test(
+      'selectedHostIsRecoveringSelector reflects SDK recovery for the selected Known Host',
+      () {
+        final Host host = Fixtures.buildHost();
+        final AppState state = stateWith(
+          const <Host>[],
+          knownHosts: <KnownHost>[
+            Fixtures.buildKnownHost(
+              host: host,
+              sessionState: KnownHostSessionState.reauthenticating,
+            ),
+          ],
+          selectedHost: host,
+          selectedHostSource: ConnectionHostSelectionSource.knownHost,
+        );
+
+        expect(
+          ConnectionSelectors.selectedHostIsRecoveringSelector(state),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'selectedHostIsRecoveringSelector ignores candidates and disconnected Known Hosts',
+      () {
+        final Host host = Fixtures.buildHost();
+        final AppState candidateState = stateWith(
+          [host],
+          selectedHost: host,
+          selectedHostSource: ConnectionHostSelectionSource.candidate,
+        );
+        final AppState disconnectedState = stateWith(
+          const <Host>[],
+          knownHosts: <KnownHost>[Fixtures.buildKnownHost(host: host)],
+          selectedHost: host,
+          selectedHostSource: ConnectionHostSelectionSource.knownHost,
+        );
+
+        expect(
+          ConnectionSelectors.selectedHostIsRecoveringSelector(candidateState),
+          isFalse,
+        );
+        expect(
+          ConnectionSelectors.selectedHostIsRecoveringSelector(
+            disconnectedState,
+          ),
+          isFalse,
+        );
+      },
+    );
+  });
+
   group('Selector selectedHostNameSelector behaves correctly', () {
     test(
       'Selector selectedHostNameSelector returns null before any selection',
@@ -208,13 +298,262 @@ void main() {
   });
 
   group('Selector hostCardsSelector behaves correctly', () {
-    test('Selector hostCardsSelector maps a Host to its display data', () {
+    test('Selector hostCardsSelector maps a candidate to its display data', () {
       final Host host = Fixtures.buildHost();
 
       expect(ConnectionSelectors.hostCardsSelector(stateWith([host])), [
         Fixtures.buildHostCardViewData(host: host),
       ]);
     });
+
+    test(
+      'Selector hostCardsSelector includes a Known Host before discovery',
+      () {
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          availability: HostAvailability.unknown,
+        );
+
+        final List<HostCardViewData> cards =
+            ConnectionSelectors.hostCardsSelector(
+              stateWith([], knownHosts: [knownHost]),
+            );
+
+        expect(cards, hasLength(1));
+        expect(cards.single.host, knownHost.host);
+        expect(cards.single.source, ConnectionHostSelectionSource.knownHost);
+        expect(cards.single.state, DovahConnectionCardState.unknown);
+        expect(cards.single.subtitle, 'Known Host');
+      },
+    );
+
+    test('Selector hostCardsSelector maps every Known Host availability', () {
+      for (final (
+            HostAvailability availability,
+            DovahConnectionCardState cardState,
+          )
+          in const [
+            (HostAvailability.checking, DovahConnectionCardState.checking),
+            (HostAvailability.unknown, DovahConnectionCardState.unknown),
+            (HostAvailability.online, DovahConnectionCardState.available),
+            (HostAvailability.offline, DovahConnectionCardState.offline),
+          ]) {
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          availability: availability,
+        );
+
+        final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+          stateWith([], knownHosts: [knownHost]),
+        ).single;
+
+        expect(card.host, knownHost.host);
+        expect(card.source, ConnectionHostSelectionSource.knownHost);
+        expect(card.state, cardState);
+      }
+    });
+
+    test(
+      'Selector hostCardsSelector gives the exact Known Host session phase priority over availability',
+      () {
+        for (final (
+              KnownHostSessionState sessionState,
+              HostAvailability availability,
+              DovahConnectionCardState cardState,
+            )
+            in const [
+              (
+                KnownHostSessionState.connecting,
+                HostAvailability.offline,
+                DovahConnectionCardState.connecting,
+              ),
+              (
+                KnownHostSessionState.connected,
+                HostAvailability.offline,
+                DovahConnectionCardState.connected,
+              ),
+              (
+                KnownHostSessionState.reconnecting,
+                HostAvailability.online,
+                DovahConnectionCardState.reconnecting,
+              ),
+              (
+                KnownHostSessionState.reauthenticating,
+                HostAvailability.unknown,
+                DovahConnectionCardState.reconnecting,
+              ),
+              (
+                KnownHostSessionState.disconnected,
+                HostAvailability.online,
+                DovahConnectionCardState.available,
+              ),
+            ]) {
+          final KnownHost knownHost = Fixtures.buildKnownHost(
+            sessionState: sessionState,
+            availability: availability,
+          );
+
+          final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+            stateWith([], knownHosts: [knownHost]),
+          ).single;
+
+          expect(card.state, cardState);
+          expect(card.source, ConnectionHostSelectionSource.knownHost);
+        }
+      },
+    );
+
+    test(
+      'Selector hostCardsSelector stays Offline during automatic attempts and shows SDK recovery',
+      () {
+        final Host host = Fixtures.buildHost();
+        PairingState pairing = PairingState.initial().copyWith(
+          phase: PairingPhase.disconnected,
+        );
+        for (int attempt = 0; attempt < 3; attempt++) {
+          pairing = pairingReducer(
+            pairing,
+            const PairingStartedAction(isAutomaticRetry: true),
+          );
+          final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+            stateWith(
+              const <Host>[],
+              knownHosts: <KnownHost>[
+                Fixtures.buildKnownHost(
+                  host: host,
+                  availability: HostAvailability.offline,
+                  sessionState: KnownHostSessionState.connecting,
+                ),
+              ],
+              pairingState: pairing,
+            ),
+          ).single;
+          expect(pairing.phase, PairingPhase.disconnected);
+          expect(card.state, DovahConnectionCardState.offline);
+
+          pairing = pairingReducer(pairing, const PairingDisconnectedAction());
+        }
+
+        final HostCardViewData recoveringCard =
+            ConnectionSelectors.hostCardsSelector(
+              stateWith(
+                const <Host>[],
+                knownHosts: <KnownHost>[
+                  Fixtures.buildKnownHost(
+                    host: host,
+                    availability: HostAvailability.offline,
+                    sessionState: KnownHostSessionState.reconnecting,
+                  ),
+                ],
+                pairingState: pairing,
+              ),
+            ).single;
+        expect(recoveringCard.state, DovahConnectionCardState.reconnecting);
+
+        final PairingState restoredPairing = pairingReducer(
+          pairing,
+          const PairingConnectionRestoredAction(),
+        );
+        final HostCardViewData connectedCard =
+            ConnectionSelectors.hostCardsSelector(
+              stateWith(
+                const <Host>[],
+                knownHosts: <KnownHost>[
+                  Fixtures.buildKnownHost(
+                    host: host,
+                    availability: HostAvailability.online,
+                    sessionState: KnownHostSessionState.connected,
+                  ),
+                ],
+                pairingState: restoredPairing,
+              ),
+            ).single;
+        expect(connectedCard.state, DovahConnectionCardState.connected);
+      },
+    );
+
+    test(
+      'Selector hostCardsSelector shows Connecting during an explicit attempt',
+      () {
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          availability: HostAvailability.offline,
+          sessionState: KnownHostSessionState.connecting,
+        );
+        final PairingState pairing = PairingState.initial().copyWith(
+          phase: PairingPhase.connecting,
+        );
+
+        final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+          stateWith(
+            const <Host>[],
+            knownHosts: <KnownHost>[knownHost],
+            pairingState: pairing,
+          ),
+        ).single;
+
+        expect(card.state, DovahConnectionCardState.connecting);
+      },
+    );
+
+    test(
+      'Selector hostCardsSelector passes through the SDK candidate projection',
+      () {
+        final Host knownHostHost = Fixtures.buildHost(
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Host candidate = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          uri: knownHostHost.uri,
+        );
+        final Host unrelatedCandidate = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+        );
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          host: knownHostHost,
+          availability: HostAvailability.online,
+        );
+
+        final List<HostCardViewData> cards =
+            ConnectionSelectors.hostCardsSelector(
+              stateWith(
+                [candidate, unrelatedCandidate],
+                knownHosts: [knownHost],
+              ),
+            );
+
+        expect(cards, hasLength(3));
+        expect(cards.map((HostCardViewData card) => card.host), [
+          knownHostHost,
+          candidate,
+          unrelatedCandidate,
+        ]);
+        expect(cards.map((HostCardViewData card) => card.source), [
+          ConnectionHostSelectionSource.knownHost,
+          ConnectionHostSelectionSource.candidate,
+          ConnectionHostSelectionSource.candidate,
+        ]);
+        expect(cards[1].state, DovahConnectionCardState.unknown);
+      },
+    );
+
+    test(
+      'Selector hostCardsSelector keeps Known Hosts visible after discovery clears or fails',
+      () {
+        final KnownHost knownHost = Fixtures.buildKnownHost();
+
+        for (final ConnectionDiscoveryStatus status in [
+          ConnectionDiscoveryStatus.empty,
+          ConnectionDiscoveryStatus.failed,
+        ]) {
+          final List<HostCardViewData> cards =
+              ConnectionSelectors.hostCardsSelector(
+                stateWith([], knownHosts: [knownHost], discoveryStatus: status),
+              );
+
+          expect(cards, hasLength(1));
+          expect(cards.single.host, knownHost.host);
+          expect(cards.single.source, ConnectionHostSelectionSource.knownHost);
+        }
+      },
+    );
 
     test(
       'Selector hostCardsSelector marks every card unknown because reachability is not known',
@@ -280,6 +619,22 @@ void main() {
         ).single;
 
         expect(card.detail, isA<String>());
+        expect(card.detail, 'local-host');
+      },
+    );
+
+    test(
+      'Selector hostCardsSelector uses the whole endpoint for a Known Host without authority',
+      () {
+        final KnownHost knownHost = Fixtures.buildKnownHost(
+          host: Fixtures.buildHost(uri: Uri.parse('local-host')),
+        );
+
+        final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+          stateWith([], knownHosts: [knownHost]),
+        ).single;
+
+        expect(card.source, ConnectionHostSelectionSource.knownHost);
         expect(card.detail, 'local-host');
       },
     );

@@ -54,7 +54,11 @@ class DovahConnectionCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
     final Color statusColor = switch (state) {
-      DovahConnectionCardState.available => tokens.success,
+      DovahConnectionCardState.checking => tokens.textMuted,
+      DovahConnectionCardState.connecting => tokens.textMuted,
+      DovahConnectionCardState.available ||
+      DovahConnectionCardState.connected => tokens.success,
+      DovahConnectionCardState.reconnecting => tokens.warning,
       DovahConnectionCardState.unknown => tokens.textMuted,
       DovahConnectionCardState.offline => tokens.statusOffline,
       DovahConnectionCardState.repair => tokens.warning,
@@ -69,7 +73,9 @@ class DovahConnectionCard extends StatelessWidget {
         : 0;
     final DovahConnectionAccent accent =
         context.dovahMaterials.connectionAccent;
-    final bool available = state == DovahConnectionCardState.available;
+    final bool available =
+        state == DovahConnectionCardState.available ||
+        state == DovahConnectionCardState.connected;
     final bool uppercase = tokens.uppercaseLabels;
     final double? uppercaseSpacing = uppercase
         ? DovahThemeTokens.uppercaseLetterSpacingEm *

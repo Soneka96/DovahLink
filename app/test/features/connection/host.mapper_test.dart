@@ -1,5 +1,9 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkHost, DovahLinkHostAvailability, DovahLinkKnownHostState;
+    show
+        DovahLinkHost,
+        DovahLinkHostAvailability,
+        DovahLinkKnownHostSessionState,
+        DovahLinkKnownHostState;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -41,11 +45,13 @@ void main() {
           DovahLinkHostAvailability.unknown,
           DovahLinkHostAvailability.online,
           DovahLinkHostAvailability.offline,
+          DovahLinkHostAvailability.checking,
         ];
         final List<HostAvailability> appAvailabilities = [
           HostAvailability.unknown,
           HostAvailability.online,
           HostAvailability.offline,
+          HostAvailability.checking,
         ];
 
         final List<KnownHost> mapped = [
@@ -68,6 +74,22 @@ void main() {
           mapped.map((KnownHost state) => state.availability),
           appAvailabilities,
         );
+
+        final List<KnownHostSessionState> mappedSessionStates =
+            DovahLinkKnownHostSessionState.values
+                .map(
+                  (DovahLinkKnownHostSessionState sessionState) =>
+                      HostMapper.fromSdkKnownHostState(
+                        DovahLinkKnownHostState(
+                          host: sdkHost,
+                          availability: DovahLinkHostAvailability.unknown,
+                          sessionState: sessionState,
+                        ),
+                      ).sessionState,
+                )
+                .toList();
+
+        expect(mappedSessionStates, KnownHostSessionState.values);
       },
     );
   });

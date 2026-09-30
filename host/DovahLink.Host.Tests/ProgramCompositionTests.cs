@@ -598,12 +598,11 @@ public class ProgramCompositionTests
     }
 
     /// <summary>
-    /// Verifies end-to-end that the public listener admits exactly the resolved device cap's worth of
-    /// concurrent connections and rejects the next attempt, proving the same resolved cap that governs
-    /// <see cref="SessionRegistry"/> also reaches <see cref="DovahLink.Host.Client.Transport.PublicWebSocketListener"/>.
+    /// Verifies end-to-end that the public listener admits the configured session capacity plus its
+    /// fixed pre-session allowance, then rejects another raw connection without changing the session cap.
     /// </summary>
     [Fact]
-    public async Task ComposeAndRunAsync_HostSettingsProviderSupplied_PublicListenerAdmitsExactlyResolvedCap()
+    public async Task ComposeAndRunAsync_HostSettingsProviderSupplied_PublicListenerSeparatesRawAndSessionCapacity()
     {
         using var shutdown = new CancellationTokenSource();
         var output = new SynchronizedTextCapture();
@@ -616,21 +615,36 @@ public class ProgramCompositionTests
         string rendezvous = output.Snapshot();
         int publicPort = int.Parse(rendezvous.Split('\n').Single(line => line.StartsWith("PUBLICPORT ")).Split(' ')[1]);
 
-        using var firstClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        await firstClient.ConnectAsync(IPAddress.Loopback, publicPort);
-        using var secondClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        await secondClient.ConnectAsync(IPAddress.Loopback, publicPort);
-        using var thirdClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        await thirdClient.ConnectAsync(IPAddress.Loopback, publicPort);
-
-        var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
-        while (!IsDisconnected(thirdClient))
+        int rawCapacity = hostSettingsProvider.Settings.MaxActiveSessions + Constants.MaxPreSessionPublicConnections;
+        List<Socket> admittedClients = [];
+        using var overflowClient = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        try
         {
-            Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for the third connection to be rejected.");
-            await Task.Delay(TimeSpan.FromMilliseconds(20));
+            for (int index = 0; index < rawCapacity; index++)
+            {
+                var client = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+                await client.ConnectAsync(IPAddress.Loopback, publicPort);
+                admittedClients.Add(client);
+            }
+
+            await overflowClient.ConnectAsync(IPAddress.Loopback, publicPort);
+            var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!IsDisconnected(overflowClient))
+            {
+                Assert.True(DateTime.UtcNow < deadline, "Timed out waiting for the next raw public connection to be rejected.");
+                await Task.Delay(TimeSpan.FromMilliseconds(20));
+            }
+        }
+        finally
+        {
+            foreach (Socket client in admittedClients)
+            {
+                client.Dispose();
+            }
+
+            shutdown.Cancel();
         }
 
-        shutdown.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 

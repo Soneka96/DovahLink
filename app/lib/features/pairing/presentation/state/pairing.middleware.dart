@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -30,7 +31,7 @@ abstract interface class IPairingMiddleware {
   /// @param next The next middleware or reducer in the chain.
   void call(Store<AppState> store, dynamic action, NextDispatcher next);
 
-  /// Cancels retry work and connection observation owned by the middleware.
+  /// Cancels retry work, invalidates pending authentication results, and releases connection observation.
   /// @return A future that completes after its stream subscription is cancelled.
   Future<void> shutdown();
 }
@@ -52,6 +53,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
 
   /// Retry timer scheduled after a failed initial pairing connection.
   Timer? _reconnectTimer;
+
+  /// Generation of the pairing flow allowed to publish authentication results.
+  int _pairingFlowGeneration = 0;
 
   /// Whether shutdown has started and no new pairing work should be started.
   bool _isShuttingDown = false;
@@ -75,8 +79,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
 
     switch (action) {
-      case PairingStartedAction _:
-        _pairingStarted(store, action);
+      case final PairingStartedAction pairingAction:
+        _reconnectTimer?.cancel();
+        _reconnectTimer = null;
+        _pairingFlowGeneration++;
+        _pairingStarted(store, pairingAction, _pairingFlowGeneration);
       case PairingCodeRequestedAction _:
         _pairingCodeRequested(store, action);
       case PairingCodeSubmittedAction _:
@@ -96,6 +103,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   @override
   Future<void> shutdown() async {
     _isShuttingDown = true;
+    _pairingFlowGeneration++;
     _reconnectTimer?.cancel();
     _reconnectTimer = null;
     final StreamSubscription<PairingConnectionStatus>? subscription =
@@ -113,9 +121,13 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   /// authentication. A session that recovered from a rejected credential does not automatically
   /// request one; repairable rejections wait for explicit confirmation and blocked credentials
   /// cannot be repaired.
+  /// @param store The application store receiving authentication results.
+  /// @param action The explicit or automatic pairing attempt.
+  /// @param generation The pairing flow authorized to publish this result.
   Future<void> _pairingStarted(
     Store<AppState> store,
     PairingStartedAction action,
+    int generation,
   ) async {
     final Host? host = ConnectionSelectors.selectedHostSelector(store.state);
     if (host == null) {
@@ -128,14 +140,14 @@ class PairingMiddleware extends MiddlewareClass<AppState>
         ? AuthenticateParams.knownHost(hostId: host.hostId)
         : AuthenticateParams(hostUri: host.uri);
     final result = await sl<AuthenticateUseCase>()(params);
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
       (Failure failure) {
         if (failure is NetworkFailure) {
           store.dispatch(const PairingDisconnectedAction());
-          _scheduleReconnect(store);
+          _scheduleReconnect(store, generation);
         } else {
           store.dispatch(PairingFailedAction(failure.message));
         }
@@ -165,8 +177,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingRenotifyRequestedAction action,
   ) async {
+    final int generation = _pairingFlowGeneration;
     final result = await sl<RequestPairingRenotifyUseCase>()(NoParams());
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
@@ -191,8 +204,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCancelRequestedAction action,
   ) async {
+    final int generation = _pairingFlowGeneration;
+    final String? pendingPairingHostId =
+        ConnectionSelectors.pendingPairingHostIdSelector(store.state);
     final result = await sl<CancelPairingUseCase>()(NoParams());
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
@@ -200,25 +216,32 @@ class PairingMiddleware extends MiddlewareClass<AppState>
         store.dispatch(PairingFailedAction(failure.message));
       },
       (_) {
+        if (pendingPairingHostId != null) {
+          store.dispatch(
+            ConnectionCandidatePairingEndedAction(pendingPairingHostId),
+          );
+        }
         store.dispatch(const PairingCancelSucceededAction());
       },
     );
   }
 
-  /// Silently retries [PairingStartedAction] after [reconnectDelay] while the app is open and the
-  /// pairing state is still [PairingPhase.disconnected].
+  /// Silently retries authentication after [reconnectDelay] while the app is open and the pairing
+  /// state is still [PairingPhase.disconnected]. The retry marker preserves Offline presentation.
   /// @param store The application store used to check the current pairing phase and dispatch retry.
-  void _scheduleReconnect(Store<AppState> store) {
-    if (_isShuttingDown) {
+  /// @param generation The pairing flow authorized to schedule this retry.
+  void _scheduleReconnect(Store<AppState> store, int generation) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     _reconnectTimer?.cancel();
     _reconnectTimer = Timer(reconnectDelay, () {
       _reconnectTimer = null;
       if (!_isShuttingDown &&
+          generation == _pairingFlowGeneration &&
           PairingSelectors.phaseSelector(store.state) ==
               PairingPhase.disconnected) {
-        store.dispatch(const PairingStartedAction());
+        store.dispatch(const PairingStartedAction(isAutomaticRetry: true));
       }
     });
   }
@@ -234,8 +257,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCodeRequestedAction action,
   ) async {
+    final int generation = _pairingFlowGeneration;
     final result = await sl<RequestPairingUseCase>()(NoParams());
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
@@ -256,17 +280,37 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCodeSubmittedAction action,
   ) async {
+    final int generation = _pairingFlowGeneration;
+    // The SDK candidate stream can remove this selection before confirmation completes.
+    final Host? selectedHost = ConnectionSelectors.selectedHostSelector(
+      store.state,
+    );
+    final ConnectionHostSelectionSource selectedHostSource =
+        ConnectionSelectors.selectedHostSourceSelector(store.state);
+    final String? candidateHostId =
+        selectedHost != null &&
+            selectedHostSource == ConnectionHostSelectionSource.candidate
+        ? selectedHost.hostId
+        : null;
+    if (candidateHostId != null) {
+      store.dispatch(ConnectionCandidatePairingStartedAction(candidateHostId));
+    }
     final result = await sl<ConfirmPairingCodeUseCase>()(
       ConfirmPairingCodeParams(
         code: action.code,
         displayName: action.displayName,
       ),
     );
-    if (_isShuttingDown) {
+    if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
     result.fold(
       (Failure failure) {
+        if (candidateHostId != null && failure is! PairingRetriableFailure) {
+          store.dispatch(
+            ConnectionCandidatePairingEndedAction(candidateHostId),
+          );
+        }
         // A wrong code or a too-soon retry stays on the same still-active challenge with an
         // inline mistake message; everything else (expired, hard_limit_reached, other transport
         // failures) ends the flow.
@@ -290,15 +334,26 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   /// Handles [PairingDisposedAction] by disconnecting through
   /// [DisconnectUseCase], unless [PairingDisposedAction.wasTrusted] -- pairing
   /// had already succeeded, so the established trust and connection are kept
-  /// rather than torn down on the way out. Otherwise, best-effort cleanup:
+  /// rather than torn down on the way out. Always cancels a pending initial
+  /// connection retry and invalidates pending authentication results. Otherwise, best-effort cleanup:
   /// the reducer has already reset [AppState.pairing] by the time this runs,
   /// and there is no surviving screen to report a disconnect failure to.
   Future<void> _pairingDisposed(
     Store<AppState> store,
     PairingDisposedAction action,
   ) async {
+    final String? pendingPairingHostId =
+        ConnectionSelectors.pendingPairingHostIdSelector(store.state);
+    _pairingFlowGeneration++;
+    _reconnectTimer?.cancel();
+    _reconnectTimer = null;
     if (action.wasTrusted) {
       return;
+    }
+    if (pendingPairingHostId != null) {
+      store.dispatch(
+        ConnectionCandidatePairingEndedAction(pendingPairingHostId),
+      );
     }
     await sl<DisconnectUseCase>()(NoParams());
   }

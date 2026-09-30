@@ -94,7 +94,7 @@ void main() {
             expect(
               find.bySemanticsLabel(
                 'Gaming PC, Skyrim Special Edition, Level 43 · Whiterun, '
-                'Connected',
+                'Online',
               ),
               findsOneWidget,
             );
@@ -124,7 +124,7 @@ void main() {
           find.text('Skyrim Special Edition'),
         );
         final Text detail = tester.widget(find.text('Level 43 · Whiterun'));
-        final Text state = tester.widget(find.text('Connected'));
+        final Text state = tester.widget(find.text('Online'));
 
         expect(title.style?.fontSize, isA<double>());
         expect(title.style?.fontSize, DovahConnectionCardMetrics.titleFontSize);
@@ -151,7 +151,7 @@ void main() {
         size: dovahTestSizes.first,
       );
       final Text title = tester.widget(find.text('Gaming PC'));
-      final Text state = tester.widget(find.text('Connected'));
+      final Text state = tester.widget(find.text('Online'));
 
       expect(title.style?.letterSpacing, isNull);
       expect(state.style?.letterSpacing, isNull);
@@ -172,7 +172,7 @@ void main() {
           size: dovahTestSizes.first,
         );
         final Text title = tester.widget(find.text('GAMING PC'));
-        final Text state = tester.widget(find.text('CONNECTED'));
+        final Text state = tester.widget(find.text('ONLINE'));
         final Text subtitle = tester.widget(
           find.text('Skyrim Special Edition'),
         );
@@ -221,13 +221,21 @@ void main() {
         DovahThemePreset.dovah,
       ).extension<DovahThemeTokens>()!;
       const Map<DovahConnectionCardState, String> labels = {
-        DovahConnectionCardState.available: 'Connected',
+        DovahConnectionCardState.checking: 'Checking…',
+        DovahConnectionCardState.connecting: 'Connecting…',
+        DovahConnectionCardState.available: 'Online',
+        DovahConnectionCardState.connected: 'Connected',
+        DovahConnectionCardState.reconnecting: 'Reconnecting…',
         DovahConnectionCardState.unknown: 'Not connected',
         DovahConnectionCardState.offline: 'Offline',
         DovahConnectionCardState.repair: 'Pair again',
       };
       final Map<DovahConnectionCardState, Color> colors = {
+        DovahConnectionCardState.checking: tokens.textMuted,
+        DovahConnectionCardState.connecting: tokens.textMuted,
         DovahConnectionCardState.available: tokens.success,
+        DovahConnectionCardState.connected: tokens.success,
+        DovahConnectionCardState.reconnecting: tokens.warning,
         DovahConnectionCardState.unknown: tokens.textMuted,
         DovahConnectionCardState.offline: tokens.statusOffline,
         DovahConnectionCardState.repair: tokens.warning,
@@ -713,7 +721,7 @@ void main() {
             expect(
               find.bySemanticsLabel(
                 'Gaming PC, Skyrim Special Edition, Level 43 · Whiterun, '
-                'Connected',
+                'Online',
               ),
               findsOneWidget,
             );
@@ -1030,6 +1038,21 @@ void main() {
         expect(under.accent, frostboundMaterials.connectionAccent);
         expect(under.available, isTrue);
         expect(surface.borderColor, isNull);
+      },
+    );
+
+    testWidgets(
+      'DovahConnectionCard gives an admitted session the available edge',
+      (WidgetTester tester) async {
+        final DovahSurface surface = await pumpSurface(
+          tester,
+          preset: DovahThemePreset.frostbound,
+          state: DovahConnectionCardState.connected,
+        );
+        final DovahConnectionAccentPainter under =
+            surface.underlay! as DovahConnectionAccentPainter;
+
+        expect(under.available, isTrue);
       },
     );
 

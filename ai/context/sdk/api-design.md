@@ -12,9 +12,10 @@ Ping/Pong, heartbeat implementation, ports once discovery/selection own them, cr
 storage, session teardown, retry/backoff, revision recovery, snapshot reconciliation, stale-session
 suppression, subscription recovery, and Host compatibility mechanics. The long-term simple
 experience trends toward: find/select a DovahLink instance, pair if necessary, listen to typed state.
-The current SDK exposes local loopback discovery through [DovahLinkDiscoveryService]. It probes the
-canonical local Host endpoint only; this does not provide LAN or mDNS discovery, multi-instance
-selection, or automatic connection.
+The SDK exposes authoritative local candidate discovery through
+`DovahLinkClient.discoverHosts()` and its replaying `candidateHostsChanges` stream. Discovery probes
+the canonical loopback Host endpoint only; this does not provide LAN or mDNS discovery,
+multi-instance selection, or automatic connection.
 
 ## Expert capabilities
 
@@ -44,19 +45,25 @@ Trusted sessions may refresh metadata only for the matching Known Host ID; disco
 refresh persisted metadata. SDK-owned Host IDs are stored and compared in canonical lowercase form;
 the typed `DovahLinkHostId` accepts either UUID casing at its boundary.
 
-`DovahLinkDiscoveryService.discover()` proposes reachable endpoints. The responding peer's
-`hello_ack` asserts `hostId` and `hostName`, which the SDK validates for protocol shape and Host
-version compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the peer
-claims, `hostName` is mutable display metadata, and `endpoint` is the current location. Discovery
-identifies a candidate; it does not authenticate Host identity or prove the peer owns an identity
-previously trusted under that ID. A discovered `hostId` alone must never authorize trust, credential
-disclosure, pairing bypass, or another security-sensitive decision. Connection refusal or WebSocket
-setup failure without an HTTP status code returns `null`; an HTTP response rejecting the WebSocket
-upgrade, malformed DovahLink response, incompatible Host, and a silent or disconnected peer during
-`hello` remain typed failures. The probe uses an isolated, unpaired client and disconnects after the
-handshake. Without an HTTP status, the current transport cannot distinguish connection refusal
-from a peer that accepts TCP and closes before replying; a typed transport connection outcome would
-be needed if that distinction becomes necessary.
+`DovahLinkClient.discoverHosts()` returns the complete immutable collection of current candidates,
+ordered by normalized Host ID. The SDK removes every claim whose ID belongs to the latest committed
+Known Host collection, keeps candidates in runtime memory only, and updates `candidateHostsChanges`
+when discovery or a committed Known Host change changes membership. Each successful discovery
+reconciles against the latest persisted state; a stale asynchronous result cannot reintroduce a
+Known Host. A storage/load failure is surfaced instead of treating an unverified collection as a
+successful reconciliation. Empty or failed discovery does not delete persisted Known Hosts.
+
+`DovahLinkDiscoveryService.discover()` uses [IHostPresenceProbe] to query the sessionless local Host
+metadata endpoint and returns its validated Host claim to the SDK client for reconciliation. The
+response's `hostId`, `hostName`, and `hostVersion` are validated for identity shape and Host
+compatibility. In [DovahLinkHost], `hostId` is the stable installation identity the peer claims,
+`hostName` is mutable display metadata, and `endpoint` is the current location. The claim does not
+authenticate Host identity or prove the peer owns an identity previously trusted under that ID. A
+discovered `hostId` alone must never authorize trust, credential disclosure, pairing bypass, or
+another security-sensitive decision. An unreachable or timed-out endpoint returns no claim; an HTTP
+rejection preserves its status in `DovahLinkConnectionException`, while malformed metadata and
+incompatible Host versions remain typed failures. The probe sends no credential and never creates a
+protocol session.
 
 ## No duplicate stacks, no speculative surface
 
@@ -184,16 +191,26 @@ current-state-bearing domain views. It does not imply replaying historical event
 streams; a late subscriber to an Event-mode domain still synchronizes through that domain's normal
 initial-snapshot path, not through event replay.
 
-`DovahLinkClient.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts
-and their `DovahLinkHostAvailability`. When storage provides a snapshot, it immediately provides the
+`DovahLinkClient.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts,
+their `DovahLinkHostAvailability`, and their exact-relationship `DovahLinkKnownHostSessionState`.
+When storage provides a snapshot, it immediately provides the
 current immutable collection, ordered deterministically by Host ID, then emits a complete replacement
-when either Host metadata or availability changes. Equivalent snapshots are suppressed, except the
+when Host metadata, availability, or session state changes. Session state is connected only after
+successful session admission for that durable Host ID; candidate claims never associate a session
+with a Known Host. Equivalent snapshots are suppressed, except the
 first complete snapshot after a stream error, which signals recovery even if its values are
 unchanged. An initial storage failure is reported to the subscriber, which remains attached for
 later recovery.
-Availability starts as `unknown` for every persisted Host after process startup and is runtime-only;
-it is not part of `DovahLinkHost` or persisted client state. Keep `knownHostsChanges` for consumers
-that need durable Host metadata without runtime availability.
+Availability is runtime-only; it is not part of `DovahLinkHost` or persisted client state. The SDK
+starts bounded Known Host presence checks when a client is created. Startup, new Hosts, and
+endpoint changes may emit `checking`; periodic refresh retains the previous availability
+while a probe runs, then publishes `online`, `offline`, or `unknown` when evidence arrives. Keep
+`knownHostsChanges` for consumers that need durable Host metadata without runtime availability.
+
+`DovahLinkClient.disconnect()` ends the current protocol session without clearing Known Host
+reachability evidence, and leaves presence monitoring active. `DovahLinkClient.close()` is the
+terminal lifecycle operation that stops the monitor, cancels its timer and probes, closes its Known
+Host observation subscriptions, and disconnects the current session.
 
 Commands and authoritative state are separate API views. A command may report whether its operation
 was accepted or rejected and return operation-specific metadata, while the resulting persistent,

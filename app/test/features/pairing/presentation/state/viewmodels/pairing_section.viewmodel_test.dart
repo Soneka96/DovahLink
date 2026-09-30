@@ -3,6 +3,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
@@ -20,8 +21,15 @@ AppState buildState({
   String? error,
   PairingCredentialRejectionReason? rejectionReason,
   Host? host,
+  List<KnownHost> knownHosts = const <KnownHost>[],
+  ConnectionHostSelectionSource hostSource =
+      ConnectionHostSelectionSource.candidate,
 }) => AppState(
-  connection: ConnectionState(selectedHost: host),
+  connection: ConnectionState(
+    selectedHost: host,
+    selectedHostSource: hostSource,
+    knownHosts: knownHosts,
+  ),
   pairing: PairingState(
     phase: phase,
     hostVersion: null,
@@ -131,6 +139,47 @@ void main() {
 
       expect(viewModel.hostName, 'Bedroom PC');
     });
+
+    test(
+      'Method fromStore reflects the selected Known Host recovery state',
+      () {
+        final Host host = Fixtures.buildHost(displayName: 'Bedroom PC');
+        for (final KnownHostSessionState sessionState in [
+          KnownHostSessionState.reconnecting,
+          KnownHostSessionState.reauthenticating,
+        ]) {
+          when(() => store.state).thenReturn(
+            buildState(
+              phase: PairingPhase.disconnected,
+              host: host,
+              hostSource: ConnectionHostSelectionSource.knownHost,
+              knownHosts: <KnownHost>[
+                Fixtures.buildKnownHost(host: host, sessionState: sessionState),
+              ],
+            ),
+          );
+
+          expect(
+            PairingSectionViewModel.fromStore(store).isReconnecting,
+            isTrue,
+            reason: '$sessionState',
+          );
+        }
+
+        when(() => store.state).thenReturn(
+          buildState(
+            phase: PairingPhase.disconnected,
+            host: host,
+            hostSource: ConnectionHostSelectionSource.knownHost,
+            knownHosts: <KnownHost>[Fixtures.buildKnownHost(host: host)],
+          ),
+        );
+        expect(
+          PairingSectionViewModel.fromStore(store).isReconnecting,
+          isFalse,
+        );
+      },
+    );
 
     test(
       'Method fromStore falls back to a generic name with no Host selected',

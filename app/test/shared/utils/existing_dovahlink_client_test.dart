@@ -11,25 +11,25 @@ void main() {
     existingClient = ExistingDovahLinkClient();
   });
 
-  group('Method disconnectIfCreated behaves correctly', () {
+  group('Method closeIfCreated behaves correctly', () {
     test(
-      'Method disconnectIfCreated completes without creating an unused client',
+      'Method closeIfCreated completes without creating an unused client',
       () async {
-        await expectLater(existingClient.disconnectIfCreated(), completes);
+        await expectLater(existingClient.closeIfCreated(), completes);
 
         expect(existingClient.hasClient, isFalse);
       },
     );
 
     test(
-      'Method disconnectIfCreated disconnects a client after pairing creates it',
+      'Method closeIfCreated closes a client after pairing creates it',
       () async {
         final DovahLinkClient client = DovahLinkClient(
           storage: const UnsupportedClientStorage(),
         );
         existingClient.clientCreated(client);
 
-        await expectLater(existingClient.disconnectIfCreated(), completes);
+        await expectLater(existingClient.closeIfCreated(), completes);
 
         expect(existingClient.hasClient, isTrue);
         expect(client.connectionState, DovahLinkConnectionState.disconnected);

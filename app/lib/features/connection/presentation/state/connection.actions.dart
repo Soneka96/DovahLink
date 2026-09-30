@@ -23,6 +23,34 @@ class ConnectionHostSelectedAction extends Equatable {
   List<Object?> get props => [host, source];
 }
 
+/// Retains a candidate selection while its pairing confirmation is pending.
+class ConnectionCandidatePairingStartedAction extends Equatable {
+  /// The candidate whose durable Known Host projection is expected from the SDK.
+  final String hostId;
+
+  /// Creates a pending candidate-pairing selection action.
+  /// @param hostId The selected candidate's stable Host ID.
+  const ConnectionCandidatePairingStartedAction(this.hostId);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hostId];
+}
+
+/// Releases a candidate selection retained while an untrusted pairing flow is active.
+class ConnectionCandidatePairingEndedAction extends Equatable {
+  /// The candidate whose pairing confirmation ended.
+  final String hostId;
+
+  /// Creates an ended candidate-pairing action.
+  /// @param hostId The candidate whose pending selection should be released.
+  const ConnectionCandidatePairingEndedAction(this.hostId);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hostId];
+}
+
 /// Carries the complete SDK-owned Known Hosts projection into Redux.
 class ConnectionKnownHostsChangedAction extends Equatable {
   /// The complete app-mapped Known Hosts collection.
@@ -48,6 +76,21 @@ class ConnectionKnownHostsObservationFailedAction extends Equatable {
   List<Object?> get props => [];
 }
 
+/// Carries the complete candidate collection reported by the SDK.
+class ConnectionCandidatesChangedAction extends Equatable {
+  /// The complete app-mapped candidate collection.
+  final List<Host> hosts;
+
+  /// Creates an immutable candidate projection action.
+  /// @param hosts The complete SDK-reported candidate collection.
+  ConnectionCandidatesChangedAction(List<Host> hosts)
+    : hosts = List<Host>.unmodifiable(hosts);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hosts];
+}
+
 /// Requests a fresh Host discovery operation.
 class ConnectionDiscoveryRequestedAction extends Equatable {
   /// Creates a discovery request action.
@@ -68,17 +111,18 @@ class ConnectionDiscoveryStartedAction extends Equatable {
   List<Object?> get props => [];
 }
 
-/// Carries every Host candidate returned by discovery.
+/// Reports a successful discovery operation without carrying candidate membership.
 class ConnectionDiscoverySucceededAction extends Equatable {
-  /// The candidates returned by discovery.
-  final List<Host> hosts;
+  /// Whether the completed discovery result contained any SDK candidate.
+  final bool hasCandidates;
 
-  /// Creates a discovery-success action with [hosts].
-  const ConnectionDiscoverySucceededAction(this.hosts);
+  /// Creates a discovery-success action with its empty-results status.
+  /// @param hasCandidates Whether the completed SDK discovery result had candidates.
+  const ConnectionDiscoverySucceededAction({required this.hasCandidates});
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [hosts];
+  List<Object?> get props => [hasCandidates];
 }
 
 /// Carries the app-owned meaning of a discovery failure.

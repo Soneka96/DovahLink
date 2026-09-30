@@ -23,6 +23,7 @@ const List<PairingPhase> progressPhases = [
 Future<void> pumpProgress(
   WidgetTester tester, {
   required PairingPhase phase,
+  bool isReconnecting = false,
   List<int>? closes,
   DovahThemePreset preset = DovahThemePreset.dovah,
   Size size = const Size(900, 560),
@@ -35,6 +36,7 @@ Future<void> pumpProgress(
         body: PairingProgress(
           phase: phase,
           hostName: 'Bedroom PC',
+          isReconnecting: isReconnecting,
           onClose: () => closes?.add(1),
         ),
       ),
@@ -100,13 +102,32 @@ void main() {
       },
     );
 
-    testWidgets('PairingProgress shows a spinner in every phase', (
+    testWidgets('PairingProgress displays SDK recovery as Reconnecting', (
+      WidgetTester tester,
+    ) async {
+      await pumpProgress(
+        tester,
+        phase: PairingPhase.disconnected,
+        isReconnecting: true,
+      );
+
+      expect(find.text('Bedroom PC is reconnecting'), findsOneWidget);
+      expect(find.text('Reconnecting…'), findsOneWidget);
+      expect(find.byType(PairingLoadingIndicator), findsOneWidget);
+      expect(find.byKey(const Key('pairing-close-button')), findsOneWidget);
+    });
+
+    testWidgets('PairingProgress shows a spinner only while working', (
       WidgetTester tester,
     ) async {
       for (final PairingPhase phase in progressPhases) {
         await pumpProgress(tester, phase: phase);
 
-        expect(find.byType(PairingLoadingIndicator), findsOneWidget);
+        expect(
+          find.byType(PairingLoadingIndicator),
+          phase == PairingPhase.disconnected ? findsNothing : findsOneWidget,
+          reason: '$phase',
+        );
       }
     });
   });

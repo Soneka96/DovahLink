@@ -2142,28 +2142,48 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
     //  mirroring this file's own WaitUntil idiom for other bounded async
     //  waits.
     std::unique_ptr<MinimalPublicWebSocketClient> reconnectedClientPtr;
+    std::string reconnectHelloAck;
+    std::string lastReconnectFailure;
     for (int attempt = 0; attempt < 20 && reconnectedClientPtr == nullptr;
          ++attempt) {
-        try {
-            reconnectedClientPtr =
-                std::make_unique<MinimalPublicWebSocketClient>(kPublicListenerPort);
-        } catch (const std::exception&) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(250));
+        auto candidate =
+            std::make_unique<MinimalPublicWebSocketClient>(kPublicListenerPort);
+        candidate->SendText(
+            R"({"messageType":"hello","messageId":"hello-reconnect-1",)"
+            R"("sessionId":null,"correlationId":null,"payload":{"endpoint":)"
+            R"("client","clientId":")" +
+            clientId + R"(","auth":{"method":"trusted_device_credential","token":")" +
+            credential +
+            R"("}},"playContextId":null,"clientId":)"
+            R"(null})");
+
+        std::string response = candidate->ReceiveText();
+        if (response.find(R"("messageType":"hello_ack")") !=
+            std::string::npos) {
+            reconnectHelloAck = std::move(response);
+            reconnectedClientPtr = std::move(candidate);
+            break;
         }
+
+        //  The previous process session is released asynchronously after the first socket is
+        //  closed. Retry only its documented full-slot responses, not transport or Host errors.
+        const bool sessionSlotStillFull =
+            response.find(R"("code":"rate_limited")") != std::string::npos ||
+            response.find(R"("code":"unauthorized")") != std::string::npos;
+        if (!sessionSlotStillFull) {
+            lastReconnectFailure =
+                "The Host returned an unexpected response during reconnect admission.";
+            break;
+        }
+
+        lastReconnectFailure =
+            "The prior session still occupies the Host's single session slot.";
+        candidate.reset();
+        std::this_thread::yield();
     }
+    INFO(lastReconnectFailure);
     REQUIRE(reconnectedClientPtr != nullptr);
     MinimalPublicWebSocketClient& reconnectedClient = *reconnectedClientPtr;
-    reconnectedClient.SendText(
-        R"({"messageType":"hello","messageId":"hello-reconnect-1",)"
-        R"("sessionId":null,"correlationId":null,"payload":{"endpoint":)"
-        R"("client","clientId":")" +
-        clientId + R"(","auth":{"method":"trusted_device_credential","token":")" +
-        credential +
-        R"("}},"playContextId":null,"clientId":)"
-        R"(null})");
-    std::string reconnectHelloAck = reconnectedClient.ReceiveText();
-    REQUIRE(reconnectHelloAck.find(R"("messageType":"hello_ack")") !=
-            std::string::npos);
     CHECK(reconnectHelloAck.find(R"("clientIdentityKind":"paired")") !=
           std::string::npos);
     //  A trusted reconnect is a fresh session, not a resumed one.

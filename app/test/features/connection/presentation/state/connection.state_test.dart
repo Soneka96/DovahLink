@@ -108,6 +108,22 @@ void main() {
     });
 
     test(
+      'ConnectionState copyWith sets and clears pending pairing Host ID',
+      () {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final ConnectionState pending = ConnectionState.initial().copyWith(
+          pendingPairingHostId: const Some(hostId),
+        );
+        final ConnectionState cleared = pending.copyWith(
+          pendingPairingHostId: const None(),
+        );
+
+        expect(pending.pendingPairingHostId, hostId);
+        expect(cleared.pendingPairingHostId, isNull);
+      },
+    );
+
+    test(
       'ConnectionState copyWith replaces the full SDK Known Hosts projection',
       () {
         final KnownHost host = Fixtures.buildKnownHost(
@@ -180,6 +196,18 @@ void main() {
 
       expect(knownHost, isNot(candidate));
     });
+
+    test(
+      'ConnectionState differs when only pending pairing Host ID differs',
+      () {
+        const ConnectionState idle = ConnectionState();
+        const ConnectionState pending = ConnectionState(
+          pendingPairingHostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
+
+        expect(pending, isNot(idle));
+      },
+    );
 
     test('ConnectionState differs when Known Host availability changes', () {
       final KnownHost unknown = Fixtures.buildKnownHost();

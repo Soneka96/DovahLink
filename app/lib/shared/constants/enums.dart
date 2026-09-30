@@ -130,6 +130,27 @@ enum HostAvailability {
 
   /// An explicit reachability attempt or bounded recovery definitively failed.
   offline,
+
+  /// The SDK is performing a bounded sessionless reachability check.
+  checking,
+}
+
+/// App-owned session lifecycle for the exact durable Known Host relationship.
+enum KnownHostSessionState {
+  /// No session for this Known Host is admitted or in progress.
+  disconnected,
+
+  /// This Known Host is being connected or authenticated.
+  connecting,
+
+  /// An authenticated session is admitted for this Known Host.
+  connected,
+
+  /// Bounded recovery is retrying this Known Host after unexpected transport loss.
+  reconnecting,
+
+  /// Recovery transport is back and the Known Host session is being authenticated again.
+  reauthenticating,
 }
 
 /// Whether Flutter's projection of the SDK-owned Known Hosts stream is current and healthy.
@@ -217,8 +238,20 @@ enum DovahThemePreset {
 /// A presentation-only connection-card state supplied independently of the SDK's connection
 /// state.
 enum DovahConnectionCardState {
+  /// The SDK is currently checking this Known Host's reachability.
+  checking,
+
+  /// A Known Host session is being connected or authenticated.
+  connecting,
+
   /// The connection is reachable and ready to enter.
   available,
+
+  /// An authenticated session is active for this Known Host.
+  connected,
+
+  /// A Known Host session is being recovered or re-authenticated.
+  reconnecting,
 
   /// The connection's reachability is not known; it is selectable and pairs or connects on entry.
   unknown,
@@ -231,7 +264,11 @@ enum DovahConnectionCardState {
 
   /// Returns the concise user-visible label for this state.
   String get label => switch (this) {
-    DovahConnectionCardState.available => 'Connected',
+    DovahConnectionCardState.checking => 'Checking…',
+    DovahConnectionCardState.connecting => 'Connecting…',
+    DovahConnectionCardState.available => 'Online',
+    DovahConnectionCardState.connected => 'Connected',
+    DovahConnectionCardState.reconnecting => 'Reconnecting…',
     DovahConnectionCardState.unknown => 'Not connected',
     DovahConnectionCardState.offline => 'Offline',
     DovahConnectionCardState.repair => 'Pair again',

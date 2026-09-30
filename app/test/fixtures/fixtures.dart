@@ -15,6 +15,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         CredentialRejectionReason,
         DovahLinkHost,
         DovahLinkHostAvailability,
+        DovahLinkKnownHostSessionState,
         DovahLinkKnownHostState,
         DovahLinkTrustState,
         HelloResult;
@@ -46,18 +47,29 @@ abstract final class Fixtures {
 
     /// The runtime reachability evidence.
     HostAvailability availability = HostAvailability.unknown,
-  }) => KnownHost(host: host ?? buildHost(), availability: availability);
+
+    /// The session lifecycle for this Known Host.
+    KnownHostSessionState sessionState = KnownHostSessionState.disconnected,
+  }) => KnownHost(
+    host: host ?? buildHost(),
+    availability: availability,
+    sessionState: sessionState,
+  );
 
   /// Builds a Host card's display data for the representative local Host.
   static HostCardViewData buildHostCardViewData({
     /// The Host the card selects, or the representative Host when omitted.
     Host? host,
 
+    /// The semantic selection intent represented by the card.
+    ConnectionHostSelectionSource source =
+        ConnectionHostSelectionSource.candidate,
+
     /// The card's primary line.
     String title = 'Local Host',
 
     /// The card's secondary line.
-    String subtitle = 'DovahLink · Ready to connect',
+    String subtitle = 'Discovered candidate',
 
     /// The card's trailing detail.
     String detail = '127.0.0.1:58231',
@@ -66,6 +78,7 @@ abstract final class Fixtures {
     DovahConnectionCardState state = DovahConnectionCardState.unknown,
   }) => HostCardViewData(
     host: host ?? buildHost(),
+    source: source,
     title: title,
     subtitle: subtitle,
     detail: detail,
@@ -79,7 +92,15 @@ abstract final class Fixtures {
 
     /// The SDK-reported runtime reachability evidence.
     DovahLinkHostAvailability availability = DovahLinkHostAvailability.unknown,
-  }) => DovahLinkKnownHostState(host: host, availability: availability);
+
+    /// The SDK-reported session lifecycle for this exact relationship.
+    DovahLinkKnownHostSessionState sessionState =
+        DovahLinkKnownHostSessionState.disconnected,
+  }) => DovahLinkKnownHostState(
+    host: host,
+    availability: availability,
+    sessionState: sessionState,
+  );
 
   // ---- Pairing ----
 

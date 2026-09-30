@@ -6,16 +6,38 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 void main() {
   group('Property values in DovahLinkHostAvailability behaves correctly', () {
     test(
-      'Property values in DovahLinkHostAvailability contains only reachability states',
+      'Property values in DovahLinkHostAvailability contains every reachability state',
       () {
         expect(DovahLinkHostAvailability.values, <DovahLinkHostAvailability>[
           DovahLinkHostAvailability.unknown,
           DovahLinkHostAvailability.online,
           DovahLinkHostAvailability.offline,
+          DovahLinkHostAvailability.checking,
         ]);
       },
     );
   });
+
+  group(
+    'Property values in DovahLinkKnownHostSessionState behaves correctly',
+    () {
+      test(
+        'Property values in DovahLinkKnownHostSessionState lists each session phase',
+        () {
+          expect(
+            DovahLinkKnownHostSessionState.values,
+            <DovahLinkKnownHostSessionState>[
+              DovahLinkKnownHostSessionState.disconnected,
+              DovahLinkKnownHostSessionState.connecting,
+              DovahLinkKnownHostSessionState.connected,
+              DovahLinkKnownHostSessionState.reconnecting,
+              DovahLinkKnownHostSessionState.reauthenticating,
+            ],
+          );
+        },
+      );
+    },
+  );
 
   group('DovahLinkStateArea behaves correctly', () {
     test('protocolValue maps every typed state area to its canonical name', () {

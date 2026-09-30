@@ -125,7 +125,7 @@ public static class Constants
     // ---- Sessions ----
 
     /// <summary>
-    /// The shipped default maximum number of concurrent active client sessions and connections,
+    /// The shipped default maximum number of concurrent active client sessions,
     /// used when the user-editable settings file at <see cref="HostSettingsFilePath"/> supplies no
     /// valid override. See <see cref="HostSettingsProvider"/>.
     /// </summary>
@@ -342,10 +342,14 @@ public static class Constants
     public const int PublicWebSocketPort = 58231;
 
     /// <summary>
-    /// The maximum number of public WebSocket connections served concurrently, per
-    /// <c>ai/context/protocol/security.md</c>'s "maximum connected clients during the first proof: 1".
+    /// The additional raw public connections reserved for bounded pre-session handshakes and
+    /// sessionless probes beyond the configured active-session capacity. This is a fixed resource
+    /// limit rather than a user-facing setting; session admission remains configured separately.
     /// </summary>
-    public const int PublicWebSocketMaxConcurrentConnections = 1;
+    public const int MaxPreSessionPublicConnections = 8;
+
+    /// <summary>The default total raw public-connection bound for the shipped session capacity.</summary>
+    public const int MaxConcurrentPublicConnections = MaxActiveSessions + MaxPreSessionPublicConnections;
 
     /// <summary>The pending-connection backlog for each of the public listener's two loopback-address sockets.</summary>
     public const int PublicWebSocketAcceptBacklog = 8;
@@ -362,6 +366,9 @@ public static class Constants
     /// buffer while completing the WebSocket handshake.
     /// </summary>
     public const int PublicWebSocketMaxHandshakeRequestBytes = 8192;
+
+    /// <summary>The maximum serialized body size returned by the sessionless public Host probe.</summary>
+    public const int PublicHostProbeMaxResponseBytes = 512;
 
     /// <summary>
     /// How long a newly accepted public connection may take to complete the WebSocket upgrade

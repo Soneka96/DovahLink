@@ -462,7 +462,10 @@ class AuthenticationService implements IAuthenticationService {
   /// @param knownHostId The selected Known Host ID, or `null` for an untrusted candidate.
   Future<void> _connect(Uri uri, String? knownHostId, int generation) async {
     try {
-      await _sessionService.connect(uri);
+      await _sessionService.connect(
+        uri,
+        knownHostId: knownHostId == null ? null : DovahLinkHostId(knownHostId),
+      );
     } on DovahLinkConnectionException {
       _ensureAuthenticationCurrent(generation);
       if (knownHostId != null) {

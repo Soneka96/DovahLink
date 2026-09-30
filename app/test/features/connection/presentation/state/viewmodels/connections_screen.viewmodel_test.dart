@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -78,24 +79,56 @@ void main() {
       expect(viewModel.hostCards, hasLength(1));
     });
 
-    test(
-      'onSelectHost dispatches ConnectionHostSelectedAction, recording the selected Host',
-      () {
-        final Host host = Fixtures.buildHost();
-        final Store<AppState> store = const CreateStore()(
-          initialState: AppState(
-            connection: ConnectionState(hosts: [host]),
-            pairing: PairingState.initial(),
+    test('onSelectHost dispatches candidate selection with its source', () {
+      final HostCardViewData card = Fixtures.buildHostCardViewData(
+        host: Fixtures.buildHost(),
+      );
+      final Store<AppState> store = const CreateStore()(
+        initialState: AppState(
+          connection: ConnectionState(hosts: [card.host]),
+          pairing: PairingState.initial(),
+        ),
+      );
+      final ConnectionsScreenViewModel viewModel =
+          ConnectionsScreenViewModel.fromStore(store);
+
+      viewModel.onSelectHost(card);
+
+      expect(ConnectionSelectors.selectedHostSelector(store.state), card.host);
+      expect(
+        ConnectionSelectors.selectedHostSourceSelector(store.state),
+        ConnectionHostSelectionSource.candidate,
+      );
+    });
+
+    test('onSelectHost dispatches Known Host selection with its source', () {
+      final HostCardViewData card = Fixtures.buildHostCardViewData(
+        source: ConnectionHostSelectionSource.knownHost,
+      );
+      final Store<AppState> store = const CreateStore()(
+        initialState: AppState(
+          connection: ConnectionState(
+            knownHosts: [
+              Fixtures.buildKnownHost(
+                host: card.host,
+                availability: HostAvailability.unknown,
+              ),
+            ],
           ),
-        );
-        final ConnectionsScreenViewModel viewModel =
-            ConnectionsScreenViewModel.fromStore(store);
+          pairing: PairingState.initial(),
+        ),
+      );
+      final ConnectionsScreenViewModel viewModel =
+          ConnectionsScreenViewModel.fromStore(store);
 
-        viewModel.onSelectHost(host);
+      viewModel.onSelectHost(viewModel.hostCards.single);
 
-        expect(ConnectionSelectors.selectedHostSelector(store.state), host);
-      },
-    );
+      expect(ConnectionSelectors.selectedHostSelector(store.state), card.host);
+      expect(
+        ConnectionSelectors.selectedHostSourceSelector(store.state),
+        ConnectionHostSelectionSource.knownHost,
+      );
+    });
 
     test('onSelectHost leaves no Host selected before it is called', () {
       final Store<AppState> store = const CreateStore()();
@@ -122,7 +155,9 @@ void main() {
           ),
         );
 
-        ConnectionsScreenViewModel.fromStore(store).onSelectHost(second);
+        ConnectionsScreenViewModel.fromStore(
+          store,
+        ).onSelectHost(ConnectionSelectors.hostCardsSelector(store.state).last);
 
         expect(
           ConnectionSelectors.selectedHostSelector(store.state)?.uri,
@@ -150,7 +185,7 @@ void main() {
         canDiscover: true,
         discoveryFailure: null,
         onDiscover: () {},
-        onSelectHost: (Host host) {},
+        onSelectHost: (HostCardViewData card) {},
       );
       final ConnectionsScreenViewModel second = ConnectionsScreenViewModel(
         hostCards: [Fixtures.buildHostCardViewData(title: 'Other')],
@@ -158,7 +193,7 @@ void main() {
         canDiscover: true,
         discoveryFailure: null,
         onDiscover: () {},
-        onSelectHost: (Host host) {},
+        onSelectHost: (HostCardViewData card) {},
       );
 
       expect(first, isNot(second));
@@ -171,7 +206,7 @@ void main() {
         canDiscover: true,
         discoveryFailure: null,
         onDiscover: () {},
-        onSelectHost: (Host host) {},
+        onSelectHost: (HostCardViewData card) {},
       );
       final ConnectionsScreenViewModel second = ConnectionsScreenViewModel(
         hostCards: [Fixtures.buildHostCardViewData()],
@@ -179,7 +214,7 @@ void main() {
         canDiscover: false,
         discoveryFailure: null,
         onDiscover: () {},
-        onSelectHost: (Host host) {},
+        onSelectHost: (HostCardViewData card) {},
       );
 
       expect(first, isNot(second));

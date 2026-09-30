@@ -64,6 +64,7 @@ void main() {
     when(() => viewModel.error).thenReturn(null);
     when(() => viewModel.isRepair).thenReturn(false);
     when(() => viewModel.isBlocked).thenReturn(false);
+    when(() => viewModel.isReconnecting).thenReturn(false);
     when(() => viewModel.canDismiss).thenReturn(true);
     when(() => viewModel.onStart).thenReturn(() => calls.add('start'));
     when(
@@ -266,6 +267,21 @@ void main() {
           find.byKey(const Key('pairing-request-code-button')),
           findsNothing,
         );
+      },
+    );
+
+    testWidgets(
+      'PairingSection presents SDK recovery before a stale trusted phase',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.trusted);
+        when(() => viewModel.isReconnecting).thenReturn(true);
+
+        await pumpSection(tester);
+
+        expect(find.byType(PairingSuccess), findsNothing);
+        expect(find.byType(PairingProgress), findsOneWidget);
+        expect(find.text('Bedroom PC is reconnecting'), findsOneWidget);
+        expect(find.text('Reconnecting…'), findsOneWidget);
       },
     );
 

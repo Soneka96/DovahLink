@@ -18,3 +18,6 @@ tooling/out/
 *.freezed.dart
 *.mocks.dart
 *.pb.dart
+
+# Dart tool state
+**/.dart_tool/

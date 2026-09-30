@@ -1,6 +1,8 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Identity;
@@ -15,11 +17,79 @@ namespace DovahLink.Host.Tests.Client.Integration;
 /// listener and the private adapter IPC listener bound to real loopback sockets: a reconnect never
 /// resumes a prior session, and the two listeners cannot be reached as if they were each other.
 /// Individual collaborators already have their own isolated unit and lower-level integration tests;
-/// this class proves only that the two boundaries are wired together correctly in production
+/// this class proves that those boundaries are wired together in production
 /// composition.
 /// </summary>
+[Collection(RealSocketAndProcessTestCollection.Name)]
 public class PublicClientBoundaryIntegrationTests
 {
+    /// <summary>Verifies the sessionless discovery endpoint works beside the one admitted session and leaves that session usable.</summary>
+    [Fact]
+    public async Task HostProbe_WhileCapacityOneSessionIsActive_ReturnsMetadataAndKeepsSessionUsable()
+    {
+        Assert.Equal(1, Constants.MaxActiveSessions);
+        (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, _, _, _) = await StartComposedHostAsync();
+        var codec = new PublicEnvelopeCodec();
+        string clientId = Guid.NewGuid().ToString();
+        using var activeClient = new ClientWebSocket();
+        string sessionId = await ConnectAndAdmitAsync(activeClient, publicPort, codec, clientId);
+
+        string response = await ProbeHostAsync(publicPort);
+        Assert.StartsWith("HTTP/1.1 200 OK\r\n", response);
+        string[] responseParts = response.Split("\r\n\r\n", 2, StringSplitOptions.None);
+        using JsonDocument metadata = JsonDocument.Parse(responseParts[1]);
+        Assert.Equal(3, metadata.RootElement.EnumerateObject().Count());
+        Assert.Equal(Fixtures.BuildHostIdentity().HostId.ToString(), metadata.RootElement.GetProperty("hostId").GetString());
+        Assert.Equal(Fixtures.BuildHostIdentity().HostName, metadata.RootElement.GetProperty("hostName").GetString());
+        Assert.Equal(Constants.PublicProtocolHostVersion, metadata.RootElement.GetProperty("hostVersion").GetString());
+
+        using (var secondClient = new ClientWebSocket())
+        {
+            await secondClient.ConnectAsync(new Uri($"ws://127.0.0.1:{publicPort}/"), CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            byte[] secondHello = codec.Encode(
+                PublicMessageType.Hello,
+                "hello-at-capacity",
+                null,
+                null,
+                null,
+                null,
+                new HelloPayload
+                {
+                    Endpoint = "client",
+                    ClientId = Guid.NewGuid().ToString(),
+                    Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired },
+                });
+            await secondClient.SendAsync(secondHello, WebSocketMessageType.Text, true, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            byte[] rejectionBuffer = new byte[8192];
+            WebSocketReceiveResult rejectionResult = await secondClient.ReceiveAsync(rejectionBuffer, CancellationToken.None)
+                .WaitAsync(TimeSpan.FromSeconds(5));
+
+            Assert.True(codec.TryDecode(rejectionBuffer.AsMemory(0, rejectionResult.Count), out PublicEnvelope? rejection));
+            Assert.Equal(PublicMessageType.Error, rejection!.MessageType);
+            Assert.True(codec.TryDecodePayload(rejection, out ErrorPayload? error));
+            Assert.Equal(PublicProtocolErrorCode.RateLimited, error!.Code);
+        }
+
+        byte[] ping = codec.Encode(
+            PublicMessageType.Ping, "ping-after-probe", sessionId, null, null, clientId, new EmptyPayload());
+        await activeClient.SendAsync(ping, WebSocketMessageType.Text, true, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        byte[] buffer = new byte[8192];
+        WebSocketReceiveResult pongResult = await activeClient.ReceiveAsync(buffer, CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, pongResult.Count), out PublicEnvelope? pong));
+        Assert.Equal(PublicMessageType.Pong, pong!.MessageType);
+        Assert.Equal("ping-after-probe", pong.CorrelationId);
+
+        await activeClient.CloseAsync(WebSocketCloseStatus.NormalClosure, "test complete", CancellationToken.None)
+            .WaitAsync(TimeSpan.FromSeconds(5));
+        shutdown.Cancel();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Verifies that a second connection from the same clientId is admitted with a fresh sessionId, never resuming the first connection's session.</summary>
     [Fact]
     public async Task Reconnect_SameClientId_GetsFreshSessionThatNeverResumesThePrevious()
@@ -132,6 +202,21 @@ public class PublicClientBoundaryIntegrationTests
         await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)); // unsolicited capabilities
 
         return helloAck.SessionId!;
+    }
+
+    /// <summary>Sends the SDK's bodyless HTTP discovery request to the production public listener and returns its complete response.</summary>
+    private static async Task<string> ProbeHostAsync(int publicPort)
+    {
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, publicPort).WaitAsync(TimeSpan.FromSeconds(5));
+        using NetworkStream stream = client.GetStream();
+        byte[] request = Encoding.ASCII.GetBytes(
+            "GET /.well-known/dovahlink HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
+        await stream.WriteAsync(request).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+
+        using var response = new MemoryStream();
+        await stream.CopyToAsync(response).WaitAsync(TimeSpan.FromSeconds(5));
+        return Encoding.UTF8.GetString(response.ToArray());
     }
 
     /// <summary>

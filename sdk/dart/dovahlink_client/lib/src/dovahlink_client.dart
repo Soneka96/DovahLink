@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:meta/meta.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_discovery_service.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
@@ -11,10 +12,12 @@ import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
+import 'package:dovahlink_client_sdk/src/host_presence_probe.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_resolver.dart';
 import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/availability/known_host_presence_monitor.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
@@ -41,7 +44,6 @@ import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
-import 'package:dovahlink_client_sdk/src/persistence/transient_client_storage.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -53,8 +55,8 @@ import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
-/// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair, and
-/// disconnect. Owns its local [DovahLinkClient.clientId], Host-scoped credentials, pairing
+/// A real, Flutter/Redux-independent DovahLink protocol client: connect, authenticate, pair,
+/// disconnect, and close. Owns its local [DovahLinkClient.clientId], Host-scoped credentials, pairing
 /// recovery, and Known Hosts through its SDK-managed [IClientStorage] boundary, so a consumer never threads
 /// credentials through this API.
 ///
@@ -62,6 +64,28 @@ import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 class DovahLinkClient {
   /// Owns persisted client state and its semantic change streams.
   final IClientStateService _clientStateService;
+
+  /// Performs the SDK's sessionless local Host discovery.
+  late final IDovahLinkDiscoveryService _discoveryService;
+
+  /// Publishes current runtime candidates, replaying the current list to each subscriber.
+  final StreamController<List<DovahLinkHost>> _candidateHostsController =
+      StreamController<List<DovahLinkHost>>.broadcast();
+
+  /// The latest raw discovery result, retained only for Known Host reconciliation.
+  List<DovahLinkHost> _discoveredHosts = const <DovahLinkHost>[];
+
+  /// The current immutable runtime candidate projection.
+  List<DovahLinkHost> _candidateHosts = const <DovahLinkHost>[];
+
+  /// The latest discovery generation allowed to publish.
+  int _discoveryGeneration = 0;
+
+  /// Whether terminal close has begun.
+  bool _isClosed = false;
+
+  /// The terminal cleanup operation shared by repeated callers.
+  Future<void>? _closeFuture;
 
   /// Creates a client. [storage] is required so every consumer makes its persistence choice
   /// explicit.
@@ -71,6 +95,7 @@ class DovahLinkClient {
         transport: WebSocketTransport(),
         storage: storage,
         timeoutDurations: kTimeoutClassDurations,
+        hostPresenceProbe: HostPresenceProbe(),
       );
 
   /// Assembles the client services over [transport], applies [timeoutDurations] and the supplied
@@ -80,11 +105,20 @@ class DovahLinkClient {
     required IDovahLinkTransport transport,
     required IClientStorage storage,
     required Map<TimeoutClass, Duration> timeoutDurations,
+    required IHostPresenceProbe hostPresenceProbe,
     bool reconnectEnabled = true,
+    bool knownHostPresenceMonitoringEnabled = true,
+    IDovahLinkDiscoveryService? discoveryService,
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration reconnectDeadline = kReconnectDeadline,
     DateTime Function() reconnectNow = DateTime.now,
+    Duration hostPresenceRefreshInterval = kKnownHostPresenceRefreshInterval,
+    Stream<void>? hostPresenceRefreshTicks,
+    int hostPresenceMaxConcurrentProbes = kKnownHostPresenceMaxConcurrentProbes,
   }) : _clientStateService = ClientStateService(storage: storage) {
+    _discoveryService =
+        discoveryService ??
+        DovahLinkDiscoveryService(hostPresenceProbe: hostPresenceProbe);
     _hostAvailabilityService = HostAvailabilityService(
       clientStateService: _clientStateService,
     );
@@ -111,6 +145,13 @@ class DovahLinkClient {
       lifecycleQueue: lifecycleQueue,
       teardownCoordinator: teardownCoordinator,
     );
+    _knownHostSessionSubscription = _sessionService.knownHostSessionChanges
+        .listen((KnownHostSessionSnapshot snapshot) {
+          _hostAvailabilityService.setSessionState(
+            snapshot.hostId,
+            snapshot.state,
+          );
+        });
 
     final CurrentValueStream<StateSynchronization<CharacterXpState>>
     characterXpStream =
@@ -296,6 +337,18 @@ class DovahLinkClient {
       _sessionService.onOrdinaryTransportLoss =
           _reconnectService.onOrdinaryTransportLoss;
     }
+    _knownHostPresenceMonitor = KnownHostPresenceMonitor(
+      clientStateService: _clientStateService,
+      probe: hostPresenceProbe,
+      availabilityService: _hostAvailabilityService,
+      sessionService: _sessionService,
+      refreshInterval: hostPresenceRefreshInterval,
+      refreshTicks: hostPresenceRefreshTicks,
+      maxConcurrentProbes: hostPresenceMaxConcurrentProbes,
+    );
+    if (knownHostPresenceMonitoringEnabled) {
+      _knownHostPresenceMonitor.start();
+    }
   }
 
   /// Owns transport lifecycle, connection state, and stream ownership. This façade reads its
@@ -305,6 +358,16 @@ class DovahLinkClient {
 
   /// Owns the runtime availability map and complete Known Host projection.
   late final IHostAvailabilityService _hostAvailabilityService;
+
+  /// Mirrors the session owner's exact Known Host projection into complete Known Host snapshots.
+  late final StreamSubscription<KnownHostSessionSnapshot>
+  _knownHostSessionSubscription;
+
+  /// Tracks authoritative Known Host changes so newly known Hosts leave candidates immediately.
+  StreamSubscription<List<DovahLinkHost>>? _knownHostCandidateSubscription;
+
+  /// Owns sessionless startup and periodic presence checks until [close].
+  late final IKnownHostPresenceMonitor _knownHostPresenceMonitor;
 
   /// Owns pending requests, timeouts, and retry behavior for this client's session.
   late final IRequestService _requestService;
@@ -378,6 +441,133 @@ class DovahLinkClient {
     return List<DovahLinkHost>.unmodifiable(hosts);
   }
 
+  /// Discovers Hosts and returns only identities that are not currently Known Hosts.
+  ///
+  /// Candidate state is runtime-only. The SDK reconciles it with committed Known Host state, and
+  /// a later Known Host update removes a matching candidate without a consumer mutation.
+  /// @return The complete immutable candidate collection, sorted by normalized Host ID.
+  /// @throws DovahLinkStorageException if authoritative Known Host state cannot be read safely.
+  Future<List<DovahLinkHost>> discoverHosts() async {
+    if (_isClosed) {
+      throw StateError('A closed DovahLinkClient cannot discover Hosts.');
+    }
+    final int generation = ++_discoveryGeneration;
+    try {
+      await _clientStateService.load();
+    } on Object {
+      if (_isClosed) {
+        return _candidateHosts;
+      }
+      _observeCandidateKnownHosts();
+      rethrow;
+    }
+    if (_isClosed) {
+      return _candidateHosts;
+    }
+    _observeCandidateKnownHosts();
+    late final List<DovahLinkHost> discovered;
+    try {
+      discovered = await _discoveryService.discover();
+    } on Object {
+      if (_isClosed) {
+        return _candidateHosts;
+      }
+      rethrow;
+    }
+    if (_isClosed) {
+      return _candidateHosts;
+    }
+    late final PersistedClientState state;
+    try {
+      state = await _clientStateService.load();
+    } on Object {
+      if (_isClosed) {
+        return _candidateHosts;
+      }
+      rethrow;
+    }
+    if (!_isClosed && generation == _discoveryGeneration) {
+      _discoveredHosts = discovered;
+      _reconcileCandidateHosts(
+        state.knownHosts.values
+            .map((PersistedKnownHost relationship) => relationship.host)
+            .toList(growable: false),
+      );
+    }
+    return _candidateHosts;
+  }
+
+  /// Emits the current runtime-only discovery candidates and each reconciled replacement.
+  /// Storage failures are forwarded as stream errors; the subscription stays active for recovery.
+  /// @return A replaying stream of immutable candidates ordered by normalized Host ID.
+  Stream<List<DovahLinkHost>> get candidateHostsChanges =>
+      Stream<List<DovahLinkHost>>.multi((
+        MultiStreamController<List<DovahLinkHost>> sink,
+      ) {
+        final StreamSubscription<List<DovahLinkHost>> subscription =
+            _candidateHostsController.stream.listen(
+              sink.add,
+              onError: sink.addError,
+            );
+        sink.add(_candidateHosts);
+        sink.onCancel = subscription.cancel;
+      }, isBroadcast: true);
+
+  /// Whether candidate membership currently observes committed Known Hosts.
+  @visibleForTesting
+  bool get isObservingCandidateKnownHosts =>
+      _knownHostCandidateSubscription != null;
+
+  /// Starts observing committed Known Hosts once their initial state has loaded.
+  void _observeCandidateKnownHosts() {
+    if (_isClosed || _knownHostCandidateSubscription != null) {
+      return;
+    }
+    _knownHostCandidateSubscription = _clientStateService.knownHostsChanges
+        .listen(
+          (List<DovahLinkHost> hosts) {
+            if (!_isClosed) {
+              _reconcileCandidateHosts(hosts);
+            }
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!_isClosed && !_candidateHostsController.isClosed) {
+              _candidateHostsController.addError(error, stackTrace);
+            }
+          },
+        );
+  }
+
+  /// Reconciles the last discovery result with one authoritative Known Host snapshot.
+  /// @param knownHosts The complete committed Known Host collection.
+  void _reconcileCandidateHosts(List<DovahLinkHost> knownHosts) {
+    final Set<DovahLinkHostId> knownHostIds = knownHosts
+        .map((DovahLinkHost host) => DovahLinkHostId(host.hostId))
+        .toSet();
+    final Map<DovahLinkHostId, DovahLinkHost> candidates =
+        <DovahLinkHostId, DovahLinkHost>{};
+    for (final DovahLinkHost host in _discoveredHosts) {
+      final DovahLinkHostId hostId = DovahLinkHostId(host.hostId);
+      if (!knownHostIds.contains(hostId)) {
+        candidates.putIfAbsent(hostId, () => host);
+      }
+    }
+    final List<MapEntry<DovahLinkHostId, DovahLinkHost>> entries =
+        candidates.entries.toList()
+          ..sort((left, right) => left.key.value.compareTo(right.key.value));
+    final List<DovahLinkHost> next = List<DovahLinkHost>.unmodifiable(
+      entries.map(
+        (MapEntry<DovahLinkHostId, DovahLinkHost> entry) => entry.value,
+      ),
+    );
+    if (next.length == _candidateHosts.length &&
+        next.indexed.every((entry) => entry.$2 == _candidateHosts[entry.$1])) {
+      return;
+    }
+    _candidateHosts = next;
+    _candidateHostsController.add(next);
+  }
+
   /// Emits the complete Known Hosts view immediately on listen and after committed changes.
   /// A failed initial load is reported and the same subscription remains available for recovery
   /// after a later successful SDK state operation.
@@ -387,7 +577,8 @@ class DovahLinkClient {
 
   /// Emits complete runtime Known Host snapshots, replaying the current projection to each
   /// subscriber. Storage failures are reported while the listener remains available for recovery.
-  /// @return An immutable, Host-ID-sorted projection of durable Known Hosts and runtime availability.
+  /// @return An immutable, Host-ID-sorted projection of durable Known Hosts, runtime availability,
+  /// and exact-relationship session state.
   Stream<List<DovahLinkKnownHostState>> get knownHostStatesChanges =>
       _hostAvailabilityService.knownHostStatesChanges;
 
@@ -568,22 +759,42 @@ class DovahLinkClient {
   /// letting that recovery keep running. Repeated calls remain safe because transport close and
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
   /// preserved, not reset to generic disconnect. A Known Host session deliberately disconnected
-  /// by the client reports availability as `unknown`.
+  /// by the client ends its session without clearing current reachability evidence.
   Future<void> disconnect() async {
-    final DovahLinkHostId? knownHostId = _sessionService.currentKnownHostId;
     _authenticationService.cancelPendingAuthentication();
     _reconnectService.stopRecovery();
     _subscriptionService.clearDesiredStateAreas();
     await _sessionService.disconnect();
-    if (knownHostId != null &&
-        _sessionService.connectionState !=
-            DovahLinkConnectionState.administrativelyInvalidated) {
-      _hostAvailabilityService.setAvailability(
-        knownHostId,
-        DovahLinkHostAvailability.unknown,
-      );
-    }
   }
+
+  /// Permanently closes this client and releases its monitoring and stream resources.
+  ///
+  /// Unlike [disconnect], this terminal operation stops Known Host presence monitoring. The
+  /// client must not be reused after [close] completes.
+  /// @return A future completing after independent monitoring and session teardown, subscriptions,
+  /// and client state streams have each finished best-effort cleanup.
+  Future<void> close() => _closeFuture ??= (() async {
+    _isClosed = true;
+    final Future<void> monitorCleanup = Future<void>.sync(
+      _knownHostPresenceMonitor.close,
+    ).catchError((Object _, StackTrace __) {});
+    final Future<void> sessionCleanup = Future<void>.sync(
+      disconnect,
+    ).catchError((Object _, StackTrace __) {});
+    await Future.wait<void>(<Future<void>>[monitorCleanup, sessionCleanup]);
+    await _knownHostSessionSubscription.cancel().catchError(
+      (Object _, StackTrace __) {},
+    );
+    await _hostAvailabilityService.close().catchError(
+      (Object _, StackTrace __) {},
+    );
+    await _knownHostCandidateSubscription?.cancel().catchError(
+      (Object _, StackTrace __) {},
+    );
+    await _candidateHostsController.close().catchError(
+      (Object _, StackTrace __) {},
+    );
+  })();
 
   /// Removes one Known Host's credential while preserving its metadata and the local client ID.
   /// @param hostId The stable identifier of the Host whose credential is removed.
@@ -598,6 +809,12 @@ class DovahLinkClient {
 /// @param reconnectAttemptDelays The bounded reconnect attempt schedule.
 /// @param reconnectDeadline The overall limit for one reconnect cycle.
 /// @param now The clock used to measure the reconnect deadline.
+/// @param hostPresenceProbe The probe used when monitoring is enabled.
+/// @param discoveryService The discovery contract used by this composed client.
+/// @param knownHostPresenceMonitoringEnabled Whether this test client starts the monitor.
+/// @param hostPresenceRefreshInterval The injected Known Host refresh cadence.
+/// @param hostPresenceRefreshTicks The injected deterministic refresh event stream.
+/// @param hostPresenceMaxConcurrentProbes The injected global probe concurrency bound.
 /// @return A client wired to the supplied transport and timing controls.
 @visibleForTesting
 DovahLinkClient buildDovahLinkClientForTesting({
@@ -608,26 +825,24 @@ DovahLinkClient buildDovahLinkClientForTesting({
   Duration reconnectDeadline = kReconnectDeadline,
   DateTime Function() now = DateTime.now,
   bool reconnectEnabled = true,
+  IHostPresenceProbe? hostPresenceProbe,
+  IDovahLinkDiscoveryService? discoveryService,
+  bool knownHostPresenceMonitoringEnabled = false,
+  Duration hostPresenceRefreshInterval = kKnownHostPresenceRefreshInterval,
+  Stream<void>? hostPresenceRefreshTicks,
+  int hostPresenceMaxConcurrentProbes = kKnownHostPresenceMaxConcurrentProbes,
 }) => DovahLinkClient._build(
   transport: transport,
   storage: storage,
   timeoutDurations: timeoutDurations,
+  hostPresenceProbe: hostPresenceProbe ?? HostPresenceProbe(),
+  discoveryService: discoveryService,
   attemptDelays: reconnectAttemptDelays,
   reconnectDeadline: reconnectDeadline,
   reconnectNow: now,
   reconnectEnabled: reconnectEnabled,
-);
-
-/// Creates an isolated client engine for a one-shot discovery probe. Its storage is transient and
-/// ordinary transport loss cannot start automatic reconnect.
-/// @param transport The transport to use, or the production WebSocket transport when omitted.
-/// @param timeoutDurations The bounded request durations for the probe.
-DovahLinkClient buildDovahLinkClientForDiscovery({
-  IDovahLinkTransport? transport,
-  Map<TimeoutClass, Duration> timeoutDurations = kTimeoutClassDurations,
-}) => DovahLinkClient._build(
-  transport: transport ?? WebSocketTransport(),
-  storage: TransientClientStorage(),
-  timeoutDurations: timeoutDurations,
-  reconnectEnabled: false,
+  knownHostPresenceMonitoringEnabled: knownHostPresenceMonitoringEnabled,
+  hostPresenceRefreshInterval: hostPresenceRefreshInterval,
+  hostPresenceRefreshTicks: hostPresenceRefreshTicks,
+  hostPresenceMaxConcurrentProbes: hostPresenceMaxConcurrentProbes,
 );

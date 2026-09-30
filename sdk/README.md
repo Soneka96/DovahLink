@@ -50,12 +50,15 @@ Host-owned `CONFIRMING` pairing recovery, and plural Known Host persistence behi
 DPAPI-backed implementation ships today through the Windows-specific
 `dovahlink_client_windows.dart` entry point) -- see `ai/context/sdk/persistence.md`. The official
 Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
-client for pairing and authentication through `PairingRemoteDataSource`. The public SDK also probes
-the local loopback endpoint with an isolated unpaired handshake and returns the responding peer's
-protocol-validated `hostId`/`hostName` claims and current endpoint. Discovery does not authenticate
-Host identity, prove the peer owns a previously trusted identity, update persisted Known Host data,
-or discover Hosts over LAN or mDNS. Consumers read the SDK-owned prior association through
-`DovahLinkClient.loadKnownHosts()`; they do not represent current trust.
+client for pairing and authentication through `PairingRemoteDataSource`. The SDK probes the local
+loopback endpoint through a bounded sessionless metadata request. The probe returns a
+protocol-validated `hostId`/`hostName` claim and current endpoint without authenticating Host
+identity or proving ownership of a previously trusted identity. `DovahLinkClient.discoverHosts()`
+reconciles those claims against the same client's committed Known Hosts by normalized Host ID, and
+`candidateHostsChanges` exposes the complete runtime-only candidate collection. Pairing and Known
+Host mutations update that projection automatically; candidates are never persisted or discovered
+over LAN or mDNS. Consumers read the SDK-owned prior association through
+`DovahLinkClient.loadKnownHosts()`; it does not represent current trust.
 
 The app selects storage at its composition boundary. Windows uses DPAPI; other platforms currently
 use an explicit unsupported-storage boundary, and pairing stays unavailable until secure storage is
@@ -74,7 +77,8 @@ typed per-domain subscription intent, and the SDK restores the desired set after
 while keeping it dormant after administrative invalidation. Phase 5.4 wires SDK streams through
 Flutter middleware; Phase 5.5 audits version impact and closes Stage 5.
 
-The app's `features/connection/` area remains responsible for Host selection and navigation. The
-SDK supplies local discovery and protocol communication; the app owns selection and presentation.
+The app's `features/connection/` area remains responsible for Host selection, navigation, and
+presentation. It mirrors Known Host and candidate state from the same persistent SDK client; the SDK
+owns candidate membership and reconciliation.
 See [`app/README.md`](../app/README.md) for the current division between app presentation and
 SDK-owned communication.

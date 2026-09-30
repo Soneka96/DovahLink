@@ -13,8 +13,11 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Added
 
+- Known Host cards show Checking during startup and endpoint checks while retaining stable availability
+  during periodic refresh.
+- Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions.
 - The app distinguishes loading, ready, and failed Known Hosts observations while retaining the last successful collection on stream errors.
-- The connection state mirrors the complete SDK-owned Known Hosts list separately from discovery candidates.
+- The connection state mirrors the SDK-owned Known Hosts and reconciled candidate collections without filtering either list.
 - The Connections screen discovers the local Host on demand and shows searching, available, empty, and failure states.
 - Discovery failures use app-owned semantic reasons in Redux, with user-facing copy beside the enum.
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
@@ -31,7 +34,15 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Discovery completion updates operation status without replacing the SDK's candidate collection.
 - Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
+- Pairing selection rebinds from the SDK's Known Host projection after successful confirmation.
+- Host card identity and selection follow normalized Host IDs across endpoint changes; successful
+  pairing promotes the selected target to Known Host authentication.
+- Pairing and Known Host cards stay Offline during automatic retries; pairing omits its spinner,
+  explicit attempts show Connecting, and SDK recovery shows Reconnecting.
+- Closing pairing ignores late authentication results and prevents stale retries from affecting a
+  new flow.
 - Pairing shows while a code redisplay is being sent to Skyrim and prevents repeated requests
   until the Host responds.
 - Custom Dovah controls suppress Material splash and state overlays.
@@ -55,6 +66,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Connections now shows restored Known Hosts alongside candidates and preserves the selected entry's authentication source.
 - Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its
   three-second cleanup budget, then returns the close message through Flutter's engine and plugin
   pipeline; the native runner resumes close processing after five seconds if cleanup stalls.

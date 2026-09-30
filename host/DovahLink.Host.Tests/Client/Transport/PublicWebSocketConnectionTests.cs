@@ -3,11 +3,13 @@ using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Channels;
 using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Identity;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
@@ -288,6 +290,85 @@ public class PublicWebSocketConnectionTests
         Assert.Equal([PublicWebSocketConnectionEndReason.HandshakeTimeout], diagnostics.Reports);
         Assert.Empty(await ReadUntilClosedAsync(client));
         client.Dispose();
+    }
+
+    /// <summary>Verifies the sessionless probe returns only bounded public metadata without entering WebSocket session handling.</summary>
+    [Fact]
+    public async Task RunAsync_ValidHostProbe_ReturnsMetadataAndClosesWithoutSessionCallbacks()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var hostIdentity = new HostIdentity(
+            new HostId(Guid.Parse("81869993-955c-4ba3-a7d0-d35ca86078ea")),
+            "Soneka \"Desktop\"");
+        var connection = Fixtures.BuildPublicWebSocketConnection(
+            server,
+            handler,
+            hostIdentity: hostIdentity);
+        await client.WriteAsync(Encoding.ASCII.GetBytes(
+            $"GET {PublicWebSocketHandshake.HostProbePath} HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n\r\n"));
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        string response = Encoding.UTF8.GetString(await ReadUntilClosedAsync(client));
+        string[] responseParts = response.Split("\r\n\r\n", 2, StringSplitOptions.None);
+        Assert.StartsWith("HTTP/1.1 200 OK\r\n", response);
+        Assert.Contains("Connection: close\r\n", responseParts[0]);
+        using JsonDocument document = JsonDocument.Parse(responseParts[1]);
+        JsonElement metadata = document.RootElement;
+        Assert.Equal(3, metadata.EnumerateObject().Count());
+        Assert.Equal(hostIdentity.HostId.ToString(), metadata.GetProperty("hostId").GetString());
+        Assert.Equal(hostIdentity.HostName, metadata.GetProperty("hostName").GetString());
+        Assert.Equal(Constants.PublicProtocolHostVersion, metadata.GetProperty("hostVersion").GetString());
+        Assert.True(Encoding.UTF8.GetByteCount(responseParts[1]) <= Constants.PublicHostProbeMaxResponseBytes);
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(0, handler.ConnectionEstablishedCalls);
+        Assert.Equal(0, handler.ConnectionEndedCalls);
+        Assert.Equal(0, handler.DisconnectedCalls);
+    }
+
+    /// <summary>Verifies a complete but policy-rejected probe request receives a bounded HTTP rejection.</summary>
+    [Fact]
+    public async Task RunAsync_HostProbeWithOriginHeader_Returns400AndCloses()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var connection = Fixtures.BuildPublicWebSocketConnection(server, handler);
+        await client.WriteAsync(Encoding.ASCII.GetBytes(
+            $"GET {PublicWebSocketHandshake.HostProbePath} HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n" +
+            "Origin: https://example.test\r\n\r\n"));
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        string response = Encoding.ASCII.GetString(await ReadUntilClosedAsync(client));
+        Assert.StartsWith("HTTP/1.1 400 Bad Request\r\n", response);
+        Assert.Contains("Content-Length: 0\r\n", response);
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(0, handler.ConnectionEstablishedCalls);
+        Assert.Equal(0, handler.DisconnectedCalls);
+    }
+
+    /// <summary>Verifies a failed probe response write still closes its stream within the handshake bound.</summary>
+    [Fact]
+    public async Task RunAsync_HostProbeResponseWriteFails_ClosesWithoutHanging()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var connection = Fixtures.BuildPublicWebSocketConnection(
+            new WriteFaultingStream(server),
+            handler);
+        await client.WriteAsync(Encoding.ASCII.GetBytes(
+            $"GET {PublicWebSocketHandshake.HostProbePath} HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n\r\n"));
+
+        await connection.RunAsync(CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.Empty(handler.ReceivedMessages);
+        Assert.Equal(0, handler.ConnectionEstablishedCalls);
+        Assert.Equal(0, handler.ConnectionEndedCalls);
+        Assert.Equal(0, handler.DisconnectedCalls);
     }
 
     /// <summary>

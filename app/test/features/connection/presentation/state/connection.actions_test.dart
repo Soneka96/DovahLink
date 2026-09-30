@@ -27,6 +27,26 @@ void main() {
     },
   );
 
+  group('Behavior equality in candidate pairing actions behaves correctly', () {
+    test('pairing actions carry their candidate Host ID', () {
+      const ConnectionCandidatePairingStartedAction started =
+          ConnectionCandidatePairingStartedAction('host-1');
+      const ConnectionCandidatePairingStartedAction sameStarted =
+          ConnectionCandidatePairingStartedAction('host-1');
+      const ConnectionCandidatePairingEndedAction ended =
+          ConnectionCandidatePairingEndedAction('host-1');
+      const ConnectionCandidatePairingEndedAction sameEnded =
+          ConnectionCandidatePairingEndedAction('host-1');
+
+      expect(started.hostId, 'host-1');
+      expect(started, sameStarted);
+      expect(started.hashCode, sameStarted.hashCode);
+      expect(ended.hostId, 'host-1');
+      expect(ended, sameEnded);
+      expect(ended.hashCode, sameEnded.hashCode);
+    });
+  });
+
   group(
     'Behavior equality in ConnectionKnownHostsChangedAction behaves correctly',
     () {
@@ -78,6 +98,26 @@ void main() {
   );
 
   group(
+    'Behavior equality in ConnectionCandidatesChangedAction behaves correctly',
+    () {
+      test(
+        'ConnectionCandidatesChangedAction carries an immutable complete projection',
+        () {
+          final List<Host> hosts = <Host>[Fixtures.buildHost()];
+          final ConnectionCandidatesChangedAction action =
+              ConnectionCandidatesChangedAction(hosts);
+
+          expect(action.hosts, hosts);
+          expect(
+            () => action.hosts.add(Fixtures.buildHost()),
+            throwsUnsupportedError,
+          );
+        },
+      );
+    },
+  );
+
+  group(
     'Behavior equality in ConnectionDiscoveryRequestedAction behaves correctly',
     () {
       test('ConnectionDiscoveryRequestedAction values compare equal', () {
@@ -108,23 +148,18 @@ void main() {
   );
 
   group(
-    'Property hosts in ConnectionDiscoverySucceededAction behaves correctly',
+    'Property hasCandidates in ConnectionDiscoverySucceededAction behaves correctly',
     () {
       test(
-        'ConnectionDiscoverySucceededAction carries multiple candidates in order',
+        'ConnectionDiscoverySucceededAction records only candidate presence',
         () {
-          final List<Host> hosts = [
-            Fixtures.buildHost(displayName: 'Local Host'),
-            Fixtures.buildHost(
-              hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
-              displayName: 'Second Host',
-              uri: Uri.parse('ws://192.168.1.11:58231/'),
-            ),
-          ];
-          final ConnectionDiscoverySucceededAction action =
-              ConnectionDiscoverySucceededAction(hosts);
+          const ConnectionDiscoverySucceededAction available =
+              ConnectionDiscoverySucceededAction(hasCandidates: true);
+          const ConnectionDiscoverySucceededAction empty =
+              ConnectionDiscoverySucceededAction(hasCandidates: false);
 
-          expect(action.hosts, hosts);
+          expect(available.hasCandidates, isTrue);
+          expect(empty.hasCandidates, isFalse);
         },
       );
     },

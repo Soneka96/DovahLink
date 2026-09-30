@@ -60,26 +60,32 @@ identity decisions remain in [`../security/identity-and-transport.md`](../securi
 The SDK owns one runtime availability projection for durable Known Hosts. Availability means only
 whether the SDK has current runtime evidence that a Known Host is reachable; it is separate from
 trust, pairing, and connection lifecycle state. Keep it out of `DovahLinkHost` and out of persisted
-client state. Each persisted Known Host starts `unknown` after process startup, and no startup
-probe is run for availability.
+client state. `KnownHostPresenceMonitor` starts with the client, marks restored Hosts `checking`,
+and probes them through `IHostPresenceProbe` without creating protocol sessions.
 
-The availability owner holds only runtime values keyed by Host ID and combines them with the
-complete durable Known Host snapshot when it publishes the public projection. A newly added or
-metadata-refreshed Host with no runtime value projects as `unknown`; removal drops its runtime
-value. Do not duplicate Host metadata or persistence ownership in the availability owner.
+The availability owner holds runtime reachability and the current exact Known Host session
+projection keyed by relationship ID, and combines them with the complete durable Known Host
+snapshot when it publishes the public projection. The session owner supplies the selected durable
+relationship alongside its lifecycle; candidates supply no relationship ID, even if their peer
+claims the same Host ID. The projection reports `connected` only after `hello` admits a session; an
+open socket while hello is pending remains `connecting`. The monitor retains
+only Host IDs, probe endpoints, and generations needed to schedule and reject stale results; it does
+not own Host metadata or persistence. Added Hosts and endpoint changes enter `checking` and receive
+an immediate bounded probe; removal drops runtime state and cancels or ignores the old result.
+Periodic refresh runs every 30 seconds, each request is limited to 5 seconds, and at most four
+Hosts are probed concurrently with no overlapping request for one Host. Periodic refresh retains
+the previous availability while a probe runs; `checking` is used for startup, newly added
+Hosts, and endpoint changes.
 
-Apply only these transitions: successful `authenticateKnownHost` admission and successful pairing
-that durably creates or updates a Known Host in the active session report `online`; an actual
-transport failure to connect during an explicit Known Host attempt reports `offline`. Preserve the
-previous value during reconnect attempts, and report `online` after recovery succeeds. Reconnect
-exhaustion reports `offline` only when typed reconnect failures establish that connection or
-transport reachability failed. Identity mismatch, compatibility failure, protocol response or
-rejection (including retryable protocol errors that exhaust the retry budget), and other semantic
-termination report `unknown`: reconnect `terminal` means stop retrying, not that the Known Host is
-unreachable. Reachability alone also does not authenticate the expected Known Host; if its endpoint
-responds as a different Host, the expected Known Host returns to `unknown`. Explicit
-`DovahLinkClient.disconnect()` reports `unknown` for its admitted Known Host because observation
-was deliberately stopped.
+An authenticated active session for a Known Host is stronger than a probe result: skip that Host
+while its session is healthy and ignore a weaker negative result that races successful admission.
+A compatible sessionless claim with the same Host ID reports `online`; a bounded connection failure
+reports `offline` only when no authenticated session is active. A different Host ID, HTTP rejection,
+malformed response, or incompatible version reports `unknown`, never trust repair or metadata
+mutation. Explicit `DovahLinkClient.disconnect()` ends its admitted Known Host session
+without clearing current reachability evidence; presence monitoring continues. Terminal
+`DovahLinkClient.close()` cancels the monitor, its timer, in-flight probes, and subscriptions; the
+app uses this lifecycle at shutdown.
 Administrative invalidation preserves the previous availability: its typed event requires an
 admitted session and
 does not establish that the Host became unreachable. Compatibility, malformed-protocol, identity,
@@ -87,9 +93,8 @@ credential, and trust outcomes are not blanket transport-failure signals.
 
 Candidate authentication and discovery never update a Known Host's availability based on a claimed
 Host ID. Recovery must carry the verified Known Host relationship ID from the admitted operation;
-do not infer it from an endpoint, display metadata, or discovery. Future TTL or other liveness policy
-belongs inside this SDK availability owner. No timer, polling, or discovery-based liveness policy
-exists today.
+do not infer it from an endpoint, display metadata, or discovery. The monitor owns only bounded
+reachability scheduling; `ReconnectService` remains responsible for recovering an established session.
 
 The owner suppresses equivalent successive projections. After a stream error, it emits the next
 valid complete snapshot even if the projection is unchanged, so subscribers can observe recovery
@@ -133,26 +138,38 @@ implementation exists, so importing or constructing the shared client never cons
 facility. Later Android/iOS storage implementations can provide platform behavior without rewriting
 connection, authentication, or state semantics.
 
-## Local Host discovery
+## Local Host discovery and presence
 
-The Dart SDK owns the current local discovery candidate, `ws://127.0.0.1:58231/`. Discovery uses a
-temporary `DovahLinkClient` with `TransientClientStorage` and no reconnect callback. It connects,
-sends an unpaired `hello`, relies on the ordinary decoder and compatibility check, and disconnects
-in all outcomes. It does not read or mutate consumer storage, use a saved credential, pair, or
-restore subscriptions.
+The Dart SDK locates the current local Host at `ws://127.0.0.1:58231/` through the Host's bounded
+sessionless `GET /.well-known/dovahlink` endpoint. `HostPresenceProbe` reads only the stable Host ID,
+current Host name, and Host release version, applies the existing identity and compatibility
+validation, and closes the HTTP request. It has no consumer storage, credential, pairing, reconnect,
+or protocol-session dependency, and the same probe is used for Known Host reachability.
 
-The candidate endpoint locates a responder. Its protocol-validated `hello_ack` asserts `hostId` and
-`hostName`; this does not cryptographically prove the peer owns a previously known Host identity.
-`hostId` remains the stable DovahLink installation identity, `hostName` is mutable OS display
-metadata, and `endpoint` is the current connection location. The current probe is loopback-only and
-does not implement LAN, mDNS, or other network discovery. A connection failure without an HTTP
-status code returns no candidate. An HTTP response rejecting the WebSocket upgrade includes its
-typed status in `DovahLinkConnectionException`. Without a status, the current transport cannot
-distinguish a refused connection from a peer that accepts TCP and closes before replying; if this
-case needs a different outcome, the transport boundary must provide a typed connect-stage result.
-Malformed protocol, compatibility failures, and a silent or disconnected peer during `hello` also
-remain typed failures. A discovered `hostId` alone must not authorize trust, credential disclosure,
-pairing bypass, durable Known Host updates, or another security-sensitive decision.
+The response is an unauthenticated Host claim. It locates a candidate but does not prove the peer
+owns a previously known identity. `hostId` remains the stable DovahLink installation identity,
+`hostName` is mutable OS display metadata, and `endpoint` is the current WebSocket location. Local
+discovery remains loopback-only and does not implement LAN or mDNS discovery. An unreachable
+endpoint produces no candidate; an HTTP rejection preserves its status in
+`DovahLinkConnectionException`, while malformed metadata and incompatible versions remain typed
+protocol and compatibility failures. A discovered `hostId` alone must not authorize trust,
+credential disclosure, pairing bypass, durable Known Host updates, or another security-sensitive
+decision.
+
+`DovahLinkClient.discoverHosts()` owns the complete runtime candidate projection. It filters each
+validated discovery claim against the latest committed Known Host collection by normalized
+`hostId`, never by endpoint or display name, and suppresses duplicate Host IDs. The current
+projection is available through `candidateHostsChanges`; it is runtime-only and is never written to
+`IClientStorage`. After discovery begins, the client follows committed Known Host changes and
+removes matching candidates automatically, including when pairing commits a new Known Host.
+Discovery generations prevent an older in-flight result from replacing a newer result, and each
+result is reconciled against the latest persisted snapshot before publication. An empty or failed
+probe does not mutate durable Known Hosts; a storage failure prevents successful reconciliation
+and is surfaced through the SDK's typed error/stream conventions. Flutter mirrors this candidate
+stream and `knownHostStatesChanges`; it does not duplicate identity filtering or membership rules.
+
+TODO(SAS): replace the unauthenticated development Host claim with the approved SAS identity
+establishment; a probe's `hostId` is not proof of Host identity.
 
 ## Feature and capability organization
 

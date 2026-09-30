@@ -1,6 +1,6 @@
-/// Host identity and metadata asserted by `hello_ack` or read from SDK persistence, paired with
-/// the location used to reach it. This value does not authenticate a peer or prove it owns a
-/// previously known Host identity.
+/// Host identity and metadata asserted by `hello_ack`, a sessionless presence probe, or SDK
+/// persistence, paired with the location used to reach it. This value does not authenticate a peer
+/// or prove it owns a previously known Host identity.
 final class DovahLinkHost {
   /// The stable DovahLink Host installation identity.
   final String hostId;

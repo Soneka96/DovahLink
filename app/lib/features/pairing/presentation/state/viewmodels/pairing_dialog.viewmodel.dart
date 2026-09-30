@@ -16,24 +16,30 @@ class PairingDialogViewModel extends Equatable {
   /// Creates a pairing dialog ViewModel.
   const PairingDialogViewModel({required this.title});
 
-  /// Builds a ViewModel from the Redux [store]. The title follows the pairing state: it names
-  /// the Host while pairing, and announces when the Host is not running, when trust must be
-  /// repaired or pairing is blocked, and when the device is connected.
+  /// Builds a ViewModel from the Redux [store]. The title follows pairing and SDK session state:
+  /// it names the Host while pairing, announces offline or recovering Known Hosts, and reports
+  /// when trust must be repaired, pairing is blocked, or the device is connected.
   factory PairingDialogViewModel.fromStore(Store<AppState> store) {
     final AppState state = store.state;
     final String hostName =
         ConnectionSelectors.selectedHostNameSelector(state) ??
         PairingSectionViewModel.unknownHostName;
+    final bool isReconnecting =
+        ConnectionSelectors.selectedHostIsRecoveringSelector(state);
     return PairingDialogViewModel(
-      title: switch (PairingSelectors.phaseSelector(state)) {
-        PairingPhase.disconnected => 'Skyrim isn’t running',
-        PairingPhase.trusted => 'Connected',
-        PairingPhase.unpaired when PairingSelectors.isBlockedSelector(state) =>
-          'Device blocked',
-        PairingPhase.unpaired when PairingSelectors.isRepairSelector(state) =>
-          'Pairing required',
-        _ => 'Pair with $hostName',
-      },
+      title: isReconnecting
+          ? 'Reconnecting to $hostName'
+          : switch (PairingSelectors.phaseSelector(state)) {
+              PairingPhase.disconnected => 'Skyrim isn’t running',
+              PairingPhase.trusted => 'Connected',
+              PairingPhase.unpaired
+                  when PairingSelectors.isBlockedSelector(state) =>
+                'Device blocked',
+              PairingPhase.unpaired
+                  when PairingSelectors.isRepairSelector(state) =>
+                'Pairing required',
+              _ => 'Pair with $hostName',
+            },
     );
   }
 

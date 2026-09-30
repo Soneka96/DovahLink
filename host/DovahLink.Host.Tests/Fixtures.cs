@@ -81,14 +81,16 @@ public static class Fixtures
         IClock? clock = null,
         PublicWebSocketTransportOptions? options = null,
         IPublicWebSocketTransportDiagnostics? diagnostics = null,
-        IDataLaneOutboundQueue? dataLaneQueue = null) =>
+        IDataLaneOutboundQueue? dataLaneQueue = null,
+        HostIdentity? hostIdentity = null) =>
         new(
             stream,
             messageHandler,
             clock ?? new SystemClock(),
             options ?? BuildPublicWebSocketTransportOptions(),
             diagnostics ?? new FakePublicWebSocketTransportDiagnostics(),
-            dataLaneQueue ?? new DataLaneOutboundQueue());
+            dataLaneQueue ?? new DataLaneOutboundQueue(),
+            hostIdentity ?? BuildHostIdentity());
 
     // ---- Client dispatch ----
 

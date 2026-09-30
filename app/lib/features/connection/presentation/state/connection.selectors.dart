@@ -1,12 +1,16 @@
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Static selectors over [AppState] for connection presentation state.
 abstract final class ConnectionSelectors {
-  /// The secondary line every Host card shows.
-  static const String hostCardSubtitle = 'DovahLink · Ready to connect';
+  /// The secondary line shown for a Known Host.
+  static const String knownHostCardSubtitle = 'Known Host';
+
+  /// The secondary line shown for an untrusted discovery result.
+  static const String candidateCardSubtitle = 'Discovered candidate';
 
   /// Returns the Hosts available to select.
   static List<Host> hostsSelector(AppState state) => state.connection.hosts;
@@ -32,24 +36,79 @@ abstract final class ConnectionSelectors {
     AppState state,
   ) => state.connection.selectedHostSource;
 
+  /// Returns the candidate whose selection is retained while pairing awaits SDK confirmation.
+  /// @param state The current application state.
+  /// @return The pending candidate Host ID, or `null` when none is retained.
+  static String? pendingPairingHostIdSelector(AppState state) =>
+      state.connection.pendingPairingHostId;
+
+  /// Returns whether the selected Known Host is in SDK-reported bounded recovery.
+  static bool selectedHostIsRecoveringSelector(AppState state) {
+    final Host? selectedHost = selectedHostSelector(state);
+    if (selectedHost == null ||
+        selectedHostSourceSelector(state) !=
+            ConnectionHostSelectionSource.knownHost) {
+      return false;
+    }
+    for (final KnownHost knownHost in state.connection.knownHosts) {
+      if (knownHost.host.hostId == selectedHost.hostId) {
+        return knownHost.sessionState == KnownHostSessionState.reconnecting ||
+            knownHost.sessionState == KnownHostSessionState.reauthenticating;
+      }
+    }
+    return false;
+  }
+
   /// Returns the display name of the Host the user most recently selected, or `null` before any
   /// selection.
   static String? selectedHostNameSelector(AppState state) =>
       selectedHostSelector(state)?.displayName;
 
-  /// Returns one card's display data per Host, in Host order. Reachability is not known on the
-  /// connections screen, so every card is [DovahConnectionCardState.unknown]; its detail is the
-  /// Host endpoint's authority (host and port), or the whole endpoint when it has none.
-  static List<HostCardViewData> hostCardsSelector(AppState state) => [
-    for (final Host host in hostsSelector(state))
-      HostCardViewData(
-        host: host,
-        title: host.displayName,
-        subtitle: hostCardSubtitle,
-        detail: host.uri.authority.isEmpty
-            ? host.uri.toString()
-            : host.uri.authority,
-        state: DovahConnectionCardState.unknown,
-      ),
-  ];
+  /// Returns the SDK-mapped Known Host cards followed by its candidate cards.
+  /// SDK recovery phases override reachability; automatic attempts follow it while pairing is
+  /// disconnected.
+  static List<HostCardViewData> hostCardsSelector(AppState state) {
+    final List<KnownHost> knownHosts = state.connection.knownHosts;
+    return [
+      for (final KnownHost knownHost in knownHosts)
+        HostCardViewData(
+          host: knownHost.host,
+          source: ConnectionHostSelectionSource.knownHost,
+          title: knownHost.host.displayName,
+          subtitle: knownHostCardSubtitle,
+          detail: knownHost.host.uri.authority.isEmpty
+              ? knownHost.host.uri.toString()
+              : knownHost.host.uri.authority,
+          state: switch (knownHost.sessionState) {
+            KnownHostSessionState.connecting
+                when state.pairing.phase != PairingPhase.disconnected =>
+              DovahConnectionCardState.connecting,
+            KnownHostSessionState.connected =>
+              DovahConnectionCardState.connected,
+            KnownHostSessionState.reconnecting ||
+            KnownHostSessionState.reauthenticating =>
+              DovahConnectionCardState.reconnecting,
+            KnownHostSessionState.connecting ||
+            KnownHostSessionState.disconnected =>
+              switch (knownHost.availability) {
+                HostAvailability.checking => DovahConnectionCardState.checking,
+                HostAvailability.unknown => DovahConnectionCardState.unknown,
+                HostAvailability.online => DovahConnectionCardState.available,
+                HostAvailability.offline => DovahConnectionCardState.offline,
+              },
+          },
+        ),
+      for (final Host host in hostsSelector(state))
+        HostCardViewData(
+          host: host,
+          source: ConnectionHostSelectionSource.candidate,
+          title: host.displayName,
+          subtitle: candidateCardSubtitle,
+          detail: host.uri.authority.isEmpty
+              ? host.uri.toString()
+              : host.uri.authority,
+          state: DovahConnectionCardState.unknown,
+        ),
+    ];
+  }
 }

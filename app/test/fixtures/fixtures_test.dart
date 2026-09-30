@@ -133,7 +133,8 @@ void main() {
       expect(card.title, isA<String>());
       expect(card.title, 'Local Host');
       expect(card.subtitle, isA<String>());
-      expect(card.subtitle, 'DovahLink · Ready to connect');
+      expect(card.source, ConnectionHostSelectionSource.candidate);
+      expect(card.subtitle, 'Discovered candidate');
       expect(card.detail, isA<String>());
       expect(card.detail, '127.0.0.1:58231');
       expect(card.state, DovahConnectionCardState.unknown);
@@ -150,6 +151,7 @@ void main() {
       );
 
       expect(card.host, host);
+      expect(card.source, ConnectionHostSelectionSource.candidate);
       expect(card.title, isA<String>());
       expect(card.title, 'Other');
       expect(card.subtitle, isA<String>());

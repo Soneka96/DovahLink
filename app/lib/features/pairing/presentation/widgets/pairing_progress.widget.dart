@@ -9,17 +9,18 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
-/// A pairing state where the client is working or waiting and the user has nothing to enter:
-/// connecting, waiting for the Host to come back, requesting a code (including the moment between
-/// authenticating and the request starting), and confirming one. Each
-/// shows its own copy with a spinner; only the waiting state, which retries silently until the
-/// user leaves, offers a close button.
+/// A pairing state where the client is working or waiting and the user has nothing to enter.
+/// Active work and SDK-reported recovery show a spinner; an offline wait does not. The disconnected
+/// state offers a close button.
 class PairingProgress extends StatelessWidget {
   /// The phase this state presents; one of the phases that only make the user wait.
   final PairingPhase phase;
 
   /// The Host's name, shown in the heading of the waiting state.
   final String hostName;
+
+  /// Whether the selected Known Host is in SDK-reported bounded recovery.
+  final bool isReconnecting;
 
   /// Called when the user closes the waiting state.
   final VoidCallback onClose;
@@ -29,6 +30,7 @@ class PairingProgress extends StatelessWidget {
     required this.phase,
     required this.hostName,
     required this.onClose,
+    this.isReconnecting = false,
     super.key,
   });
 
@@ -37,8 +39,15 @@ class PairingProgress extends StatelessWidget {
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
     final DovahDialogMetrics metrics = context.dovahDialogMetrics;
-    final bool isWaiting = phase == PairingPhase.disconnected;
+    final bool isDisconnected = phase == PairingPhase.disconnected;
+    final bool isWaiting = isDisconnected && !isReconnecting;
+    final bool isWorking = !isDisconnected || isReconnecting;
     final (String heading, String body, String status) = switch (phase) {
+      PairingPhase.disconnected when isReconnecting => (
+        '$hostName is reconnecting',
+        'Restoring the trusted session with Skyrim.',
+        'Reconnecting…',
+      ),
       PairingPhase.disconnected => (
         '$hostName is offline',
         'Start Skyrim and DovahLink will reconnect automatically when the game becomes available.',
@@ -77,8 +86,10 @@ class PairingProgress extends StatelessWidget {
             key: const Key('pairing-status'),
             mainAxisSize: MainAxisSize.min,
             children: [
-              const ExcludeSemantics(child: PairingLoadingIndicator()),
-              const SizedBox(width: DovahDialogMetrics.progressStatusGap),
+              if (isWorking) ...[
+                const ExcludeSemantics(child: PairingLoadingIndicator()),
+                const SizedBox(width: DovahDialogMetrics.progressStatusGap),
+              ],
               Text(
                 status,
                 style: TextStyle(
@@ -89,7 +100,7 @@ class PairingProgress extends StatelessWidget {
             ],
           ),
         ),
-        if (isWaiting) ...[
+        if (isDisconnected) ...[
           SizedBox(height: metrics.actionsTopGap),
           DovahButton(
             key: const Key('pairing-close-button'),

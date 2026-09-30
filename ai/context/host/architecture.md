@@ -82,6 +82,13 @@ The host is the sole new owner of:
 - Diagnostics, host availability, and host-side shutdown. Adapter-side
   discovery and reconnect coordination remain on the native adapter.
 
+The public loopback listener also serves a bounded, sessionless `GET /.well-known/dovahlink`
+response for local discovery and Known Host presence. It contains only the stable Host ID, current
+Host name, and Host release version. Those fields are an unauthenticated Host claim, not proof of
+identity. The listener's raw public-connection bound is the configured active-session capacity plus
+a separately fixed allowance for pre-session connections; `SessionRegistry` remains the sole owner
+of authenticated session admission and its configured `MaxActiveSessions` limit.
+
 ## Per-connection capability boundary
 
 Application, session, and domain code above the transport never resolves which live connection it

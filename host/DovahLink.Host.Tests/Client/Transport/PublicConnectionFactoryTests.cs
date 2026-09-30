@@ -1,6 +1,11 @@
+using System.Net;
+using System.Net.Sockets;
+using System.Text;
+using DovahLink.Host.Identity;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Composition;
 using DovahLink.Host.Security;
+using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
@@ -42,12 +47,65 @@ public class PublicConnectionFactoryTests
         Assert.Equal(secondCapacityBefore, second.RemainingOutboundCapacity(PublicOutboundLane.Data));
     }
 
+    /// <summary>Verifies the production connection factory serves a sessionless probe without changing an already-full session registry.</summary>
+    [Fact]
+    public async Task Create_HostProbeWhileSessionRegistryIsFull_LeavesActiveCountUnchanged()
+    {
+        using ServiceProvider provider = await BuildProviderAsync();
+        IPublicConnectionFactory factory = provider.GetRequiredService<IPublicConnectionFactory>();
+        ISessionRegistry sessionRegistry = provider.GetRequiredService<ISessionRegistry>();
+        bool sessionCreated = sessionRegistry.TryCreate(
+            ClientId.NewId(),
+            ConnectionId.NewId(),
+            SessionAuthenticationSource.TrustedDeviceCredential,
+            SessionTrustTier.Full,
+            out _);
+        Assert.True(sessionCreated);
+
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var client = new TcpClient();
+        await client.ConnectAsync(IPAddress.Loopback, ((IPEndPoint)listener.LocalEndpoint).Port);
+        using TcpClient server = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        IPublicWebSocketConnection connection = factory.Create(server.GetStream());
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await client.GetStream().WriteAsync(Encoding.ASCII.GetBytes(
+            $"GET {PublicWebSocketHandshake.HostProbePath} HTTP/1.1\r\n" +
+            "Host: 127.0.0.1\r\n\r\n"));
+
+        using var response = new MemoryStream();
+        byte[] buffer = new byte[512];
+        while (true)
+        {
+            int read = await client.GetStream().ReadAsync(buffer).AsTask().WaitAsync(TimeSpan.FromSeconds(5));
+            if (read == 0)
+            {
+                break;
+            }
+
+            response.Write(buffer, 0, read);
+        }
+
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.StartsWith("HTTP/1.1 200 OK\r\n", Encoding.UTF8.GetString(response.ToArray()));
+        Assert.Equal(1, sessionRegistry.ActiveCount);
+    }
+
     /// <summary>
     /// Resolves the real, container-registered <see cref="IPublicConnectionFactory"/> from a freshly
     /// composed Core/Trust/AdapterIpc/PublicClient graph -- the same registrations production
     /// composes it with, minus a bound public listener (unneeded for these tests).
     /// </summary>
     private static async Task<IPublicConnectionFactory> BuildFactoryAsync()
+    {
+        ServiceProvider provider = await BuildProviderAsync();
+        return provider.GetRequiredService<IPublicConnectionFactory>();
+    }
+
+    /// <summary>Builds the production public-client dependency graph without binding its listener.</summary>
+    private static async Task<ServiceProvider> BuildProviderAsync()
     {
         using var shutdown = new CancellationTokenSource();
         IClock clock = new SystemClock();
@@ -61,7 +119,6 @@ public class PublicConnectionFactoryTests
         services.AddAdapterIpcServices(listenerPort: 0, ownerLifetimeId: default);
         services.AddPublicClientServices(publicListenerPort: null);
 
-        ServiceProvider provider = services.BuildServiceProvider();
-        return provider.GetRequiredService<IPublicConnectionFactory>();
+        return services.BuildServiceProvider();
     }
 }

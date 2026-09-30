@@ -3,6 +3,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
@@ -19,8 +20,15 @@ AppState buildState({
   String? error,
   PairingCredentialRejectionReason? rejectionReason,
   Host? host,
+  List<KnownHost> knownHosts = const <KnownHost>[],
+  ConnectionHostSelectionSource hostSource =
+      ConnectionHostSelectionSource.candidate,
 }) => AppState(
-  connection: ConnectionState(selectedHost: host),
+  connection: ConnectionState(
+    selectedHost: host,
+    selectedHostSource: hostSource,
+    knownHosts: knownHosts,
+  ),
   pairing: PairingState(
     phase: phase,
     hostVersion: null,
@@ -86,6 +94,49 @@ void main() {
             buildState(phase: PairingPhase.disconnected, host: host),
           ),
           'Skyrim isn’t running',
+        );
+      },
+    );
+
+    test('Method fromStore titles a recovering Known Host as Reconnecting', () {
+      expect(
+        titleFor(
+          store,
+          buildState(
+            phase: PairingPhase.disconnected,
+            host: host,
+            hostSource: ConnectionHostSelectionSource.knownHost,
+            knownHosts: <KnownHost>[
+              Fixtures.buildKnownHost(
+                host: host,
+                sessionState: KnownHostSessionState.reconnecting,
+              ),
+            ],
+          ),
+        ),
+        'Reconnecting to Gaming PC',
+      );
+    });
+
+    test(
+      'Method fromStore lets SDK recovery override a stale trusted pairing phase',
+      () {
+        expect(
+          titleFor(
+            store,
+            buildState(
+              phase: PairingPhase.trusted,
+              host: host,
+              hostSource: ConnectionHostSelectionSource.knownHost,
+              knownHosts: <KnownHost>[
+                Fixtures.buildKnownHost(
+                  host: host,
+                  sessionState: KnownHostSessionState.reconnecting,
+                ),
+              ],
+            ),
+          ),
+          'Reconnecting to Gaming PC',
         );
       },
     );

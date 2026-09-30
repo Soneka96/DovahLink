@@ -1,11 +1,61 @@
 using System.Text;
 using DovahLink.Host.Client.Transport;
+using DovahLink.Host.Identity;
 
 namespace DovahLink.Host.Tests.Client.Transport;
 
 /// <summary>Tests for <see cref="PublicWebSocketHandshake"/>.</summary>
 public class PublicWebSocketHandshakeTests
 {
+    /// <summary>Verifies only the exact sessionless Host probe request line selects the metadata route.</summary>
+    [Fact]
+    public void IsHostProbeRequest_ExactPathAndMethod_Matches()
+    {
+        Assert.True(PublicWebSocketHandshake.IsHostProbeRequest(
+            Encoding.ASCII.GetBytes("GET /.well-known/dovahlink HTTP/1.1\r\nHost: localhost\r\n\r\n")));
+        Assert.False(PublicWebSocketHandshake.IsHostProbeRequest(
+            Encoding.ASCII.GetBytes("GET /.well-known/dovahlink?x=1 HTTP/1.1\r\nHost: localhost\r\n\r\n")));
+        Assert.False(PublicWebSocketHandshake.IsHostProbeRequest(
+            Encoding.ASCII.GetBytes("POST /.well-known/dovahlink HTTP/1.1\r\nHost: localhost\r\n\r\n")));
+    }
+
+    /// <summary>Verifies the probe accepts a bodyless native request and rejects origin, body, and ambiguous headers.</summary>
+    [Fact]
+    public void IsValidHostProbeRequest_EnforcesNativeBodylessHeaders()
+    {
+        Assert.True(PublicWebSocketHandshake.IsValidHostProbeRequest(
+            Encoding.ASCII.GetBytes("GET /.well-known/dovahlink HTTP/1.1\r\nHost: localhost\r\n\r\n")));
+        Assert.False(PublicWebSocketHandshake.IsValidHostProbeRequest(
+            Encoding.ASCII.GetBytes("GET /.well-known/dovahlink HTTP/1.1\r\nHost: localhost\r\nOrigin: null\r\n\r\n")));
+        Assert.False(PublicWebSocketHandshake.IsValidHostProbeRequest(
+            Encoding.ASCII.GetBytes("GET /.well-known/dovahlink HTTP/1.1\r\nHost: localhost\r\nContent-Length: 1\r\n\r\n")));
+        Assert.False(PublicWebSocketHandshake.IsValidHostProbeRequest(
+            Encoding.ASCII.GetBytes("GET /.well-known/dovahlink HTTP/1.1\r\nHost: localhost\r\nTransfer-Encoding: chunked\r\n\r\n")));
+        Assert.False(PublicWebSocketHandshake.IsValidHostProbeRequest(
+            Encoding.ASCII.GetBytes("GET /.well-known/dovahlink HTTP/1.1\r\nHost: localhost\r\nContent-Length: 0\r\nContent-Length: 0\r\n\r\n")));
+        Assert.False(PublicWebSocketHandshake.IsValidHostProbeRequest(
+            Encoding.ASCII.GetBytes("GET /.well-known/dovahlink HTTP/1.1\r\nHost: localhost\r\nhost: other\r\n\r\n")));
+    }
+
+    /// <summary>Verifies the response contains only public Host fields and stays within its fixed body bound.</summary>
+    [Fact]
+    public void BuildHostProbeResponse_ContainsBoundedPublicMetadata()
+    {
+        HostIdentity identity = Fixtures.BuildHostIdentity();
+        byte[] response = PublicWebSocketHandshake.BuildHostProbeResponse(identity);
+        string rawResponse = Encoding.UTF8.GetString(response);
+        string[] parts = rawResponse.Split("\r\n\r\n", 2, StringSplitOptions.None);
+
+        Assert.StartsWith("HTTP/1.1 200 OK\r\n", rawResponse);
+        Assert.Contains("Connection: close\r\n", parts[0]);
+        Assert.True(Encoding.UTF8.GetByteCount(parts[1]) <= Constants.PublicHostProbeMaxResponseBytes);
+        using System.Text.Json.JsonDocument document = System.Text.Json.JsonDocument.Parse(parts[1]);
+        Assert.Equal(3, document.RootElement.EnumerateObject().Count());
+        Assert.Equal(identity.HostId.ToString(), document.RootElement.GetProperty("hostId").GetString());
+        Assert.Equal(identity.HostName, document.RootElement.GetProperty("hostName").GetString());
+        Assert.Equal(Constants.PublicProtocolHostVersion, document.RootElement.GetProperty("hostVersion").GetString());
+    }
+
     /// <summary>Verifies the RFC 6455 section 1.3 example key against its documented accept value.</summary>
     [Fact]
     public void TryParseUpgradeRequest_Rfc6455ExampleKey_ComputesTheDocumentedAcceptValue()

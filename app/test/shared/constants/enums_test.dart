@@ -61,11 +61,24 @@ void main() {
   });
 
   group('Behavior values in HostAvailability behave correctly', () {
-    test('HostAvailability values contain only the three runtime states', () {
+    test('HostAvailability values contain every runtime state', () {
       expect(HostAvailability.values, [
         HostAvailability.unknown,
         HostAvailability.online,
         HostAvailability.offline,
+        HostAvailability.checking,
+      ]);
+    });
+  });
+
+  group('Behavior values in KnownHostSessionState behave correctly', () {
+    test('KnownHostSessionState lists each session lifecycle phase', () {
+      expect(KnownHostSessionState.values, [
+        KnownHostSessionState.disconnected,
+        KnownHostSessionState.connecting,
+        KnownHostSessionState.connected,
+        KnownHostSessionState.reconnecting,
+        KnownHostSessionState.reauthenticating,
       ]);
     });
   });
@@ -183,8 +196,10 @@ void main() {
     test(
       'Property label in DovahConnectionCardState returns the concise label for every state',
       () {
+        expect(DovahConnectionCardState.checking.label, isA<String>());
+        expect(DovahConnectionCardState.checking.label, 'Checking…');
         expect(DovahConnectionCardState.available.label, isA<String>());
-        expect(DovahConnectionCardState.available.label, 'Connected');
+        expect(DovahConnectionCardState.available.label, 'Online');
         expect(DovahConnectionCardState.unknown.label, isA<String>());
         expect(DovahConnectionCardState.unknown.label, 'Not connected');
         expect(DovahConnectionCardState.offline.label, isA<String>());

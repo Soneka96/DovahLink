@@ -138,5 +138,6 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
             clock,
             new PublicWebSocketTransportOptions(),
             diagnostics,
-            new DataLaneOutboundQueue());
+            new DataLaneOutboundQueue(),
+            hostIdentity);
 }

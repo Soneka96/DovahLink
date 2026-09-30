@@ -79,24 +79,32 @@ fabricate the resulting authoritative Host, session, trust, pairing, or game sta
 success.
 
 For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
-of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with `HostAvailability`;
-discovery candidates and selected-Host state remain `Host` values without availability. The SDK owns
-the runtime projection, and Flutter maps its `DovahLinkKnownHostState` values into `KnownHost` before
-they enter Redux. `knownHostsStatus` starts as `loading`, becomes `ready` on any complete snapshot
+of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with independent
+`HostAvailability` and `KnownHostSessionState` values. An admitted session renders `Connected`;
+bounded recovery renders `Reconnecting`, and explicit attempts render `Connecting`. During automatic
+retries, a transient `connecting` phase follows reachability while pairing remains disconnected, so
+an offline Known Host card stays `Offline`. A disconnected Known Host also falls back to reachability
+(`Online`, `Offline`, `Checking`, or unknown). Discovery candidates and selected-Host state remain
+`Host` values without availability. The SDK owns both the complete Known Host runtime projection and
+the reconciled candidate collection; Flutter maps each stream independently into Redux. Candidate
+membership already excludes normalized Host IDs in the authoritative Known Host collection. Flutter
+does not filter, merge, or reinterpret the two collections.
+`knownHostsStatus` starts as `loading`, becomes `ready` on any complete snapshot
 (including an empty one), and becomes `failed` on a stream error. An observation error preserves the
 last successful `knownHosts` value; a later snapshot restores `ready`.
-`ConnectionKnownHostsChangedAction` replaces the entire list; pairing actions and discovery results
-do not derive or change it. `ConnectionMiddleware` owns the stream subscription. `HostMapper.fromSdk`
-converts SDK `DovahLinkHost` values to app `Host` values, while `HostMapper.fromSdkKnownHostState`
-converts the SDK runtime projection to `KnownHost`. Discovery remains a command/result that returns
-reachable Host candidates. A candidate, including one whose claimed `hostId` matches a Known Host,
-does not establish identity, trust, or authorization and does not mutate Known Hosts state.
+`ConnectionKnownHostsChangedAction` and `ConnectionCandidatesChangedAction` each mirror the entire
+SDK projection. `ConnectionMiddleware` owns both stream subscriptions; `HostMapper.fromSdk` maps
+SDK `DovahLinkHost` values to app `Host` values, while `HostMapper.fromSdkKnownHostState` maps the
+runtime projection to `KnownHost`. Discovery calls `DovahLinkClient.discoverHosts()` on the
+application's shared SDK client. Empty or failed discovery does not remove saved Known Hosts, and a
+failed request preserves the SDK's last candidate collection.
 
 Host selection records whether the selected `Host` is an ephemeral discovery candidate or durable
-Known Host intent. Discovery refresh clears a candidate selection when its endpoint disappears or
-discovery fails, and keeps it when that endpoint remains. Discovery loss does not clear a Known Host
-selection. Pairing sends candidate endpoints through candidate authentication and Known Host IDs
-through `authenticateKnownHost`; it never sends a mapped Host snapshot as an SDK command.
+Known Host intent. Selection refreshes and card keys use normalized Host IDs, so endpoint changes
+preserve the same Host selection and widget identity. When an SDK candidate disappears, its
+candidate selection is cleared; after the SDK confirms pairing, the selected target uses Known Host
+authentication. Pairing sends candidate endpoints through candidate authentication and Known Host
+IDs through `authenticateKnownHost`; it never sends a mapped Host snapshot as an SDK command.
 
 ## Feature structure
 
@@ -293,13 +301,13 @@ app-owned values before it enters app state or other layers.
 ## Application shutdown
 
 `AppShutdownService` is platform-neutral and owns one idempotent, three-second cleanup budget. It
-starts `PairingMiddleware.shutdown()` first and then starts SDK disconnect before awaiting either
-operation. Pairing shutdown immediately blocks new pairing work; SDK disconnect immediately
-invalidates pending authentication and reconnect work. The pairing client registration records its
-instance in the app lifecycle holder; shutdown must not resolve the lazy client registration just to
-disconnect an unused client. Late authentication, code-request, or confirmation results cannot
-dispatch follow-up pairing work after shutdown begins. The SDK disconnect is the final cleanup step,
-so late completions start no further application work. Windows registers `WindowsLifecycleBridge`,
+starts `PairingMiddleware.shutdown()` first and then starts SDK close before awaiting either
+operation. Pairing shutdown immediately blocks new pairing work; SDK close stops its Known Host
+monitor and invalidates pending authentication and reconnect work. The pairing client registration
+records its instance in the app lifecycle holder; shutdown must not resolve the lazy client
+registration just to close an unused client. Late authentication, code-request, or confirmation
+results cannot dispatch follow-up pairing work after shutdown begins. SDK close is the final cleanup
+step, so late completions start no further application work. Windows registers `WindowsLifecycleBridge`,
 which forwards native close and session-ending requests to the shared service. Android and iOS do not
 register that bridge, and
 ordinary background/pause lifecycle events do not invoke application shutdown.
