@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -256,6 +257,12 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingCodeSubmittedAction action,
   ) async {
+    // The SDK candidate stream can remove this selection before confirmation completes.
+    final Host? selectedHost = ConnectionSelectors.selectedHostSelector(
+      store.state,
+    );
+    final ConnectionHostSelectionSource selectedHostSource =
+        ConnectionSelectors.selectedHostSourceSelector(store.state);
     final result = await sl<ConfirmPairingCodeUseCase>()(
       ConfirmPairingCodeParams(
         code: action.code,
@@ -282,6 +289,15 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       },
       (_) {
         store.dispatch(const PairingConfirmedAction());
+        if (selectedHost != null &&
+            selectedHostSource == ConnectionHostSelectionSource.candidate) {
+          store.dispatch(
+            ConnectionHostSelectedAction(
+              selectedHost,
+              source: ConnectionHostSelectionSource.knownHost,
+            ),
+          );
+        }
         store.dispatch(const PairingSessionTrustedAction());
       },
     );

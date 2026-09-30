@@ -216,7 +216,7 @@ void main() {
               findsOneWidget,
             );
             expect(find.text('Discover Skyrim'), findsOneWidget);
-            expect(find.text('MY SKYRIM PCS'), findsOneWidget);
+            expect(find.text('AVAILABLE'), findsOneWidget);
             expect(
               find.text(
                 'Trusted PCs reconnect automatically when Skyrim becomes available.',
@@ -235,6 +235,7 @@ void main() {
       'ConnectionsScreen contains every Host when more than four are supplied',
       (WidgetTester tester) async {
         final Host second = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
           displayName: 'Second Host',
           uri: Uri.parse('ws://192.168.1.11:2000/'),
         );
@@ -245,9 +246,14 @@ void main() {
             title: 'Second Host',
             detail: '192.168.1.11:2000',
           ),
-          for (final int hostNumber in <int>[12, 13, 14])
+          for (final (int hostNumber, String hostId) in <(int, String)>[
+            (12, '82f6cc90-3a88-40c7-8351-104d4a36c972'),
+            (13, '83f6cc90-3a88-40c7-8351-104d4a36c973'),
+            (14, '84f6cc90-3a88-40c7-8351-104d4a36c974'),
+          ])
             Fixtures.buildHostCardViewData(
               host: Fixtures.buildHost(
+                hostId: hostId,
                 displayName: 'Host $hostNumber',
                 uri: Uri.parse('ws://192.168.1.$hostNumber:2000/'),
               ),
@@ -261,11 +267,15 @@ void main() {
 
         expect(find.byType(DovahConnectionCard), findsNWidgets(5));
         expect(
-          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
+          find.byKey(
+            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
+          ),
           findsOneWidget,
         );
         expect(
-          find.byKey(const Key('host-card-candidate-ws://192.168.1.11:2000/')),
+          find.byKey(
+            const Key('host-card-81f6cc90-3a88-40c7-8351-104d4a36c971'),
+          ),
           findsOneWidget,
         );
         expect(find.text('192.168.1.11:2000'), findsOneWidget);
@@ -276,7 +286,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen shows same-endpoint Known Host and candidate entries separately',
+      'ConnectionsScreen shows different Hosts at one endpoint separately',
       (WidgetTester tester) async {
         final Host host = Fixtures.buildHost();
         when(() => viewModel.hostCards).thenReturn([
@@ -286,7 +296,12 @@ void main() {
             subtitle: 'Known Host',
             state: DovahConnectionCardState.offline,
           ),
-          Fixtures.buildHostCardViewData(host: host),
+          Fixtures.buildHostCardViewData(
+            host: Fixtures.buildHost(
+              hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+              uri: host.uri,
+            ),
+          ),
         ]);
 
         await tester.pumpWidget(buildWidget());
@@ -295,11 +310,15 @@ void main() {
         expect(find.text('Known Host'), findsOneWidget);
         expect(find.text('Discovered candidate'), findsOneWidget);
         expect(
-          find.byKey(const Key('host-card-knownHost-ws://127.0.0.1:58231/')),
+          find.byKey(
+            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
+          ),
           findsOneWidget,
         );
         expect(
-          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
+          find.byKey(
+            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
+          ),
           findsOneWidget,
         );
       },
@@ -409,7 +428,9 @@ void main() {
         await tester.pumpWidget(buildWidget());
 
         await tester.tap(
-          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
+          find.byKey(
+            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
+          ),
         );
         await tester.pump();
 
@@ -429,12 +450,13 @@ void main() {
             subtitle: 'Known Host',
             state: DovahConnectionCardState.offline,
           ),
-          Fixtures.buildHostCardViewData(host: host),
         ]);
 
         await tester.pumpWidget(buildWidget());
         await tester.tap(
-          find.byKey(const Key('host-card-knownHost-ws://127.0.0.1:58231/')),
+          find.byKey(
+            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
+          ),
         );
         await tester.pump();
 
@@ -447,10 +469,12 @@ void main() {
       'ConnectionsScreen passes the second Host, not the first, when the second card is tapped',
       (WidgetTester tester) async {
         final Host first = Fixtures.buildHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
           displayName: 'First Host',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
         final Host second = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
           displayName: 'Second Host',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
@@ -462,7 +486,9 @@ void main() {
         await tester.pumpWidget(buildWidget());
 
         await tester.tap(
-          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:2/')),
+          find.byKey(
+            const Key('host-card-81f6cc90-3a88-40c7-8351-104d4a36c971'),
+          ),
         );
         await tester.pump();
 
@@ -474,10 +500,12 @@ void main() {
       'ConnectionsScreen distinguishes and selects Hosts with identical display names',
       (WidgetTester tester) async {
         final Host first = Fixtures.buildHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
         final Host second = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
@@ -493,16 +521,22 @@ void main() {
 
         expect(find.text('Shared Host Name'), findsNWidgets(2));
         expect(
-          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:1/')),
+          find.byKey(
+            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
+          ),
           findsOneWidget,
         );
         expect(
-          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:2/')),
+          find.byKey(
+            const Key('host-card-81f6cc90-3a88-40c7-8351-104d4a36c971'),
+          ),
           findsOneWidget,
         );
 
         await tester.tap(
-          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:2/')),
+          find.byKey(
+            const Key('host-card-81f6cc90-3a88-40c7-8351-104d4a36c971'),
+          ),
         );
         await tester.pump();
 
@@ -552,10 +586,14 @@ void main() {
   group('ConnectionsScreen opens the pairing UI', () {
     /// Taps the card keyed for [uri] and settles the dialog's opening transition.
     Future<void> tapHost(WidgetTester tester, String uri) async {
+      final HostCardViewData card = viewModel.hostCards.firstWhere(
+        (HostCardViewData card) => card.host.uri.toString() == uri,
+      );
+      final Key key = Key('host-card-${card.host.hostId}');
       // A window below the root's minimum width scrolls sideways, so bring the card into view.
-      await tester.ensureVisible(find.byKey(Key('host-card-candidate-$uri')));
+      await tester.ensureVisible(find.byKey(key));
       await tester.pump();
-      await tester.tap(find.byKey(Key('host-card-candidate-$uri')));
+      await tester.tap(find.byKey(key));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 500));
     }
@@ -610,10 +648,12 @@ void main() {
       'ConnectionsScreen selects the second Host and opens the pairing dialog when it is tapped',
       (WidgetTester tester) async {
         final Host first = Fixtures.buildHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
           displayName: 'First Host',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
         final Host second = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
           displayName: 'Second Host',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
@@ -635,10 +675,12 @@ void main() {
       'ConnectionsScreen selects the tapped Host by identity when Hosts share a display name',
       (WidgetTester tester) async {
         final Host first = Fixtures.buildHost(
+          hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:1/'),
         );
         final Host second = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
           displayName: 'Shared Host Name',
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
@@ -751,7 +793,9 @@ void main() {
         await tapHost(tester, 'ws://127.0.0.1:58231/');
 
         await tester.tap(
-          find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
+          find.byKey(
+            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
+          ),
           warnIfMissed: false,
         );
         await tester.pump();
@@ -859,7 +903,7 @@ void main() {
 
       await tester.pumpWidget(buildWidget());
 
-      expect(find.text('No local Hosts found.'), findsOneWidget);
+      expect(find.text('No new local Hosts found.'), findsOneWidget);
       expect(find.byType(DovahConnectionCard), findsNothing);
     });
 

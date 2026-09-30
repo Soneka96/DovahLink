@@ -48,6 +48,21 @@ class ConnectionKnownHostsObservationFailedAction extends Equatable {
   List<Object?> get props => [];
 }
 
+/// Carries the complete candidate collection reported by the SDK.
+class ConnectionCandidatesChangedAction extends Equatable {
+  /// The complete app-mapped candidate collection.
+  final List<Host> hosts;
+
+  /// Creates an immutable candidate projection action.
+  /// @param hosts The complete SDK-reported candidate collection.
+  ConnectionCandidatesChangedAction(List<Host> hosts)
+    : hosts = List<Host>.unmodifiable(hosts);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hosts];
+}
+
 /// Requests a fresh Host discovery operation.
 class ConnectionDiscoveryRequestedAction extends Equatable {
   /// Creates a discovery request action.

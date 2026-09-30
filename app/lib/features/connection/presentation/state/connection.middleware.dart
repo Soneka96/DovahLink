@@ -12,11 +12,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show
-        DovahLinkClient,
-        DovahLinkHost,
-        DovahLinkKnownHostState,
-        IDovahLinkDiscoveryService;
+    show DovahLinkClient, DovahLinkHost, DovahLinkKnownHostState;
 
 /// Defines the connection feature's Redux middleware contract.
 abstract interface class IConnectionMiddleware {
@@ -36,9 +32,14 @@ abstract interface class IConnectionMiddleware {
 class ConnectionMiddleware extends MiddlewareClass<AppState>
     implements IConnectionMiddleware {
   /// The active SDK subscriptions, keyed by their Redux stores.
-  final Map<Store<AppState>, StreamSubscription<List<DovahLinkKnownHostState>>>
-  _knownHostSubscriptions =
-      <Store<AppState>, StreamSubscription<List<DovahLinkKnownHostState>>>{};
+  final Map<
+    Store<AppState>,
+    ({
+      StreamSubscription<List<DovahLinkKnownHostState>> knownHosts,
+      StreamSubscription<List<DovahLinkHost>> candidates,
+    })
+  >
+  _subscriptions = {};
 
   /// The shared cancellation future returned to repeated shutdown callers.
   Future<void>? _shutdownFuture;
@@ -62,10 +63,11 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
   /// Implements [IConnectionMiddleware.initialize].
   @override
   void initialize(Store<AppState> store) {
-    if (_isShuttingDown || _knownHostSubscriptions.containsKey(store)) {
+    if (_isShuttingDown || _subscriptions.containsKey(store)) {
       return;
     }
-    _knownHostSubscriptions[store] = sl<DovahLinkClient>()
+    final DovahLinkClient client = sl<DovahLinkClient>();
+    final StreamSubscription<List<DovahLinkKnownHostState>> knownHosts = client
         .knownHostStatesChanges
         .listen(
           (List<DovahLinkKnownHostState> sdkKnownHosts) {
@@ -94,18 +96,53 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
             );
           },
         );
+    final StreamSubscription<List<DovahLinkHost>> candidates = client
+        .candidateHostsChanges
+        .listen(
+          (List<DovahLinkHost> sdkCandidates) {
+            if (!_isShuttingDown) {
+              store.dispatch(
+                ConnectionCandidatesChangedAction(
+                  sdkCandidates.map(HostMapper.fromSdk).toList(growable: false),
+                ),
+              );
+            }
+          },
+          onError: (Object error, StackTrace stackTrace) {
+            if (!_isShuttingDown) {
+              store.dispatch(
+                ConnectionDiscoveryFailedAction(
+                  ConnectionFailureReason.fromDiscoveryError(error),
+                ),
+              );
+            }
+            FlutterError.reportError(
+              FlutterErrorDetails(
+                exception: error,
+                stack: stackTrace,
+                library: 'DovahLink candidates observation',
+              ),
+            );
+          },
+        );
+    _subscriptions[store] = (knownHosts: knownHosts, candidates: candidates);
   }
 
   /// Implements [IConnectionMiddleware.shutdown].
   @override
   Future<void> shutdown() {
     _isShuttingDown = true;
-    return _shutdownFuture ??= Future.wait<void>(
-      _knownHostSubscriptions.values.map(
-        (StreamSubscription<List<DovahLinkKnownHostState>> subscription) =>
-            subscription.cancel(),
-      ),
-    ).then((_) => _knownHostSubscriptions.clear());
+    return _shutdownFuture ??= Future.wait<void>([
+      for (final ({
+            StreamSubscription<List<DovahLinkKnownHostState>> knownHosts,
+            StreamSubscription<List<DovahLinkHost>> candidates,
+          })
+          subscriptions
+          in _subscriptions.values) ...[
+        subscriptions.knownHosts.cancel(),
+        subscriptions.candidates.cancel(),
+      ],
+    ]).then((_) => _subscriptions.clear());
   }
 
   /// Handles [ConnectionDiscoveryRequestedAction] through the SDK boundary.
@@ -119,8 +156,8 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
 
     store.dispatch(const ConnectionDiscoveryStartedAction());
     try {
-      final List<DovahLinkHost> discoveredHosts =
-          await sl<IDovahLinkDiscoveryService>().discover();
+      final List<DovahLinkHost> discoveredHosts = await sl<DovahLinkClient>()
+          .discoverHosts();
       store.dispatch(
         ConnectionDiscoverySucceededAction(
           discoveredHosts.map(HostMapper.fromSdk).toList(growable: false),

@@ -315,12 +315,15 @@ void main() {
     );
 
     test(
-      'Selector hostCardsSelector keeps Known Hosts and candidates separate when IDs match',
+      'Selector hostCardsSelector passes through the SDK candidate projection',
       () {
         final Host knownHostHost = Fixtures.buildHost(
           uri: Uri.parse('ws://127.0.0.1:58231/'),
         );
-        final Host candidate = Fixtures.buildHost(uri: knownHostHost.uri);
+        final Host candidate = Fixtures.buildHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          uri: knownHostHost.uri,
+        );
         final Host unrelatedCandidate = Fixtures.buildHost(
           hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
         );
@@ -337,7 +340,6 @@ void main() {
               ),
             );
 
-        expect(candidate.hostId, knownHostHost.hostId);
         expect(cards, hasLength(3));
         expect(cards.map((HostCardViewData card) => card.host), [
           knownHostHost,
@@ -349,10 +351,6 @@ void main() {
           ConnectionHostSelectionSource.candidate,
           ConnectionHostSelectionSource.candidate,
         ]);
-        expect(
-          cards.map((HostCardViewData card) => card.claimsKnownHostIdentity),
-          [false, true, false],
-        );
         expect(cards[1].state, DovahConnectionCardState.unknown);
       },
     );

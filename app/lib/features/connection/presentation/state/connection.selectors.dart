@@ -41,14 +41,10 @@ abstract final class ConnectionSelectors {
   static String? selectedHostNameSelector(AppState state) =>
       selectedHostSelector(state)?.displayName;
 
-  /// Returns Known Host cards followed by discovery candidate cards, without merging their
-  /// identities. Session phases override weaker reachability evidence. Candidate identity matches
-  /// are exposed as unverified presentation data only and leave selection source unchanged.
+  /// Returns the SDK-mapped Known Host cards followed by its candidate cards.
+  /// Session phases override weaker reachability evidence.
   static List<HostCardViewData> hostCardsSelector(AppState state) {
     final List<KnownHost> knownHosts = state.connection.knownHosts;
-    final Set<String> knownHostIds = knownHosts
-        .map((KnownHost knownHost) => knownHost.host.hostId)
-        .toSet();
     return [
       for (final KnownHost knownHost in knownHosts)
         HostCardViewData(
@@ -86,7 +82,6 @@ abstract final class ConnectionSelectors {
               ? host.uri.toString()
               : host.uri.authority,
           state: DovahConnectionCardState.unknown,
-          claimsKnownHostIdentity: knownHostIds.contains(host.hostId),
         ),
     ];
   }

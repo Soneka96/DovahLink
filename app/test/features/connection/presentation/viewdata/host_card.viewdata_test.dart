@@ -28,7 +28,6 @@ void main() {
         Fixtures.buildHostCardViewData(subtitle: 'Other'),
         Fixtures.buildHostCardViewData(detail: 'Other'),
         Fixtures.buildHostCardViewData(state: DovahConnectionCardState.repair),
-        Fixtures.buildHostCardViewData(claimsKnownHostIdentity: true),
       ];
 
       for (final HostCardViewData other in others) {

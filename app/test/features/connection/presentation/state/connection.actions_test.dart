@@ -78,6 +78,26 @@ void main() {
   );
 
   group(
+    'Behavior equality in ConnectionCandidatesChangedAction behaves correctly',
+    () {
+      test(
+        'ConnectionCandidatesChangedAction carries an immutable complete projection',
+        () {
+          final List<Host> hosts = <Host>[Fixtures.buildHost()];
+          final ConnectionCandidatesChangedAction action =
+              ConnectionCandidatesChangedAction(hosts);
+
+          expect(action.hosts, hosts);
+          expect(
+            () => action.hosts.add(Fixtures.buildHost()),
+            throwsUnsupportedError,
+          );
+        },
+      );
+    },
+  );
+
+  group(
     'Behavior equality in ConnectionDiscoveryRequestedAction behaves correctly',
     () {
       test('ConnectionDiscoveryRequestedAction values compare equal', () {

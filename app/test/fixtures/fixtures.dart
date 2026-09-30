@@ -76,9 +76,6 @@ abstract final class Fixtures {
 
     /// The card's visual state.
     DovahConnectionCardState state = DovahConnectionCardState.unknown,
-
-    /// Whether an unverified candidate claim matches a saved Host ID.
-    bool claimsKnownHostIdentity = false,
   }) => HostCardViewData(
     host: host ?? buildHost(),
     source: source,
@@ -86,7 +83,6 @@ abstract final class Fixtures {
     subtitle: subtitle,
     detail: detail,
     state: state,
-    claimsKnownHostIdentity: claimsKnownHostIdentity,
   );
 
   /// Builds an SDK Known Host state around [host].

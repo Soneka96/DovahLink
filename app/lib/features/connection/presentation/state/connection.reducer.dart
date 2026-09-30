@@ -2,6 +2,7 @@ import 'package:fpdart/fpdart.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -13,6 +14,9 @@ Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
   ).call,
   TypedReducer<ConnectionState, ConnectionKnownHostsChangedAction>(
     connectionKnownHostChangedReducer,
+  ).call,
+  TypedReducer<ConnectionState, ConnectionCandidatesChangedAction>(
+    connectionCandidatesChangedReducer,
   ).call,
   TypedReducer<ConnectionState, ConnectionKnownHostsObservationFailedAction>(
     connectionKnownHostsObservationFailedReducer,
@@ -34,10 +38,49 @@ Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
 ConnectionState connectionKnownHostChangedReducer(
   ConnectionState state,
   ConnectionKnownHostsChangedAction action,
-) => state.copyWith(
-  knownHosts: action.knownHosts,
-  knownHostsStatus: KnownHostsObservationStatus.ready,
-);
+) {
+  Option<Host>? selectedHost;
+  final Host? selected = state.selectedHost;
+  if (selected != null &&
+      state.selectedHostSource == ConnectionHostSelectionSource.knownHost) {
+    Host? current;
+    for (final KnownHost knownHost in action.knownHosts) {
+      if (knownHost.host.hostId == selected.hostId) {
+        current = knownHost.host;
+        break;
+      }
+    }
+    selectedHost = current == null ? const None() : Some(current);
+  }
+  return state.copyWith(
+    knownHosts: action.knownHosts,
+    knownHostsStatus: KnownHostsObservationStatus.ready,
+    selectedHost: selectedHost,
+  );
+}
+
+/// Replaces candidates with the SDK projection and resolves candidate selection by Host ID.
+/// @param state The current connection projection.
+/// @param action The complete candidate collection reported by the SDK.
+ConnectionState connectionCandidatesChangedReducer(
+  ConnectionState state,
+  ConnectionCandidatesChangedAction action,
+) {
+  Option<Host>? selectedHost;
+  final Host? selected = state.selectedHost;
+  if (selected != null &&
+      state.selectedHostSource == ConnectionHostSelectionSource.candidate) {
+    Host? current;
+    for (final Host candidate in action.hosts) {
+      if (candidate.hostId == selected.hostId) {
+        current = candidate;
+        break;
+      }
+    }
+    selectedHost = current == null ? const None() : Some(current);
+  }
+  return state.copyWith(hosts: action.hosts, selectedHost: selectedHost);
+}
 
 /// Marks the SDK Known Hosts observation unhealthy without discarding its last complete snapshot.
 /// @param state The current connection projection.
@@ -64,7 +107,6 @@ ConnectionState connectionDiscoveryStartedReducer(
   ConnectionState state,
   ConnectionDiscoveryStartedAction action,
 ) => state.copyWith(
-  hosts: const <Host>[],
   discoveryStatus: ConnectionDiscoveryStatus.discovering,
   discoveryFailure: const None(),
 );
@@ -75,15 +117,12 @@ ConnectionState connectionDiscoverySucceededReducer(
   ConnectionState state,
   ConnectionDiscoverySucceededAction action,
 ) {
-  final Host? selectedHost = state.selectedHost;
-  final bool selectedCandidateDisappeared =
-      state.selectedHostSource == ConnectionHostSelectionSource.candidate &&
-      selectedHost != null &&
-      !action.hosts.any((Host candidate) => candidate.uri == selectedHost.uri);
-  return state.copyWith(
-    hosts: action.hosts,
-    selectedHost: selectedCandidateDisappeared ? const None() : null,
-    discoveryStatus: action.hosts.isEmpty
+  final ConnectionState withCandidates = connectionCandidatesChangedReducer(
+    state,
+    ConnectionCandidatesChangedAction(action.hosts),
+  );
+  return withCandidates.copyWith(
+    discoveryStatus: withCandidates.hosts.isEmpty
         ? ConnectionDiscoveryStatus.empty
         : ConnectionDiscoveryStatus.available,
     discoveryFailure: const None(),
@@ -96,11 +135,6 @@ ConnectionState connectionDiscoveryFailedReducer(
   ConnectionState state,
   ConnectionDiscoveryFailedAction action,
 ) => state.copyWith(
-  hosts: const <Host>[],
-  selectedHost:
-      state.selectedHostSource == ConnectionHostSelectionSource.candidate
-      ? const None()
-      : null,
   discoveryStatus: ConnectionDiscoveryStatus.failed,
   discoveryFailure: Some(action.failure),
 );

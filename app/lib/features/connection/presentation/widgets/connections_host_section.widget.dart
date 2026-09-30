@@ -36,16 +36,17 @@ class ConnectionsHostSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
-    final String sectionLabel =
-        discoveryStatus == ConnectionDiscoveryStatus.available
-        ? 'AVAILABLE'
-        : 'MY SKYRIM PCS';
+    final bool hasCandidates = cards.any(
+      (HostCardViewData card) =>
+          card.source == ConnectionHostSelectionSource.candidate,
+    );
+    final String sectionLabel = hasCandidates ? 'AVAILABLE' : 'MY SKYRIM PCS';
     final String? discoveryMessage = switch (discoveryStatus) {
       ConnectionDiscoveryStatus.idle ||
       ConnectionDiscoveryStatus.available => null,
       ConnectionDiscoveryStatus.discovering =>
         'Searching for DovahLink on this PC…',
-      ConnectionDiscoveryStatus.empty => 'No local Hosts found.',
+      ConnectionDiscoveryStatus.empty => 'No new local Hosts found.',
       ConnectionDiscoveryStatus.failed =>
         (discoveryFailure ?? ConnectionFailureReason.unknown).message,
     };
@@ -115,7 +116,7 @@ class ConnectionsHostSection extends StatelessWidget {
           itemBuilder: (BuildContext context, int index) {
             final HostCardViewData card = cards[index];
             return DovahConnectionCard(
-              key: Key('host-card-${card.source.name}-${card.host.uri}'),
+              key: Key('host-card-${card.host.hostId}'),
               title: card.title,
               subtitle: card.subtitle,
               detail: card.detail,

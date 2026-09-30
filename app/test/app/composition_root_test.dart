@@ -32,16 +32,11 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         DovahLinkClient,
         DovahLinkTrustState,
         HelloResult,
-        IClientStorage,
-        IDovahLinkDiscoveryService;
+        IClientStorage;
 
 /// Mocks async preference reads for composition-root tests.
 class MockSharedPreferencesAsync extends Mock
     implements SharedPreferencesAsync {}
-
-/// Mocks SDK local discovery for composition-root tests.
-class MockDovahLinkDiscoveryService extends Mock
-    implements IDovahLinkDiscoveryService {}
 
 /// Mocks the SDK client that supplies Known Host state during store creation.
 class MockDovahLinkClient extends Mock implements DovahLinkClient {}
@@ -54,15 +49,11 @@ class MockClientStorage extends Mock implements IClientStorage {}
 /// correctly, not a second suite for any one collaborator's own behavior.
 void main() {
   late MockSharedPreferencesAsync preferences;
-  late MockDovahLinkDiscoveryService discoveryService;
 
   setUp(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
     await sl.reset();
     await initDependencies();
-    discoveryService = MockDovahLinkDiscoveryService();
-    await sl.unregister<IDovahLinkDiscoveryService>();
-    sl.registerSingleton<IDovahLinkDiscoveryService>(discoveryService);
     preferences = MockSharedPreferencesAsync();
     when(
       () => preferences.getString('dovahlink.appearance.themePreset'),
@@ -85,6 +76,9 @@ void main() {
           knownHostStatesSubscriptionReads++;
           return const Stream<List<DovahLinkKnownHostState>>.empty();
         });
+        when(
+          () => client.candidateHostsChanges,
+        ).thenAnswer((_) => const Stream<List<DovahLinkHost>>.empty());
         when(() => client.disconnect()).thenAnswer((_) async {});
         await sl.unregister<DovahLinkClient>();
         sl.registerSingleton<DovahLinkClient>(client);
@@ -117,6 +111,9 @@ void main() {
             ],
           ),
         );
+        when(
+          () => client.candidateHostsChanges,
+        ).thenAnswer((_) => const Stream<List<DovahLinkHost>>.empty());
         await sl.unregister<IClientStorage>();
         sl.registerSingleton<IClientStorage>(MockClientStorage());
         await sl.unregister<DovahLinkClient>();
@@ -228,7 +225,14 @@ void main() {
         final HelloResult reportedHello = Fixtures.buildSdkHelloResult(
           trustState: DovahLinkTrustState.unpaired,
         );
-        when(() => discoveryService.discover()).thenAnswer(
+        final MockDovahLinkClient client = MockDovahLinkClient();
+        when(() => client.knownHostStatesChanges).thenAnswer(
+          (_) => const Stream<List<DovahLinkKnownHostState>>.empty(),
+        );
+        when(
+          () => client.candidateHostsChanges,
+        ).thenAnswer((_) => const Stream<List<DovahLinkHost>>.empty());
+        when(() => client.discoverHosts()).thenAnswer(
           (_) async => <DovahLinkHost>[
             DovahLinkHost(
               hostId: reportedHello.hostId,
@@ -237,6 +241,8 @@ void main() {
             ),
           ],
         );
+        await sl.unregister<DovahLinkClient>();
+        sl.registerSingleton<DovahLinkClient>(client);
         const AppCompositionRoot root = AppCompositionRoot();
         final Store<AppState> store = await root.createStore();
         final Future<AppState> availableState = store.onChange.firstWhere(
@@ -256,7 +262,7 @@ void main() {
             displayName: reportedHello.hostName,
           ),
         ]);
-        verify(() => discoveryService.discover()).called(1);
+        verify(() => client.discoverHosts()).called(1);
       },
     );
   });

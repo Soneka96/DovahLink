@@ -23,9 +23,6 @@ class HostCardViewData extends Equatable {
   /// The card's visual state.
   final DovahConnectionCardState state;
 
-  /// Whether an unverified candidate claim matches a saved Host ID.
-  final bool claimsKnownHostIdentity;
-
   /// Creates Host card view data.
   const HostCardViewData({
     /// The Host this card represents and selects.
@@ -45,20 +42,9 @@ class HostCardViewData extends Equatable {
 
     /// The card's visual state.
     required this.state,
-
-    /// Whether this candidate claims a saved Host identity.
-    this.claimsKnownHostIdentity = false,
   });
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [
-    host,
-    source,
-    title,
-    subtitle,
-    detail,
-    state,
-    claimsKnownHostIdentity,
-  ];
+  List<Object?> get props => [host, source, title, subtitle, detail, state];
 }

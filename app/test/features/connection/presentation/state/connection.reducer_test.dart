@@ -81,6 +81,118 @@ void main() {
         expect(result.knownHosts, <KnownHost>[knownHost]);
       },
     );
+
+    test(
+      'ConnectionKnownHostsChangedAction refreshes a selected Host endpoint by ID',
+      () {
+        final Host selected = Fixtures.buildHost(
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Host refreshed = Fixtures.buildHost(
+          displayName: 'Renamed Host',
+          uri: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        final ConnectionState result = connectionReducer(
+          ConnectionState(
+            selectedHost: selected,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+          ),
+          ConnectionKnownHostsChangedAction(<KnownHost>[
+            Fixtures.buildKnownHost(host: refreshed),
+          ]),
+        );
+
+        expect(result.selectedHost, refreshed);
+        expect(
+          result.selectedHostSource,
+          ConnectionHostSelectionSource.knownHost,
+        );
+      },
+    );
+
+    test(
+      'ConnectionKnownHostsChangedAction clears a removed Known Host selection',
+      () {
+        final Host selected = Fixtures.buildHost();
+        final ConnectionState result = connectionReducer(
+          ConnectionState(
+            selectedHost: selected,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+          ),
+          ConnectionKnownHostsChangedAction(<KnownHost>[]),
+        );
+
+        expect(result.selectedHost, isNull);
+      },
+    );
+  });
+
+  group('Action ConnectionCandidatesChangedAction behaves correctly', () {
+    test('ConnectionCandidatesChangedAction replaces the SDK projection', () {
+      final Host first = Fixtures.buildHost();
+      final Host second = Fixtures.buildHost(
+        hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+      );
+
+      final ConnectionState result = connectionReducer(
+        ConnectionState(hosts: <Host>[first]),
+        ConnectionCandidatesChangedAction(<Host>[second]),
+      );
+
+      expect(result.hosts, <Host>[second]);
+    });
+
+    test(
+      'ConnectionCandidatesChangedAction refreshes a selected candidate after an endpoint change',
+      () {
+        final Host selected = Fixtures.buildHost(
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Host refreshed = Fixtures.buildHost(
+          uri: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+
+        final ConnectionState result = connectionReducer(
+          ConnectionState(hosts: <Host>[selected], selectedHost: selected),
+          ConnectionCandidatesChangedAction(<Host>[refreshed]),
+        );
+
+        expect(result.selectedHost, refreshed);
+        expect(
+          result.selectedHostSource,
+          ConnectionHostSelectionSource.candidate,
+        );
+      },
+    );
+
+    test(
+      'ConnectionCandidatesChangedAction clears selection when its candidate disappears',
+      () {
+        final Host selected = Fixtures.buildHost();
+        final ConnectionState result = connectionReducer(
+          ConnectionState(hosts: <Host>[selected], selectedHost: selected),
+          ConnectionCandidatesChangedAction(<Host>[]),
+        );
+
+        expect(result.selectedHost, isNull);
+      },
+    );
+
+    test(
+      'ConnectionCandidatesChangedAction preserves a Known Host selection',
+      () {
+        final Host selected = Fixtures.buildHost();
+        final ConnectionState result = connectionReducer(
+          ConnectionState(
+            selectedHost: selected,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+          ),
+          ConnectionCandidatesChangedAction(<Host>[]),
+        );
+
+        expect(result.selectedHost, selected);
+      },
+    );
   });
 
   group(
@@ -311,7 +423,7 @@ void main() {
 
   group('Action ConnectionDiscoveryStartedAction behaves correctly', () {
     test(
-      'ConnectionDiscoveryStartedAction clears candidates and prior failure',
+      'ConnectionDiscoveryStartedAction retains candidates and clears prior failure',
       () {
         final Host selectedHost = Fixtures.buildHost(displayName: 'Selected');
         final ConnectionState state = ConnectionState(
@@ -326,7 +438,7 @@ void main() {
           const ConnectionDiscoveryStartedAction(),
         );
 
-        expect(result.hosts, isEmpty);
+        expect(result.hosts, state.hosts);
         expect(result.selectedHost, selectedHost);
         expect(result.discoveryStatus, ConnectionDiscoveryStatus.discovering);
         expect(result.discoveryFailure, isNull);
@@ -391,7 +503,7 @@ void main() {
     );
 
     test(
-      'ConnectionDiscoverySucceededAction keeps selection when the endpoint remains',
+      'ConnectionDiscoverySucceededAction refreshes selection across endpoint changes',
       () {
         final Host selected = Fixtures.buildHost(
           displayName: 'Before Refresh',
@@ -406,20 +518,21 @@ void main() {
           ConnectionDiscoverySucceededAction(<Host>[refreshed]),
         );
 
-        expect(result.selectedHost, selected);
+        expect(result.selectedHost, refreshed);
       },
     );
 
     test(
-      'ConnectionDiscoverySucceededAction identifies candidates by endpoint instead of display name',
+      'ConnectionDiscoverySucceededAction identifies candidates by Host ID',
       () {
         final Host selected = Fixtures.buildHost(
           displayName: 'Same Name',
           uri: Uri.parse('ws://127.0.0.1:58231/'),
         );
         final Host other = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
           displayName: 'Same Name',
-          uri: Uri.parse('ws://127.0.0.1:58232/'),
+          uri: selected.uri,
         );
         final ConnectionState result = connectionReducer(
           ConnectionState(selectedHost: selected),
@@ -464,13 +577,13 @@ void main() {
           ),
         );
 
-        expect(result.hosts, isEmpty);
+        expect(result.hosts, <Host>[candidate]);
         expect(result.discoveryStatus, ConnectionDiscoveryStatus.failed);
         expect(
           result.discoveryFailure,
           ConnectionFailureReason.hostUnavailable,
         );
-        expect(result.selectedHost, isNull);
+        expect(result.selectedHost, candidate);
       },
     );
 

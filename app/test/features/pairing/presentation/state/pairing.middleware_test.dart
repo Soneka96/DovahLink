@@ -7,6 +7,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -851,6 +852,10 @@ void main() {
             displayName: 'Desktop',
           ),
           const PairingConfirmedAction(),
+          ConnectionHostSelectedAction(
+            Fixtures.buildHost(),
+            source: ConnectionHostSelectionSource.knownHost,
+          ),
           const PairingSessionTrustedAction(),
         ]);
         verify(
@@ -861,6 +866,44 @@ void main() {
             ),
           ),
         ).called(1);
+      },
+    );
+
+    test(
+      'PairingCodeSubmittedAction preserves an existing Known Host selection on success',
+      () async {
+        final Host knownHost = Fixtures.buildHost();
+        when(() => store.state).thenReturn(
+          _stateWithPhase(
+            PairingPhase.confirming,
+            host: knownHost,
+            source: ConnectionHostSelectionSource.knownHost,
+          ),
+        );
+        when(
+          () => mockConfirmPairingCode(
+            const ConfirmPairingCodeParams(code: '123456'),
+          ),
+        ).thenAnswer((_) async => const Right(unit));
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+
+        middleware.call(
+          store,
+          const PairingCodeSubmittedAction(code: '123456'),
+          next,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          const PairingCodeSubmittedAction(code: '123456'),
+          const PairingConfirmedAction(),
+          const PairingSessionTrustedAction(),
+        ]);
+        verifyNever(
+          () => store.dispatch(any(that: isA<ConnectionHostSelectedAction>())),
+        );
       },
     );
 
