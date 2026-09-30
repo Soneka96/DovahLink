@@ -79,6 +79,8 @@ class ConnectionsScreen extends StatelessWidget {
                                       : null,
                                 ),
                                 SizedBox(height: metrics.heroBottomGap),
+                                // TODO: Add dedicated Known Host management/removal UI once
+                                // removal semantics are defined.
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
                                   discoveryStatus: viewModel.discoveryStatus,

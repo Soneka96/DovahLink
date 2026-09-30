@@ -232,7 +232,7 @@ void main() {
     }
 
     testWidgets(
-      'ConnectionsScreen contains one card per Host from its ViewModel',
+      'ConnectionsScreen contains every Host when more than four are supplied',
       (WidgetTester tester) async {
         final Host second = Fixtures.buildHost(
           displayName: 'Second Host',
@@ -245,12 +245,21 @@ void main() {
             title: 'Second Host',
             detail: '192.168.1.11:2000',
           ),
+          for (final int hostNumber in <int>[12, 13, 14])
+            Fixtures.buildHostCardViewData(
+              host: Fixtures.buildHost(
+                displayName: 'Host $hostNumber',
+                uri: Uri.parse('ws://192.168.1.$hostNumber:2000/'),
+              ),
+              title: 'Host $hostNumber',
+              detail: '192.168.1.$hostNumber:2000',
+            ),
         ]);
         await useSurface(tester, const Size(1280, 900));
 
         await tester.pumpWidget(buildWidget());
 
-        expect(find.byType(DovahConnectionCard), findsNWidgets(2));
+        expect(find.byType(DovahConnectionCard), findsNWidgets(5));
         expect(
           find.byKey(const Key('host-card-candidate-ws://127.0.0.1:58231/')),
           findsOneWidget,
@@ -260,6 +269,9 @@ void main() {
           findsOneWidget,
         );
         expect(find.text('192.168.1.11:2000'), findsOneWidget);
+        expect(find.text('Host 12'), findsOneWidget);
+        expect(find.text('Host 13'), findsOneWidget);
+        expect(find.text('Host 14'), findsOneWidget);
       },
     );
 

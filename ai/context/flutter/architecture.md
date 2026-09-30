@@ -81,7 +81,12 @@ success.
 For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
 of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with independent
 `HostAvailability` and `KnownHostSessionState` values. An admitted session renders `Connected`;
-connecting and recovery phases render separately; only a disconnected Known Host falls back to+reachability (`Online`, `Offline`, `Checking`, or unknown). Discovery candidates and selected-Host+state remain `Host` values without availability. The SDK owns the runtime projection, and Flutter+maps its `DovahLinkKnownHostState` values into `KnownHost` before they enter Redux. A candidate whose+claimed Host ID matches a Known Host is marked as an unverified presentation correlation only; it+remains a candidate and does not authorize credentials or change selection routing.
+connecting and recovery phases render separately; only a disconnected Known Host falls back to
+reachability (`Online`, `Offline`, `Checking`, or unknown). Discovery candidates and selected-Host
+state remain `Host` values without availability. The SDK owns the runtime projection, and Flutter
+maps its `DovahLinkKnownHostState` values into `KnownHost` before they enter Redux. A candidate whose
+claimed Host ID matches a Known Host is marked as an unverified presentation correlation only; it
+remains a candidate and does not authorize credentials or change selection routing.
 `knownHostsStatus` starts as `loading`, becomes `ready` on any complete snapshot
 (including an empty one), and becomes `failed` on a stream error. An observation error preserves the
 last successful `knownHosts` value; a later snapshot restores `ready`.
