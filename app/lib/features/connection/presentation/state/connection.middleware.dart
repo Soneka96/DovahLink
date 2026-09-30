@@ -150,7 +150,8 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     ConnectionDiscoveryRequestedAction action,
   ) async {
-    if (!ConnectionSelectors.canDiscoverSelector(store.state)) {
+    if (_isShuttingDown ||
+        !ConnectionSelectors.canDiscoverSelector(store.state)) {
       return;
     }
 
@@ -158,12 +159,18 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     try {
       final List<DovahLinkHost> discoveredHosts = await sl<DovahLinkClient>()
           .discoverHosts();
+      if (_isShuttingDown) {
+        return;
+      }
       store.dispatch(
         ConnectionDiscoverySucceededAction(
           hasCandidates: discoveredHosts.isNotEmpty,
         ),
       );
     } on Object catch (error) {
+      if (_isShuttingDown) {
+        return;
+      }
       store.dispatch(
         ConnectionDiscoveryFailedAction(
           ConnectionFailureReason.fromDiscoveryError(error),

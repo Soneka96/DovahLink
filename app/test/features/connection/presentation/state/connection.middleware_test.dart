@@ -733,6 +733,88 @@ void main() {
       );
 
       test(
+        'ConnectionDiscoveryRequestedAction does not start after shutdown',
+        () async {
+          await middleware.shutdown();
+          final List<Object?> actions = [];
+          const ConnectionDiscoveryRequestedAction action =
+              ConnectionDiscoveryRequestedAction();
+
+          middleware.call(store, action, actions.add);
+
+          expect(actions, [action]);
+          verifyNever(() => mockClient.discoverHosts());
+          verifyNever(() => store.dispatch(any()));
+        },
+      );
+
+      test(
+        'ConnectionDiscoveryRequestedAction suppresses late success after shutdown',
+        () async {
+          final Completer<List<DovahLinkHost>> discovery =
+              Completer<List<DovahLinkHost>>();
+          when(
+            () => mockClient.discoverHosts(),
+          ).thenAnswer((_) => discovery.future);
+          final List<Object?> actions = [];
+          when(() => store.dispatch(any())).thenAnswer((invocation) {
+            actions.add(invocation.positionalArguments.single);
+          });
+          const ConnectionDiscoveryRequestedAction action =
+              ConnectionDiscoveryRequestedAction();
+
+          middleware.call(store, action, actions.add);
+          await middleware.shutdown();
+          discovery.complete(<DovahLinkHost>[
+            DovahLinkHost(
+              hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              hostName: 'LATE-HOST',
+              endpoint: defaultHostUri,
+            ),
+          ]);
+          await pumpEventQueue();
+
+          expect(actions, [action, const ConnectionDiscoveryStartedAction()]);
+          expect(
+            actions.whereType<ConnectionDiscoverySucceededAction>(),
+            isEmpty,
+          );
+          expect(actions.whereType<ConnectionDiscoveryFailedAction>(), isEmpty);
+          verify(() => mockClient.discoverHosts()).called(1);
+        },
+      );
+
+      test(
+        'ConnectionDiscoveryRequestedAction suppresses late failure after shutdown',
+        () async {
+          final Completer<List<DovahLinkHost>> discovery =
+              Completer<List<DovahLinkHost>>();
+          when(
+            () => mockClient.discoverHosts(),
+          ).thenAnswer((_) => discovery.future);
+          final List<Object?> actions = [];
+          when(() => store.dispatch(any())).thenAnswer((invocation) {
+            actions.add(invocation.positionalArguments.single);
+          });
+          const ConnectionDiscoveryRequestedAction action =
+              ConnectionDiscoveryRequestedAction();
+
+          middleware.call(store, action, actions.add);
+          await middleware.shutdown();
+          discovery.completeError(StateError('late discovery failure'));
+          await pumpEventQueue();
+
+          expect(actions, [action, const ConnectionDiscoveryStartedAction()]);
+          expect(
+            actions.whereType<ConnectionDiscoverySucceededAction>(),
+            isEmpty,
+          );
+          expect(actions.whereType<ConnectionDiscoveryFailedAction>(), isEmpty);
+          verify(() => mockClient.discoverHosts()).called(1);
+        },
+      );
+
+      test(
         'ConnectionDiscoveryRequestedAction allows only one pending SDK operation',
         () async {
           final Completer<List<DovahLinkHost>> discovery =
