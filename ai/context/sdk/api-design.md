@@ -196,10 +196,10 @@ starts bounded Known Host presence checks when a client is created, emitting `ch
 `online`, `offline`, or `unknown` as the sessionless probe provides evidence. Keep
 `knownHostsChanges` for consumers that need durable Host metadata without runtime availability.
 
-`DovahLinkClient.disconnect()` ends only the current protocol session and leaves Known Host presence
-monitoring active. `DovahLinkClient.close()` is the terminal lifecycle operation that stops the
-monitor, cancels its timer and probes, closes its Known Host observation subscriptions, and
-disconnects the current session.
+`DovahLinkClient.disconnect()` ends the current protocol session without clearing Known Host
+reachability evidence, and leaves presence monitoring active. `DovahLinkClient.close()` is the
+terminal lifecycle operation that stops the monitor, cancels its timer and probes, closes its Known
+Host observation subscriptions, and disconnects the current session.
 
 Commands and authoritative state are separate API views. A command may report whether its operation
 was accepted or rejected and return operation-specific metadata, while the resulting persistent,

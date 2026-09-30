@@ -756,7 +756,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         expect(
           snapshots.last.single.availability,
-          DovahLinkHostAvailability.unknown,
+          DovahLinkHostAvailability.online,
         );
         expect(
           snapshots.last.single.sessionState,
@@ -810,6 +810,15 @@ void main() {
           DovahLinkKnownHostSessionState.disconnected,
         );
         await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.unknown,
+        );
+        expect(
+          snapshots.last.single.sessionState,
+          DovahLinkKnownHostSessionState.disconnected,
+        );
         await subscription.cancel();
       },
     );
@@ -921,8 +930,13 @@ void main() {
           snapshots.last.single.sessionState,
           DovahLinkKnownHostSessionState.disconnected,
         );
-        await subscription.cancel();
         await runtimeClient.disconnect();
+        await Future<void>.delayed(Duration.zero);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.offline,
+        );
+        await subscription.cancel();
       },
     );
 
@@ -986,7 +1000,11 @@ void main() {
         await Future<void>.delayed(Duration.zero);
         expect(
           snapshots.last.single.availability,
-          DovahLinkHostAvailability.unknown,
+          DovahLinkHostAvailability.online,
+        );
+        expect(
+          snapshots.last.single.sessionState,
+          DovahLinkKnownHostSessionState.disconnected,
         );
         await subscription.cancel();
       },
@@ -4245,7 +4263,7 @@ void main() {
 
   group('Behavior Known Host disconnect during recovery behaves correctly', () {
     test(
-      'Behavior Known Host disconnect during reauthentication reports unknown and ignores a late hello reply',
+      'Behavior Known Host disconnect during reauthentication preserves presence and ignores a late hello reply',
       () async {
         const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
         final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
@@ -4323,7 +4341,7 @@ void main() {
               hostId: hostId,
               hostName: 'Soneka-Desktop',
             ),
-            availability: DovahLinkHostAvailability.unknown,
+            availability: DovahLinkHostAvailability.online,
           ),
         ]);
         await subscription.cancel();
@@ -4435,8 +4453,33 @@ void main() {
           );
 
           await monitorClient.disconnect();
+          await pumpEventQueue();
+          expect(
+            snapshots.last.single.availability,
+            DovahLinkHostAvailability.online,
+          );
+          expect(
+            snapshots.last.single.sessionState,
+            DovahLinkKnownHostSessionState.disconnected,
+          );
           refreshTicks.add(null);
           await waitForClientPresenceProbes(presenceProbe, 2);
+          presenceProbe.requests[1].response.completeError(
+            const DovahLinkConnectionException('Could not reach the Host.'),
+          );
+          for (int attempt = 0; attempt < 20; attempt++) {
+            await pumpEventQueue();
+            if (snapshots.last.single.availability ==
+                DovahLinkHostAvailability.offline) {
+              break;
+            }
+          }
+          expect(
+            snapshots.last.single.availability,
+            DovahLinkHostAvailability.offline,
+          );
+          refreshTicks.add(null);
+          await waitForClientPresenceProbes(presenceProbe, 3);
           await monitorClient.close();
 
           expect(presenceProbe.cancellationCount, 1);

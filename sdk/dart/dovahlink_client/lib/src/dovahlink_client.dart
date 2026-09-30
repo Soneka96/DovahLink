@@ -605,21 +605,12 @@ class DovahLinkClient {
   /// letting that recovery keep running. Repeated calls remain safe because transport close and
   /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
   /// preserved, not reset to generic disconnect. A Known Host session deliberately disconnected
-  /// by the client reports availability as `unknown`.
+  /// by the client ends its session without clearing current reachability evidence.
   Future<void> disconnect() async {
-    final DovahLinkHostId? knownHostId = _sessionService.currentKnownHostId;
     _authenticationService.cancelPendingAuthentication();
     _reconnectService.stopRecovery();
     _subscriptionService.clearDesiredStateAreas();
     await _sessionService.disconnect();
-    if (knownHostId != null &&
-        _sessionService.connectionState !=
-            DovahLinkConnectionState.administrativelyInvalidated) {
-      _hostAvailabilityService.setAvailability(
-        knownHostId,
-        DovahLinkHostAvailability.unknown,
-      );
-    }
   }
 
   /// Permanently closes this client and releases its monitoring and stream resources.

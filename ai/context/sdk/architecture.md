@@ -80,9 +80,10 @@ while its session is healthy and ignore a weaker negative result that races succ
 A compatible sessionless claim with the same Host ID reports `online`; a bounded connection failure
 reports `offline` only when no authenticated session is active. A different Host ID, HTTP rejection,
 malformed response, or incompatible version reports `unknown`, never trust repair or metadata
-mutation. Explicit `DovahLinkClient.disconnect()` reports `unknown` for its admitted Known Host but
-does not stop presence monitoring. Terminal `DovahLinkClient.close()` cancels the monitor, its timer,
-in-flight probes, and subscriptions; the app uses this lifecycle at shutdown.
+mutation. Explicit `DovahLinkClient.disconnect()` ends its admitted Known Host session
+without clearing current reachability evidence; presence monitoring continues. Terminal
+`DovahLinkClient.close()` cancels the monitor, its timer, in-flight probes, and subscriptions; the
+app uses this lifecycle at shutdown.
 Administrative invalidation preserves the previous availability: its typed event requires an
 admitted session and
 does not establish that the Host became unreachable. Compatibility, malformed-protocol, identity,
