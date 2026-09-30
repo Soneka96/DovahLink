@@ -570,14 +570,14 @@ void main() {
           ),
         );
 
-        expect(await client.loadKnownHosts(), <DovahLinkHost>[knownHost]);
+        expect(await client.hosts.loadKnownHosts(), <DovahLinkHost>[knownHost]);
       },
     );
 
     test(
       'Method loadKnownHosts returns an empty list when no Host is persisted',
       () async {
-        expect(await client.loadKnownHosts(), isEmpty);
+        expect(await client.hosts.loadKnownHosts(), isEmpty);
       },
     );
 
@@ -600,7 +600,7 @@ void main() {
           ),
         );
 
-        final List<DovahLinkHost> hosts = await client.loadKnownHosts();
+        final List<DovahLinkHost> hosts = await client.hosts.loadKnownHosts();
 
         expect(hosts.map((host) => host.hostId), <String>[hostAId, hostBId]);
         expect(
@@ -620,7 +620,7 @@ void main() {
       );
 
       await expectLater(
-        failingClient.loadKnownHosts(),
+        failingClient.hosts.loadKnownHosts(),
         throwsA(isA<DovahLinkStorageException>()),
       );
     });
@@ -630,7 +630,7 @@ void main() {
     test(
       'Property knownHostsChanges first emits an empty collection for a new client',
       () async {
-        expect(await client.knownHostsChanges.first, isEmpty);
+        expect(await client.hosts.knownHostsChanges.first, isEmpty);
       },
     );
 
@@ -650,7 +650,7 @@ void main() {
           ),
         );
         final StreamIterator<List<DovahLinkHost>> changes = StreamIterator(
-          client.knownHostsChanges,
+          client.hosts.knownHostsChanges,
         );
         addTearDown(changes.cancel);
 
@@ -728,7 +728,7 @@ void main() {
         ]);
         expect(await candidates.moveNext(), isTrue);
         expect(candidates.current, <DovahLinkHost>[candidateC]);
-        expect(await discoveryClient.loadKnownHosts(), <DovahLinkHost>[
+        expect(await discoveryClient.hosts.loadKnownHosts(), <DovahLinkHost>[
           knownA,
           knownB,
         ]);
@@ -1046,7 +1046,7 @@ void main() {
         addTearDown(discoveryClient.close);
 
         expect(await discoveryClient.discoverHosts(), isEmpty);
-        expect(await discoveryClient.loadKnownHosts(), <DovahLinkHost>[
+        expect(await discoveryClient.hosts.loadKnownHosts(), <DovahLinkHost>[
           knownHost,
         ]);
       },
@@ -1103,7 +1103,7 @@ void main() {
 
         discoveryResult.complete(<DovahLinkHost>[claimedHost]);
         expect(await pendingDiscovery, isEmpty);
-        expect(await discoveryClient.loadKnownHosts(), hasLength(1));
+        expect(await discoveryClient.hosts.loadKnownHosts(), hasLength(1));
       },
     );
 
@@ -1234,7 +1234,7 @@ void main() {
 
         expect(await candidates.moveNext(), isTrue);
         expect(candidates.current, isEmpty);
-        expect(await discoveryClient.loadKnownHosts(), hasLength(1));
+        expect(await discoveryClient.hosts.loadKnownHosts(), hasLength(1));
       },
     );
   });
@@ -1269,7 +1269,7 @@ void main() {
         );
 
         final List<DovahLinkKnownHostState> states =
-            await runtimeClient.knownHostStatesChanges.first;
+            await runtimeClient.hosts.knownHostStatesChanges.first;
 
         expect(states.map((state) => state.host.hostId), <String>[
           hostAId,
@@ -1313,7 +1313,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+            runtimeClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         runtimeTransport.queueResponse(
           _rawFixture('connection/hello-ack-paired.json'),
         );
@@ -1371,7 +1371,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+            runtimeClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         runtimeTransport.queueResponse(
           _rawFixture('connection/hello-ack.json'),
         );
@@ -1431,7 +1431,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+            runtimeClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         runtimeTransport.queueResponse(
           _rawFixture('connection/hello-ack-paired.json'),
         );
@@ -1490,7 +1490,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+            runtimeClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         await Future<void>.delayed(Duration.zero);
 
         await expectLater(
@@ -1538,7 +1538,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+            runtimeClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         final JsonMap candidateHelloAck =
             jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
                 as JsonMap;
@@ -1615,7 +1615,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            runtimeClient.knownHostStatesChanges.listen(snapshots.add);
+            runtimeClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         final JsonMap response =
             jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
                 as JsonMap;
@@ -3175,7 +3175,7 @@ void main() {
         );
         await _connectAndHello(transport, client);
         final StreamIterator<List<DovahLinkHost>> changes = StreamIterator(
-          client.knownHostsChanges,
+          client.hosts.knownHostsChanges,
         );
         addTearDown(changes.cancel);
         expect(await changes.moveNext(), isTrue);
@@ -3210,7 +3210,7 @@ void main() {
             endpoint: Uri.parse('ws://127.0.0.1:58231/'),
           ),
         );
-        expect(await client.loadKnownHosts(), <DovahLinkHost>[
+        expect(await client.hosts.loadKnownHosts(), <DovahLinkHost>[
           stored.knownHosts.values.single.host,
         ]);
       },
@@ -3236,14 +3236,17 @@ void main() {
           storage: storage,
         );
 
-        expect(await restoredClient.loadKnownHosts(), <DovahLinkHost>[host]);
+        expect(await restoredClient.hosts.loadKnownHosts(), <DovahLinkHost>[
+          host,
+        ]);
         expect(
           (await storage.load()).knownHosts[host.hostId]?.credential,
           'a1b2c3d4e5f6',
         );
-        expect(await restoredClient.knownHostsChanges.first, <DovahLinkHost>[
-          host,
-        ]);
+        expect(
+          await restoredClient.hosts.knownHostsChanges.first,
+          <DovahLinkHost>[host],
+        );
       },
     );
 
@@ -4242,7 +4245,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+            reconnectClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         reconnectTransport.queueResponse(
           _rawFixture('connection/hello-ack-paired.json'),
         );
@@ -4353,7 +4356,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+            reconnectClient.hosts.knownHostStatesChanges.listen(snapshots.add);
 
         reconnectTransport.queueResponse(
           _rawFixture('connection/hello-ack-paired.json'),
@@ -4870,7 +4873,7 @@ void main() {
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            reconnectClient.knownHostStatesChanges.listen(snapshots.add);
+            reconnectClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         reconnectTransport.queueResponse(
           _rawFixture('connection/hello-ack-paired.json'),
         );
@@ -4992,7 +4995,7 @@ void main() {
           final List<List<DovahLinkKnownHostState>> snapshots = [];
           final Completer<void> checkingObserved = Completer<void>();
           final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-              monitorClient.knownHostStatesChanges.listen((
+              monitorClient.hosts.knownHostStatesChanges.listen((
                 List<DovahLinkKnownHostState> snapshot,
               ) {
                 snapshots.add(snapshot);
@@ -5305,7 +5308,7 @@ void main() {
         final List<List<DovahLinkKnownHostState>> snapshots =
             <List<DovahLinkKnownHostState>>[];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
-            closeClient.knownHostStatesChanges.listen(snapshots.add);
+            closeClient.hosts.knownHostStatesChanges.listen(snapshots.add);
         addTearDown(() async {
           await subscription.cancel();
           if (!probeCancellation.isCompleted) {

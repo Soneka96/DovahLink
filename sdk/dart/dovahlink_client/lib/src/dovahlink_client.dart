@@ -7,6 +7,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_discovery_service.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_hosts.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_not_found_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
@@ -121,6 +122,10 @@ class DovahLinkClient {
         DovahLinkDiscoveryService(hostPresenceProbe: hostPresenceProbe);
     _hostAvailabilityService = HostAvailabilityService(
       clientStateService: _clientStateService,
+    );
+    hosts = DovahLinkHosts(
+      clientStateService: _clientStateService,
+      hostAvailabilityService: _hostAvailabilityService,
     );
     final SessionState state = SessionState();
     final LifecycleOperationQueue lifecycleQueue = LifecycleOperationQueue();
@@ -359,6 +364,9 @@ class DovahLinkClient {
   /// Owns the runtime availability map and complete Known Host projection.
   late final IHostAvailabilityService _hostAvailabilityService;
 
+  /// Exposes this client's Known Host views over the existing state owners.
+  late final IDovahLinkHosts hosts;
+
   /// Mirrors the session owner's exact Known Host projection into complete Known Host snapshots.
   late final StreamSubscription<KnownHostSessionSnapshot>
   _knownHostSessionSubscription;
@@ -432,13 +440,7 @@ class DovahLinkClient {
   /// @return An immutable, Host-ID-sorted collection, empty when no Host is known.
   /// @throws [DovahLinkStorageException] if persisted state cannot be read safely.
   Future<List<DovahLinkHost>> loadKnownHosts() async {
-    final PersistedClientState state = await _clientStateService.load();
-    final List<DovahLinkHost> hosts =
-        state.knownHosts.values
-            .map((PersistedKnownHost relationship) => relationship.host)
-            .toList()
-          ..sort((left, right) => left.hostId.compareTo(right.hostId));
-    return List<DovahLinkHost>.unmodifiable(hosts);
+    return hosts.loadKnownHosts();
   }
 
   /// Discovers Hosts and returns only identities that are not currently Known Hosts.
@@ -572,15 +574,14 @@ class DovahLinkClient {
   /// A failed initial load is reported and the same subscription remains available for recovery
   /// after a later successful SDK state operation.
   /// @return A broadcast stream of immutable, Host-ID-sorted collections.
-  Stream<List<DovahLinkHost>> get knownHostsChanges =>
-      _clientStateService.knownHostsChanges;
+  Stream<List<DovahLinkHost>> get knownHostsChanges => hosts.knownHostsChanges;
 
   /// Emits complete runtime Known Host snapshots, replaying the current projection to each
   /// subscriber. Storage failures are reported while the listener remains available for recovery.
   /// @return An immutable, Host-ID-sorted projection of durable Known Hosts, runtime availability,
   /// and exact-relationship session state.
   Stream<List<DovahLinkKnownHostState>> get knownHostStatesChanges =>
-      _hostAvailabilityService.knownHostStatesChanges;
+      hosts.knownHostStatesChanges;
 
   /// The reason [DovahLinkClient.connectionState] is
   /// [DovahLinkConnectionState.administrativelyInvalidated], or
