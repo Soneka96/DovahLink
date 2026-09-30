@@ -12,6 +12,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_except
 import 'package:dovahlink_client_sdk/src/dovahlink_hosts.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_not_found_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_pairing.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
@@ -371,6 +372,12 @@ class DovahLinkClient {
       characterStaminaChanges: _characterStaminaTracker.changes,
       characterLevelChanges: _characterLevelTracker.changes,
     );
+    pairing = DovahLinkPairing(
+      discoverHosts: discoverHosts,
+      candidates: candidateHostsChanges,
+      pairingService: _pairingService,
+      subscriptionService: _subscriptionService,
+    );
   }
 
   /// Owns transport lifecycle, connection state, and stream ownership. This façade reads its
@@ -389,6 +396,9 @@ class DovahLinkClient {
 
   /// Exposes the current admitted Host context and existing typed state streams.
   late final IDovahLinkCurrentHost currentHost;
+
+  /// Exposes SDK-owned candidate discovery and pairing operations.
+  late final IDovahLinkPairing pairing;
 
   /// Mirrors the session owner's exact Known Host projection into complete Known Host snapshots.
   late final StreamSubscription<KnownHostSessionSnapshot>
@@ -702,21 +712,18 @@ class DovahLinkClient {
   /// [DovahLinkTrustState.unpaired] session.
   /// [PairingChallengeStatus.availability] being [PairingAvailability.otherDevicePairing] means a
   /// different clientId currently owns the active challenge or pending credential.
-  Future<PairingChallengeStatus> requestPairing() =>
-      _pairingService.requestPairing();
+  Future<PairingChallengeStatus> requestPairing() => pairing.requestCode();
 
   /// Requests redisplay of the active pairing challenge's code the caller owns. Never generates a
   /// new code and never sends the code itself over the wire -- redisplay occurs through the
   /// in-game notification, not the connection. Valid only on a
   /// [DovahLinkTrustState.unpaired] session.
-  Future<PairingRenotifyResult> requestPairingRenotify() =>
-      _pairingService.requestPairingRenotify();
+  Future<PairingRenotifyResult> requestPairingRenotify() => pairing.renotify();
 
   /// Gives up an owned active challenge or pending credential, freeing the slot for a fresh
   /// [DovahLinkClient.requestPairing]. Never touches persisted trust or an already-committed
   /// credential. Valid only on an [DovahLinkTrustState.unpaired] session.
-  Future<PairingCancelOutcome> cancelPairing() =>
-      _pairingService.cancelPairing();
+  Future<PairingCancelOutcome> cancelPairing() => pairing.cancel();
 
   /// Submits the six-digit code the user read from Skyrim. The SDK durably stores the issued
   /// credential with the current Host and its [PairingRecoveryState.confirming] recovery state
@@ -728,8 +735,7 @@ class DovahLinkClient {
   Future<void> confirmPairingCode({
     required String code,
     String? displayName,
-  }) =>
-      _pairingService.confirmPairingCode(code: code, displayName: displayName);
+  }) => pairing.confirmCode(code: code, displayName: displayName);
 
   /// Echoes the pending Host-scoped credential internally, completing pairing.
   /// [DovahLinkClient.trustState] becomes
@@ -738,10 +744,8 @@ class DovahLinkClient {
   /// desired state-area subscriptions after pairing succeeds.
   /// @throws [DovahLinkPairingException] if the Host has no matching pending confirmation or
   ///     an administrative mutation invalidated the pending credential.
-  Future<void> acknowledgeTrustedCredential() async {
-    await _pairingService.acknowledgeTrustedCredential();
-    _subscriptionService.restoreDesiredStateAreas();
-  }
+  Future<void> acknowledgeTrustedCredential() =>
+      pairing.acknowledgeTrustedCredential();
 
   /// Resumes an interrupted pairing confirmation after a crash or relaunch. Call after
   /// [DovahLinkClient.hello] admits a [DovahLinkTrustState.unpaired] session.
@@ -755,14 +759,8 @@ class DovahLinkClient {
   /// [PairingRecoveryState.confirming]
   /// untouched so a later relaunch can retry. Invalidated confirmation preserves Known Host
   /// metadata. A recovered trusted session starts restoring desired state subscriptions.
-  Future<DovahLinkTrustState> recoverPendingPairing() async {
-    final DovahLinkTrustState trustState = await _pairingService
-        .recoverPendingPairing();
-    if (trustState == DovahLinkTrustState.trusted) {
-      _subscriptionService.restoreDesiredStateAreas();
-    }
-    return trustState;
-  }
+  Future<DovahLinkTrustState> recoverPendingPairing() =>
+      pairing.recoverPendingPairing();
 
   /// Closes the connection and resets in-memory session state. Idempotent, and never throws: this
   /// is a best-effort cleanup operation matching the transport's idempotent close contract.

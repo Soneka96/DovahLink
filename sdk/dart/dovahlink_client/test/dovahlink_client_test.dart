@@ -586,6 +586,37 @@ void main() {
         expect(client.currentHost.sessionId, isNull);
       },
     );
+
+    test(
+      'Behavior grouped API composition exposes the client-owned candidate projection',
+      () async {
+        final DovahLinkHost candidate = Fixtures.buildDovahLinkHost();
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(
+          () => discovery.discover(),
+        ).thenAnswer((_) async => <DovahLinkHost>[candidate]);
+        final DovahLinkClient pairingClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: InMemoryClientStorage(),
+          discoveryService: discovery,
+        );
+        addTearDown(pairingClient.close);
+        final StreamIterator<List<DovahLinkHost>> candidates = StreamIterator(
+          pairingClient.pairing.candidates,
+        );
+        addTearDown(candidates.cancel);
+
+        expect(await candidates.moveNext(), isTrue);
+        expect(candidates.current, isEmpty);
+        expect(await pairingClient.pairing.discoverHosts(), <DovahLinkHost>[
+          candidate,
+        ]);
+        expect(await candidates.moveNext(), isTrue);
+        expect(candidates.current, <DovahLinkHost>[candidate]);
+        verify(() => discovery.discover()).called(1);
+      },
+    );
   });
 
   group('Method loadKnownHosts behaves correctly', () {
