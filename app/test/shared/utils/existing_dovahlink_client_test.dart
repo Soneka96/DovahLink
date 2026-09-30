@@ -32,7 +32,7 @@ void main() {
         await expectLater(existingClient.closeIfCreated(), completes);
 
         expect(existingClient.hasClient, isTrue);
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.connections.state, DovahLinkConnectionState.disconnected);
       },
     );
   });

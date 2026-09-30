@@ -68,6 +68,7 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     }
     final DovahLinkClient client = sl<DovahLinkClient>();
     final StreamSubscription<List<DovahLinkKnownHostState>> knownHosts = client
+        .hosts
         .knownHostStatesChanges
         .listen(
           (List<DovahLinkKnownHostState> sdkKnownHosts) {
@@ -97,7 +98,8 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
           },
         );
     final StreamSubscription<List<DovahLinkHost>> candidates = client
-        .candidateHostsChanges
+        .pairing
+        .candidates
         .listen(
           (List<DovahLinkHost> sdkCandidates) {
             if (!_isShuttingDown) {
@@ -158,6 +160,7 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     store.dispatch(const ConnectionDiscoveryStartedAction());
     try {
       final List<DovahLinkHost> discoveredHosts = await sl<DovahLinkClient>()
+          .pairing
           .discoverHosts();
       if (_isShuttingDown) {
         return;

@@ -32,6 +32,9 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         DovahLinkClient,
         DovahLinkTrustState,
         HelloResult,
+        IDovahLinkConnections,
+        IDovahLinkHosts,
+        IDovahLinkPairing,
         IClientStorage;
 
 /// Mocks async preference reads for composition-root tests.
@@ -40,6 +43,15 @@ class MockSharedPreferencesAsync extends Mock
 
 /// Mocks the SDK client that supplies Known Host state during store creation.
 class MockDovahLinkClient extends Mock implements DovahLinkClient {}
+
+/// Mocks the SDK client's grouped Known Host API.
+class MockDovahLinkHosts extends Mock implements IDovahLinkHosts {}
+
+/// Mocks the SDK client's grouped discovery and pairing API.
+class MockDovahLinkPairing extends Mock implements IDovahLinkPairing {}
+
+/// Mocks the SDK client's grouped connection API.
+class MockDovahLinkConnections extends Mock implements IDovahLinkConnections {}
 
 /// Mocks supported client storage for Known Host store-composition coverage.
 class MockClientStorage extends Mock implements IClientStorage {}
@@ -71,15 +83,21 @@ void main() {
       'createStore and Pairing resolve the same SDK client registration',
       () async {
         final MockDovahLinkClient client = MockDovahLinkClient();
+        final MockDovahLinkHosts hosts = MockDovahLinkHosts();
+        final MockDovahLinkPairing pairing = MockDovahLinkPairing();
+        final MockDovahLinkConnections connections = MockDovahLinkConnections();
+        when(() => client.hosts).thenReturn(hosts);
+        when(() => client.pairing).thenReturn(pairing);
+        when(() => client.connections).thenReturn(connections);
         int knownHostStatesSubscriptionReads = 0;
-        when(() => client.knownHostStatesChanges).thenAnswer((_) {
+        when(() => hosts.knownHostStatesChanges).thenAnswer((_) {
           knownHostStatesSubscriptionReads++;
           return const Stream<List<DovahLinkKnownHostState>>.empty();
         });
         when(
-          () => client.candidateHostsChanges,
+          () => pairing.candidates,
         ).thenAnswer((_) => const Stream<List<DovahLinkHost>>.empty());
-        when(() => client.disconnect()).thenAnswer((_) async {});
+        when(() => connections.disconnect()).thenAnswer((_) async {});
         await sl.unregister<DovahLinkClient>();
         sl.registerSingleton<DovahLinkClient>(client);
 
@@ -88,7 +106,7 @@ void main() {
         final result = await sl<IPairingRemoteDataSource>().disconnect();
 
         expect(result.isRight(), isTrue);
-        verify(() => client.disconnect()).called(1);
+        verify(() => connections.disconnect()).called(1);
       },
     );
 
@@ -101,7 +119,11 @@ void main() {
           endpoint: defaultHostUri,
         );
         final MockDovahLinkClient client = MockDovahLinkClient();
-        when(() => client.knownHostStatesChanges).thenAnswer(
+        final MockDovahLinkHosts hosts = MockDovahLinkHosts();
+        final MockDovahLinkPairing pairing = MockDovahLinkPairing();
+        when(() => client.hosts).thenReturn(hosts);
+        when(() => client.pairing).thenReturn(pairing);
+        when(() => hosts.knownHostStatesChanges).thenAnswer(
           (_) => Stream<List<DovahLinkKnownHostState>>.value(
             <DovahLinkKnownHostState>[
               Fixtures.buildSdkKnownHostState(
@@ -112,7 +134,7 @@ void main() {
           ),
         );
         when(
-          () => client.candidateHostsChanges,
+          () => pairing.candidates,
         ).thenAnswer((_) => const Stream<List<DovahLinkHost>>.empty());
         await sl.unregister<IClientStorage>();
         sl.registerSingleton<IClientStorage>(MockClientStorage());
@@ -231,14 +253,18 @@ void main() {
           endpoint: defaultHostUri,
         );
         final MockDovahLinkClient client = MockDovahLinkClient();
-        when(() => client.knownHostStatesChanges).thenAnswer(
+        final MockDovahLinkHosts hosts = MockDovahLinkHosts();
+        final MockDovahLinkPairing pairing = MockDovahLinkPairing();
+        when(() => client.hosts).thenReturn(hosts);
+        when(() => client.pairing).thenReturn(pairing);
+        when(() => hosts.knownHostStatesChanges).thenAnswer(
           (_) => const Stream<List<DovahLinkKnownHostState>>.empty(),
         );
-        when(() => client.candidateHostsChanges).thenAnswer(
+        when(() => pairing.candidates).thenAnswer(
           (_) => Stream<List<DovahLinkHost>>.value(<DovahLinkHost>[candidate]),
         );
         when(
-          () => client.discoverHosts(),
+          () => pairing.discoverHosts(),
         ).thenAnswer((_) async => <DovahLinkHost>[candidate]);
         await sl.unregister<DovahLinkClient>();
         sl.registerSingleton<DovahLinkClient>(client);
@@ -261,7 +287,7 @@ void main() {
             displayName: reportedHello.hostName,
           ),
         ]);
-        verify(() => client.discoverHosts()).called(1);
+        verify(() => pairing.discoverHosts()).called(1);
       },
     );
   });

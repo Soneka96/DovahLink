@@ -2281,17 +2281,17 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertIn("## SDK integration", app_readme)
         self.assertIn(
-            "The pairing feature already uses [`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API",
+            "The app consumes the SDK's `hosts`, `connections`, and `pairing` API groups from one shared",
             app_readme,
         )
         self.assertIn(
-            "The `features/connection/` area owns Host selection and navigation while "
-            "mirroring the same SDK client's Known Host and candidate streams; candidate "
-            "membership and identity reconciliation stay in the SDK.",
+            "The `features/connection/` area owns Host selection and navigation while mirroring the "
+            "SDK's Known Host and candidate streams. Candidate membership and identity "
+            "reconciliation stay in the SDK.",
             normalized_app_readme,
         )
         self.assertIn(
-            "Phase 5.1 delivered the SDK's Host-version compatibility checks",
+            "Flutter does not implement live-state synchronization.",
             normalized_app_readme,
         )
         self.assertIn(

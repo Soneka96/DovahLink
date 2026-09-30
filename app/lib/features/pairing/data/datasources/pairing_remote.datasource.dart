@@ -5,7 +5,7 @@ import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
-/// Wraps a [DovahLinkClient] for the pairing feature's remote operations.
+/// Wraps grouped SDK APIs for the pairing feature's remote operations.
 abstract interface class IPairingRemoteDataSource {
   /// Connects to the Host at [hostUri] and authenticates, recovering an
   /// interrupted pairing confirmation when the session authenticates as
@@ -61,23 +61,22 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// Creates a data source backed by [_client].
   PairingRemoteDataSource(this._client);
 
-  /// See [IPairingRemoteDataSource.authenticate]. Delegates to [DovahLinkClient.authenticate],
-  /// which recovers from a rejected `trusted_device_credential` hello by discarding the stale
-  /// credential and retrying as `unpaired` -- this layer only picks the user-safe wording for
-  /// [HelloResult.recoveredFromRejectedCredential] when that happened.
+  /// See [IPairingRemoteDataSource.authenticate]. Delegates connection and Known Host credential
+  /// selection to the grouped SDK connection API; this layer only picks the user-safe wording for
+  /// [HelloResult.recoveredFromRejectedCredential] when the SDK reports credential repair.
   @override
   Future<Either<Failure, PairingHandshakeModel>> authenticate({
     required Either<Uri, String> target,
   }) async {
     try {
       final HelloResult hello = await target.fold(
-        _client.authenticateCandidate,
+        _client.connections.connectCandidate,
         (String hostId) =>
-            _client.authenticateKnownHost(DovahLinkHostId(hostId)),
+            _client.connections.connectKnownHost(DovahLinkHostId(hostId)),
       );
       bool trusted = hello.trustState == DovahLinkTrustState.trusted;
       if (!trusted) {
-        final DovahLinkTrustState recovered = await _client
+        final DovahLinkTrustState recovered = await _client.pairing
             .recoverPendingPairing();
         trusted = recovered == DovahLinkTrustState.trusted;
       }
@@ -89,7 +88,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
       // pending call with a generic DovahLinkConnectionException; distinguishing it here through
       // the SDK's already-public connectionState prevents the caller from treating it as ordinary
       // transport loss eligible for silent automatic retry.
-      if (_client.connectionState ==
+      if (_client.connections.state ==
           DovahLinkConnectionState.administrativelyInvalidated) {
         return const Left(SessionInvalidatedFailure.administrative);
       }
@@ -113,7 +112,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   @override
   Future<Either<Failure, int?>> requestPairingCode() async {
     try {
-      final PairingChallengeStatus status = await _client.requestPairing();
+      final PairingChallengeStatus status = await _client.pairing.requestCode();
       if (status.availability == PairingAvailability.unavailable) {
         return const Left(
           PairingFailure(
@@ -147,8 +146,8 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     String? displayName,
   }) async {
     try {
-      await _client.confirmPairingCode(code: code, displayName: displayName);
-      await _client.acknowledgeTrustedCredential();
+      await _client.pairing.confirmCode(code: code, displayName: displayName);
+      await _client.pairing.acknowledgeTrustedCredential();
       return const Right(unit);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
@@ -176,7 +175,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   @override
   Future<Either<Failure, Unit>> disconnect() async {
     try {
-      await _client.disconnect();
+      await _client.connections.disconnect();
       return const Right(unit);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
@@ -204,7 +203,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   @override
   Future<Either<Failure, int?>> requestPairingRenotify() async {
     try {
-      final renotifyResult = await _client.requestPairingRenotify();
+      final renotifyResult = await _client.pairing.renotify();
       return switch (renotifyResult.status) {
         PairingRenotifyStatus.renotified => Right(
           renotifyResult.retryAfterSeconds,
@@ -231,7 +230,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   @override
   Future<Either<Failure, Unit>> cancelPairing() async {
     try {
-      final cancelOutcome = await _client.cancelPairing();
+      final cancelOutcome = await _client.pairing.cancel();
       return switch (cancelOutcome.status) {
         PairingCancelStatus.cancelled => const Right(unit),
         PairingCancelStatus.alreadyIdle => const Right(unit),
@@ -260,7 +259,8 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// the connection restored before the session is actually re-authenticated.
   @override
   Stream<PairingConnectionStatus> get connectionStatus => _client
-      .connectionStateChanges
+      .connections
+      .stateChanges
       .map(
         (DovahLinkConnectionState state) => switch (state) {
           DovahLinkConnectionState.reconnecting ||

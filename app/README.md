@@ -10,15 +10,13 @@ and adapters consume that contract without redefining it.
 
 ## SDK integration
 
-The pairing feature already uses [`sdk/dart/dovahlink_client/`](../sdk/README.md)'s public API for
-transport, authentication, pairing, pairing recovery, and bounded reconnect. The
-`features/connection/` area owns Host selection and navigation while mirroring the same SDK client's
-Known Host and candidate streams; candidate membership and identity reconciliation stay in the SDK.
-It does not implement live-state synchronization. Phase 5.1 delivered the SDK's Host-version
-compatibility checks. The remaining Stage 5 phases add state synchronization and subscription/recovery
-APIs, then wire live-state streams through Flutter middleware. Flutter
-conventions point to [`ai/context/sdk/`](../ai/context/sdk/) for SDK-owned protocol behavior rather
-than duplicating it in the app.
+The app consumes the SDK's `hosts`, `connections`, and `pairing` API groups from one shared
+[`DovahLinkClient`](../sdk/README.md); `currentHost` exposes typed game-state APIs for a later app
+integration. The `features/connection/` area owns Host selection and navigation while mirroring the
+SDK's Known Host and candidate streams. Candidate membership and identity reconciliation stay in
+the SDK. Flutter does not implement live-state synchronization. Flutter conventions point to
+[`ai/context/sdk/`](../ai/context/sdk/) for SDK-owned protocol behavior rather than duplicating it
+in the app.
 
 ## Development checks
 
