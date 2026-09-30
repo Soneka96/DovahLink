@@ -1900,6 +1900,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
     ) -> None:
         """Guard sdk/README.md's content and the real, partially-implemented Dart package."""
         sdk_readme = self._read("sdk/README.md")
+        normalized_sdk_readme = self._normalize_whitespace(sdk_readme)
 
         for required_phrase in (
             "This directory owns the reusable, supported client SDK implementations for the "
@@ -1925,10 +1926,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "versions during\n`hello`, before admitting a session.",
             "Phase 5.2 is complete: the public client exposes replayable typed\n"
             "state streams for XP, health, magicka, stamina, and level",
-            "The app's `features/connection/` area remains responsible for Host selection "
-            "and navigation",
         ):
             self.assertIn(required_phrase, sdk_readme)
+
+        self.assertIn(
+            "The app's `features/connection/` area remains responsible for Host selection, "
+            "navigation, and presentation.",
+            normalized_sdk_readme,
+        )
+        self.assertIn(
+            "It mirrors Known Host and candidate state from the same persistent SDK client; "
+            "the SDK owns candidate membership and reconciliation.",
+            normalized_sdk_readme,
+        )
 
         # Phase 5 was pulled forward: the real package now exists, replacing the old
         # "no implementation skeleton yet" invariant this test used to guard.
@@ -2267,6 +2277,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         """Guard the SDK-transition notes added to app/ and protocol/ READMEs."""
         app_readme = self._read("app/README.md")
         protocol_readme = self._read("protocol/README.md")
+        normalized_app_readme = self._normalize_whitespace(app_readme)
 
         self.assertIn("## SDK integration", app_readme)
         self.assertIn(
@@ -2274,17 +2285,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             app_readme,
         )
         self.assertIn(
-            "`features/connection/` area currently owns Host selection and navigation",
-            app_readme,
+            "The `features/connection/` area owns Host selection and navigation while "
+            "mirroring the same SDK client's Known Host and candidate streams; candidate "
+            "membership and identity reconciliation stay in the SDK.",
+            normalized_app_readme,
         )
         self.assertIn(
             "Phase 5.1 delivered the SDK's Host-version compatibility checks",
-            app_readme,
+            normalized_app_readme,
         )
         self.assertIn(
-            "Flutter\nconventions point to [`ai/context/sdk/`](../ai/context/sdk/) for "
-            "SDK-owned protocol behavior rather\nthan duplicating it in the app.",
-            app_readme,
+            "Flutter conventions point to [`ai/context/sdk/`](../ai/context/sdk/) for "
+            "SDK-owned protocol behavior rather than duplicating it in the app.",
+            normalized_app_readme,
         )
 
         self.assertIn(

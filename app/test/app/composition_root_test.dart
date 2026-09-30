@@ -225,22 +225,21 @@ void main() {
         final HelloResult reportedHello = Fixtures.buildSdkHelloResult(
           trustState: DovahLinkTrustState.unpaired,
         );
+        final DovahLinkHost candidate = DovahLinkHost(
+          hostId: reportedHello.hostId,
+          hostName: reportedHello.hostName,
+          endpoint: defaultHostUri,
+        );
         final MockDovahLinkClient client = MockDovahLinkClient();
         when(() => client.knownHostStatesChanges).thenAnswer(
           (_) => const Stream<List<DovahLinkKnownHostState>>.empty(),
         );
-        when(
-          () => client.candidateHostsChanges,
-        ).thenAnswer((_) => const Stream<List<DovahLinkHost>>.empty());
-        when(() => client.discoverHosts()).thenAnswer(
-          (_) async => <DovahLinkHost>[
-            DovahLinkHost(
-              hostId: reportedHello.hostId,
-              hostName: reportedHello.hostName,
-              endpoint: defaultHostUri,
-            ),
-          ],
+        when(() => client.candidateHostsChanges).thenAnswer(
+          (_) => Stream<List<DovahLinkHost>>.value(<DovahLinkHost>[candidate]),
         );
+        when(
+          () => client.discoverHosts(),
+        ).thenAnswer((_) async => <DovahLinkHost>[candidate]);
         await sl.unregister<DovahLinkClient>();
         sl.registerSingleton<DovahLinkClient>(client);
         const AppCompositionRoot root = AppCompositionRoot();
