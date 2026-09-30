@@ -455,12 +455,37 @@ class DovahLinkClient {
     try {
       await _clientStateService.load();
     } on Object {
+      if (_isClosed) {
+        return _candidateHosts;
+      }
       _observeCandidateKnownHosts();
       rethrow;
     }
+    if (_isClosed) {
+      return _candidateHosts;
+    }
     _observeCandidateKnownHosts();
-    final List<DovahLinkHost> discovered = await _discoveryService.discover();
-    final PersistedClientState state = await _clientStateService.load();
+    late final List<DovahLinkHost> discovered;
+    try {
+      discovered = await _discoveryService.discover();
+    } on Object {
+      if (_isClosed) {
+        return _candidateHosts;
+      }
+      rethrow;
+    }
+    if (_isClosed) {
+      return _candidateHosts;
+    }
+    late final PersistedClientState state;
+    try {
+      state = await _clientStateService.load();
+    } on Object {
+      if (_isClosed) {
+        return _candidateHosts;
+      }
+      rethrow;
+    }
     if (!_isClosed && generation == _discoveryGeneration) {
       _discoveredHosts = discovered;
       _reconcileCandidateHosts(
@@ -488,9 +513,14 @@ class DovahLinkClient {
         sink.onCancel = subscription.cancel;
       }, isBroadcast: true);
 
+  /// Whether candidate membership currently observes committed Known Hosts.
+  @visibleForTesting
+  bool get isObservingCandidateKnownHosts =>
+      _knownHostCandidateSubscription != null;
+
   /// Starts observing committed Known Hosts once their initial state has loaded.
   void _observeCandidateKnownHosts() {
-    if (_knownHostCandidateSubscription != null) {
+    if (_isClosed || _knownHostCandidateSubscription != null) {
       return;
     }
     _knownHostCandidateSubscription = _clientStateService.knownHostsChanges
@@ -501,7 +531,7 @@ class DovahLinkClient {
             }
           },
           onError: (Object error, StackTrace stackTrace) {
-            if (!_candidateHostsController.isClosed) {
+            if (!_isClosed && !_candidateHostsController.isClosed) {
               _candidateHostsController.addError(error, stackTrace);
             }
           },

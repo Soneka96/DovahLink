@@ -220,6 +220,15 @@ class TrackingClientStorage implements IClientStorage {
   /// Optional error thrown by [IClientStorage.load].
   Object? loadError;
 
+  /// Optional gate held until a test releases an [IClientStorage.load] call.
+  Completer<void>? loadGate;
+
+  /// Optional signal completed when [IClientStorage.load] begins.
+  Completer<void>? loadStarted;
+
+  /// Number of attempted [IClientStorage.load] calls.
+  int loadCount = 0;
+
   /// Optional gate held until a test releases an [IClientStorage.save] call.
   Completer<void>? saveGate;
 
@@ -232,6 +241,11 @@ class TrackingClientStorage implements IClientStorage {
   /// See [IClientStorage.load].
   @override
   Future<PersistedClientState> load() async {
+    loadCount++;
+    if (!(loadStarted?.isCompleted ?? true)) {
+      loadStarted!.complete();
+    }
+    await loadGate?.future;
     final Object? error = loadError;
     if (error != null) {
       throw error;
@@ -793,6 +807,191 @@ void main() {
         expect(await newerDiscovery, <DovahLinkHost>[newerCandidate]);
         olderResult.complete(<DovahLinkHost>[olderCandidate]);
         expect(await olderDiscovery, <DovahLinkHost>[newerCandidate]);
+      },
+    );
+
+    test(
+      'Method discoverHosts stops after close while initial storage is pending',
+      () async {
+        final TrackingClientStorage pendingStorage = TrackingClientStorage(
+          Fixtures.buildPersistedClientState(),
+        );
+        final Completer<void> loadStarted = Completer<void>();
+        final Completer<void> loadGate = Completer<void>();
+        pendingStorage
+          ..loadStarted = loadStarted
+          ..loadGate = loadGate;
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: pendingStorage,
+          discoveryService: discovery,
+        );
+        final List<List<DovahLinkHost>> candidateUpdates =
+            <List<DovahLinkHost>>[];
+        final List<Object> streamErrors = <Object>[];
+        final Completer<void> initialUpdate = Completer<void>();
+        final StreamSubscription<List<DovahLinkHost>> candidates = closeClient
+            .candidateHostsChanges
+            .listen((List<DovahLinkHost> hosts) {
+              candidateUpdates.add(hosts);
+              if (!initialUpdate.isCompleted) {
+                initialUpdate.complete();
+              }
+            }, onError: streamErrors.add);
+        addTearDown(candidates.cancel);
+        await initialUpdate.future;
+
+        final Future<List<DovahLinkHost>> pendingDiscovery = closeClient
+            .discoverHosts();
+        await loadStarted.future;
+        await closeClient.close();
+        loadGate.complete();
+
+        expect(await pendingDiscovery, isEmpty);
+        await pumpEventQueue();
+        expect(closeClient.isObservingCandidateKnownHosts, isFalse);
+        verifyNever(() => discovery.discover());
+        expect(candidateUpdates, hasLength(1));
+        expect(candidateUpdates.single, isEmpty);
+        expect(streamErrors, isEmpty);
+        expect(pendingStorage.loadCount, 1);
+      },
+    );
+
+    test(
+      'Method discoverHosts ignores a result that completes after close',
+      () async {
+        final Completer<List<DovahLinkHost>> discoveryResult =
+            Completer<List<DovahLinkHost>>();
+        final Completer<void> discoveryStarted = Completer<void>();
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(() => discovery.discover()).thenAnswer((_) {
+          discoveryStarted.complete();
+          return discoveryResult.future;
+        });
+        final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: InMemoryClientStorage(),
+          discoveryService: discovery,
+        );
+        final List<List<DovahLinkHost>> candidateUpdates =
+            <List<DovahLinkHost>>[];
+        final List<Object> streamErrors = <Object>[];
+        final Completer<void> initialUpdate = Completer<void>();
+        final StreamSubscription<List<DovahLinkHost>> candidates = closeClient
+            .candidateHostsChanges
+            .listen((List<DovahLinkHost> hosts) {
+              candidateUpdates.add(hosts);
+              if (!initialUpdate.isCompleted) {
+                initialUpdate.complete();
+              }
+            }, onError: streamErrors.add);
+        addTearDown(candidates.cancel);
+        await initialUpdate.future;
+
+        final Future<List<DovahLinkHost>> pendingDiscovery = closeClient
+            .discoverHosts();
+        await discoveryStarted.future;
+        await closeClient.close();
+        discoveryResult.complete(<DovahLinkHost>[
+          Fixtures.buildDovahLinkHost(
+            hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          ),
+        ]);
+
+        expect(await pendingDiscovery, isEmpty);
+        await pumpEventQueue();
+        expect(candidateUpdates, hasLength(1));
+        expect(candidateUpdates.single, isEmpty);
+        expect(streamErrors, isEmpty);
+      },
+    );
+
+    test(
+      'Method discoverHosts suppresses an initial storage error after close',
+      () async {
+        final TrackingClientStorage pendingStorage = TrackingClientStorage(
+          Fixtures.buildPersistedClientState(),
+        );
+        final Completer<void> loadStarted = Completer<void>();
+        final Completer<void> loadGate = Completer<void>();
+        pendingStorage
+          ..loadStarted = loadStarted
+          ..loadGate = loadGate;
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: pendingStorage,
+          discoveryService: discovery,
+        );
+
+        final Future<List<DovahLinkHost>> pendingDiscovery = closeClient
+            .discoverHosts();
+        await loadStarted.future;
+        await closeClient.close();
+        pendingStorage.loadError = const DovahLinkStorageException(
+          'storage failed after close',
+        );
+        loadGate.complete();
+
+        expect(await pendingDiscovery, isEmpty);
+        expect(closeClient.isObservingCandidateKnownHosts, isFalse);
+        verifyNever(() => discovery.discover());
+        expect(pendingStorage.loadCount, 1);
+      },
+    );
+
+    test(
+      'Method discoverHosts stops before its final read when close follows probe completion',
+      () async {
+        final Completer<List<DovahLinkHost>> discoveryResult =
+            Completer<List<DovahLinkHost>>();
+        final MockDovahLinkDiscoveryService discovery =
+            MockDovahLinkDiscoveryService();
+        when(
+          () => discovery.discover(),
+        ).thenAnswer((_) => discoveryResult.future);
+        final TrackingClientStorage trackingStorage = TrackingClientStorage(
+          Fixtures.buildPersistedClientState(),
+        );
+        final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+          transport: FakeDovahLinkTransport(),
+          storage: trackingStorage,
+          discoveryService: discovery,
+        );
+        final List<List<DovahLinkHost>> candidateUpdates =
+            <List<DovahLinkHost>>[];
+        final Completer<void> initialUpdate = Completer<void>();
+        final StreamSubscription<List<DovahLinkHost>> candidates = closeClient
+            .candidateHostsChanges
+            .listen((List<DovahLinkHost> hosts) {
+              candidateUpdates.add(hosts);
+              if (!initialUpdate.isCompleted) {
+                initialUpdate.complete();
+              }
+            });
+        addTearDown(candidates.cancel);
+        await initialUpdate.future;
+
+        final Future<List<DovahLinkHost>> pendingDiscovery = closeClient
+            .discoverHosts();
+        await pumpEventQueue();
+        discoveryResult.complete(<DovahLinkHost>[
+          Fixtures.buildDovahLinkHost(
+            hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          ),
+        ]);
+        final Future<void> closing = closeClient.close();
+        await closing;
+
+        expect(await pendingDiscovery, isEmpty);
+        expect(candidateUpdates, hasLength(1));
+        expect(candidateUpdates.single, isEmpty);
+        expect(trackingStorage.loadCount, 1);
       },
     );
 

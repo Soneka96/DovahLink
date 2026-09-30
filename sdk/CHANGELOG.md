@@ -35,6 +35,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- Pending discovery checks terminal shutdown after storage and probe awaits, preventing late
+  subscriptions, probes, and candidate updates.
 - Pairing commits remove a Host from candidates, and stale discovery results cannot restore it.
 - `DovahLinkClient.close()` starts session teardown alongside monitor cleanup and continues after independent cleanup failures.
 - Deliberate disconnect preserves Known Host reachability evidence while ending its session.
