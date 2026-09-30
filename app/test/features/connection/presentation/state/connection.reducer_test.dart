@@ -56,7 +56,10 @@ void main() {
     test(
       'ConnectionKnownHostsChangedAction preserves discovery and candidate selection state',
       () {
-        final Host candidate = Fixtures.buildHost(displayName: 'Candidate');
+        final Host candidate = Fixtures.buildHost(
+          hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+          displayName: 'Candidate',
+        );
         final List<Host> candidates = <Host>[candidate];
         final KnownHost knownHost = Fixtures.buildKnownHost(
           availability: HostAvailability.online,
@@ -79,6 +82,41 @@ void main() {
           ConnectionHostSelectionSource.candidate,
         );
         expect(result.knownHosts, <KnownHost>[knownHost]);
+      },
+    );
+
+    test(
+      'ConnectionKnownHostsChangedAction rebinds a selected candidate to SDK metadata',
+      () {
+        final Host candidate = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+          displayName: 'Candidate metadata',
+        );
+        final Host authoritativeHost = Fixtures.buildHost(
+          hostId: candidate.hostId,
+          displayName: 'Current SDK metadata',
+          uri: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        final ConnectionState state = connectionReducer(
+          ConnectionState(
+            hosts: <Host>[candidate],
+            selectedHost: candidate,
+            pendingPairingHostId: candidate.hostId,
+          ),
+          ConnectionKnownHostsChangedAction(<KnownHost>[
+            Fixtures.buildKnownHost(
+              host: authoritativeHost,
+              availability: HostAvailability.online,
+            ),
+          ]),
+        );
+
+        expect(state.selectedHost, authoritativeHost);
+        expect(
+          state.selectedHostSource,
+          ConnectionHostSelectionSource.knownHost,
+        );
+        expect(state.pendingPairingHostId, isNull);
       },
     );
 
@@ -193,6 +231,204 @@ void main() {
         expect(result.selectedHost, selected);
       },
     );
+
+    test(
+      'ConnectionCandidatesChangedAction retains pending selection until Known Host confirmation',
+      () {
+        final Host candidate = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final ConnectionState pending = connectionReducer(
+          ConnectionState(hosts: <Host>[candidate], selectedHost: candidate),
+          ConnectionCandidatePairingStartedAction(candidate.hostId),
+        );
+
+        final ConnectionState removed = connectionReducer(
+          pending,
+          ConnectionCandidatesChangedAction(<Host>[]),
+        );
+
+        expect(removed.hosts, isEmpty);
+        expect(removed.selectedHost, candidate);
+        expect(
+          removed.selectedHostSource,
+          ConnectionHostSelectionSource.candidate,
+        );
+        expect(removed.pendingPairingHostId, candidate.hostId);
+      },
+    );
+
+    test(
+      'ConnectionCandidatesChangedAction does not promote selection when an unrelated Host becomes known',
+      () {
+        final Host selectedCandidate = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final Host unrelatedCandidate = Fixtures.buildHost(
+          hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        );
+        final KnownHost unrelatedKnownHost = Fixtures.buildKnownHost(
+          host: unrelatedCandidate,
+        );
+        final ConnectionState state = ConnectionState(
+          hosts: <Host>[selectedCandidate, unrelatedCandidate],
+          selectedHost: selectedCandidate,
+          pendingPairingHostId: selectedCandidate.hostId,
+          knownHosts: <KnownHost>[unrelatedKnownHost],
+        );
+
+        final ConnectionState result = connectionReducer(
+          state,
+          ConnectionCandidatesChangedAction(<Host>[selectedCandidate]),
+        );
+
+        expect(result.selectedHost, selectedCandidate);
+        expect(
+          result.selectedHostSource,
+          ConnectionHostSelectionSource.candidate,
+        );
+        expect(result.pendingPairingHostId, selectedCandidate.hostId);
+      },
+    );
+
+    test(
+      'ConnectionCandidatesChangedAction rebinds to Known Host metadata when it arrives before candidate removal',
+      () {
+        final Host candidate = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final Host authoritativeHost = Fixtures.buildHost(
+          hostId: candidate.hostId,
+          displayName: 'SDK Host Name',
+        );
+        final ConnectionState pending = connectionReducer(
+          ConnectionState(hosts: <Host>[candidate], selectedHost: candidate),
+          ConnectionCandidatePairingStartedAction(candidate.hostId),
+        );
+        final ConnectionState known = connectionReducer(
+          pending,
+          ConnectionKnownHostsChangedAction(<KnownHost>[
+            Fixtures.buildKnownHost(host: authoritativeHost),
+          ]),
+        );
+
+        final ConnectionState result = connectionReducer(
+          known,
+          ConnectionCandidatesChangedAction(<Host>[]),
+        );
+
+        expect(result.selectedHost, authoritativeHost);
+        expect(
+          result.selectedHostSource,
+          ConnectionHostSelectionSource.knownHost,
+        );
+        expect(result.pendingPairingHostId, isNull);
+      },
+    );
+
+    test(
+      'ConnectionCandidatesChangedAction rebinds to Known Host metadata when candidate removal arrives first',
+      () {
+        final Host candidate = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final Host authoritativeHost = Fixtures.buildHost(
+          hostId: candidate.hostId,
+          displayName: 'SDK Host Name',
+        );
+        final ConnectionState pending = connectionReducer(
+          ConnectionState(hosts: <Host>[candidate], selectedHost: candidate),
+          ConnectionCandidatePairingStartedAction(candidate.hostId),
+        );
+        final ConnectionState removed = connectionReducer(
+          pending,
+          ConnectionCandidatesChangedAction(<Host>[]),
+        );
+        final ConnectionState result = connectionReducer(
+          removed,
+          ConnectionKnownHostsChangedAction(<KnownHost>[
+            Fixtures.buildKnownHost(host: authoritativeHost),
+          ]),
+        );
+
+        expect(result.selectedHost, authoritativeHost);
+        expect(
+          result.selectedHostSource,
+          ConnectionHostSelectionSource.knownHost,
+        );
+        expect(result.pendingPairingHostId, isNull);
+      },
+    );
+
+    test(
+      'ConnectionCandidatePairingEndedAction clears a vanished candidate after failure',
+      () {
+        final Host candidate = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final ConnectionState pending = connectionReducer(
+          ConnectionState(
+            selectedHost: candidate,
+            pendingPairingHostId: candidate.hostId,
+          ),
+          ConnectionCandidatesChangedAction(<Host>[]),
+        );
+
+        final ConnectionState result = connectionReducer(
+          pending,
+          ConnectionCandidatePairingEndedAction(candidate.hostId),
+        );
+
+        expect(result.selectedHost, isNull);
+        expect(result.pendingPairingHostId, isNull);
+      },
+    );
+
+    test(
+      'ConnectionCandidatePairingEndedAction keeps an available candidate after failure',
+      () {
+        final Host candidate = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final ConnectionState pending = connectionReducer(
+          ConnectionState(hosts: <Host>[candidate], selectedHost: candidate),
+          ConnectionCandidatePairingStartedAction(candidate.hostId),
+        );
+
+        final ConnectionState result = connectionReducer(
+          pending,
+          ConnectionCandidatePairingEndedAction(candidate.hostId),
+        );
+
+        expect(result.selectedHost, candidate);
+        expect(
+          result.selectedHostSource,
+          ConnectionHostSelectionSource.candidate,
+        );
+        expect(result.pendingPairingHostId, isNull);
+      },
+    );
+
+    test('ConnectionCandidatePairingEndedAction ignores a stale Host ID', () {
+      final Host currentCandidate = Fixtures.buildHost(
+        hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      );
+      final ConnectionState state = ConnectionState(
+        hosts: <Host>[currentCandidate],
+        selectedHost: currentCandidate,
+        pendingPairingHostId: currentCandidate.hostId,
+      );
+
+      final ConnectionState result = connectionReducer(
+        state,
+        const ConnectionCandidatePairingEndedAction(
+          'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        ),
+      );
+
+      expect(result.selectedHost, currentCandidate);
+      expect(result.pendingPairingHostId, currentCandidate.hostId);
+    });
   });
 
   group(

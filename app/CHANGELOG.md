@@ -36,6 +36,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 - Discovery completion updates operation status without replacing the SDK's candidate collection.
 - Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
+- Pairing selection rebinds from the SDK's Known Host projection after successful confirmation.
 - Host card identity and selection follow normalized Host IDs across endpoint changes; successful
   pairing promotes the selected target to Known Host authentication.
 - Pairing stays Offline during automatic retries, shows SDK-reported recovery as Reconnecting, and

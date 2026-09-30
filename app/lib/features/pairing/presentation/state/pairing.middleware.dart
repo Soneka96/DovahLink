@@ -263,6 +263,14 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     );
     final ConnectionHostSelectionSource selectedHostSource =
         ConnectionSelectors.selectedHostSourceSelector(store.state);
+    final String? candidateHostId =
+        selectedHost != null &&
+            selectedHostSource == ConnectionHostSelectionSource.candidate
+        ? selectedHost.hostId
+        : null;
+    if (candidateHostId != null) {
+      store.dispatch(ConnectionCandidatePairingStartedAction(candidateHostId));
+    }
     final result = await sl<ConfirmPairingCodeUseCase>()(
       ConfirmPairingCodeParams(
         code: action.code,
@@ -274,6 +282,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
+        if (candidateHostId != null) {
+          store.dispatch(
+            ConnectionCandidatePairingEndedAction(candidateHostId),
+          );
+        }
         // A wrong code or a too-soon retry stays on the same still-active challenge with an
         // inline mistake message; everything else (expired, hard_limit_reached, other transport
         // failures) ends the flow.
@@ -289,15 +302,6 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       },
       (_) {
         store.dispatch(const PairingConfirmedAction());
-        if (selectedHost != null &&
-            selectedHostSource == ConnectionHostSelectionSource.candidate) {
-          store.dispatch(
-            ConnectionHostSelectedAction(
-              selectedHost,
-              source: ConnectionHostSelectionSource.knownHost,
-            ),
-          );
-        }
         store.dispatch(const PairingSessionTrustedAction());
       },
     );

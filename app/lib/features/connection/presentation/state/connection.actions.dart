@@ -23,6 +23,34 @@ class ConnectionHostSelectedAction extends Equatable {
   List<Object?> get props => [host, source];
 }
 
+/// Retains a candidate selection while its pairing confirmation is pending.
+class ConnectionCandidatePairingStartedAction extends Equatable {
+  /// The candidate whose durable Known Host projection is expected from the SDK.
+  final String hostId;
+
+  /// Creates a pending candidate-pairing selection action.
+  /// @param hostId The selected candidate's stable Host ID.
+  const ConnectionCandidatePairingStartedAction(this.hostId);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hostId];
+}
+
+/// Releases a candidate selection retained for a failed pairing confirmation.
+class ConnectionCandidatePairingEndedAction extends Equatable {
+  /// The candidate whose pairing confirmation ended.
+  final String hostId;
+
+  /// Creates an ended candidate-pairing action.
+  /// @param hostId The candidate whose pending selection should be released.
+  const ConnectionCandidatePairingEndedAction(this.hostId);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hostId];
+}
+
 /// Carries the complete SDK-owned Known Hosts projection into Redux.
 class ConnectionKnownHostsChangedAction extends Equatable {
   /// The complete app-mapped Known Hosts collection.

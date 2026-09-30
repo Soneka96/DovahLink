@@ -783,7 +783,10 @@ void main() {
         confirmation.complete(const Right(unit));
         await Future<void>.delayed(Duration.zero);
 
-        expect(actionLog, [const PairingCodeSubmittedAction(code: '123456')]);
+        expect(actionLog, [
+          const PairingCodeSubmittedAction(code: '123456'),
+          ConnectionCandidatePairingStartedAction(Fixtures.buildHost().hostId),
+        ]);
         verifyNever(() => mockObserveConnectionStatus(any()));
       },
     );
@@ -905,11 +908,8 @@ void main() {
             code: '123456',
             displayName: 'Desktop',
           ),
+          ConnectionCandidatePairingStartedAction(Fixtures.buildHost().hostId),
           const PairingConfirmedAction(),
-          ConnectionHostSelectedAction(
-            Fixtures.buildHost(),
-            source: ConnectionHostSelectionSource.knownHost,
-          ),
           const PairingSessionTrustedAction(),
         ]);
         verify(
@@ -980,6 +980,8 @@ void main() {
 
         expect(actionLog, [
           const PairingCodeSubmittedAction(code: '000000'),
+          ConnectionCandidatePairingStartedAction(Fixtures.buildHost().hostId),
+          ConnectionCandidatePairingEndedAction(Fixtures.buildHost().hostId),
           const PairingFailedAction('invalid'),
         ]);
       },
@@ -1007,6 +1009,8 @@ void main() {
 
         expect(actionLog, [
           const PairingCodeSubmittedAction(code: '000000'),
+          ConnectionCandidatePairingStartedAction(Fixtures.buildHost().hostId),
+          ConnectionCandidatePairingEndedAction(Fixtures.buildHost().hostId),
           const PairingConfirmFailedWithAttemptsRemainingAction(
             message: "That code isn't correct. Check Skyrim and try again.",
           ),

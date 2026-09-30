@@ -19,6 +19,9 @@ class ConnectionState extends Equatable {
   /// Whether [selectedHost] represents a discovery candidate or durable Known Host intent.
   final ConnectionHostSelectionSource selectedHostSource;
 
+  /// Candidate ID whose selection is retained until the SDK confirms a Known Host relationship.
+  final String? pendingPairingHostId;
+
   /// The app-mapped complete projection emitted by the SDK's authoritative Known Host state.
   final List<KnownHost> knownHosts;
 
@@ -32,12 +35,14 @@ class ConnectionState extends Equatable {
   final ConnectionFailureReason? discoveryFailure;
 
   /// Creates connection state with an explicit Host list and an optional selected Host.
+  /// @param pendingPairingHostId The candidate selection awaiting SDK Known Host confirmation.
   /// @param knownHosts The latest complete SDK-observed Known Host projection.
   /// @param knownHostsStatus The health of the SDK Known Hosts observation.
   const ConnectionState({
     this.hosts = const <Host>[],
     this.selectedHost,
     this.selectedHostSource = ConnectionHostSelectionSource.candidate,
+    this.pendingPairingHostId,
     this.knownHosts = const <KnownHost>[],
     this.knownHostsStatus = KnownHostsObservationStatus.loading,
     this.discoveryStatus = ConnectionDiscoveryStatus.idle,
@@ -50,10 +55,12 @@ class ConnectionState extends Equatable {
   /// Returns a copy with selected values replaced. [selectedHost] is an [Option] so an omitted,
   /// cleared, and set value stay distinct; Known Hosts are replaced as a complete list.
   /// @param knownHosts The complete observed Known Hosts collection, or `null` to keep it.
+  /// @param pendingPairingHostId The pending candidate Host ID, or `null` to keep it.
   ConnectionState copyWith({
     List<Host>? hosts,
     Option<Host>? selectedHost,
     ConnectionHostSelectionSource? selectedHostSource,
+    Option<String>? pendingPairingHostId,
     List<KnownHost>? knownHosts,
     KnownHostsObservationStatus? knownHostsStatus,
     ConnectionDiscoveryStatus? discoveryStatus,
@@ -64,6 +71,9 @@ class ConnectionState extends Equatable {
         ? this.selectedHost
         : selectedHost.toNullable(),
     selectedHostSource: selectedHostSource ?? this.selectedHostSource,
+    pendingPairingHostId: pendingPairingHostId == null
+        ? this.pendingPairingHostId
+        : pendingPairingHostId.toNullable(),
     knownHosts: knownHosts ?? this.knownHosts,
     knownHostsStatus: knownHostsStatus ?? this.knownHostsStatus,
     discoveryStatus: discoveryStatus ?? this.discoveryStatus,
@@ -78,6 +88,7 @@ class ConnectionState extends Equatable {
     hosts,
     selectedHost,
     selectedHostSource,
+    pendingPairingHostId,
     knownHosts,
     knownHostsStatus,
     discoveryStatus,

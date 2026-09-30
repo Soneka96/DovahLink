@@ -12,6 +12,12 @@ Reducer<ConnectionState> connectionReducer = combineReducers<ConnectionState>([
   TypedReducer<ConnectionState, ConnectionHostSelectedAction>(
     connectionHostSelectedReducer,
   ).call,
+  TypedReducer<ConnectionState, ConnectionCandidatePairingStartedAction>(
+    connectionCandidatePairingStartedReducer,
+  ).call,
+  TypedReducer<ConnectionState, ConnectionCandidatePairingEndedAction>(
+    connectionCandidatePairingEndedReducer,
+  ).call,
   TypedReducer<ConnectionState, ConnectionKnownHostsChangedAction>(
     connectionKnownHostChangedReducer,
   ).call,
@@ -40,9 +46,28 @@ ConnectionState connectionKnownHostChangedReducer(
   ConnectionKnownHostsChangedAction action,
 ) {
   Option<Host>? selectedHost;
+  ConnectionHostSelectionSource? selectedHostSource;
   final Host? selected = state.selectedHost;
+  final String? pendingPairingHostId = state.pendingPairingHostId;
+  KnownHost? confirmedPairingHost;
+  if (pendingPairingHostId != null) {
+    for (final KnownHost knownHost in action.knownHosts) {
+      if (knownHost.host.hostId == pendingPairingHostId) {
+        confirmedPairingHost = knownHost;
+        break;
+      }
+    }
+  }
   if (selected != null &&
-      state.selectedHostSource == ConnectionHostSelectionSource.knownHost) {
+      state.selectedHostSource == ConnectionHostSelectionSource.candidate) {
+    for (final KnownHost knownHost in action.knownHosts) {
+      if (knownHost.host.hostId == selected.hostId) {
+        selectedHost = Some(knownHost.host);
+        selectedHostSource = ConnectionHostSelectionSource.knownHost;
+        break;
+      }
+    }
+  } else if (selected != null) {
     Host? current;
     for (final KnownHost knownHost in action.knownHosts) {
       if (knownHost.host.hostId == selected.hostId) {
@@ -56,6 +81,8 @@ ConnectionState connectionKnownHostChangedReducer(
     knownHosts: action.knownHosts,
     knownHostsStatus: KnownHostsObservationStatus.ready,
     selectedHost: selectedHost,
+    selectedHostSource: selectedHostSource,
+    pendingPairingHostId: confirmedPairingHost == null ? null : const None(),
   );
 }
 
@@ -67,8 +94,20 @@ ConnectionState connectionCandidatesChangedReducer(
   ConnectionCandidatesChangedAction action,
 ) {
   Option<Host>? selectedHost;
+  ConnectionHostSelectionSource? selectedHostSource;
   final Host? selected = state.selectedHost;
   if (selected != null &&
+      state.selectedHostSource == ConnectionHostSelectionSource.candidate) {
+    for (final KnownHost knownHost in state.knownHosts) {
+      if (knownHost.host.hostId == selected.hostId) {
+        selectedHost = Some(knownHost.host);
+        selectedHostSource = ConnectionHostSelectionSource.knownHost;
+        break;
+      }
+    }
+  }
+  if (selected != null &&
+      selectedHost == null &&
       state.selectedHostSource == ConnectionHostSelectionSource.candidate) {
     Host? current;
     for (final Host candidate in action.hosts) {
@@ -77,9 +116,23 @@ ConnectionState connectionCandidatesChangedReducer(
         break;
       }
     }
-    selectedHost = current == null ? const None() : Some(current);
+    selectedHost =
+        current == null && state.pendingPairingHostId != selected.hostId
+        ? const None()
+        : Some(current ?? selected);
   }
-  return state.copyWith(hosts: action.hosts, selectedHost: selectedHost);
+  final String? pendingPairingHostId = state.pendingPairingHostId;
+  final bool pairingHostBecameKnown =
+      pendingPairingHostId != null &&
+      state.knownHosts.any(
+        (KnownHost knownHost) => knownHost.host.hostId == pendingPairingHostId,
+      );
+  return state.copyWith(
+    hosts: action.hosts,
+    selectedHost: selectedHost,
+    selectedHostSource: selectedHostSource,
+    pendingPairingHostId: pairingHostBecameKnown ? const None() : null,
+  );
 }
 
 /// Marks the SDK Known Hosts observation unhealthy without discarding its last complete snapshot.
@@ -100,6 +153,35 @@ ConnectionState connectionHostSelectedReducer(
   selectedHost: Some(action.host),
   selectedHostSource: action.source,
 );
+
+/// Retains the selected candidate until the SDK confirms its Known Host state.
+/// @param state The current connection projection.
+/// @param action The candidate pairing confirmation that started.
+ConnectionState connectionCandidatePairingStartedReducer(
+  ConnectionState state,
+  ConnectionCandidatePairingStartedAction action,
+) => state.copyWith(pendingPairingHostId: Some(action.hostId));
+
+/// Releases a pending selection after failed confirmation, clearing it if the candidate vanished.
+/// @param state The current connection projection.
+/// @param action The candidate pairing confirmation that ended.
+ConnectionState connectionCandidatePairingEndedReducer(
+  ConnectionState state,
+  ConnectionCandidatePairingEndedAction action,
+) {
+  if (state.pendingPairingHostId != action.hostId) {
+    return state;
+  }
+  final Host? selected = state.selectedHost;
+  final bool selectedCandidateVanished =
+      selected?.hostId == action.hostId &&
+      state.selectedHostSource == ConnectionHostSelectionSource.candidate &&
+      !state.hosts.any((Host host) => host.hostId == action.hostId);
+  return state.copyWith(
+    selectedHost: selectedCandidateVanished ? const None() : null,
+    pendingPairingHostId: const None(),
+  );
+}
 
 /// Handles [ConnectionDiscoveryStartedAction].
 /// Clears prior candidates and records that discovery is in progress.

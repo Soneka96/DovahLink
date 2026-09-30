@@ -27,6 +27,26 @@ void main() {
     },
   );
 
+  group('Behavior equality in candidate pairing actions behaves correctly', () {
+    test('pairing actions carry their candidate Host ID', () {
+      const ConnectionCandidatePairingStartedAction started =
+          ConnectionCandidatePairingStartedAction('host-1');
+      const ConnectionCandidatePairingStartedAction sameStarted =
+          ConnectionCandidatePairingStartedAction('host-1');
+      const ConnectionCandidatePairingEndedAction ended =
+          ConnectionCandidatePairingEndedAction('host-1');
+      const ConnectionCandidatePairingEndedAction sameEnded =
+          ConnectionCandidatePairingEndedAction('host-1');
+
+      expect(started.hostId, 'host-1');
+      expect(started, sameStarted);
+      expect(started.hashCode, sameStarted.hashCode);
+      expect(ended.hostId, 'host-1');
+      expect(ended, sameEnded);
+      expect(ended.hashCode, sameEnded.hashCode);
+    });
+  });
+
   group(
     'Behavior equality in ConnectionKnownHostsChangedAction behaves correctly',
     () {
