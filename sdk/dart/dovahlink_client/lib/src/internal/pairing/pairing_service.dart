@@ -3,10 +3,14 @@ import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_pairing_handshake.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/hello_result.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
+import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
@@ -29,6 +33,14 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// acknowledging the issued credential, and resuming an interrupted confirmation after a crash or
 /// relaunch.
 abstract interface class IPairingService {
+  /// Connects and authenticates a candidate, then recovers pending pairing if needed.
+  Future<DovahLinkPairingHandshake> authenticateCandidate(Uri uri);
+
+  /// Connects and authenticates one Known Host, then recovers pending pairing if needed.
+  Future<DovahLinkPairingHandshake> authenticateKnownHost(
+    DovahLinkHostId hostId,
+  );
+
   /// Starts, or queries the status of, a pairing challenge. Valid only on an `unpaired` session.
   /// [PairingChallengeStatus.availability] being [PairingAvailability.otherDevicePairing] means a
   /// different clientId currently owns the active challenge or pending credential.
@@ -57,6 +69,18 @@ abstract interface class IPairingService {
   /// @throws [DovahLinkConnectionException] if the active session has no current Host context.
   Future<void> confirmPairingCode({required String code, String? displayName});
 
+  /// Confirms a code and acknowledges its credential on the session active before confirmation.
+  /// @param code The six-digit code shown by Skyrim.
+  /// @param displayName The optional Client display name for Host pairing metadata.
+  /// @throws [DovahLinkPairingException] if the code or pending acknowledgement is rejected.
+  /// @throws [DovahLinkConnectionException] if no active context exists or its Host/session
+  ///     changes before acknowledgement.
+  /// @throws [DovahLinkProtocolException] if either Host response is malformed.
+  Future<void> confirmPairingCodeAndAcknowledge({
+    required String code,
+    String? displayName,
+  });
+
   /// Echoes back the pending Host-scoped credential internally, completing pairing. The session's
   /// trust state becomes trusted on success, and the recovery record clears while the relationship
   /// and credential remain persisted.
@@ -83,6 +107,12 @@ abstract interface class IPairingService {
 /// Every collaborator is supplied by the caller per `ai/context/sdk/architecture.md`'s
 /// "Dependency injection" -- this class never constructs one of its own dependencies.
 class PairingService implements IPairingService {
+  /// Performs candidate and Known Host authentication over the shared engine.
+  final IAuthenticationService _authenticationService;
+
+  /// Owns initial retry scheduling for the shared connection engine.
+  final IReconnectService _reconnectService;
+
   /// Reads the Host context owned by the active session.
   final ISessionService _sessionService;
 
@@ -107,16 +137,53 @@ class PairingService implements IPairingService {
   /// @param clientStateService Atomically persists client credentials and Host association.
   /// @param hostAvailabilityService Owns runtime reachability state for Known Hosts.
   PairingService({
+    required IAuthenticationService authenticationService,
+    required IReconnectService reconnectService,
     required ISessionService sessionService,
     required ISessionTrustService sessionTrustService,
     required IRequestService requestService,
     required IClientStateService clientStateService,
     required IHostAvailabilityService hostAvailabilityService,
-  }) : _sessionService = sessionService,
+  }) : _authenticationService = authenticationService,
+       _reconnectService = reconnectService,
+       _sessionService = sessionService,
        _sessionTrustService = sessionTrustService,
        _requestService = requestService,
        _clientStateService = clientStateService,
        _hostAvailabilityService = hostAvailabilityService;
+
+  /// Implements [IPairingService.authenticateCandidate].
+  @override
+  Future<DovahLinkPairingHandshake> authenticateCandidate(Uri uri) =>
+      _authenticate(() => _authenticationService.authenticateCandidate(uri));
+
+  /// Implements [IPairingService.authenticateKnownHost].
+  @override
+  Future<DovahLinkPairingHandshake> authenticateKnownHost(
+    DovahLinkHostId hostId,
+  ) =>
+      _authenticate(() => _authenticationService.authenticateKnownHost(hostId));
+
+  Future<DovahLinkPairingHandshake> _authenticate(
+    Future<HelloResult> Function() authenticate,
+  ) async {
+    final HelloResult hello = await _reconnectService.connectWithInitialRetry(
+      authenticate,
+    );
+    final String? admittedSessionId = _sessionService.currentSessionId;
+    final DovahLinkTrustState trustState =
+        hello.trustState == DovahLinkTrustState.trusted
+        ? DovahLinkTrustState.trusted
+        : await recoverPendingPairing();
+    if (admittedSessionId == null ||
+        _sessionService.currentSessionId != admittedSessionId ||
+        _sessionService.currentHost?.hostId != hello.hostId) {
+      throw const DovahLinkConnectionException(
+        'The active session changed while pairing recovery was in progress.',
+      );
+    }
+    return DovahLinkPairingHandshake(hello: hello, trustState: trustState);
+  }
 
   /// Implements [IPairingService.requestPairing].
   @override
@@ -210,6 +277,18 @@ class PairingService implements IPairingService {
     required String code,
     String? displayName,
   }) async {
+    final DovahLinkHost? currentHost = _sessionService.currentHost;
+    if (currentHost == null) {
+      throw const DovahLinkConnectionException(
+        'The current Host context is unavailable.',
+      );
+    }
+    final String? confirmationSessionId = _sessionService.currentSessionId;
+    if (confirmationSessionId == null) {
+      throw const DovahLinkConnectionException(
+        'The current session is unavailable.',
+      );
+    }
     final PairingConfirmPayload payload = PairingConfirmPayload(
       code: code,
       displayName: displayName,
@@ -260,12 +339,6 @@ class PairingService implements IPairingService {
       );
     }
 
-    final DovahLinkHost? currentHost = _sessionService.currentHost;
-    if (currentHost == null) {
-      throw const DovahLinkConnectionException(
-        'The current Host context is unavailable.',
-      );
-    }
     await _clientStateService.updateState((PersistedClientState state) {
       final PendingPairingRecovery? pending = state.pendingPairingRecovery;
       if (pending != null && pending.hostId != currentHost.hostId) {
@@ -288,13 +361,42 @@ class PairingService implements IPairingService {
         ),
       );
     });
-    if (_sessionService.currentHost?.hostId == currentHost.hostId) {
+    if (_sessionService.currentSessionId == confirmationSessionId &&
+        _sessionService.currentHost?.hostId == currentHost.hostId) {
       _sessionService.associateKnownHost(DovahLinkHostId(currentHost.hostId));
       _hostAvailabilityService.setAvailability(
         DovahLinkHostId(currentHost.hostId),
         DovahLinkHostAvailability.online,
       );
     }
+  }
+
+  /// Implements [IPairingService.confirmPairingCodeAndAcknowledge].
+  @override
+  Future<void> confirmPairingCodeAndAcknowledge({
+    required String code,
+    String? displayName,
+  }) async {
+    final DovahLinkHost? expectedHost = _sessionService.currentHost;
+    if (expectedHost == null) {
+      throw const DovahLinkConnectionException(
+        'The current Host context is unavailable.',
+      );
+    }
+    final String? expectedSessionId = _sessionService.currentSessionId;
+    if (expectedSessionId == null) {
+      throw const DovahLinkConnectionException(
+        'The current session is unavailable.',
+      );
+    }
+    await confirmPairingCode(code: code, displayName: displayName);
+    if (_sessionService.currentSessionId != expectedSessionId ||
+        _sessionService.currentHost?.hostId != expectedHost.hostId) {
+      throw const DovahLinkConnectionException(
+        'The active session changed while pairing confirmation was persisted.',
+      );
+    }
+    await acknowledgeTrustedCredential();
   }
 
   /// Implements [IPairingService.acknowledgeTrustedCredential].
@@ -304,6 +406,12 @@ class PairingService implements IPairingService {
     if (currentHost == null) {
       throw const DovahLinkConnectionException(
         'The current Host context is unavailable.',
+      );
+    }
+    final String? acknowledgementSessionId = _sessionService.currentSessionId;
+    if (acknowledgementSessionId == null) {
+      throw const DovahLinkConnectionException(
+        'The current session is unavailable.',
       );
     }
     final PersistedClientState state = await _clientStateService.load();
@@ -320,6 +428,12 @@ class PairingService implements IPairingService {
     final String? credential = state.knownHosts[currentHost.hostId]?.credential;
     if (credential == null) {
       throw const DovahLinkPairingException(PairingOutcome.pendingNotFound);
+    }
+    if (_sessionService.currentSessionId != acknowledgementSessionId ||
+        _sessionService.currentHost?.hostId != currentHost.hostId) {
+      throw const DovahLinkConnectionException(
+        'The active session changed while pairing acknowledgement was prepared.',
+      );
     }
     final PairingAckPayload payload = PairingAckPayload(credential: credential);
     final Envelope response = await _requestService.sendAndAwait(
@@ -374,7 +488,8 @@ class PairingService implements IPairingService {
         clearPendingPairingRecovery: true,
       );
     });
-    if (_sessionService.currentHost?.hostId == currentHost.hostId) {
+    if (_sessionService.currentSessionId == acknowledgementSessionId &&
+        _sessionService.currentHost?.hostId == currentHost.hostId) {
       _sessionTrustService.markTrusted();
       _sessionService.associateKnownHost(DovahLinkHostId(currentHost.hostId));
       _hostAvailabilityService.setAvailability(

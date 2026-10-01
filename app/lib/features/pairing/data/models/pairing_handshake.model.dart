@@ -20,17 +20,24 @@ class PairingHandshakeModel extends PairingHandshake {
     super.credentialRejectedMessage,
   });
 
-  /// Maps the SDK [hello] and resolved session [trusted] status to a model.
-  factory PairingHandshakeModel.fromHelloResult({
-    /// SDK authentication result for the session.
-    required HelloResult hello,
+  /// Maps [handshake] after SDK-owned pending pairing recovery.
+  factory PairingHandshakeModel.fromPairingHandshake(
+    DovahLinkPairingHandshake handshake,
+  ) => PairingHandshakeModel._fromValues(
+    hostVersion: handshake.hello.hostVersion,
+    trusted: handshake.trustState == DovahLinkTrustState.trusted,
+    recoveredFromRejectedCredential:
+        handshake.hello.recoveredFromRejectedCredential,
+  );
 
-    /// Trust status after checking for interrupted pairing recovery.
+  factory PairingHandshakeModel._fromValues({
+    required String hostVersion,
     required bool trusted,
+    required CredentialRejectionReason? recoveredFromRejectedCredential,
   }) => PairingHandshakeModel(
-    hostVersion: hello.hostVersion,
+    hostVersion: hostVersion,
     trusted: trusted,
-    credentialRejectionReason: switch (hello.recoveredFromRejectedCredential) {
+    credentialRejectionReason: switch (recoveredFromRejectedCredential) {
       CredentialRejectionReason.revoked =>
         PairingCredentialRejectionReason.revoked,
       CredentialRejectionReason.unrecognized =>
@@ -39,7 +46,7 @@ class PairingHandshakeModel extends PairingHandshake {
         PairingCredentialRejectionReason.blocked,
       null => null,
     },
-    credentialRejectedMessage: switch (hello.recoveredFromRejectedCredential) {
+    credentialRejectedMessage: switch (recoveredFromRejectedCredential) {
       CredentialRejectionReason.revoked => "This device's trust was revoked.",
       CredentialRejectionReason.unrecognized =>
         "This device isn't recognized by this host.",

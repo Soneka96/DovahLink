@@ -798,6 +798,60 @@ void main() {
     );
   });
 
+  group('Method close behaves correctly', () {
+    test('Method close prevents a later connection attempt', () async {
+      await service.close();
+
+      expect(service.isTerminallyClosed, isTrue);
+      await expectLater(
+        service.connect(Uri.parse('ws://127.0.0.1:58231/')),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+
+      verifyNever(() => transport.connect(any()));
+      verifyNever(() => state.beginConnectAttempt(any()));
+    });
+
+    test(
+      'Method close rejects a connection queued before terminal shutdown',
+      () async {
+        final Completer<void> firstConnectStarted = Completer<void>();
+        final Completer<void> firstConnectGate = Completer<void>();
+        final List<Uri> requestedUris = <Uri>[];
+        when(() => transport.connect(any())).thenAnswer((invocation) {
+          requestedUris.add(invocation.positionalArguments.single as Uri);
+          firstConnectStarted.complete();
+          return firstConnectGate.future;
+        });
+        addTearDown(() {
+          if (!firstConnectGate.isCompleted) {
+            firstConnectGate.complete();
+          }
+        });
+
+        final Future<void> firstConnect = service.connect(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await firstConnectStarted.future;
+        final Future<void> queuedConnect = service.connect(
+          Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        final Future<void> closing = service.close();
+        firstConnectGate.complete();
+
+        await firstConnect;
+        await expectLater(
+          queuedConnect,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await closing;
+
+        expect(service.isTerminallyClosed, isTrue);
+        expect(requestedUris, <Uri>[Uri.parse('ws://127.0.0.1:58231/')]);
+      },
+    );
+  });
+
   group('Method disconnect behaves correctly', () {
     test('Method disconnect tears down without orphaning by default', () async {
       await service.disconnect();

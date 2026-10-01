@@ -78,6 +78,11 @@ may report acceptance, rejection, an error, or operation-specific metadata, but 
 fabricate the resulting authoritative Host, session, trust, pairing, or game state from command
 success.
 
+`ReconnectService` owns initial connection retries after an explicit candidate or Known Host attempt;
+established-session recovery remains a separate bounded lifecycle. `PairingMiddleware` observes the
+typed initial-retry status and keeps pairing Offline while the SDK waits or retries. Dialog disposal
+and application shutdown disconnect through the SDK, which cancels that retry intent.
+
 For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
 of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with independent
 `HostAvailability` and `KnownHostSessionState` values. An admitted session renders `Connected`;
@@ -95,16 +100,21 @@ last successful `knownHosts` value; a later snapshot restores `ready`.
 `ConnectionKnownHostsChangedAction` and `ConnectionCandidatesChangedAction` each mirror the entire
 SDK projection. `ConnectionMiddleware` owns both stream subscriptions; `HostMapper.fromSdk` maps
 SDK `DovahLinkHost` values to app `Host` values, while `HostMapper.fromSdkKnownHostState` maps the
-runtime projection to `KnownHost`. Discovery calls `DovahLinkClient.discoverHosts()` on the
-application's shared SDK client. Empty or failed discovery does not remove saved Known Hosts, and a
-failed request preserves the SDK's last candidate collection.
+runtime projection to `KnownHost`. `ConnectionMiddleware` reads Known Host snapshots from
+`client.hosts`, candidate snapshots from `client.pairing.candidates`, and requests discovery through
+`client.pairing.discoverHosts()` on the application's one shared SDK client. Empty or failed
+discovery does not remove saved Known Hosts, and a failed request preserves the SDK's last candidate
+collection.
 
 Host selection records whether the selected `Host` is an ephemeral discovery candidate or durable
 Known Host intent. Selection refreshes and card keys use normalized Host IDs, so endpoint changes
 preserve the same Host selection and widget identity. When an SDK candidate disappears, its
 candidate selection is cleared; after the SDK confirms pairing, the selected target uses Known Host
-authentication. Pairing sends candidate endpoints through candidate authentication and Known Host
-IDs through `authenticateKnownHost`; it never sends a mapped Host snapshot as an SDK command.
+authentication. Pairing sends candidate endpoints through `client.pairing.authenticateCandidate`
+and Known Host IDs through `client.pairing.authenticateKnownHost`; the SDK performs authentication
+and pending-confirmation recovery. `client.pairing.confirmCode` completes confirmation and
+credential acknowledgement. Flutter maps the returned typed result and failures; it never sequences
+those protocol exchanges or sends a mapped Host snapshot as an SDK command.
 
 ## Feature structure
 

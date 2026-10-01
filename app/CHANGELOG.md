@@ -66,6 +66,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Terminal authentication protocol failures now show a safe pairing error instead of Offline.
 - Connections now shows restored Known Hosts alongside candidates and preserves the selected entry's authentication source.
 - Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its
   three-second cleanup budget, then returns the close message through Flutter's engine and plugin

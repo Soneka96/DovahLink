@@ -13,9 +13,71 @@ storage, session teardown, retry/backoff, revision recovery, snapshot reconcilia
 suppression, subscription recovery, and Host compatibility mechanics. The long-term simple
 experience trends toward: find/select a DovahLink instance, pair if necessary, listen to typed state.
 The SDK exposes authoritative local candidate discovery through
-`DovahLinkClient.discoverHosts()` and its replaying `candidateHostsChanges` stream. Discovery probes
-the canonical loopback Host endpoint only; this does not provide LAN or mDNS discovery,
+`client.pairing.discoverHosts()` and its replaying `client.pairing.candidates` stream. Discovery
+probes the canonical loopback Host endpoint only; this does not provide LAN or mDNS discovery,
 multi-instance selection, or automatic connection.
+
+## Grouped client API
+
+The supported client surface exposes views over the single `DovahLinkClient` engine. These groups
+are API boundaries only; they do not create separate clients, service graphs, or mutable state
+owners:
+
+```text
+DovahLinkClient
+  hosts         durable Known Hosts and their runtime projection
+  connections   one active session's connection and authentication lifecycle
+  pairing       discovery candidates and pairing operations
+  currentHost   typed game state for the admitted active Host
+```
+
+The public operations are:
+
+| Group | Public surface | Owner and semantics |
+| --- | --- | --- |
+| `hosts` | `loadKnownHosts()`, `knownHostsChanges`, `knownHostStatesChanges` | `ClientStateService` and `HostAvailabilityService`; durable metadata and runtime availability/session projection remain distinct. |
+| `connections` | `connectCandidate(uri)`, `connectKnownHost(hostId)`, `disconnect()`, `state`, `stateChanges`, `initialConnectionRetryChanges`, `invalidationReason` | `SessionService`, `AuthenticationService`, and `ReconnectService`; each connect operation includes authentication and session admission. Initial retries do not enter established-session `reconnecting` state. |
+| `pairing` | `candidates`, `discoverHosts()`, `authenticateCandidate(uri)`, `authenticateKnownHost(hostId)`, `requestCode()`, `renotify()`, `cancel()`, `confirmCode(...)`, `recoverPendingPairing()` | `PairingService` composes connection admission with pending-confirmation recovery and sequences confirmation plus credential acknowledgement. Candidates remain runtime-only. |
+| `currentHost` | Admitted Host/session context, typed game-state streams, and subscription operations | Existing session, state trackers, and `SubscriptionService`; retain per-domain replay, synchronization, error, and recovery behavior. |
+
+The group names describe SDK concepts, not Flutter's visually selected Host. `connections` reports
+the SDK's active transport/session lifecycle; `currentHost` refers to the Host admitted by that
+session. A candidate or a UI selection is not an admitted Host. No grouped operation may infer
+trust from discovery metadata or use a Known Host credential based only on a candidate's Host-ID
+claim.
+
+The Flutter app maps these grouped values into Redux and retains navigation, dialog lifetime, user
+input, and display decisions. `ReconnectService` owns the three-second initial retry schedule and
+cancellation separately from its bounded established-session recovery. It reports the active
+initial-retry intent through `connections.initialConnectionRetryChanges`; Flutter keeps the pairing
+and Known Host presentation Offline while that intent is active. `pairing.authenticateCandidate` and
+`pairing.authenticateKnownHost` sequence the shared connection/authentication path with pending
+confirmation recovery. `pairing.confirmCode` persists the issued credential and completes its Host
+acknowledgement as one SDK operation. Flutter retains user-facing wording, failure-to-presentation
+mapping, navigation, and dialog lifecycle.
+
+The current owner boundaries are:
+
+| Concern | Owner and public view | Invariant and regression risk |
+| --- | --- | --- |
+| Known Host persistence and candidate reconciliation | `ClientStateService` and `DovahLinkClient`, exposed through `hosts` and `pairing` | Preserve storage errors, deterministic snapshots, race suppression, and the rule that candidate claims never select credentials. |
+| Known Host availability and session projection | `HostAvailabilityService` and `SessionService`, exposed through `hosts` | Preserve replay, recovery after stream errors, runtime-only availability, and exact relationship matching. |
+| Connection/authentication and recovery | `SessionService`, `AuthenticationService`, and `ReconnectService`, exposed through `connections` | Transport-open is not session admission. Initial retries remain separate from bounded established-session recovery. |
+| Pairing protocol sequencing | `PairingService`, exposed through `pairing` | Preserve crash recovery, retriable wrong-code/pacing outcomes, expiry, cooldown, credential rejection, administrative invalidation, and candidate/Known Host credential boundaries. |
+| Redux and presentation | Flutter middleware mirrors grouped SDK projections | Flutter owns selection, wording, navigation, and dialog lifecycle; it does not implement retry policy or sequence protocol operations. |
+| SDK composition and shutdown | `app/lib/injection_container.dart` creates one client; `AppShutdownService` closes it | Every group references that engine, and shutdown remains idempotent with no late state publication. |
+
+No separate SDK component construction was found in Flutter production code. `PairingRemoteDataSource`,
+repositories, and use cases form application boundaries; remove one only after its behavior has moved
+and its consumer tests prove that no presentation-independent mapping or orchestration remains.
+
+The in-repository Flutter application and SDK tests are the known consumers. The SDK is not
+published as a stable public package and has no publication workflow; the grouped API is the
+supported repository surface, with no duplicate root aliases. The wire protocol and supported Host
+compatibility range do not change.
+
+The grouped API does not authorize multiple active sessions, multi-Host game-state fetching, a new
+protocol version, SAS, or changes to Host/Adapter behavior.
 
 ## Expert capabilities
 
@@ -33,9 +95,9 @@ merely because an expert API exists, unless a later explicit low-level API decis
 mutable computer-name display metadata. Neither represents the endpoint. A peer's assertion of
 `hostId` is not cryptographic proof that it owns a previously trusted identity.
 
-`DovahLinkClient.loadKnownHosts()` returns the complete immutable Known Hosts collection, ordered by
-`hostId`; `knownHostsChanges` emits that same complete view on listen and after each committed
-semantic change. A load failure is reported as a stream error, never converted to an empty
+`client.hosts.loadKnownHosts()` returns the complete immutable Known Hosts collection, ordered by
+`hostId`; `client.hosts.knownHostsChanges` emits that same complete view on listen and after each
+committed semantic change. A load failure is reported as a stream error, never converted to an empty
 collection. The same subscriber remains attached and receives state after a later successful SDK
 load or mutation. Each public `DovahLinkHost` contains identity and last-known metadata only; it
 exposes no credential and does not claim the Host currently trusts this client. Known Host
@@ -45,9 +107,9 @@ Trusted sessions may refresh metadata only for the matching Known Host ID; disco
 refresh persisted metadata. SDK-owned Host IDs are stored and compared in canonical lowercase form;
 the typed `DovahLinkHostId` accepts either UUID casing at its boundary.
 
-`DovahLinkClient.discoverHosts()` returns the complete immutable collection of current candidates,
+`client.pairing.discoverHosts()` returns the complete immutable collection of current candidates,
 ordered by normalized Host ID. The SDK removes every claim whose ID belongs to the latest committed
-Known Host collection, keeps candidates in runtime memory only, and updates `candidateHostsChanges`
+Known Host collection, keeps candidates in runtime memory only, and updates `client.pairing.candidates`
 when discovery or a committed Known Host change changes membership. Each successful discovery
 reconciles against the latest persisted state; a stale asynchronous result cannot reintroduce a
 Known Host. A storage/load failure is surfaced instead of treating an unverified collection as a
@@ -191,7 +253,7 @@ current-state-bearing domain views. It does not imply replaying historical event
 streams; a late subscriber to an Event-mode domain still synchronizes through that domain's normal
 initial-snapshot path, not through event replay.
 
-`DovahLinkClient.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts,
+`client.hosts.knownHostStatesChanges` is the complete runtime projection of durable Known Hosts,
 their `DovahLinkHostAvailability`, and their exact-relationship `DovahLinkKnownHostSessionState`.
 When storage provides a snapshot, it immediately provides the
 current immutable collection, ordered deterministically by Host ID, then emits a complete replacement
@@ -207,7 +269,7 @@ endpoint changes may emit `checking`; periodic refresh retains the previous avai
 while a probe runs, then publishes `online`, `offline`, or `unknown` when evidence arrives. Keep
 `knownHostsChanges` for consumers that need durable Host metadata without runtime availability.
 
-`DovahLinkClient.disconnect()` ends the current protocol session without clearing Known Host
+`client.connections.disconnect()` ends the current protocol session without clearing Known Host
 reachability evidence, and leaves presence monitoring active. `DovahLinkClient.close()` is the
 terminal lifecycle operation that stops the monitor, cancels its timer and probes, closes its Known
 Host observation subscriptions, and disconnects the current session.

@@ -402,35 +402,28 @@ void main() {
     );
 
     test(
-      'Selector hostCardsSelector stays Offline during automatic attempts and shows SDK recovery',
+      'Selector hostCardsSelector stays Offline during SDK initial retries and shows SDK recovery',
       () {
         final Host host = Fixtures.buildHost();
-        PairingState pairing = PairingState.initial().copyWith(
+        final PairingState pairing = PairingState.initial().copyWith(
           phase: PairingPhase.disconnected,
         );
-        for (int attempt = 0; attempt < 3; attempt++) {
-          pairing = pairingReducer(
-            pairing,
-            const PairingStartedAction(isAutomaticRetry: true),
-          );
-          final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
-            stateWith(
-              const <Host>[],
-              knownHosts: <KnownHost>[
-                Fixtures.buildKnownHost(
-                  host: host,
-                  availability: HostAvailability.offline,
-                  sessionState: KnownHostSessionState.connecting,
-                ),
-              ],
-              pairingState: pairing,
-            ),
-          ).single;
-          expect(pairing.phase, PairingPhase.disconnected);
-          expect(card.state, DovahConnectionCardState.offline);
-
-          pairing = pairingReducer(pairing, const PairingDisconnectedAction());
-        }
+        final HostCardViewData retryingCard =
+            ConnectionSelectors.hostCardsSelector(
+              stateWith(
+                const <Host>[],
+                knownHosts: <KnownHost>[
+                  Fixtures.buildKnownHost(
+                    host: host,
+                    availability: HostAvailability.offline,
+                    sessionState: KnownHostSessionState.connecting,
+                  ),
+                ],
+                pairingState: pairing,
+              ),
+            ).single;
+        expect(pairing.phase, PairingPhase.disconnected);
+        expect(retryingCard.state, DovahConnectionCardState.offline);
 
         final HostCardViewData recoveringCard =
             ConnectionSelectors.hostCardsSelector(

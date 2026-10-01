@@ -1,7 +1,7 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
-/// The connected Host identity, compatibility version, and trust outcome returned by
-/// [DovahLinkClient.hello]/[DovahLinkClient.authenticate].
+/// The connected Host identity, compatibility version, and trust outcome returned by grouped
+/// connection or pairing authentication operations.
 class HelloResult {
   /// Creates a hello result.
   /// @param hostId The stable DovahLink identity of the connected Host installation.
@@ -29,7 +29,7 @@ class HelloResult {
   /// The trust tier the session was admitted at.
   final DovahLinkTrustState trustState;
 
-  /// Set when [DovahLinkClient.authenticate] recovered from a rejected `trusted_device_credential`
+  /// Set when [IDovahLinkConnections.connectKnownHost] recovered from a rejected `trusted_device_credential`
   /// hello by discarding the stale credential and retrying as `unpaired`; `null` on an ordinary
   /// hello with nothing to recover from.
   final CredentialRejectionReason? recoveredFromRejectedCredential;

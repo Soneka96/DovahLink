@@ -5,15 +5,32 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_rejection_classifier.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
+import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
-/// Defines the callback that starts bounded recovery after ordinary transport loss.
+/// Owns separate initial-connection retry and established-session recovery policies.
 abstract interface class IReconnectService {
+  /// Emits the current initial-retry status on listen and each lifecycle transition.
+  Stream<DovahLinkInitialConnectionRetryStatus>
+  get initialConnectionRetryChanges;
+
+  /// Runs one explicit authentication attempt, then retries connection and retryable protocol
+  /// failures every three seconds until success, cancellation, or administrative invalidation.
+  /// @param attempt Authenticates the originally selected candidate or Known Host.
+  /// @return The successful initial handshake, from the first attempt or a retry.
+  Future<HelloResult> connectWithInitialRetry(
+    Future<HelloResult> Function() attempt,
+  );
+
+  /// Cancels an initial retry without affecting bounded established-session recovery.
+  void stopInitialConnectionRetry();
+
   /// Reports that ordinary transport loss finished tearing down the connection previously
   /// established at [uri], starting bounded automatic recovery.
   /// @param uri The last endpoint used by the interrupted session.
@@ -24,14 +41,25 @@ abstract interface class IReconnectService {
   void stopRecovery();
 }
 
-/// Reconnects to the endpoint the session last connected to and re-authenticates, up to a bounded
-/// attempt budget and a hard overall deadline (each defaulting to the centrally tuned
-/// [kReconnectAttemptDelays]/[kReconnectDeadline]) -- whichever is exhausted first.
-/// [SessionService] owns transport/session state and teardown; [AuthenticationService] owns
-/// authentication. This class only chooses when and how often to retry. Incompatible Host versions
-/// and Known Host identity mismatches are terminal and their typed failure is passed to teardown
-/// without another attempt.
+/// Owns initial retries for one explicit connection attempt and bounded recovery of an established
+/// session. Initial retries retain the selected attempt callback and wait three seconds between
+/// connection or retryable protocol failures until cancelled or successful; established recovery
+/// instead has a bounded attempt budget and deadline. Both policies use the same [SessionService] and
+/// [AuthenticationService]. This class never owns session state or transport operations.
 class ReconnectService implements IReconnectService {
+  /// The typed result for an initial attempt cancelled before it can finish.
+  static const DovahLinkConnectionException _initialRetryCancelled =
+      DovahLinkConnectionException(
+        'The initial connection retry was cancelled.',
+      );
+
+  /// The typed initial-retry lifecycle state.
+  final CurrentValueStream<DovahLinkInitialConnectionRetryStatus>
+  _initialConnectionRetryState =
+      CurrentValueStream<DovahLinkInitialConnectionRetryStatus>(
+        DovahLinkInitialConnectionRetryStatus.inactive,
+      );
+
   /// Reconnects to and disconnects from the Host, and reports live connection state.
   final ISessionService _sessionService;
 
@@ -55,6 +83,12 @@ class ReconnectService implements IReconnectService {
   /// heavily loaded test run could otherwise make flaky.
   final DateTime Function() _now;
 
+  /// Optional deterministic retry ticks for tests; production uses the configured delay.
+  final Stream<void>? _initialConnectionRetryTicks;
+
+  /// Delay retained from the former Flutter initial-retry policy.
+  final Duration _initialConnectionRetryDelay;
+
   /// Generation identifying the current recovery cycle.
   int _recoveryGeneration = 0;
 
@@ -63,6 +97,21 @@ class ReconnectService implements IReconnectService {
 
   /// Completer released when the pending retry delay ends or is cancelled.
   Completer<void>? _retryDelayCompleter;
+
+  /// Generation invalidating an initial connection retry intent.
+  int _initialConnectionRetryGeneration = 0;
+
+  /// Timer waiting before the next initial connection retry.
+  Timer? _initialConnectionRetryTimer;
+
+  /// Completer released when an initial retry delay ends or is cancelled.
+  Completer<void>? _initialConnectionRetryDelayCompleter;
+
+  /// Test tick subscription for the current initial retry delay.
+  StreamSubscription<void>? _initialConnectionRetryTickSubscription;
+
+  /// Whether an automatic initial retry is currently authenticating.
+  bool _isInitialConnectionRetryAttemptInFlight = false;
 
   /// Creates a reconnect service recovering through [sessionService], re-authenticating through
   /// [authenticationService], and reporting outcomes to [hostAvailabilityService].
@@ -76,12 +125,173 @@ class ReconnectService implements IReconnectService {
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration deadline = kReconnectDeadline,
     DateTime Function() now = DateTime.now,
+    Duration initialConnectionRetryDelay = kInitialConnectionRetryDelay,
+    Stream<void>? initialConnectionRetryTicks,
   }) : _sessionService = sessionService,
        _authenticationService = authenticationService,
        _hostAvailabilityService = hostAvailabilityService,
        _attemptDelays = attemptDelays,
        _deadline = deadline,
-       _now = now;
+       _now = now,
+       _initialConnectionRetryDelay = initialConnectionRetryDelay,
+       _initialConnectionRetryTicks = initialConnectionRetryTicks;
+
+  /// Implements [IReconnectService.initialConnectionRetryChanges].
+  @override
+  Stream<DovahLinkInitialConnectionRetryStatus>
+  get initialConnectionRetryChanges => _initialConnectionRetryState.stream;
+
+  /// Implements [IReconnectService.connectWithInitialRetry]. Established-session recovery stays
+  /// in [_recover] with its own bounded attempt budget and deadline.
+  @override
+  Future<HelloResult> connectWithInitialRetry(
+    Future<HelloResult> Function() attempt,
+  ) async {
+    if (_sessionService.isTerminallyClosed) {
+      throw const DovahLinkConnectionException(
+        'Cannot connect after the client has been closed.',
+      );
+    }
+    stopInitialConnectionRetry();
+    stopRecovery();
+    _authenticationService.cancelPendingAuthentication();
+    final int generation = _initialConnectionRetryGeneration;
+
+    try {
+      final HelloResult result = await attempt();
+      if (generation != _initialConnectionRetryGeneration) {
+        throw _initialRetryCancelled;
+      }
+      return result;
+    } on DovahLinkConnectionException {
+      if (generation != _initialConnectionRetryGeneration ||
+          _sessionService.connectionState ==
+              DovahLinkConnectionState.administrativelyInvalidated) {
+        rethrow;
+      }
+    } on DovahLinkProtocolException catch (error) {
+      if (generation != _initialConnectionRetryGeneration ||
+          _sessionService.connectionState ==
+              DovahLinkConnectionState.administrativelyInvalidated ||
+          ReconnectRejectionClassifier.isTerminal(error)) {
+        rethrow;
+      }
+    }
+
+    _initialConnectionRetryState.update(
+      DovahLinkInitialConnectionRetryStatus.retrying,
+    );
+    try {
+      while (generation == _initialConnectionRetryGeneration) {
+        final Completer<void> delayCompleter = Completer<void>();
+        _initialConnectionRetryDelayCompleter = delayCompleter;
+        final Stream<void>? retryTicks = _initialConnectionRetryTicks;
+        if (retryTicks == null) {
+          _initialConnectionRetryTimer = Timer(
+            _initialConnectionRetryDelay,
+            () {
+              if (identical(
+                _initialConnectionRetryDelayCompleter,
+                delayCompleter,
+              )) {
+                _initialConnectionRetryDelayCompleter = null;
+                _initialConnectionRetryTimer = null;
+              }
+              if (!delayCompleter.isCompleted) {
+                delayCompleter.complete();
+              }
+            },
+          );
+        } else {
+          _initialConnectionRetryTickSubscription = retryTicks.listen((_) {
+            if (identical(
+              _initialConnectionRetryDelayCompleter,
+              delayCompleter,
+            )) {
+              _initialConnectionRetryDelayCompleter = null;
+              final StreamSubscription<void>? subscription =
+                  _initialConnectionRetryTickSubscription;
+              _initialConnectionRetryTickSubscription = null;
+              unawaited(subscription?.cancel());
+            }
+            if (!delayCompleter.isCompleted) {
+              delayCompleter.complete();
+            }
+          });
+        }
+        await delayCompleter.future;
+        if (generation != _initialConnectionRetryGeneration) {
+          throw _initialRetryCancelled;
+        }
+        if (_sessionService.connectionState ==
+            DovahLinkConnectionState.administrativelyInvalidated) {
+          throw const DovahLinkConnectionException(
+            'The Host administratively invalidated the session.',
+          );
+        }
+        _isInitialConnectionRetryAttemptInFlight = true;
+        try {
+          try {
+            final HelloResult result = await attempt();
+            if (generation != _initialConnectionRetryGeneration) {
+              throw _initialRetryCancelled;
+            }
+            return result;
+          } on DovahLinkConnectionException {
+            if (generation != _initialConnectionRetryGeneration) {
+              throw _initialRetryCancelled;
+            }
+            if (_sessionService.connectionState ==
+                DovahLinkConnectionState.administrativelyInvalidated) {
+              rethrow;
+            }
+          } on DovahLinkProtocolException catch (error) {
+            if (generation != _initialConnectionRetryGeneration) {
+              throw _initialRetryCancelled;
+            }
+            if (_sessionService.connectionState ==
+                    DovahLinkConnectionState.administrativelyInvalidated ||
+                ReconnectRejectionClassifier.isTerminal(error)) {
+              rethrow;
+            }
+          }
+        } finally {
+          _isInitialConnectionRetryAttemptInFlight = false;
+        }
+      }
+      throw _initialRetryCancelled;
+    } finally {
+      if (generation == _initialConnectionRetryGeneration) {
+        _initialConnectionRetryState.update(
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        );
+      }
+    }
+  }
+
+  /// Implements [IReconnectService.stopInitialConnectionRetry].
+  @override
+  void stopInitialConnectionRetry() {
+    _initialConnectionRetryGeneration++;
+    if (_isInitialConnectionRetryAttemptInFlight) {
+      _authenticationService.cancelPendingAuthentication();
+    }
+    _initialConnectionRetryTimer?.cancel();
+    _initialConnectionRetryTimer = null;
+    final StreamSubscription<void>? tickSubscription =
+        _initialConnectionRetryTickSubscription;
+    _initialConnectionRetryTickSubscription = null;
+    unawaited(tickSubscription?.cancel());
+    final Completer<void>? delayCompleter =
+        _initialConnectionRetryDelayCompleter;
+    _initialConnectionRetryDelayCompleter = null;
+    if (delayCompleter != null && !delayCompleter.isCompleted) {
+      delayCompleter.complete();
+    }
+    _initialConnectionRetryState.update(
+      DovahLinkInitialConnectionRetryStatus.inactive,
+    );
+  }
 
   /// Implements [IReconnectService.onOrdinaryTransportLoss].
   @override

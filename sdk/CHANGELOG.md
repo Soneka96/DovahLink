@@ -14,27 +14,38 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 ### Added
 
 - The SDK checks restored Known Host presence on startup and refreshes it while the client remains open, separately from session connection state.
-- `DovahLinkClient.knownHostsChanges` emits the complete persisted Known Hosts view after commits.
+- `client.hosts.knownHostsChanges` emits the complete persisted Known Hosts view after commits.
 - The SDK keeps each Host's current bearer credential and pending pairing recovery scoped to that Host ID.
 - Known Host authentication resolves its endpoint and credential inside the SDK from `DovahLinkHostId`.
 - The SDK handshake result exposes the stable Host installation ID and current OS computer name.
 - The Dart SDK discovers the local loopback Host through a bounded sessionless metadata probe; its Host ID claim remains unauthenticated.
 - The SDK exposes the shared Host presence probe for local discovery and Known Host reachability.
-- `DovahLinkClient.discoverHosts()` and `candidateHostsChanges` expose SDK-reconciled, runtime-only candidates.
+- `client.pairing.discoverHosts()` and `client.pairing.candidates` expose SDK-reconciled, runtime-only candidates.
 - `DovahLinkKnownHostState` exposes the exact Known Host session lifecycle separately from reachability.
 - `DovahLinkClient.close()` stops background presence monitoring and releases SDK-owned subscriptions.
 - DovahLinkConnectionException preserves an HTTP status when a peer rejects the metadata probe.
 
 ### Changed
 
+- `DovahLinkClient.close()` permanently closes the session lifecycle, so later connection or pairing authentication cannot reconnect.
+- The grouped pairing API now authenticates with the selected target, recovers pending confirmation,
+  and completes code confirmation plus credential acknowledgement as SDK-owned operations.
+- Initial candidate and Known Host connection failures now retry in the SDK every three seconds, independently from bounded established-session recovery; the previous Offline presentation is preserved.
 - Discovery reconciles claims with committed Known Hosts by normalized Host ID; candidates are never persisted.
 - Pairing credentials no longer leave the SDK API, and candidate authentication never selects a Known Host credential.
 - Persisted client state moves to format 3; unreleased singleton bearer state requires pairing again.
 - The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
 - Windows DPAPI storage is available through a Windows-specific entry point, while the shared SDK entry point stays platform-neutral.
 
+### Removed
+
+- Superseded flat `DovahLinkClient` forwarding aliases were removed in favor of the grouped API.
+
 ### Fixed
 
+- Combined pairing confirmation rejects a changed Host session before acknowledgement while
+  preserving its durable recovery state.
+- Initial connection retry stops immediately for terminal or non-retryable protocol failures.
 - Pending discovery checks terminal shutdown after storage and probe awaits, preventing late
   subscriptions, probes, and candidate updates.
 - Pairing commits remove a Host from candidates, and stale discovery results cannot restore it.

@@ -82,7 +82,7 @@ while its session is healthy and ignore a weaker negative result that races succ
 A compatible sessionless claim with the same Host ID reports `online`; a bounded connection failure
 reports `offline` only when no authenticated session is active. A different Host ID, HTTP rejection,
 malformed response, or incompatible version reports `unknown`, never trust repair or metadata
-mutation. Explicit `DovahLinkClient.disconnect()` ends its admitted Known Host session
+mutation. Explicit `client.connections.disconnect()` ends its admitted Known Host session
 without clearing current reachability evidence; presence monitoring continues. Terminal
 `DovahLinkClient.close()` cancels the monitor, its timer, in-flight probes, and subscriptions; the
 app uses this lifecycle at shutdown.
@@ -94,7 +94,8 @@ credential, and trust outcomes are not blanket transport-failure signals.
 Candidate authentication and discovery never update a Known Host's availability based on a claimed
 Host ID. Recovery must carry the verified Known Host relationship ID from the admitted operation;
 do not infer it from an endpoint, display metadata, or discovery. The monitor owns only bounded
-reachability scheduling; `ReconnectService` remains responsible for recovering an established session.
+reachability scheduling. `ReconnectService` separately owns initial retries after an explicit
+candidate/Known Host attempt and bounded recovery after an established session loses transport.
 
 The owner suppresses equivalent successive projections. After a stream error, it emits the next
 valid complete snapshot even if the projection is unchanged, so subscribers can observe recovery
@@ -156,17 +157,18 @@ protocol and compatibility failures. A discovered `hostId` alone must not author
 credential disclosure, pairing bypass, durable Known Host updates, or another security-sensitive
 decision.
 
-`DovahLinkClient.discoverHosts()` owns the complete runtime candidate projection. It filters each
-validated discovery claim against the latest committed Known Host collection by normalized
-`hostId`, never by endpoint or display name, and suppresses duplicate Host IDs. The current
-projection is available through `candidateHostsChanges`; it is runtime-only and is never written to
-`IClientStorage`. After discovery begins, the client follows committed Known Host changes and
+`client.pairing.discoverHosts()` exposes the complete runtime candidate projection. The client
+filters each validated discovery claim against the latest committed Known Host collection by
+normalized `hostId`, never by endpoint or display name, and suppresses duplicate Host IDs. The
+projection is available through `client.pairing.candidates`; it is runtime-only and is never written
+to `IClientStorage`. After discovery begins, the client follows committed Known Host changes and
 removes matching candidates automatically, including when pairing commits a new Known Host.
 Discovery generations prevent an older in-flight result from replacing a newer result, and each
 result is reconciled against the latest persisted snapshot before publication. An empty or failed
 probe does not mutate durable Known Hosts; a storage failure prevents successful reconciliation
 and is surfaced through the SDK's typed error/stream conventions. Flutter mirrors this candidate
-stream and `knownHostStatesChanges`; it does not duplicate identity filtering or membership rules.
+stream and `client.hosts.knownHostStatesChanges`; it does not duplicate identity filtering or
+membership rules.
 
 TODO(SAS): replace the unauthenticated development Host claim with the approved SAS identity
 establishment; a probe's `hostId` is not proof of Host identity.
@@ -248,12 +250,18 @@ The nine Services:
   `PendingOperationTransmitter`.
 - `IAuthenticationService`/`AuthenticationService` — candidate authentication, Known Host
   authentication by ID, Host-scoped credential recovery, and `hello`.
-- `IPairingService`/`PairingService` — pairing operations.
+- `IPairingService`/`PairingService` — pairing operations and their SDK-owned sequencing. It uses
+  the existing authentication and initial-retry services to admit a pairing session and recover
+  pending confirmation; code confirmation and trusted-credential acknowledgement remain one
+  operation for public consumers.
 - `IClientStateService`/`ClientStateService` — the sole owner of persisted client-state loads and
   serialized complete-state mutations, with save-before-publish Known Hosts projections.
-- `IReconnectService`/`ReconnectService` — bounded automatic recovery from ordinary transport
-  loss, reconnecting and re-authenticating up to an attempt budget and a hard deadline without
-  taking over transport or authentication state from `ISessionService`/`IAuthenticationService`.
+- `IReconnectService`/`ReconnectService` — SDK-owned initial connection retry after a failed
+  explicit attempt, plus bounded automatic recovery after ordinary established-session transport
+  loss. Initial retry repeats every three seconds until success, explicit replacement, deliberate
+  disconnect, shutdown, or administrative invalidation. Established recovery retains its own
+  bounded attempt budget and hard deadline. Both modes use the same
+  `ISessionService`/`IAuthenticationService` owners and never create a second connection engine.
 - `ISubscriptionService`/`SubscriptionService` — owns the client's desired state-area set and
   reconciles it with the Host using the canonical complete-set `subscribe` operation. It applies
   only Host-accepted areas to `StateMessageHandler`; rejected and removed areas stop updating their
@@ -441,8 +449,10 @@ in maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustSer
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
 keeps it as a field. Every other consumer — `IRequestService`,
 `IAuthenticationService`, `IPairingService`, `IReconnectService` — depends on the appropriate Service
-contract, never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in
-another service merely because it's needed there; the one documented, accepted exception is
+contract, never on `SessionState` directly. `PairingService` composes authentication and initial
+retry through their existing contracts; this adds no second connection or session owner. Never
+mirror or cache a session-scoped mutable fact in another service merely because it's needed there;
+the one documented, accepted exception is
 `AuthenticationService`'s own cached `clientId`/`hostVersion`, which are read-caches of values
 whose durable source of truth is `IClientStorage`, refreshed every `hello()` — not a competing copy
 of anything `SessionState` owns.
@@ -456,14 +466,10 @@ same command only after the relationship is durable and the same session remains
 called by `PairingService` after a successful pairing acknowledgement). No other class assigns
 `sessionId` or trust state directly.
 
-`ReconnectService` never assigns connection state directly either: it only drives the same
-`connect`/`disconnect` commands (via `ISessionService`) and the same `hello` call (via
-`IAuthenticationService`, an explicit constructor dependency) any other caller uses.
-`SessionService` still decides the resulting state transitions itself -- entering `reconnecting`
-only after ordinary transport loss tears down cleanly with a known endpoint (driving
-`ReconnectService` through the `onOrdinaryTransportLoss` callback above), moving to
-`reauthenticating` once a recovery attempt's transport reconnects (trust not yet confirmed), and
-resolving out of that to `connected` (that attempt's `hello` actually admits a session) or
-`disconnected` (a deliberate disconnect, an administrative invalidation, or the reconnect service's
-own final give-up) -- so `ReconnectService` orchestrates *when* to retry while `SessionService`
-remains the sole owner of *what state that produces*.
+`ReconnectService` never assigns connection state directly: both retry modes drive the same
+`connect`/`disconnect` commands via `ISessionService` and the same `hello` operations via
+`IAuthenticationService`. `SessionService` remains the sole connection-state owner. Established
+recovery alone enters `reconnecting` after ordinary transport loss and `reauthenticating` while its
+reconnected transport awaits `hello`. Initial retries remain a separate intent, report their
+`inactive`/`retrying` status through the grouped connection API, and do not present themselves as
+established-session recovery.

@@ -44,21 +44,25 @@ sdk/
     dovahlink_client/
 ```
 
-It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic
-reconnection after ordinary transport loss, plus SDK-owned `clientId`, Host-scoped credentials,
-Host-owned `CONFIRMING` pairing recovery, and plural Known Host persistence behind the `IClientStorage` interface (a real Windows
-DPAPI-backed implementation ships today through the Windows-specific
-`dovahlink_client_windows.dart` entry point) -- see `ai/context/sdk/persistence.md`. The official
-Flutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public
-client for pairing and authentication through `PairingRemoteDataSource`. The SDK probes the local
-loopback endpoint through a bounded sessionless metadata request. The probe returns a
-protocol-validated `hostId`/`hostName` claim and current endpoint without authenticating Host
-identity or proving ownership of a previously trusted identity. `DovahLinkClient.discoverHosts()`
-reconciles those claims against the same client's committed Known Hosts by normalized Host ID, and
-`candidateHostsChanges` exposes the complete runtime-only candidate collection. Pairing and Known
-Host mutations update that projection automatically; candidates are never persisted or discovered
-over LAN or mDNS. Consumers read the SDK-owned prior association through
-`DovahLinkClient.loadKnownHosts()`; it does not represent current trust.
+It provides one client engine through four grouped views: `client.hosts`, `client.connections`,
+`client.pairing`, and `client.currentHost`. These are facades over the same session, services,
+storage, and mutable state; they do not create independent clients. The SDK also owns `clientId`,
+Host-scoped credentials, pairing recovery, bounded established-session recovery, and plural Known
+Host persistence behind `IClientStorage` (including Windows DPAPI through the
+`dovahlink_client_windows.dart` entry point); see `ai/context/sdk/persistence.md`. The official
+Flutter app consumes the same public API through `dovahlink_client_sdk`.
+
+Local discovery is exposed by `client.pairing.discoverHosts()` and `client.pairing.candidates`.
+Candidates are SDK-owned, runtime-only, and reconciled against committed Known Hosts. A discovered
+Host ID is an unauthenticated claim. Candidate authentication uses the selected endpoint and never
+uses the claim to select Known Host credentials, which remain SDK-owned. Discovery is loopback-only;
+candidates are never persisted or discovered over LAN or mDNS.
+
+The SDK owns the three-second initial connection retry policy. It remains separate from bounded
+recovery after an established session loses transport. `client.pairing` sequences authentication
+with pending-pairing recovery, and `confirmCode()` persists the credential and completes Host
+acknowledgement as one SDK operation. Flutter maps typed results and failures into presentation; it
+does not sequence protocol operations or own retry policy.
 
 The app selects storage at its composition boundary. Windows uses DPAPI; other platforms currently
 use an explicit unsupported-storage boundary, and pairing stays unavailable until secure storage is

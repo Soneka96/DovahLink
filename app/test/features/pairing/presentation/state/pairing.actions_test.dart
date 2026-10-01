@@ -7,16 +7,11 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 void main() {
   group('Behavior equality in PairingStartedAction behaves correctly', () {
     test(
-      'PairingStartedAction distinguishes user starts from automatic retries',
+      'PairingStartedAction equality reflects its input-free start request',
       () {
-        const PairingStartedAction userStart = PairingStartedAction();
-        const PairingStartedAction automaticRetry = PairingStartedAction(
-          isAutomaticRetry: true,
-        );
+        const PairingStartedAction action = PairingStartedAction();
 
-        expect(userStart.isAutomaticRetry, isFalse);
-        expect(automaticRetry.isAutomaticRetry, isTrue);
-        expect(userStart, isNot(automaticRetry));
+        expect(action.props, isEmpty);
       },
     );
   });

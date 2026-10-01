@@ -237,9 +237,9 @@ void main() {
         final DovahLinkClient client = sl<DovahLinkClient>();
 
         expect(existingClient.hasClient, isTrue);
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.connections.state, DovahLinkConnectionState.disconnected);
         await sl<IAppShutdownService>().shutdown();
-        expect(client.connectionState, DovahLinkConnectionState.disconnected);
+        expect(client.connections.state, DovahLinkConnectionState.disconnected);
       },
     );
 

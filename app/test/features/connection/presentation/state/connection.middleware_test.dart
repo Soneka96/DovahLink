@@ -28,6 +28,8 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         DovahLinkHost,
         DovahLinkHostAvailability,
         DovahLinkKnownHostState,
+        IDovahLinkHosts,
+        IDovahLinkPairing,
         DovahLinkProtocolException,
         DovahLinkTrustState,
         HelloResult,
@@ -37,12 +39,20 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
 /// Mocks the SDK client that owns Known Host state.
 class MockDovahLinkClient extends Mock implements DovahLinkClient {}
 
+/// Mocks grouped Known Host APIs.
+class MockDovahLinkHosts extends Mock implements IDovahLinkHosts {}
+
+/// Mocks grouped discovery and pairing APIs.
+class MockDovahLinkPairing extends Mock implements IDovahLinkPairing {}
+
 /// Mocks Redux dispatch for [ConnectionMiddleware] tests.
 class MockStore extends Mock implements Store<AppState> {}
 
 /// Exercises discovery action orchestration by [ConnectionMiddleware].
 void main() {
   late MockDovahLinkClient mockClient;
+  late MockDovahLinkHosts mockHosts;
+  late MockDovahLinkPairing mockPairing;
   late StreamController<List<DovahLinkKnownHostState>>
   knownHostStatesController;
   late Stream<List<DovahLinkKnownHostState>> knownHostStatesChanges;
@@ -58,6 +68,8 @@ void main() {
   setUp(() async {
     await sl.reset();
     mockClient = MockDovahLinkClient();
+    mockHosts = MockDovahLinkHosts();
+    mockPairing = MockDovahLinkPairing();
     knownHostStatesController =
         StreamController<List<DovahLinkKnownHostState>>.broadcast();
     knownHostListenerCount = 0;
@@ -92,12 +104,12 @@ void main() {
         await subscription.cancel();
       };
     }, isBroadcast: true);
+    when(() => mockClient.hosts).thenReturn(mockHosts);
+    when(() => mockClient.pairing).thenReturn(mockPairing);
     when(
-      () => mockClient.knownHostStatesChanges,
+      () => mockHosts.knownHostStatesChanges,
     ).thenAnswer((_) => knownHostStatesChanges);
-    when(
-      () => mockClient.candidateHostsChanges,
-    ).thenAnswer((_) => candidateHostsChanges);
+    when(() => mockPairing.candidates).thenAnswer((_) => candidateHostsChanges);
     store = MockStore();
     when(() => store.state).thenReturn(AppState.initial());
     middleware = ConnectionMiddleware();
@@ -257,8 +269,15 @@ void main() {
     );
 
     test('shutdown cancels observation and ignores later SDK values', () async {
+      final List<Object?> actions = <Object?>[];
       final Store<AppState> integrationStore = const CreateStore()(
-        middleware: [middleware.call],
+        middleware: [
+          (Store<AppState> _, dynamic action, NextDispatcher next) {
+            actions.add(action);
+            next(action);
+          },
+          middleware.call,
+        ],
       );
       final DovahLinkHost first = DovahLinkHost(
         hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
@@ -272,14 +291,27 @@ void main() {
       );
       final DovahLinkKnownHostState firstState =
           Fixtures.buildSdkKnownHostState(host: first);
+      final DovahLinkHost firstCandidate = DovahLinkHost(
+        hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        hostName: 'CANDIDATE-A',
+        endpoint: defaultHostUri,
+      );
+      final DovahLinkHost lateCandidate = DovahLinkHost(
+        hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        hostName: 'CANDIDATE-B',
+        endpoint: defaultHostUri,
+      );
       middleware.initialize(integrationStore);
       knownHostStatesController.add(<DovahLinkKnownHostState>[firstState]);
+      candidateHostsController.add(<DovahLinkHost>[firstCandidate]);
       await pumpEventQueue();
+      actions.clear();
 
       await middleware.shutdown();
       knownHostStatesController.add(<DovahLinkKnownHostState>[
         Fixtures.buildSdkKnownHostState(host: second),
       ]);
+      candidateHostsController.add(<DovahLinkHost>[lateCandidate]);
       await pumpEventQueue();
 
       expect(knownHostCancellationCount, 1);
@@ -287,6 +319,10 @@ void main() {
       expect(integrationStore.state.connection.knownHosts, <KnownHost>[
         HostMapper.fromSdkKnownHostState(firstState),
       ]);
+      expect(integrationStore.state.connection.hosts, <Host>[
+        HostMapper.fromSdk(firstCandidate),
+      ]);
+      expect(actions.whereType<ConnectionCandidatesChangedAction>(), isEmpty);
     });
 
     test('initialize stays inert after shutdown', () async {
@@ -505,7 +541,7 @@ void main() {
           final HelloResult reportedHello = Fixtures.buildSdkHelloResult(
             trustState: DovahLinkTrustState.unpaired,
           );
-          when(() => mockClient.discoverHosts()).thenAnswer(
+          when(() => mockPairing.discoverHosts()).thenAnswer(
             (_) async => <DovahLinkHost>[
               DovahLinkHost(
                 hostId: reportedHello.hostId,
@@ -535,7 +571,7 @@ void main() {
             const ConnectionDiscoveryStartedAction(),
             const ConnectionDiscoverySucceededAction(hasCandidates: true),
           ]);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
 
@@ -543,7 +579,7 @@ void main() {
         'ConnectionDiscoveryRequestedAction reports empty results when no Host responds',
         () async {
           when(
-            () => mockClient.discoverHosts(),
+            () => mockPairing.discoverHosts(),
           ).thenAnswer((_) async => const <DovahLinkHost>[]);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
@@ -566,7 +602,7 @@ void main() {
             const ConnectionDiscoveryStartedAction(),
             const ConnectionDiscoverySucceededAction(hasCandidates: false),
           ]);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
 
@@ -575,7 +611,7 @@ void main() {
         () async {
           const DovahLinkConnectionException exception =
               DovahLinkConnectionException('diagnostic');
-          when(() => mockClient.discoverHosts()).thenThrow(exception);
+          when(() => mockPairing.discoverHosts()).thenThrow(exception);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -599,7 +635,7 @@ void main() {
               ConnectionFailureReason.hostUnavailable,
             ),
           ]);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
 
@@ -612,7 +648,7 @@ void main() {
                 message: 'diagnostic',
                 retryable: false,
               );
-          when(() => mockClient.discoverHosts()).thenThrow(exception);
+          when(() => mockPairing.discoverHosts()).thenThrow(exception);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -636,7 +672,7 @@ void main() {
               ConnectionFailureReason.invalidResponse,
             ),
           ]);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
 
@@ -649,7 +685,7 @@ void main() {
                 supportedHostVersionRange: 'supported',
                 failure: HostVersionCompatibilityFailure.hostTooNew,
               );
-          when(() => mockClient.discoverHosts()).thenThrow(exception);
+          when(() => mockPairing.discoverHosts()).thenThrow(exception);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -673,7 +709,7 @@ void main() {
               ConnectionFailureReason.incompatibleHost,
             ),
           ]);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
 
@@ -681,7 +717,7 @@ void main() {
         'ConnectionDiscoveryRequestedAction maps unexpected errors to unknown',
         () async {
           final StateError error = StateError('diagnostic');
-          when(() => mockClient.discoverHosts()).thenThrow(error);
+          when(() => mockPairing.discoverHosts()).thenThrow(error);
           final List<Object?> actions = [];
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -705,7 +741,7 @@ void main() {
               ConnectionFailureReason.unknown,
             ),
           ]);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
 
@@ -727,7 +763,7 @@ void main() {
           middleware.call(store, action, actions.add);
 
           expect(actions, [action]);
-          verifyNever(() => mockClient.discoverHosts());
+          verifyNever(() => mockPairing.discoverHosts());
           verifyNever(() => store.dispatch(any()));
         },
       );
@@ -743,7 +779,7 @@ void main() {
           middleware.call(store, action, actions.add);
 
           expect(actions, [action]);
-          verifyNever(() => mockClient.discoverHosts());
+          verifyNever(() => mockPairing.discoverHosts());
           verifyNever(() => store.dispatch(any()));
         },
       );
@@ -754,7 +790,7 @@ void main() {
           final Completer<List<DovahLinkHost>> discovery =
               Completer<List<DovahLinkHost>>();
           when(
-            () => mockClient.discoverHosts(),
+            () => mockPairing.discoverHosts(),
           ).thenAnswer((_) => discovery.future);
           final List<Object?> actions = [];
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -780,7 +816,7 @@ void main() {
             isEmpty,
           );
           expect(actions.whereType<ConnectionDiscoveryFailedAction>(), isEmpty);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
 
@@ -790,7 +826,7 @@ void main() {
           final Completer<List<DovahLinkHost>> discovery =
               Completer<List<DovahLinkHost>>();
           when(
-            () => mockClient.discoverHosts(),
+            () => mockPairing.discoverHosts(),
           ).thenAnswer((_) => discovery.future);
           final List<Object?> actions = [];
           when(() => store.dispatch(any())).thenAnswer((invocation) {
@@ -810,7 +846,7 @@ void main() {
             isEmpty,
           );
           expect(actions.whereType<ConnectionDiscoveryFailedAction>(), isEmpty);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
 
@@ -820,7 +856,7 @@ void main() {
           final Completer<List<DovahLinkHost>> discovery =
               Completer<List<DovahLinkHost>>();
           when(
-            () => mockClient.discoverHosts(),
+            () => mockPairing.discoverHosts(),
           ).thenAnswer((_) => discovery.future);
           final List<Object?> actions = [];
           Completer<void> resultDispatched = Completer<void>();
@@ -861,7 +897,7 @@ void main() {
             const ConnectionDiscoveryStartedAction(),
             request,
           ]);
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
 
           final DovahLinkHost latestCandidate = DovahLinkHost(
             hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
@@ -901,7 +937,7 @@ void main() {
           );
 
           when(
-            () => mockClient.discoverHosts(),
+            () => mockPairing.discoverHosts(),
           ).thenAnswer((_) async => const <DovahLinkHost>[]);
           resultDispatched = Completer<void>();
           integrationStore.dispatch(request);
@@ -919,7 +955,7 @@ void main() {
             integrationStore.state.connection.discoveryStatus,
             ConnectionDiscoveryStatus.empty,
           );
-          verify(() => mockClient.discoverHosts()).called(1);
+          verify(() => mockPairing.discoverHosts()).called(1);
         },
       );
     },
@@ -935,7 +971,7 @@ void main() {
         middleware.call(store, action, actions.add);
 
         expect(actions, [action]);
-        verifyNever(() => mockClient.discoverHosts());
+        verifyNever(() => mockPairing.discoverHosts());
         verifyNever(() => store.dispatch(any()));
       },
     );

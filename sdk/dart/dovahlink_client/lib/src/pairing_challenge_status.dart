@@ -1,6 +1,6 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
-/// The Host's report of pairing availability, from [DovahLinkClient.requestPairing].
+/// The Host's report of pairing availability, from [IDovahLinkPairing.requestCode].
 class PairingChallengeStatus {
   /// Creates a pairing challenge status.
   const PairingChallengeStatus({

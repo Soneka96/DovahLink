@@ -1,0 +1,231 @@
+import 'package:mocktail/mocktail.dart';
+import 'package:test/test.dart';
+
+import 'package:dovahlink_client_sdk/dovahlink_client.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_connections.dart'
+    show DovahLinkConnections;
+import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart'
+    show IAuthenticationService;
+import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart'
+    show IReconnectService;
+import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart'
+    show ISessionService;
+import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart'
+    show ISubscriptionService;
+import 'fixtures/fixtures.dart';
+
+/// Mocks the existing session lifecycle owner.
+class MockConnectionsSessionService extends Mock implements ISessionService {}
+
+/// Mocks the existing authentication owner.
+class MockConnectionsAuthenticationService extends Mock
+    implements IAuthenticationService {}
+
+/// Mocks established-session recovery.
+class MockConnectionsReconnectService extends Mock
+    implements IReconnectService {}
+
+/// Mocks desired state subscription ownership.
+class MockConnectionsSubscriptionService extends Mock
+    implements ISubscriptionService {}
+
+/// Builds a fallback successful handshake for the mocked retry callback.
+Future<HelloResult> buildRetryFallback() async => Fixtures.buildHelloResult();
+
+/// Tests the grouped connection view over the existing SDK engine.
+void main() {
+  late MockConnectionsSessionService sessionService;
+  late MockConnectionsAuthenticationService authenticationService;
+  late MockConnectionsReconnectService reconnectService;
+  late MockConnectionsSubscriptionService subscriptionService;
+  late DovahLinkConnections connections;
+
+  setUpAll(() {
+    registerFallbackValue(buildRetryFallback);
+  });
+
+  setUp(() {
+    sessionService = MockConnectionsSessionService();
+    authenticationService = MockConnectionsAuthenticationService();
+    reconnectService = MockConnectionsReconnectService();
+    subscriptionService = MockConnectionsSubscriptionService();
+    when(() => reconnectService.connectWithInitialRetry(any())).thenAnswer((
+      Invocation invocation,
+    ) {
+      final Future<HelloResult> Function() attempt =
+          invocation.positionalArguments.single
+              as Future<HelloResult> Function();
+      return attempt();
+    });
+    when(() => reconnectService.initialConnectionRetryChanges).thenAnswer(
+      (_) => const Stream<DovahLinkInitialConnectionRetryStatus>.empty(),
+    );
+    connections = DovahLinkConnections(
+      sessionService: sessionService,
+      authenticationService: authenticationService,
+      reconnectService: reconnectService,
+      subscriptionService: subscriptionService,
+    );
+  });
+
+  group('Method connectCandidate behaves correctly', () {
+    test(
+      'Method connectCandidate authenticates the supplied candidate endpoint',
+      () async {
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+        final HelloResult result = Fixtures.buildHelloResult(
+          trustState: DovahLinkTrustState.unpaired,
+        );
+        when(
+          () => authenticationService.authenticateCandidate(uri),
+        ).thenAnswer((_) async => result);
+
+        expect(await connections.connectCandidate(uri), same(result));
+        verify(() => reconnectService.connectWithInitialRetry(any())).called(1);
+      },
+    );
+
+    test(
+      'Method connectCandidate propagates typed connection failures',
+      () async {
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+        const DovahLinkConnectionException failure =
+            DovahLinkConnectionException('unreachable');
+        when(
+          () => authenticationService.authenticateCandidate(uri),
+        ).thenAnswer((_) async => throw failure);
+
+        await expectLater(
+          connections.connectCandidate(uri),
+          throwsA(same(failure)),
+        );
+      },
+    );
+  });
+
+  group('Method connectKnownHost behaves correctly', () {
+    test(
+      'Method connectKnownHost authenticates the supplied Host identity',
+      () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
+        final HelloResult result = Fixtures.buildHelloResult();
+        when(
+          () => authenticationService.authenticateKnownHost(hostId),
+        ).thenAnswer((_) async => result);
+
+        expect(await connections.connectKnownHost(hostId), same(result));
+        verify(() => reconnectService.connectWithInitialRetry(any())).called(1);
+      },
+    );
+
+    test('Method connectKnownHost propagates unknown Host failures', () async {
+      final DovahLinkHostId hostId = DovahLinkHostId(
+        '81869993-955c-4ba3-a7d0-d35ca86078ea',
+      );
+      const DovahLinkKnownHostNotFoundException failure =
+          DovahLinkKnownHostNotFoundException(
+            '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          );
+      when(
+        () => authenticationService.authenticateKnownHost(hostId),
+      ).thenAnswer((_) async => throw failure);
+
+      await expectLater(
+        connections.connectKnownHost(hostId),
+        throwsA(same(failure)),
+      );
+    });
+  });
+
+  group('Property state behaves correctly', () {
+    test('Property state reads the authoritative session phase', () {
+      when(
+        () => sessionService.connectionState,
+      ).thenReturn(DovahLinkConnectionState.reauthenticating);
+
+      expect(connections.state, DovahLinkConnectionState.reauthenticating);
+      verify(() => sessionService.connectionState).called(1);
+    });
+  });
+
+  group('Property invalidationReason behaves correctly', () {
+    test(
+      'Property invalidationReason reads the session invalidation reason',
+      () {
+        when(
+          () => sessionService.invalidationReason,
+        ).thenReturn(AdministrativeInvalidationReason.revoked);
+
+        expect(
+          connections.invalidationReason,
+          AdministrativeInvalidationReason.revoked,
+        );
+        verify(() => sessionService.invalidationReason).called(1);
+      },
+    );
+  });
+
+  group('Property stateChanges behaves correctly', () {
+    test('Property stateChanges exposes the session lifecycle stream', () {
+      const Stream<DovahLinkConnectionState> changes =
+          Stream<DovahLinkConnectionState>.empty();
+      when(
+        () => sessionService.connectionStateChanges,
+      ).thenAnswer((_) => changes);
+
+      expect(identical(connections.stateChanges, changes), isTrue);
+      verify(() => sessionService.connectionStateChanges).called(1);
+    });
+  });
+
+  group('Property initialConnectionRetryChanges behaves correctly', () {
+    test(
+      'Property initialConnectionRetryChanges exposes the SDK retry lifecycle',
+      () {
+        const Stream<DovahLinkInitialConnectionRetryStatus> changes =
+            Stream<DovahLinkInitialConnectionRetryStatus>.empty();
+        when(
+          () => reconnectService.initialConnectionRetryChanges,
+        ).thenAnswer((_) => changes);
+
+        expect(
+          identical(connections.initialConnectionRetryChanges, changes),
+          isTrue,
+        );
+        verify(() => reconnectService.initialConnectionRetryChanges).called(1);
+      },
+    );
+  });
+
+  group('Method disconnect behaves correctly', () {
+    test(
+      'Method disconnect cancels authentication and recovery before teardown',
+      () async {
+        when(() => sessionService.disconnect()).thenAnswer((_) async {});
+
+        await connections.disconnect();
+
+        verifyInOrder([
+          () => reconnectService.stopInitialConnectionRetry(),
+          () => reconnectService.stopRecovery(),
+          () => subscriptionService.clearDesiredStateAreas(),
+          () => sessionService.disconnect(),
+        ]);
+      },
+    );
+
+    test('Method disconnect preserves a teardown failure', () async {
+      const DovahLinkConnectionException failure = DovahLinkConnectionException(
+        'teardown failed',
+      );
+      when(() => sessionService.disconnect()).thenThrow(failure);
+
+      await expectLater(connections.disconnect(), throwsA(same(failure)));
+      verify(() => reconnectService.stopInitialConnectionRetry()).called(1);
+      verify(() => reconnectService.stopRecovery()).called(1);
+      verify(() => subscriptionService.clearDesiredStateAreas()).called(1);
+    });
+  });
+}
