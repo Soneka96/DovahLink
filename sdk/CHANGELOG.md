@@ -36,6 +36,10 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
 - Windows DPAPI storage is available through a Windows-specific entry point, while the shared SDK entry point stays platform-neutral.
 
+### Removed
+
+- Superseded flat `DovahLinkClient` forwarding aliases were removed in favor of the grouped API.
+
 ### Fixed
 
 - Initial connection retry stops immediately for terminal or non-retryable protocol failures.

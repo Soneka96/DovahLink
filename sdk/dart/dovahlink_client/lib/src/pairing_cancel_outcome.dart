@@ -1,6 +1,6 @@
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 
-/// The Host's response to [DovahLinkClient.cancelPairing].
+/// The Host's response to [IDovahLinkPairing.cancel].
 class PairingCancelOutcome {
   /// Creates a pairing cancel outcome.
   const PairingCancelOutcome({required this.status});
