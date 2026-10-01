@@ -28,12 +28,12 @@ active deviations.
    Redux state drives searching/results, and candidate selection waits for the real authentication
    outcome before opening the existing pairing UI. The SDK may establish a connected session, but
    the Companion Session Shell is not available for the normal handoff; Connected temporarily stays
-   visible on the Connections root. The SDK's Known Host projection also lacks durable typed
-   recovery/trust state for the prototype's “Pair again” card. That card remains unresolved until a
-   focused SDK contract change exposes the state; availability, discovery, endpoint matching, and
-   generic authentication failure do not establish it. No fake delays or SDK/state contract changes
-   were needed for the supported states in this slice. Historical slice 03.6 remains paused and
-   unmarked.
+   visible on the Connections root. The maintainer approved an SDK-persisted `pairingRequired` hint
+   for the prototype's root “Pair again” card. It is set only by typed Host revocation/rejection
+   evidence for a Known Host, is not authoritative trust, and must be revalidated by normal SDK
+   authentication before pairing. Availability, discovery, endpoint matching, and generic failures
+   do not establish it. The Host/protocol already provide the typed reasons, so no Host or protocol
+   change is planned. Historical slice 03.6 remains paused and unmarked.
 
    Tapping an Offline Known Host opens an informational “Skyrim isn’t running” dialog from the real
    offline projection; it does not select the Host or start authentication.
@@ -45,7 +45,8 @@ active deviations.
    projection (some outcome-specific error copy survives); their exact prototype states remain
    deferred. See the
    [convergence deviation](prototype-flutter-convergence/README.md) for the state mapping and the
-   separate durable Known Host repair projection gap. This UI pass makes no SDK or protocol change.
+   approved SDK repair-hint projection decision. The committed Connections changes make no SDK or
+   protocol change.
 4. **Later — production LAN discovery and secure initial pairing.** Production LAN exposure and
    secure first contact remain gated by the security requirements and integration evidence. If an
    approved SAS profile preserves the current human interaction, pairing implementation changes

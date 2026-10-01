@@ -101,6 +101,16 @@ The owner suppresses equivalent successive projections. After a stream error, it
 valid complete snapshot even if the projection is unchanged, so subscribers can observe recovery
 without losing the prior snapshot.
 
+### Known Host pairing-recovery hint
+
+The approved Known Host projection change will add an optional persisted `pairingRequired` hint for
+the official app's root card. It is separate from runtime availability and session lifecycle, and
+never establishes current trust. The SDK will set it only from typed Host credential-rejection or
+administrative-invalidation evidence for that Known Host; `blocked` will clear it and never make the
+Host repairable. An Offline card still describes reachability, not repair. Every Pair again action
+must go through Known Host authentication and the normal pairing flow so the Host can confirm the
+current result.
+
 ## App independence
 
 After the Dart Client SDK Foundation phase, the official app depends on the SDK's public API for

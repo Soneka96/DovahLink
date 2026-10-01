@@ -168,18 +168,22 @@ trusted-flow disposal contract: `PairingDisposedAction(wasTrusted: true)` preser
 connection. Until the route is implemented, the current Connected presentation remains on
 Connections. No SDK or protocol change is part of this handoff.
 
-### Known Host “Pair again” / repair projection — unresolved
+### Known Host “Pair again” / repair projection — approved, implementation pending
 
-The prototype has a durable root-card state such as “Trust changed in Skyrim” with a “Pair again”
-action, and Flutter has a visual repair state. The SDK's current Known Host projection exposes Host
-metadata, reachability, and session lifecycle, but no durable typed recovery/trust state to drive that
-card truthfully. A rejected credential reason exists only on an authentication outcome and does not
-provide a durable projection. Do not infer repair from Offline, Unknown, discovery, endpoint matching,
-or generic authentication failure. Leave the state unresolved until a focused SDK contract change
-exposes it; this branch does not add that change.
+The maintainer approved a per-Host SDK `pairingRequired` hint for the prototype's root-card action.
+Set it only from a real Host credential rejection (`revoked` or `unrecognized`) or a typed
+administrative invalidation (`revoked`, `trust_reset`, or `factory_reset`) for an admitted Known Host
+session. A `blocked` response clears the hint and does not permit Pair again. The hint is a persisted
+last-known UI cue, not current trust or authorization; an Offline Host can make it stale. The root
+action must re-authenticate through the SDK, and the Host's current response decides whether pairing
+can proceed. Offline, Unknown, discovery, endpoint matching, and generic failures never set it.
 
-No SDK/state contract change or discovery persistence was required for the supported states in this
-slice.
+The existing Host protocol already carries the required typed reasons, so this projection does not
+change Host behavior or protocol meaning.
+
+The committed Connections/Discover UI slice needed no SDK/state contract change or discovery
+persistence. The separately approved Known Host Pair again hint does require the SDK projection and
+storage change described above.
 
 The current prototype artifact is not stored in the repository; exact pixel comparison of the
 candidate's nearby-card radius and hover outline remains subject to review against the approved
@@ -196,7 +200,7 @@ pairing policy.
 | Wrong-code attempts remaining | `DovahLinkPairingException` exposes Host-reported `attemptsRemaining` for counted invalid outcomes. | `PairingRemoteDataSource` converts it to `PairingRetriableFailure(message)` without the count. | `PairingPhase.awaitingCode` plus an error string; no count. | Carry the optional Host count through the app failure, action, and pairing state. No SDK change is needed. |
 | Successful redisplay versus cooldown | `PairingRenotifyResult` exposes `renotified` or `cooldown`; both outcomes carry `retryAfterSeconds`. | The data source maps both to the same nullable `int`, and middleware interprets every non-null value as cooldown. | Pending flag and next-available deadline only; a successful redisplay is presented as cooldown. | Preserve the typed renotify status with its retry interval through the app use case and Redux state. No SDK change is needed. |
 | Distinct terminal pairing outcomes | `DovahLinkPairingException` exposes the typed `PairingOutcome` and applicable retry metadata. | The data source maps outcomes to user-safe messages, then discards the typed outcome and retry metadata. Some outcomes retain distinct copy. | Terminal states share `PairingPhase.failed` and an error string; the error copy distinguishes several outcomes, but Redux has no typed outcome. | Carry the typed outcome through the app failure, action, and state so presentation can select a truthful state. No SDK change is needed. |
-| Durable Known Host repair requirement | Authentication can report a typed credential-rejection reason for that attempt; the Known Host projection does not report durable repair state. | The one-time authentication reason is not a durable Host-scoped recovery projection. | `ConnectionState.knownHosts` contains Host metadata and availability; the active `PairingState` may contain a temporary rejection reason. | Add a typed durable recovery/trust value to the SDK Known Host projection and map it into app state. This requires a separate SDK projection change. |
+| Durable Known Host repair requirement | Authentication and `session_invalidated` expose typed Host reasons. | The SDK Known Host projection drops those reasons after the current operation. | `ConnectionState.knownHosts` contains Host metadata and availability; the active `PairingState` may contain a temporary rejection reason. | Persist and expose the non-authoritative `pairingRequired` hint in SDK Known Host state, then map it into the root card. No Host or protocol change is needed. |
 
 Two visual behaviors intentionally follow production state: the candidate appears after the real
 discovery result instead of alongside the prototype's artificial search presentation, and the
