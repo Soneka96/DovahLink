@@ -298,12 +298,10 @@ void main() {
   });
 
   group('Selector hostCardsSelector behaves correctly', () {
-    test('Selector hostCardsSelector maps a candidate to its display data', () {
+    test('Selector hostCardsSelector excludes discovery candidates', () {
       final Host host = Fixtures.buildHost();
 
-      expect(ConnectionSelectors.hostCardsSelector(stateWith([host])), [
-        Fixtures.buildHostCardViewData(host: host),
-      ]);
+      expect(ConnectionSelectors.hostCardsSelector(stateWith([host])), isEmpty);
     });
 
     test(
@@ -487,7 +485,7 @@ void main() {
     );
 
     test(
-      'Selector hostCardsSelector passes through the SDK candidate projection',
+      'Selector hostCardsSelector keeps Known Hosts distinct from candidates',
       () {
         final Host knownHostHost = Fixtures.buildHost(
           uri: Uri.parse('ws://127.0.0.1:58231/'),
@@ -497,33 +495,28 @@ void main() {
           uri: knownHostHost.uri,
         );
         final Host unrelatedCandidate = Fixtures.buildHost(
-          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c972',
         );
         final KnownHost knownHost = Fixtures.buildKnownHost(
           host: knownHostHost,
           availability: HostAvailability.online,
         );
 
+        final AppState state = stateWith(
+          [candidate, unrelatedCandidate],
+          knownHosts: [knownHost],
+        );
         final List<HostCardViewData> cards =
-            ConnectionSelectors.hostCardsSelector(
-              stateWith(
-                [candidate, unrelatedCandidate],
-                knownHosts: [knownHost],
-              ),
-            );
+            ConnectionSelectors.hostCardsSelector(state);
 
-        expect(cards, hasLength(3));
-        expect(cards.map((HostCardViewData card) => card.host), [
-          knownHostHost,
+        expect(cards, hasLength(1));
+        expect(cards.single.host, knownHostHost);
+        expect(cards.single.source, ConnectionHostSelectionSource.knownHost);
+        expect(cards.single.state, DovahConnectionCardState.available);
+        expect(ConnectionSelectors.hostsSelector(state), [
           candidate,
           unrelatedCandidate,
         ]);
-        expect(cards.map((HostCardViewData card) => card.source), [
-          ConnectionHostSelectionSource.knownHost,
-          ConnectionHostSelectionSource.candidate,
-          ConnectionHostSelectionSource.candidate,
-        ]);
-        expect(cards[1].state, DovahConnectionCardState.unknown);
       },
     );
 
@@ -551,10 +544,16 @@ void main() {
     test(
       'Selector hostCardsSelector marks every card unknown because reachability is not known',
       () {
-        final AppState state = stateWith([
-          Fixtures.buildHost(),
-          Fixtures.buildHost(displayName: 'Second Host'),
-        ]);
+        final AppState state = stateWith(
+          const <Host>[],
+          knownHosts: [
+            Fixtures.buildKnownHost(availability: HostAvailability.unknown),
+            Fixtures.buildKnownHost(
+              host: Fixtures.buildHost(displayName: 'Second Host'),
+              availability: HostAvailability.unknown,
+            ),
+          ],
+        );
 
         final List<DovahConnectionCardState> states =
             ConnectionSelectors.hostCardsSelector(
@@ -579,7 +578,15 @@ void main() {
       );
 
       final List<HostCardViewData> cards =
-          ConnectionSelectors.hostCardsSelector(stateWith([first, second]));
+          ConnectionSelectors.hostCardsSelector(
+            stateWith(
+              const <Host>[],
+              knownHosts: [
+                Fixtures.buildKnownHost(host: first),
+                Fixtures.buildKnownHost(host: second),
+              ],
+            ),
+          );
 
       expect(cards.map((HostCardViewData card) => card.host).toList(), [
         first,
@@ -608,7 +615,10 @@ void main() {
         final Host host = Fixtures.buildHost(uri: Uri.parse('local-host'));
 
         final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
-          stateWith([host]),
+          stateWith(
+            const <Host>[],
+            knownHosts: [Fixtures.buildKnownHost(host: host)],
+          ),
         ).single;
 
         expect(card.detail, isA<String>());
@@ -637,7 +647,10 @@ void main() {
       final Host host = Fixtures.buildHost(displayName: longName);
 
       final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
-        stateWith([host]),
+        stateWith(
+          const <Host>[],
+          knownHosts: [Fixtures.buildKnownHost(host: host)],
+        ),
       ).single;
 
       expect(card.title, isA<String>());

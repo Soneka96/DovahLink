@@ -89,9 +89,12 @@ void main() {
     when(
       () => store.onChange,
     ).thenAnswer((_) => const Stream<AppState>.empty());
-    when(
-      () => viewModel.hostCards,
-    ).thenReturn([Fixtures.buildHostCardViewData()]);
+    when(() => viewModel.hostCards).thenReturn([
+      Fixtures.buildHostCardViewData(
+        source: ConnectionHostSelectionSource.knownHost,
+        subtitle: 'Known Host',
+      ),
+    ]);
     when(
       () => viewModel.discoveryStatus,
     ).thenReturn(ConnectionDiscoveryStatus.idle);
@@ -217,7 +220,7 @@ void main() {
               findsOneWidget,
             );
             expect(find.text('Discover Skyrim'), findsOneWidget);
-            expect(find.text('AVAILABLE'), findsOneWidget);
+            expect(find.text('MY SKYRIM PCS'), findsOneWidget);
             expect(
               find.text(
                 'Trusted PCs reconnect automatically when Skyrim becomes available.',
@@ -287,7 +290,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen shows different Hosts at one endpoint separately',
+      'ConnectionsScreen renders the Known Host list without discovery candidates',
       (WidgetTester tester) async {
         final Host host = Fixtures.buildHost();
         when(() => viewModel.hostCards).thenReturn([
@@ -297,28 +300,16 @@ void main() {
             subtitle: 'Known Host',
             state: DovahConnectionCardState.offline,
           ),
-          Fixtures.buildHostCardViewData(
-            host: Fixtures.buildHost(
-              hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
-              uri: host.uri,
-            ),
-          ),
         ]);
 
         await tester.pumpWidget(buildWidget());
 
-        expect(find.byType(DovahConnectionCard), findsNWidgets(2));
+        expect(find.byType(DovahConnectionCard), findsOneWidget);
         expect(find.text('Known Host'), findsOneWidget);
-        expect(find.text('Discovered candidate'), findsOneWidget);
+        expect(find.text('Discovered candidate'), findsNothing);
         expect(
           find.byKey(
             const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
-          ),
-          findsOneWidget,
-        );
-        expect(
-          find.byKey(
-            const Key('host-card-81f6cc90-3a88-40c7-8351-104d4a36c971'),
           ),
           findsOneWidget,
         );
@@ -422,23 +413,20 @@ void main() {
   });
 
   group('ConnectionsScreen selects a Host', () {
-    testWidgets(
-      'ConnectionsScreen calls onSelectHost with the tapped card Host',
-      (WidgetTester tester) async {
-        await useSurface(tester, const Size(1280, 720));
-        await tester.pumpWidget(buildWidget());
+    testWidgets('ConnectionsScreen selects the tapped Known Host card', (
+      WidgetTester tester,
+    ) async {
+      await useSurface(tester, const Size(1280, 720));
+      await tester.pumpWidget(buildWidget());
 
-        await tester.tap(
-          find.byKey(
-            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
-          ),
-        );
-        await tester.pump();
+      await tester.tap(
+        find.byKey(const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea')),
+      );
+      await tester.pump();
 
-        expect(selectedHosts, [Fixtures.buildHost()]);
-        expect(selectedSources, [ConnectionHostSelectionSource.candidate]);
-      },
-    );
+      expect(selectedHosts, [Fixtures.buildHost()]);
+      expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
+    });
 
     testWidgets(
       'ConnectionsScreen preserves Known Host source when its card is tapped',
@@ -878,90 +866,6 @@ void main() {
     );
   });
 
-  group('ConnectionsScreen wires temporary discovery state', () {
-    testWidgets('ConnectionsScreen presents the available candidate state', (
-      WidgetTester tester,
-    ) async {
-      when(
-        () => viewModel.discoveryStatus,
-      ).thenReturn(ConnectionDiscoveryStatus.available);
-      await useSurface(tester, const Size(1280, 720));
-
-      await tester.pumpWidget(buildWidget());
-
-      expect(find.text('AVAILABLE'), findsOneWidget);
-      expect(find.text('Local Host'), findsOneWidget);
-    });
-
-    testWidgets('ConnectionsScreen presents the empty discovery state', (
-      WidgetTester tester,
-    ) async {
-      when(
-        () => viewModel.discoveryStatus,
-      ).thenReturn(ConnectionDiscoveryStatus.empty);
-      when(() => viewModel.hostCards).thenReturn(const <HostCardViewData>[]);
-      await useSurface(tester, const Size(1280, 720));
-
-      await tester.pumpWidget(buildWidget());
-
-      expect(find.text('No new local Hosts found.'), findsOneWidget);
-      expect(find.byType(DovahConnectionCard), findsNothing);
-    });
-
-    testWidgets('ConnectionsScreen presents the failed discovery state', (
-      WidgetTester tester,
-    ) async {
-      when(
-        () => viewModel.discoveryStatus,
-      ).thenReturn(ConnectionDiscoveryStatus.failed);
-      when(
-        () => viewModel.discoveryFailure,
-      ).thenReturn(ConnectionFailureReason.hostUnavailable);
-      when(() => viewModel.hostCards).thenReturn(const <HostCardViewData>[]);
-      await useSurface(tester, const Size(1280, 720));
-
-      await tester.pumpWidget(buildWidget());
-
-      expect(
-        find.text(
-          'Could not reach the local Host. Check that it is running and try again.',
-        ),
-        findsOneWidget,
-      );
-    });
-
-    testWidgets('ConnectionsScreen presents searching as a live status', (
-      WidgetTester tester,
-    ) async {
-      final SemanticsHandle semantics = tester.ensureSemantics();
-      try {
-        when(
-          () => viewModel.discoveryStatus,
-        ).thenReturn(ConnectionDiscoveryStatus.discovering);
-        when(() => viewModel.canDiscover).thenReturn(false);
-        await useSurface(tester, const Size(1280, 720));
-
-        await tester.pumpWidget(buildWidget());
-
-        expect(
-          find.text('Searching for DovahLink on this PC…'),
-          findsOneWidget,
-        );
-        expect(
-          tester.getSemantics(
-            find.byKey(const Key('connection-discovery-status')),
-          ),
-          isSemantics(
-            label: 'Searching for DovahLink on this PC…',
-            isLiveRegion: true,
-          ),
-        );
-      } finally {
-        semantics.dispose();
-      }
-    });
-  });
-
   group('ConnectionsScreen opens the appearance UI', () {
     testWidgets(
       'ConnectionsScreen displays the appearance picker in a dialog when the appearance action is tapped',
@@ -1166,7 +1070,7 @@ void main() {
           final SemanticsData host = tester
               .getSemantics(
                 find.bySemanticsLabel(
-                  'Local Host, Discovered candidate, 127.0.0.1:58231, Not connected',
+                  'Local Host, Known Host, 127.0.0.1:58231, Not connected',
                 ),
               )
               .getSemanticsData();

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
@@ -56,11 +57,13 @@ void main() {
       },
     );
 
-    test('fromStore projects the current discovery failure reason', () {
+    test('fromStore keeps discovery candidates out of Known Host cards', () {
+      final KnownHost knownHost = Fixtures.buildKnownHost();
       final Store<AppState> store = const CreateStore()(
         initialState: AppState(
           connection: ConnectionState(
             hosts: [Fixtures.buildHost()],
+            knownHosts: [knownHost],
             discoveryStatus: ConnectionDiscoveryStatus.failed,
             discoveryFailure: ConnectionFailureReason.invalidResponse,
           ),
@@ -77,6 +80,11 @@ void main() {
         ConnectionFailureReason.invalidResponse,
       );
       expect(viewModel.hostCards, hasLength(1));
+      expect(viewModel.hostCards.single.host, knownHost.host);
+      expect(
+        viewModel.hostCards.single.source,
+        ConnectionHostSelectionSource.knownHost,
+      );
     });
 
     test('onSelectHost dispatches candidate selection with its source', () {
@@ -150,7 +158,12 @@ void main() {
         );
         final Store<AppState> store = const CreateStore()(
           initialState: AppState(
-            connection: ConnectionState(hosts: [first, second]),
+            connection: ConnectionState(
+              knownHosts: [
+                Fixtures.buildKnownHost(host: first),
+                Fixtures.buildKnownHost(host: second),
+              ],
+            ),
             pairing: PairingState.initial(),
           ),
         );

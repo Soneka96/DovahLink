@@ -10,7 +10,7 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// ViewModel representing the data required by [ConnectionsScreen].
 class ConnectionsScreenViewModel extends Equatable {
-  /// The display data for each Host available to select.
+  /// The display data for each durable Known Host available to select.
   final List<HostCardViewData> hostCards;
 
   /// The latest Host discovery operation's state.
