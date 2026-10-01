@@ -104,6 +104,16 @@ void main() {
     });
   });
 
+  group('Property discovery candidate measures behave correctly', () {
+    test('Property discovery candidate measures match the prototype', () {
+      expect(DovahDialogMetrics.discoveryCandidateCardPadding, 15);
+      expect(DovahDialogMetrics.discoveryCandidateContentGap, 12);
+      expect(DovahDialogMetrics.discoveryCandidateTitleFontSize, 14);
+      expect(DovahDialogMetrics.discoveryCandidateSubtitleFontSize, 12);
+      expect(DovahDialogMetrics.discoveryCandidateArrowFontSize, 24);
+    });
+  });
+
   group('Property regular behaves correctly', () {
     test('Property regular keeps the prototype normal-height measurements', () {
       const DovahDialogMetrics metrics = DovahDialogMetrics.regular;

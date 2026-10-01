@@ -11,6 +11,7 @@ import 'package:dovahlink_client/features/connection/presentation/viewdata/host_
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_footer.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
+import 'package:dovahlink_client/features/connection/presentation/widgets/discover_dialog.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -75,7 +76,18 @@ class ConnectionsScreen extends StatelessWidget {
                                 SizedBox(height: metrics.contentTopPadding),
                                 ConnectionsHero(
                                   onDiscover: viewModel.canDiscover
-                                      ? viewModel.onDiscover
+                                      ? () async {
+                                          final HostCardViewData? candidate =
+                                              await DiscoverDialog.show(
+                                                context,
+                                              );
+                                          if (candidate == null ||
+                                              !context.mounted) {
+                                            return;
+                                          }
+                                          viewModel.onSelectHost(candidate);
+                                          await PairingDialog.show(context);
+                                        }
                                       : null,
                                 ),
                                 SizedBox(height: metrics.heroBottomGap),

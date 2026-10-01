@@ -15,6 +15,7 @@ import 'package:dovahlink_client/features/appearance/presentation/state/viewmode
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/discover_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
@@ -42,6 +43,10 @@ import '../../../../fixtures/fixtures.dart';
 class MockConnectionsScreenViewModel extends Mock
     implements ConnectionsScreenViewModel {}
 
+/// Mock ViewModel supplied to the Discover Skyrim dialog.
+class MockDiscoverDialogViewModel extends Mock
+    implements DiscoverDialogViewModel {}
+
 /// Mock ViewModel supplied to the [AppearanceSection] the screen's dialog shows.
 class MockAppearanceSectionViewModel extends Mock
     implements AppearanceSectionViewModel {}
@@ -62,6 +67,7 @@ class MockStore extends Mock implements Store<AppState> {}
 void main() {
   late MockStore store;
   late MockConnectionsScreenViewModel viewModel;
+  late MockDiscoverDialogViewModel discoverViewModel;
   late MockAppearanceSectionViewModel appearanceViewModel;
   late MockPairingSectionViewModel pairingViewModel;
   late MockPairingDialogViewModel pairingDialogViewModel;
@@ -75,6 +81,7 @@ void main() {
     await sl.reset();
     store = MockStore();
     viewModel = MockConnectionsScreenViewModel();
+    discoverViewModel = MockDiscoverDialogViewModel();
     appearanceViewModel = MockAppearanceSectionViewModel();
     pairingViewModel = MockPairingSectionViewModel();
     pairingDialogViewModel = MockPairingDialogViewModel();
@@ -95,13 +102,17 @@ void main() {
         subtitle: 'Known Host',
       ),
     ]);
-    when(
-      () => viewModel.discoveryStatus,
-    ).thenReturn(ConnectionDiscoveryStatus.idle);
     when(() => viewModel.canDiscover).thenReturn(true);
-    when(() => viewModel.discoveryFailure).thenReturn(null);
     when(
-      () => viewModel.onDiscover,
+      () => discoverViewModel.status,
+    ).thenReturn(ConnectionDiscoveryStatus.discovering);
+    when(
+      () => discoverViewModel.candidates,
+    ).thenReturn(const <HostCardViewData>[]);
+    when(() => discoverViewModel.failure).thenReturn(null);
+    when(() => discoverViewModel.canDiscover).thenReturn(false);
+    when(
+      () => discoverViewModel.onDiscover,
     ).thenReturn(() => discoveryCalls.add('discover'));
     when(() => viewModel.onSelectHost).thenReturn((HostCardViewData card) {
       selectedHosts.add(card.host);
@@ -138,6 +149,9 @@ void main() {
     sl.registerFactoryParam<ConnectionsScreenViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => viewModel,
     );
+    sl.registerFactoryParam<DiscoverDialogViewModel, Store<AppState>, void>(
+      (Store<AppState> _, void _) => discoverViewModel,
+    );
     sl.registerFactoryParam<AppearanceSectionViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => appearanceViewModel,
     );
@@ -146,6 +160,7 @@ void main() {
   tearDown(() async {
     await sl.reset();
     reset(viewModel);
+    reset(discoverViewModel);
     reset(appearanceViewModel);
     reset(pairingViewModel);
     reset(pairingDialogViewModel);
@@ -547,20 +562,61 @@ void main() {
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
 
-        await tester.tap(find.text('Discover Skyrim'), warnIfMissed: false);
+        await tester.tap(find.text('Discover Skyrim'));
         await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
 
         expect(selectedHosts, isEmpty);
         expect(discoveryCalls, ['discover']);
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(
+          find.descendant(
+            of: find.byType(DovahDialog),
+            matching: find.text('Discover Skyrim'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text('Searching for DovahLink on this PC…'),
+          findsOneWidget,
+        );
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump(const Duration(milliseconds: 500));
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen selects the discovered routing Host from the modal',
+      (WidgetTester tester) async {
+        final HostCardViewData candidate = Fixtures.buildHostCardViewData(
+          host: Fixtures.buildHost(uri: Uri.parse('ws://127.0.0.1:58231/')),
+          title: 'Local Host',
+          subtitle: 'DovahLink · Ready to connect',
+        );
+        when(
+          () => discoverViewModel.status,
+        ).thenReturn(ConnectionDiscoveryStatus.available);
+        when(() => discoverViewModel.candidates).thenReturn([candidate]);
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.text('Discover Skyrim'));
+        await tester.pumpAndSettle();
+        await tester.tap(
+          find.byKey(Key('discover-candidate-${candidate.host.hostId}')),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(selectedHosts, [candidate.host]);
+        expect(selectedSources, [ConnectionHostSelectionSource.candidate]);
+        expect(find.byType(PairingDialog), findsOneWidget);
       },
     );
 
     testWidgets(
       'ConnectionsScreen disables discovery when the semantic capability is unavailable',
       (WidgetTester tester) async {
-        when(
-          () => viewModel.discoveryStatus,
-        ).thenReturn(ConnectionDiscoveryStatus.available);
         when(() => viewModel.canDiscover).thenReturn(false);
 
         await tester.pumpWidget(buildWidget());
@@ -568,6 +624,7 @@ void main() {
         await tester.pump();
 
         expect(discoveryCalls, isEmpty);
+        expect(find.byType(DovahDialog), findsNothing);
       },
     );
   });

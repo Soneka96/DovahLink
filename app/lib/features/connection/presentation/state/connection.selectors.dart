@@ -9,9 +9,6 @@ abstract final class ConnectionSelectors {
   /// The secondary line shown for a Known Host.
   static const String knownHostCardSubtitle = 'Known Host';
 
-  /// The secondary line shown for an untrusted discovery result.
-  static const String candidateCardSubtitle = 'Discovered candidate';
-
   /// Returns the Hosts available to select.
   static List<Host> hostsSelector(AppState state) => state.connection.hosts;
 
