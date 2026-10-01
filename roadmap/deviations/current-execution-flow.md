@@ -34,6 +34,15 @@ active deviations.
    generic authentication failure do not establish it. No fake delays or SDK/state contract changes
    were needed for the supported states in this slice. Historical slice 03.6 remains paused and
    unmarked.
+
+   The maintainer has approved the minimal Session Shell handoff in this convergence pass. Route
+   only after a real trusted-session transition; Back returns to Connections without disconnecting.
+   Until implementation lands, Connected may remain on the Connections root. Pairing attempts
+   remaining, renotify outcome, and the typed terminal pairing outcome are lost in the current app
+   projection (some outcome-specific error copy survives); their exact prototype states remain
+   deferred. See the
+   [convergence deviation](prototype-flutter-convergence/README.md) for the state mapping and the
+   separate durable Known Host repair projection gap. This UI pass makes no SDK or protocol change.
 4. **Later — production LAN discovery and secure initial pairing.** Production LAN exposure and
    secure first contact remain gated by the security requirements and integration evidence. If an
    approved SAS profile preserves the current human interaction, pairing implementation changes

@@ -153,12 +153,18 @@ connecting. An already trusted outcome closes Discover without reopening Pairing
 failed outcome transitions to the existing pairing section within the same modal route. No fake
 delay or Flutter-owned pairing policy is used. Discovery alone does not add a Known Host.
 
-### Session Shell handoff — unresolved
+### Session Shell handoff — approved, implementation pending
 
-The SDK may establish a trusted, connected session, and product semantics normally hand that
-session into the Companion Session Shell. The Session Shell does not exist yet, so Connected may
-temporarily remain visible on the Connections root. This is a presentation/navigation limitation;
-do not add a fake Companion screen to this convergence work.
+The maintainer approved a minimal Session Shell in this convergence pass. Navigate there only after
+the existing real trusted-session transition: successful Known Host authentication or pairing
+confirmation. Online availability, candidate discovery, and opening Pairing are not sufficient.
+The shell uses the currently selected Host and contains only prototype-compatible session chrome
+and an empty body; it adds no gameplay data or pairing policy.
+
+Back returns to Connections without disconnecting or removing trust. This follows the existing
+trusted-flow disposal contract: `PairingDisposedAction(wasTrusted: true)` preserves the admitted
+connection. Until the route is implemented, the current Connected presentation remains on
+Connections. No SDK or protocol change is part of this handoff.
 
 ### Known Host “Pair again” / repair projection — unresolved
 
@@ -176,6 +182,19 @@ slice.
 The current prototype artifact is not stored in the repository; exact pixel comparison of the
 candidate's nearby-card radius and hover outline remains subject to review against the approved
 `DovahLink-Prototype-final` reference.
+
+### Pairing presentation projection gaps
+
+These states remain unrenderable as exact prototype states until the app projection preserves the
+available typed information. This convergence pass does not change the SDK contract or invent local
+pairing policy.
+
+| Prototype state | SDK truth | Information lost before Redux | Current Redux representation | Smallest future change |
+| --- | --- | --- | --- | --- |
+| Wrong-code attempts remaining | `DovahLinkPairingException` exposes Host-reported `attemptsRemaining` for counted invalid outcomes. | `PairingRemoteDataSource` converts it to `PairingRetriableFailure(message)` without the count. | `PairingPhase.awaitingCode` plus an error string; no count. | Carry the optional Host count through the app failure, action, and pairing state. No SDK change is needed. |
+| Successful redisplay versus cooldown | `PairingRenotifyResult` exposes `renotified` or `cooldown`; both outcomes carry `retryAfterSeconds`. | The data source maps both to the same nullable `int`, and middleware interprets every non-null value as cooldown. | Pending flag and next-available deadline only; a successful redisplay is presented as cooldown. | Preserve the typed renotify status with its retry interval through the app use case and Redux state. No SDK change is needed. |
+| Distinct terminal pairing outcomes | `DovahLinkPairingException` exposes the typed `PairingOutcome` and applicable retry metadata. | The data source maps outcomes to user-safe messages, then discards the typed outcome and retry metadata. Some outcomes retain distinct copy. | Terminal states share `PairingPhase.failed` and an error string; the error copy distinguishes several outcomes, but Redux has no typed outcome. | Carry the typed outcome through the app failure, action, and state so presentation can select a truthful state. No SDK change is needed. |
+| Durable Known Host repair requirement | Authentication can report a typed credential-rejection reason for that attempt; the Known Host projection does not report durable repair state. | The one-time authentication reason is not a durable Host-scoped recovery projection. | `ConnectionState.knownHosts` contains Host metadata and availability; the active `PairingState` may contain a temporary rejection reason. | Add a typed durable recovery/trust value to the SDK Known Host projection and map it into app state. This requires a separate SDK projection change. |
 
 Two visual behaviors intentionally follow production state: the candidate appears after the real
 discovery result instead of alongside the prototype's artificial search presentation, and the
