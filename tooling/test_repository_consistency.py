@@ -1920,8 +1920,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Device Pairing and Reconnection), documented in `roadmap/03-local-device-pairing-and-reconnection.md`, needed\nthe SDK's persistence boundary to avoid a "
             "larger later migration.",
             "sdk/\n  dart/\n    dovahlink_client/",
-            "It currently provides the connect/hello/pairing/disconnect protocol client and bounded automatic\nreconnection after ordinary transport loss",
-            "The official\nFlutter app depends on it (`dovahlink_client_sdk` in `app/pubspec.yaml`) and already uses its public\nclient for pairing and authentication through `PairingRemoteDataSource`.",
+            "It provides one client engine through four grouped views: `client.hosts`, `client.connections`,\n`client.pairing`, and `client.currentHost`.",
+            "The official\nFlutter app consumes the same public API through `dovahlink_client_sdk`.",
             "The SDK supports Host releases in the `0.5.x` range and rejects older or newer Host "
             "versions during\n`hello`, before admitting a session.",
             "Phase 5.2 is complete: the public client exposes replayable typed\n"
@@ -1939,13 +1939,153 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "the SDK owns candidate membership and reconciliation.",
             normalized_sdk_readme,
         )
+        for required_phrase in (
+            "These are facades over the same session, services, storage, and mutable state; they do not create independent clients.",
+            "`client.pairing.discoverHosts()` and `client.pairing.candidates`",
+            "A discovered Host ID is an unauthenticated claim.",
+            "Candidate authentication uses the selected endpoint and never uses the claim to select Known Host credentials",
+            "The SDK owns the three-second initial connection retry policy.",
+            "It remains separate from bounded recovery after an established session loses transport.",
+            "`client.pairing` sequences authentication with pending-pairing recovery",
+            "`confirmCode()` persists the credential and completes Host acknowledgement as one SDK operation.",
+            "Flutter maps typed results and failures into presentation; it does not sequence protocol operations or own retry policy.",
+        ):
+            self.assertIn(required_phrase, normalized_sdk_readme)
 
-        # Phase 5 was pulled forward: the real package now exists, replacing the old
-        # "no implementation skeleton yet" invariant this test used to guard.
         real_package = REPOSITORY_ROOT / "sdk" / "dart" / "dovahlink_client"
         self.assertTrue(real_package.is_dir())
         self.assertTrue((real_package / "pubspec.yaml").is_file())
         self.assertTrue((real_package / "lib").is_dir())
+
+    def test_sdk_root_client_has_no_duplicate_flat_operation_aliases(self) -> None:
+        """Keep same-engine operations on their grouped public views."""
+        client_source = self._read(
+            "sdk/dart/dovahlink_client/lib/src/dovahlink_client.dart"
+        )
+
+        for group_field in (
+            "late final IDovahLinkHosts hosts;",
+            "late final IDovahLinkConnections connections;",
+            "late final IDovahLinkPairing pairing;",
+            "late final IDovahLinkCurrentHost currentHost;",
+        ):
+            self.assertIn(group_field, client_source)
+
+        client_body = client_source.split("class DovahLinkClient {", 1)[1].split(
+            "\n}\n", 1
+        )[0]
+        public_members = set()
+        for line in client_body.splitlines():
+            if len(line) - len(line.lstrip()) != 2:
+                continue
+            declaration = line.strip()
+            if declaration.startswith("DovahLinkClient({"):
+                public_members.add("DovahLinkClient")
+                continue
+            field = re.fullmatch(
+                r"(?:late )?final \S+ ([A-Za-z][A-Za-z0-9_]*);", declaration
+            )
+            if field is not None:
+                public_members.add(field.group(1))
+                continue
+            getter = re.match(
+                r"[A-Za-z][A-Za-z0-9_?<>, ]*\s+get ([A-Za-z][A-Za-z0-9_]*)\s*(?:=>|\{)",
+                declaration,
+            )
+            method = re.match(
+                r"[A-Za-z][A-Za-z0-9_?<>, ]*\s+([A-Za-z][A-Za-z0-9_]*)\s*\(",
+                declaration,
+            )
+            if getter is not None:
+                public_members.add(getter.group(1))
+            elif method is not None:
+                public_members.add(method.group(1))
+
+        self.assertEqual(
+            public_members,
+            {
+                "DovahLinkClient",
+                "hosts",
+                "connections",
+                "pairing",
+                "currentHost",
+                "clientId",
+                "isObservingCandidateKnownHosts",
+                "close",
+                "forgetCredential",
+            },
+        )
+
+        grouped_contracts = {
+            "sdk/dart/dovahlink_client/lib/src/dovahlink_hosts.dart": (
+                "loadKnownHosts",
+                "knownHostsChanges",
+                "knownHostStatesChanges",
+            ),
+            "sdk/dart/dovahlink_client/lib/src/dovahlink_connections.dart": (
+                "state",
+                "stateChanges",
+                "connectCandidate",
+                "connectKnownHost",
+                "disconnect",
+                "initialConnectionRetryChanges",
+                "invalidationReason",
+            ),
+            "sdk/dart/dovahlink_client/lib/src/dovahlink_pairing.dart": (
+                "discoverHosts",
+                "candidates",
+                "authenticateCandidate",
+                "authenticateKnownHost",
+                "requestCode",
+                "renotify",
+                "cancel",
+                "confirmCode",
+                "recoverPendingPairing",
+            ),
+            "sdk/dart/dovahlink_client/lib/src/dovahlink_current_host.dart": (
+                "host",
+                "trustState",
+                "sessionId",
+                "characterXpChanges",
+                "characterHealthChanges",
+                "characterMagickaChanges",
+                "characterStaminaChanges",
+                "characterLevelChanges",
+                "subscribeStateArea",
+                "unsubscribeStateArea",
+            ),
+        }
+        for relative_path, members in grouped_contracts.items():
+            contract = self._read(relative_path)
+            for member in members:
+                declaration = re.compile(
+                    rf"(?m)^  [^/][^\n]*\b{re.escape(member)}\s*(?:\(|=>|;)"
+                )
+                self.assertRegex(contract, declaration)
+
+    def test_pairing_flutter_maps_results_without_owning_retry_or_protocol_sequence(
+        self,
+    ) -> None:
+        """Keep initial retries and pairing sequencing in the SDK."""
+        middleware = self._read(
+            "app/lib/features/pairing/presentation/state/pairing.middleware.dart"
+        )
+        data_source = self._read(
+            "app/lib/features/pairing/data/datasources/pairing_remote.datasource.dart"
+        )
+
+        self.assertIn("initialConnectionRetryChanges", middleware)
+        for forbidden in ("Timer(", "Future.delayed(", ".connectCandidate(", ".hello("):
+            self.assertNotIn(forbidden, middleware)
+        self.assertIn("_client.pairing.authenticateCandidate", data_source)
+        self.assertIn("_client.pairing.authenticateKnownHost", data_source)
+        self.assertIn("_client.pairing.confirmCode", data_source)
+        for forbidden in (
+            "_client.connections.connectCandidate",
+            "_client.connections.connectKnownHost",
+            "_client.pairing.recoverPendingPairing",
+        ):
+            self.assertNotIn(forbidden, data_source)
 
     def test_sdk_public_api_hides_transport_types(self) -> None:
         """Guard the SDK's curated public surface from exposing transport wiring."""

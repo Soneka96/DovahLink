@@ -1332,9 +1332,9 @@ void main() {
     );
   });
 
-  group('Property candidateHostsChanges behaves correctly', () {
+  group('Property candidates behaves correctly', () {
     test(
-      'Property candidateHostsChanges reports storage errors and receives later candidate state',
+      'Property candidates reports storage errors and receives later candidate state',
       () async {
         final TrackingClientStorage failingStorage = TrackingClientStorage(
           Fixtures.buildPersistedClientState(),
@@ -1383,7 +1383,7 @@ void main() {
     );
 
     test(
-      'Property candidateHostsChanges removes a candidate after pairing commits its Known Host relationship',
+      'Property candidates removes a candidate after pairing commits its Known Host relationship',
       () async {
         const String hostId = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
         final DovahLinkHost candidate = Fixtures.buildDovahLinkHost(

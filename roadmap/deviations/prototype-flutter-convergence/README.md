@@ -89,7 +89,7 @@ failure. Localization can replace the centralized copy when the app adopts local
 ## Known Host lifecycle + discovery integration — current branch
 
 The SDK owns complete persisted client-state mutations and exposes the complete Host-ID-keyed Known
-Hosts collection through `DovahLinkClient.loadKnownHosts()` and `knownHostsChanges`. Each stream
+Hosts collection through `client.hosts.loadKnownHosts()` and `client.hosts.knownHostsChanges`. Each stream
 event is a complete immutable snapshot, published only after storage succeeds. The state owner
 preserves pairing's atomic Host-scoped credential, recovery-state, and Known Host write. Pairing,
 trusted-session metadata refresh, credential removal, and failed pairing recovery continue to use
@@ -98,7 +98,7 @@ SDK-owned lifecycle rules.
 The app mirrors that state through this boundary:
 
 ```text
-SDK persisted state -> knownHostsChanges -> ConnectionMiddleware -> HostMapper
+SDK persisted state -> client.hosts.knownHostsChanges -> ConnectionMiddleware -> HostMapper
   -> ConnectionKnownHostsChangedAction -> ConnectionState.knownHosts -> ViewModel / UI
 ```
 
