@@ -2010,7 +2010,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 "pairing",
                 "currentHost",
                 "clientId",
-                "isObservingCandidateKnownHosts",
                 "close",
                 "forgetCredential",
             },

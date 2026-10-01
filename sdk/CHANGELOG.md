@@ -27,6 +27,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Changed
 
+- `DovahLinkClient.close()` permanently closes the session lifecycle, so later connection or pairing authentication cannot reconnect.
 - The grouped pairing API now authenticates with the selected target, recovers pending confirmation,
   and completes code confirmation plus credential acknowledgement as SDK-owned operations.
 - Initial candidate and Known Host connection failures now retry in the SDK every three seconds, independently from bounded established-session recovery; the previous Offline presentation is preserved.

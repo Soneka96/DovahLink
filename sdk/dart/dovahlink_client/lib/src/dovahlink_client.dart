@@ -78,6 +78,9 @@ class DovahLinkClient {
   /// Whether terminal close has begun.
   bool _isClosed = false;
 
+  /// Signals the test builder when candidate reconciliation starts observing Known Hosts.
+  final List<bool>? _candidateKnownHostsObservation;
+
   /// The terminal cleanup operation shared by repeated callers.
   Future<void>? _closeFuture;
 
@@ -110,7 +113,9 @@ class DovahLinkClient {
     Duration hostPresenceRefreshInterval = kKnownHostPresenceRefreshInterval,
     Stream<void>? hostPresenceRefreshTicks,
     int hostPresenceMaxConcurrentProbes = kKnownHostPresenceMaxConcurrentProbes,
-  }) : _clientStateService = ClientStateService(storage: storage) {
+    List<bool>? candidateKnownHostsObservation,
+  }) : _clientStateService = ClientStateService(storage: storage),
+       _candidateKnownHostsObservation = candidateKnownHostsObservation {
     _discoveryService =
         discoveryService ??
         DovahLinkDiscoveryService(hostPresenceProbe: hostPresenceProbe);
@@ -510,11 +515,6 @@ class DovahLinkClient {
         sink.onCancel = subscription.cancel;
       }, isBroadcast: true);
 
-  /// Whether candidate membership currently observes committed Known Hosts.
-  @visibleForTesting
-  bool get isObservingCandidateKnownHosts =>
-      _knownHostCandidateSubscription != null;
-
   /// Starts observing committed Known Hosts once their initial state has loaded.
   void _observeCandidateKnownHosts() {
     if (_isClosed || _knownHostCandidateSubscription != null) {
@@ -533,6 +533,7 @@ class DovahLinkClient {
             }
           },
         );
+    _candidateKnownHostsObservation?.add(true);
   }
 
   /// Reconciles the last discovery result with one authoritative Known Host snapshot.
@@ -565,37 +566,23 @@ class DovahLinkClient {
     _candidateHostsController.add(next);
   }
 
-  /// Closes the connection and resets in-memory session state. Idempotent, and never throws: this
-  /// is a best-effort cleanup operation matching the transport's idempotent close contract.
-  /// In-memory state resets even when the underlying transport cannot be closed
-  /// cleanly -- a broken close must not leave [IDovahLinkConnections.state],
-  /// [IDovahLinkCurrentHost.trustState], or [IDovahLinkCurrentHost.sessionId] lying
-  /// about a session that no longer exists. Persisted identity, credential, and recovery state are
-  /// untouched -- trust survives a disconnect. Clears local desired subscription intent, then
-  /// fails any operation still awaiting a reply and any operation an earlier transport loss
-  /// orphaned for retry, instead of leaving it to hang
-  /// forever: unlike an unexpected transport loss, a deliberate disconnect never retries. It also
-  /// cancels in-flight authentication recovery and bounded automatic recovery from an earlier loss --
-  /// [IDovahLinkConnections.state] moves directly to
-  /// [DovahLinkConnectionState.disconnected] rather than
-  /// letting that recovery keep running. Repeated calls remain safe because transport close and
-  /// pending-operation failure are idempotent; an administrative invalidation's typed reason is
-  /// preserved, not reset to generic disconnect. A Known Host session deliberately disconnected
-  /// by the client ends its session without clearing current reachability evidence.
-  /// Permanently closes this client and releases its monitoring and stream resources.
-  ///
-  /// Unlike [IDovahLinkConnections.disconnect], this terminal operation stops Known Host presence monitoring. The
-  /// client must not be reused after [close] completes.
-  /// @return A future completing after independent monitoring and session teardown, subscriptions,
-  /// and client state streams have each finished best-effort cleanup.
+  /// Permanently closes this client. This terminal, idempotent, best-effort operation stops
+  /// Known Host presence monitoring, disconnects any active session through the SDK lifecycle,
+  /// and cleans up SDK-owned subscriptions and resources. The client must not be reused after
+  /// closing begins; connection and authentication operations then fail.
+  /// @return A future completing after monitoring, session teardown, and resource cleanup finish.
   Future<void> close() => _closeFuture ??= (() async {
     _isClosed = true;
     final Future<void> monitorCleanup = Future<void>.sync(
       _knownHostPresenceMonitor.close,
     ).catchError((Object _, StackTrace __) {});
-    final Future<void> sessionCleanup = Future<void>.sync(
-      connections.disconnect,
-    ).catchError((Object _, StackTrace __) {});
+    final Future<void> sessionCleanup = Future<void>.sync(() {
+      _authenticationService.cancelPendingAuthentication();
+      _reconnectService.stopInitialConnectionRetry();
+      _reconnectService.stopRecovery();
+      _subscriptionService.clearDesiredStateAreas();
+      return _sessionService.close();
+    }).catchError((Object _, StackTrace __) {});
     await Future.wait<void>(<Future<void>>[monitorCleanup, sessionCleanup]);
     await _knownHostSessionSubscription.cancel().catchError(
       (Object _, StackTrace __) {},
@@ -631,6 +618,7 @@ class DovahLinkClient {
 /// @param hostPresenceRefreshInterval The injected Known Host refresh cadence.
 /// @param hostPresenceRefreshTicks The injected deterministic refresh event stream.
 /// @param hostPresenceMaxConcurrentProbes The injected global probe concurrency bound.
+/// @param candidateKnownHostsObservation Optional test records for candidate observation startup.
 /// @return A client wired to the supplied transport and timing controls.
 @visibleForTesting
 DovahLinkClient buildDovahLinkClientForTesting({
@@ -648,6 +636,7 @@ DovahLinkClient buildDovahLinkClientForTesting({
   Duration hostPresenceRefreshInterval = kKnownHostPresenceRefreshInterval,
   Stream<void>? hostPresenceRefreshTicks,
   int hostPresenceMaxConcurrentProbes = kKnownHostPresenceMaxConcurrentProbes,
+  List<bool>? candidateKnownHostsObservation,
 }) => DovahLinkClient._build(
   transport: transport,
   storage: storage,
@@ -663,4 +652,5 @@ DovahLinkClient buildDovahLinkClientForTesting({
   hostPresenceRefreshInterval: hostPresenceRefreshInterval,
   hostPresenceRefreshTicks: hostPresenceRefreshTicks,
   hostPresenceMaxConcurrentProbes: hostPresenceMaxConcurrentProbes,
+  candidateKnownHostsObservation: candidateKnownHostsObservation,
 );

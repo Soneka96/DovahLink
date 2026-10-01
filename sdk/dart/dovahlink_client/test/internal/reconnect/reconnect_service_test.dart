@@ -64,6 +64,7 @@ void main() {
     when(
       () => sessionService.connectionState,
     ).thenReturn(DovahLinkConnectionState.reconnecting);
+    when(() => sessionService.isTerminallyClosed).thenReturn(false);
     when(() => sessionService.connect(any())).thenAnswer((_) async {});
     when(
       () => sessionService.disconnect(
@@ -98,6 +99,25 @@ void main() {
   );
 
   group('Method connectWithInitialRetry behaves correctly', () {
+    test(
+      'Method connectWithInitialRetry rejects a terminally closed client without attempting authentication',
+      () async {
+        when(() => sessionService.isTerminallyClosed).thenReturn(true);
+        int attemptCount = 0;
+        final ReconnectService service = buildService();
+
+        await expectLater(
+          service.connectWithInitialRetry(() async {
+            attemptCount++;
+            return Fixtures.buildHelloResult();
+          }),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(attemptCount, 0);
+      },
+    );
+
     test(
       'Method connectWithInitialRetry retries transient failures until authentication succeeds',
       () async {

@@ -1013,10 +1013,12 @@ void main() {
           ..loadGate = loadGate;
         final MockDovahLinkDiscoveryService discovery =
             MockDovahLinkDiscoveryService();
+        final List<bool> candidateKnownHostsObservation = <bool>[];
         final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
           transport: FakeDovahLinkTransport(),
           storage: pendingStorage,
           discoveryService: discovery,
+          candidateKnownHostsObservation: candidateKnownHostsObservation,
         );
         final List<List<DovahLinkHost>> candidateUpdates =
             <List<DovahLinkHost>>[];
@@ -1042,7 +1044,7 @@ void main() {
 
         expect(await pendingDiscovery, isEmpty);
         await pumpEventQueue();
-        expect(closeClient.isObservingCandidateKnownHosts, isFalse);
+        expect(candidateKnownHostsObservation, isEmpty);
         verifyNever(() => discovery.discover());
         expect(candidateUpdates, hasLength(1));
         expect(candidateUpdates.single, isEmpty);
@@ -1115,10 +1117,12 @@ void main() {
           ..loadGate = loadGate;
         final MockDovahLinkDiscoveryService discovery =
             MockDovahLinkDiscoveryService();
+        final List<bool> candidateKnownHostsObservation = <bool>[];
         final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
           transport: FakeDovahLinkTransport(),
           storage: pendingStorage,
           discoveryService: discovery,
+          candidateKnownHostsObservation: candidateKnownHostsObservation,
         );
 
         final Future<List<DovahLinkHost>> pendingDiscovery = closeClient.pairing
@@ -1131,7 +1135,7 @@ void main() {
         loadGate.complete();
 
         expect(await pendingDiscovery, isEmpty);
-        expect(closeClient.isObservingCandidateKnownHosts, isFalse);
+        expect(candidateKnownHostsObservation, isEmpty);
         verifyNever(() => discovery.discover());
         expect(pendingStorage.loadCount, 1);
       },
@@ -5362,6 +5366,23 @@ void main() {
   );
 
   group('Method close behaves correctly', () {
+    test('Method close prevents a later authentication attempt', () async {
+      final FakeDovahLinkTransport closeTransport = FakeDovahLinkTransport();
+      final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
+        transport: closeTransport,
+        storage: InMemoryClientStorage(),
+      );
+      await closeClient.close();
+
+      await expectLater(
+        closeClient.connections.connectCandidate(
+          Uri.parse('ws://127.0.0.1:58232/'),
+        ),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+      expect(closeTransport.connectCalls, isEmpty);
+    });
+
     test(
       'Method close starts active-session teardown before delayed presence cleanup and shares its future',
       () async {

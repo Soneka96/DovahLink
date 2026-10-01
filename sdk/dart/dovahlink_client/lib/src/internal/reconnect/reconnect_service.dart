@@ -147,6 +147,11 @@ class ReconnectService implements IReconnectService {
   Future<HelloResult> connectWithInitialRetry(
     Future<HelloResult> Function() attempt,
   ) async {
+    if (_sessionService.isTerminallyClosed) {
+      throw const DovahLinkConnectionException(
+        'Cannot connect after the client has been closed.',
+      );
+    }
     stopInitialConnectionRetry();
     stopRecovery();
     _authenticationService.cancelPendingAuthentication();

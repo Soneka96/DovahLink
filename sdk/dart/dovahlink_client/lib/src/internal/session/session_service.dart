@@ -56,6 +56,9 @@ abstract interface class ISessionService {
   /// `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason;
 
+  /// Whether terminal client shutdown has started.
+  bool get isTerminallyClosed;
+
   /// Establishes the transport connection to [uri]. An attempt that has not completed within the
   /// centrally tuned connect timeout is abandoned rather than left to resolve indefinitely, so it
   /// can never block automatic recovery's own deadline. [knownHostId] binds visible session state
@@ -140,6 +143,9 @@ class SessionService implements ISessionService {
   /// Invalidates ordinary-loss recovery handoffs that have not yet reached admission.
   int _recoveryHandoffGeneration = 0;
 
+  /// Whether this client's session lifecycle has been permanently closed.
+  bool _isTerminallyClosed = false;
+
   /// Creates a session service over [transport] and [state], coordinating teardown through
   /// [teardownCoordinator], serializing lifecycle operations through [lifecycleQueue], and
   /// bounding each connect attempt by [connectTimeout].
@@ -217,6 +223,10 @@ class SessionService implements ISessionService {
   AdministrativeInvalidationReason? get invalidationReason =>
       _state.invalidationReason;
 
+  /// Implements [ISessionService.isTerminallyClosed].
+  @override
+  bool get isTerminallyClosed => _isTerminallyClosed;
+
   /// Implements [ISessionService.connect]. One attempt within a bounded-reconnect cycle (entered
   /// while [connectionState] is already `reconnecting`) keeps [connectionState] at `reconnecting`
   /// while the socket itself is being established, instead of passing through
@@ -233,6 +243,11 @@ class SessionService implements ISessionService {
   @override
   Future<void> connect(Uri uri, {DovahLinkHostId? knownHostId}) =>
       _lifecycleQueue.run(() async {
+        if (_isTerminallyClosed) {
+          throw const DovahLinkConnectionException(
+            'Cannot connect after the client has been closed.',
+          );
+        }
         if (knownHostId == null) {
           _state.beginConnectAttempt(uri);
         } else {
@@ -279,6 +294,12 @@ class SessionService implements ISessionService {
       reason ?? const DovahLinkConnectionException('Disconnected.'),
       orphanRetrySafeOperations: orphanRetrySafeOperations,
     );
+  }
+
+  /// Permanently closes this client's session lifecycle and disconnects its active session.
+  Future<void> close() {
+    _isTerminallyClosed = true;
+    return disconnect();
   }
 
   /// Implements [ISessionService.onUnhealthy]. Ordinary transport loss: tears down, then -- only if
