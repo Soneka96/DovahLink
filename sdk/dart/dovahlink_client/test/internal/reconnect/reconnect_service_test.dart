@@ -121,9 +121,9 @@ void main() {
             }
             if (attemptCount < 5) {
               throw const DovahLinkProtocolException(
-                code: ProtocolErrorCode.malformedMessage,
-                message: 'invalid initial reply',
-                retryable: false,
+                code: ProtocolErrorCode.rateLimited,
+                message: 'temporarily unavailable',
+                retryable: true,
               );
             }
             return Fixtures.buildHelloResult(
@@ -269,6 +269,81 @@ void main() {
     );
 
     test(
+      'Method connectWithInitialRetry fails after one attempt for a non-retryable protocol error',
+      () async {
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+
+        await expectLater(
+          service.connectWithInitialRetry(() async {
+            attemptCount++;
+            throw const DovahLinkProtocolException(
+              code: ProtocolErrorCode.rateLimited,
+              message: 'not retryable',
+              retryable: false,
+            );
+          }),
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+
+        expect(attemptCount, 1);
+      },
+    );
+
+    test(
+      'Method connectWithInitialRetry fails after one attempt for malformed_message',
+      () async {
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+
+        await expectLater(
+          service.connectWithInitialRetry(() async {
+            attemptCount++;
+            throw const DovahLinkProtocolException(
+              code: ProtocolErrorCode.malformedMessage,
+              message: 'malformed reply',
+              retryable: true,
+            );
+          }),
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+
+        expect(attemptCount, 1);
+      },
+    );
+
+    test(
+      'Method connectWithInitialRetry stops after a terminal protocol error on a retry',
+      () async {
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+
+        await expectLater(
+          service.connectWithInitialRetry(() async {
+            attemptCount++;
+            if (attemptCount == 1) {
+              throw const DovahLinkConnectionException('unreachable');
+            }
+            throw const DovahLinkProtocolException(
+              code: ProtocolErrorCode.malformedMessage,
+              message: 'malformed retry reply',
+              retryable: true,
+            );
+          }),
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+
+        expect(attemptCount, 2);
+      },
+    );
+
+    test(
       'Method connectWithInitialRetry does not retry after administrative invalidation',
       () async {
         DovahLinkConnectionState connectionState =
@@ -291,6 +366,37 @@ void main() {
             );
           }),
           throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(attemptCount, 1);
+      },
+    );
+
+    test(
+      'Method connectWithInitialRetry does not retry a protocol failure after administrative invalidation',
+      () async {
+        DovahLinkConnectionState connectionState =
+            DovahLinkConnectionState.disconnected;
+        when(
+          () => sessionService.connectionState,
+        ).thenAnswer((_) => connectionState);
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+
+        await expectLater(
+          service.connectWithInitialRetry(() async {
+            attemptCount++;
+            connectionState =
+                DovahLinkConnectionState.administrativelyInvalidated;
+            throw const DovahLinkProtocolException(
+              code: ProtocolErrorCode.rateLimited,
+              message: 'authentication rejected',
+              retryable: true,
+            );
+          }),
+          throwsA(isA<DovahLinkProtocolException>()),
         );
 
         expect(attemptCount, 1);

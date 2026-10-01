@@ -20,8 +20,8 @@ abstract interface class IReconnectService {
   Stream<DovahLinkInitialConnectionRetryStatus>
   get initialConnectionRetryChanges;
 
-  /// Runs one explicit authentication attempt, then retries connection/protocol failures every
-  /// three seconds until success, cancellation, or administrative invalidation.
+  /// Runs one explicit authentication attempt, then retries connection and retryable protocol
+  /// failures every three seconds until success, cancellation, or administrative invalidation.
   /// @param attempt Authenticates the originally selected candidate or Known Host.
   /// @return The successful initial handshake, from the first attempt or a retry.
   Future<HelloResult> connectWithInitialRetry(
@@ -43,8 +43,8 @@ abstract interface class IReconnectService {
 
 /// Owns initial retries for one explicit connection attempt and bounded recovery of an established
 /// session. Initial retries retain the selected attempt callback and wait three seconds between
-/// connection/protocol failures until cancelled or successful; established recovery instead has a
-/// bounded attempt budget and deadline. Both policies use the same [SessionService] and
+/// connection or retryable protocol failures until cancelled or successful; established recovery
+/// instead has a bounded attempt budget and deadline. Both policies use the same [SessionService] and
 /// [AuthenticationService]. This class never owns session state or transport operations.
 class ReconnectService implements IReconnectService {
   /// The typed result for an initial attempt cancelled before it can finish.
@@ -164,10 +164,11 @@ class ReconnectService implements IReconnectService {
               DovahLinkConnectionState.administrativelyInvalidated) {
         rethrow;
       }
-    } on DovahLinkProtocolException {
+    } on DovahLinkProtocolException catch (error) {
       if (generation != _initialConnectionRetryGeneration ||
           _sessionService.connectionState ==
-              DovahLinkConnectionState.administrativelyInvalidated) {
+              DovahLinkConnectionState.administrativelyInvalidated ||
+          ReconnectRejectionClassifier.isTerminal(error)) {
         rethrow;
       }
     }
@@ -239,12 +240,13 @@ class ReconnectService implements IReconnectService {
                 DovahLinkConnectionState.administrativelyInvalidated) {
               rethrow;
             }
-          } on DovahLinkProtocolException {
+          } on DovahLinkProtocolException catch (error) {
             if (generation != _initialConnectionRetryGeneration) {
               throw _initialRetryCancelled;
             }
             if (_sessionService.connectionState ==
-                DovahLinkConnectionState.administrativelyInvalidated) {
+                    DovahLinkConnectionState.administrativelyInvalidated ||
+                ReconnectRejectionClassifier.isTerminal(error)) {
               rethrow;
             }
           }

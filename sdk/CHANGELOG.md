@@ -38,6 +38,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- Initial connection retry stops immediately for terminal or non-retryable protocol failures.
 - Pending discovery checks terminal shutdown after storage and probe awaits, preventing late
   subscriptions, probes, and candidate updates.
 - Pairing commits remove a Host from candidates, and stale discovery results cannot restore it.
