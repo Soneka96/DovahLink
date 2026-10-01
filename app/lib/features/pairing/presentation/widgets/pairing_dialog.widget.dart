@@ -12,14 +12,21 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 /// The themed dialog pairing happens in: a [DovahDialog] whose title follows the pairing state
 /// (the approved prototype changes its modal header per step), around the [PairingSection].
 class PairingDialog extends StatelessWidget {
+  /// Whether [PairingSection] starts a new authentication when it is mounted.
+  final bool startOnInit;
+
   /// Creates the pairing dialog card.
-  const PairingDialog({super.key});
+  /// @param startOnInit Whether to start authentication when the dialog opens.
+  const PairingDialog({this.startOnInit = true, super.key});
 
   /// Shows the pairing dialog over [context]'s route, behind the shared blurred backdrop.
-  static Future<void> show(BuildContext context) =>
+  /// @param context The route that hosts the dialog.
+  /// @param startOnInit Whether to start authentication or reuse the active lifecycle.
+  /// @return Completes when the dialog is dismissed.
+  static Future<void> show(BuildContext context, {bool startOnInit = true}) =>
       DovahDialog.showBuilder<void>(
         context,
-        builder: (BuildContext dialogContext) => const PairingDialog(),
+        builder: (BuildContext _) => PairingDialog(startOnInit: startOnInit),
       );
 
   /// See [StatelessWidget.build].
@@ -30,7 +37,10 @@ class PairingDialog extends StatelessWidget {
       converter: (Store<AppState> store) =>
           sl<PairingDialogViewModel>(param1: store),
       builder: (BuildContext context, PairingDialogViewModel viewModel) =>
-          DovahDialog(title: viewModel.title, child: const PairingSection()),
+          DovahDialog(
+            title: viewModel.title,
+            child: PairingSection(startOnInit: startOnInit),
+          ),
     );
   }
 }

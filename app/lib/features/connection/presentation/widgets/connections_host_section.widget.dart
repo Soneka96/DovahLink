@@ -7,18 +7,12 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 
-/// The connections screen's discovery section: a labelled gradient rule followed by one
-/// [DovahConnectionCard] per Host. It shows supplied discovery feedback and card data, and reports
-/// the selected card with its semantic source; it does not read state.
+/// The connections screen's Known Hosts section: a labelled gradient rule followed by one
+/// [DovahConnectionCard] per durable Host relationship. It reports the selected card and does not
+/// read state.
 class ConnectionsHostSection extends StatelessWidget {
-  /// The cards to show, in order.
+  /// The Known Host cards to show, in order.
   final List<HostCardViewData> cards;
-
-  /// The latest Host discovery operation's state.
-  final ConnectionDiscoveryStatus discoveryStatus;
-
-  /// The semantic reason the latest discovery operation failed, or `null` when it did not fail.
-  final ConnectionFailureReason? discoveryFailure;
 
   /// Called with the card the user taps, including its selection source.
   final void Function(HostCardViewData card) onSelectHost;
@@ -26,8 +20,6 @@ class ConnectionsHostSection extends StatelessWidget {
   /// Creates the Host section.
   const ConnectionsHostSection({
     required this.cards,
-    this.discoveryStatus = ConnectionDiscoveryStatus.idle,
-    this.discoveryFailure,
     required this.onSelectHost,
     super.key,
   });
@@ -36,20 +28,6 @@ class ConnectionsHostSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
-    final bool hasCandidates = cards.any(
-      (HostCardViewData card) =>
-          card.source == ConnectionHostSelectionSource.candidate,
-    );
-    final String sectionLabel = hasCandidates ? 'AVAILABLE' : 'MY SKYRIM PCS';
-    final String? discoveryMessage = switch (discoveryStatus) {
-      ConnectionDiscoveryStatus.idle ||
-      ConnectionDiscoveryStatus.available => null,
-      ConnectionDiscoveryStatus.discovering =>
-        'Searching for DovahLink on this PC…',
-      ConnectionDiscoveryStatus.empty => 'No new local Hosts found.',
-      ConnectionDiscoveryStatus.failed =>
-        (discoveryFailure ?? ConnectionFailureReason.unknown).message,
-    };
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -57,7 +35,7 @@ class ConnectionsHostSection extends StatelessWidget {
         Row(
           children: [
             Text(
-              sectionLabel,
+              'MY SKYRIM PCS',
               style: TextStyle(
                 color: tokens.textMuted,
                 fontSize: DovahRootMetrics.sectionLabelFontSize,
@@ -88,25 +66,6 @@ class ConnectionsHostSection extends StatelessWidget {
           ],
         ),
         const SizedBox(height: DovahRootMetrics.sectionLabelBottomGap),
-        if (discoveryMessage != null) ...[
-          Semantics(
-            label: discoveryMessage,
-            liveRegion: true,
-            excludeSemantics: true,
-            child: Text(
-              discoveryMessage,
-              key: const Key('connection-discovery-status'),
-              style: TextStyle(
-                color: discoveryStatus == ConnectionDiscoveryStatus.failed
-                    ? tokens.danger
-                    : tokens.textMuted,
-                fontSize: DovahRootMetrics.pageDescriptionFontSize,
-                height: DovahThemeTokens.bodyLineHeight,
-              ),
-            ),
-          ),
-          const SizedBox(height: DovahRootMetrics.listGap),
-        ],
         ListView.separated(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -121,7 +80,9 @@ class ConnectionsHostSection extends StatelessWidget {
               subtitle: card.subtitle,
               detail: card.detail,
               state: card.state,
-              onTap: () => onSelectHost(card),
+              onTap: card.state == DovahConnectionCardState.available
+                  ? () => onSelectHost(card)
+                  : null,
             );
           },
         ),

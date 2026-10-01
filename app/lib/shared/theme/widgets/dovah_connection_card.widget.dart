@@ -73,9 +73,7 @@ class DovahConnectionCard extends StatelessWidget {
         : 0;
     final DovahConnectionAccent accent =
         context.dovahMaterials.connectionAccent;
-    final bool available =
-        state == DovahConnectionCardState.available ||
-        state == DovahConnectionCardState.connected;
+    final bool available = state == DovahConnectionCardState.available;
     final bool uppercase = tokens.uppercaseLabels;
     final double? uppercaseSpacing = uppercase
         ? DovahThemeTokens.uppercaseLetterSpacingEm *
@@ -238,7 +236,7 @@ class DovahConnectionCard extends StatelessWidget {
                             ],
                           ),
                         ),
-                        if (state != DovahConnectionCardState.offline) ...[
+                        if (enabled) ...[
                           const SizedBox(
                             width: DovahConnectionCardMetrics.statusArrowGap,
                           ),

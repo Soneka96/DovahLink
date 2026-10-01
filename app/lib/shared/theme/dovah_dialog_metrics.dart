@@ -85,6 +85,27 @@ class DovahDialogMetrics extends Equatable {
   /// `gap:10px`).
   static const double progressStatusGap = 10;
 
+  /// Inner padding of a discovery candidate card (the prototype's `.nearby-card`).
+  static const double discoveryCandidateCardPadding = 15;
+
+  /// Corner radius of the small rounded candidate card (the prototype's `.nearby-card`).
+  static const double discoveryCandidateCardCornerRadius = 8;
+
+  /// Opacity of a discovery candidate while checking its trusted connection.
+  static const double discoveryCandidateCheckingOpacity = 0.82;
+
+  /// Gap between a discovery candidate's icon and text (the prototype's `.nearby-card` `gap`).
+  static const double discoveryCandidateContentGap = 12;
+
+  /// Font size of a discovery candidate's title (the prototype's `.nearby-card b`).
+  static const double discoveryCandidateTitleFontSize = 14;
+
+  /// Font size of a discovery candidate's subtitle (the prototype's `.nearby-card span span`).
+  static const double discoveryCandidateSubtitleFontSize = 12;
+
+  /// Font size of a discovery candidate's trailing arrow (the prototype's `.arrow`).
+  static const double discoveryCandidateArrowFontSize = 24;
+
   /// The measurements for windows taller than [compactMaxWindowHeight], before a theme's own corner
   /// radii: square marks and code boxes.
   static const DovahDialogMetrics regular = DovahDialogMetrics(

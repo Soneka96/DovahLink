@@ -1,8 +1,9 @@
 # Prototype → Flutter Convergence
 
-**Status:** Active — design and visual foundation complete; connection/pairing convergence partial;
-remaining historical steps require re-planning. Local Host discovery and Known Host lifecycle
-integration are established; canonical discovery / Connections UI convergence follows them.
+**Status:** Active — design/material foundations are complete; canonical Connections / Discover
+convergence still has documented Session Shell and Known Host repair-state gaps. Broader historical
+connection/pairing slices remain paused for re-planning. Local Host discovery, Known Host lifecycle,
+and runtime availability foundations are established.
 
 ## Why this deviation exists
 
@@ -43,16 +44,14 @@ identity-check race. That security detour is recorded separately in the
 [Initial Pairing Security Investigation and Extraction](../initial-pairing-security/README.md);
 generic SAS research continues in `Soneka96/sas-pairing`.
 
-The current `feature/known-host-lifecycle-discovery-integration` branch establishes SDK-owned Known
-Host observation and its app projection without resuming historical slices 03.4–03.10. Those
-remaining connection/pairing steps must still be reconciled with current DovahLink security
-architecture before implementation. Ordinary product work that does not depend on hostile-network
-first contact may continue from Phase 5.4. Stage 5A and production LAN pairing remain gated.
+Known Host lifecycle integration established SDK-owned observation and its app projection without
+resuming historical slices 03.4–03.10. Those remaining connection/pairing steps must still be
+reconciled with current DovahLink security architecture before implementation. Ordinary product
+work that does not depend on hostile-network first contact may continue from Phase 5.4. Stage 5A
+and production LAN pairing remain gated.
 
-The follow-up `feature/known-host-availability` work adds SDK-owned runtime availability and its
-logic-only app projection. It remains separate from the paused Connections UI convergence: widgets
-do not display availability in that change. This state reports only the SDK's current reachability
-evidence and remains separate from durable Known Host metadata, connection lifecycle, and trust.
+The Known Host availability foundation adds SDK-owned runtime reachability and its app projection.
+It remains separate from durable Known Host metadata, connection lifecycle, and trust.
 
 ## Local Host discovery foundation — established
 
@@ -73,10 +72,10 @@ for routing. Peer-asserted Host ID and name are not candidate identity, trust, a
 persisted Known Host metadata. Endpoint means location only. The selected Host continues into the
 existing authentication/pairing flow, which owns the real outcome.
 
-The current screen retains just enough temporary presentation to exercise these states: a Discover
-action, visible search/candidate/empty/failure feedback, and selection into the existing flow. This
-is foundation-state presentation, not the final canonical discovery UI. It does not claim exact
-visual, modal, trust-check, transition, or connection-card parity, and it adds no simulated delay.
+The temporary inline discovery presentation has been replaced by the canonical Discover Skyrim
+modal. The main Connections list now contains only SDK-mapped Known Hosts; ephemeral candidates stay
+in the modal. Searching, available, empty, and failed states use the real Redux projection and add
+no simulated delay.
 
 At the Redux boundary, middleware maps SDK discovery exceptions to the app-owned
 `ConnectionFailureReason`; Redux carries that reason, not the exception or display text. The enum's
@@ -86,7 +85,7 @@ application operation, not an SDK exception type. Add another converter only whe
 needs one; do not create one method per SDK exception or a global enum for every possible DovahLink
 failure. Localization can replace the centralized copy when the app adopts localization.
 
-## Known Host lifecycle + discovery integration — current branch
+## Known Host lifecycle + discovery integration — established
 
 The SDK owns complete persisted client-state mutations and exposes the complete Host-ID-keyed Known
 Hosts collection through `client.hosts.loadKnownHosts()` and `client.hosts.knownHostsChanges`. Each stream
@@ -140,13 +139,49 @@ behavior. A Known Host record does not represent live trust. The SDK's saved Hos
 its initial stream value; Flutter does not load and subscribe separately or reconcile a startup
 race.
 
-## After that — Canonical Discovery / Connections UI Convergence
+## Canonical Discovery / Connections UI Convergence — partial
 
-The next UI work uses the SDK-owned Known Host projection alongside discovery candidates/status,
-selected Host, and real connection/pairing state. It will reproduce the approved prototype's
-structure, copy, interactions, and responsive presentation, add no fake delays, and should need
-little or no discovery/SDK architecture change. Historical slice 03.6 remains paused and is not
-marked complete by this work.
+Connections presents durable Known Hosts separately from ephemeral discovery candidates. An Online
+Known Host is selectable and starts SDK authentication. Offline, Connected, Reconnecting, Checking,
+and Unknown cards remain visible and nonselectable; Unknown is neutral reachability evidence, not
+Offline or “Not connected.” Reconnecting is session recovery, not ordinary availability.
+
+Redux discovery status drives searching, available, empty, and failed feedback. A real candidate
+result shows “Local Host found.” followed by AVAILABLE and the candidate card. Selecting it starts
+the SDK authentication lifecycle and shows “Checking trusted connection…” while that lifecycle is
+connecting. An already trusted outcome closes Discover without reopening Pairing. An unpaired or
+failed outcome transitions to the existing pairing section within the same modal route. No fake
+delay or Flutter-owned pairing policy is used. Discovery alone does not add a Known Host.
+
+### Session Shell handoff — unresolved
+
+The SDK may establish a trusted, connected session, and product semantics normally hand that
+session into the Companion Session Shell. The Session Shell does not exist yet, so Connected may
+temporarily remain visible on the Connections root. This is a presentation/navigation limitation;
+do not add a fake Companion screen to this convergence work.
+
+### Known Host “Pair again” / repair projection — unresolved
+
+The prototype has a durable root-card state such as “Trust changed in Skyrim” with a “Pair again”
+action, and Flutter has a visual repair state. The SDK's current Known Host projection exposes Host
+metadata, reachability, and session lifecycle, but no durable typed recovery/trust state to drive that
+card truthfully. A rejected credential reason exists only on an authentication outcome and does not
+provide a durable projection. Do not infer repair from Offline, Unknown, discovery, endpoint matching,
+or generic authentication failure. Leave the state unresolved until a focused SDK contract change
+exposes it; this branch does not add that change.
+
+No SDK/state contract change or discovery persistence was required for the supported states in this
+slice.
+
+The current prototype artifact is not stored in the repository; exact pixel comparison of the
+candidate's nearby-card radius and hover outline remains subject to review against the approved
+`DovahLink-Prototype-final` reference.
+
+Two visual behaviors intentionally follow production state: the candidate appears after the real
+discovery result instead of alongside the prototype's artificial search presentation, and the
+prototype's 900ms/300ms timers are omitted. Empty and failed states extend the prototype's modal
+style with safe copy and a Search again action. Historical slice 03.6 remains paused and is not
+marked complete by this convergence slice.
 
 ## Future — production discovery mechanism
 

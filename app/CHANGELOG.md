@@ -18,7 +18,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions.
 - The app distinguishes loading, ready, and failed Known Hosts observations while retaining the last successful collection on stream errors.
 - The connection state mirrors the SDK-owned Known Hosts and reconciled candidate collections without filtering either list.
-- The Connections screen discovers the local Host on demand and shows searching, available, empty, and failure states.
+- Discover Skyrim opens a separate modal with searching, available, empty, and failure states.
 - Discovery failures use app-owned semantic reasons in Redux, with user-facing copy beside the enum.
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
 - Connection cards rise and take the raised material when hovered, and wear each theme's
@@ -34,6 +34,18 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,
+  and Unknown states remain visible without an entry affordance.
+- Connections lists durable Known Hosts separately from ephemeral discovery candidates.
+- Discover shows “Local Host found.” after real candidates arrive and keeps authentication and any
+  required pairing inside the same modal flow.
+- Already trusted candidates close Discover without reopening Pairing; unpaired candidates continue
+  into the existing pairing flow after the SDK outcome.
+- Discover candidate cards use the nearby-card shape, primary hover accent, compact icon metrics, and
+  disabled checking treatment.
+- Discover candidate cards are disabled while another pairing lifecycle is active.
+- Closing Discover during embedded pairing dispatches one cleanup, while Done preserves the trusted
+  session.
 - Discovery completion updates operation status without replacing the SDK's candidate collection.
 - Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
 - Pairing selection rebinds from the SDK's Known Host projection after successful confirmation.
@@ -66,6 +78,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Discover now disposes a candidate pairing lifecycle after the selected Host becomes a Known Host.
 - Terminal authentication protocol failures now show a safe pairing error instead of Offline.
 - Connections now shows restored Known Hosts alongside candidates and preserves the selected entry's authentication source.
 - Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its

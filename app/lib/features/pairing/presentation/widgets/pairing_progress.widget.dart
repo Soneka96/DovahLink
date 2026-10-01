@@ -63,6 +63,11 @@ class PairingProgress extends StatelessWidget {
         'Checking the code with Skyrim.',
         'Confirming…',
       ),
+      PairingPhase.connecting => (
+        'Connecting',
+        'Checking whether this PC already has a trusted DovahLink session.',
+        'Checking trusted connection…',
+      ),
       _ => (
         'Connecting',
         'Reaching the DovahLink Host on the selected PC.',

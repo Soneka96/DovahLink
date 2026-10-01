@@ -48,17 +48,21 @@ Future<void> pumpProgress(
 void main() {
   group('PairingProgress displays', () {
     testWidgets(
-      'PairingProgress displays the connecting copy before and while connecting',
+      'PairingProgress displays its real authentication-check state',
       (WidgetTester tester) async {
-        for (final PairingPhase phase in [
-          PairingPhase.none,
-          PairingPhase.connecting,
-        ]) {
-          await pumpProgress(tester, phase: phase);
+        await pumpProgress(tester, phase: PairingPhase.none);
+        expect(find.text('Connecting'), findsOneWidget);
+        expect(find.text('Connecting…'), findsOneWidget);
 
-          expect(find.text('Connecting'), findsOneWidget);
-          expect(find.text('Connecting…'), findsOneWidget);
-        }
+        await pumpProgress(tester, phase: PairingPhase.connecting);
+        expect(find.text('Connecting'), findsOneWidget);
+        expect(
+          find.text(
+            'Checking whether this PC already has a trusted DovahLink session.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Checking trusted connection…'), findsOneWidget);
       },
     );
 

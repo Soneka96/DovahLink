@@ -253,7 +253,7 @@ enum DovahConnectionCardState {
   /// A Known Host session is being recovered or re-authenticated.
   reconnecting,
 
-  /// The connection's reachability is not known; it is selectable and pairs or connects on entry.
+  /// Current reachability is not known and must not be treated as unavailable or selectable.
   unknown,
 
   /// The connection was seen before but is not currently reachable.
@@ -269,7 +269,7 @@ enum DovahConnectionCardState {
     DovahConnectionCardState.available => 'Online',
     DovahConnectionCardState.connected => 'Connected',
     DovahConnectionCardState.reconnecting => 'Reconnecting…',
-    DovahConnectionCardState.unknown => 'Not connected',
+    DovahConnectionCardState.unknown => 'Unknown',
     DovahConnectionCardState.offline => 'Offline',
     DovahConnectionCardState.repair => 'Pair again',
   };

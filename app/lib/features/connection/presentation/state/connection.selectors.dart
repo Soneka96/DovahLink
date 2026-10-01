@@ -9,9 +9,6 @@ abstract final class ConnectionSelectors {
   /// The secondary line shown for a Known Host.
   static const String knownHostCardSubtitle = 'Known Host';
 
-  /// The secondary line shown for an untrusted discovery result.
-  static const String candidateCardSubtitle = 'Discovered candidate';
-
   /// Returns the Hosts available to select.
   static List<Host> hostsSelector(AppState state) => state.connection.hosts;
 
@@ -64,9 +61,9 @@ abstract final class ConnectionSelectors {
   static String? selectedHostNameSelector(AppState state) =>
       selectedHostSelector(state)?.displayName;
 
-  /// Returns the SDK-mapped Known Host cards followed by its candidate cards.
-  /// SDK recovery phases override reachability; automatic attempts follow it while pairing is
-  /// disconnected.
+  /// Returns cards for SDK-mapped Known Hosts only. Discovery candidates remain ephemeral and are
+  /// presented by the Discover flow. SDK recovery phases override reachability; automatic attempts
+  /// follow it while pairing is disconnected.
   static List<HostCardViewData> hostCardsSelector(AppState state) {
     final List<KnownHost> knownHosts = state.connection.knownHosts;
     return [
@@ -97,17 +94,6 @@ abstract final class ConnectionSelectors {
                 HostAvailability.offline => DovahConnectionCardState.offline,
               },
           },
-        ),
-      for (final Host host in hostsSelector(state))
-        HostCardViewData(
-          host: host,
-          source: ConnectionHostSelectionSource.candidate,
-          title: host.displayName,
-          subtitle: candidateCardSubtitle,
-          detail: host.uri.authority.isEmpty
-              ? host.uri.toString()
-              : host.uri.authority,
-          state: DovahConnectionCardState.unknown,
         ),
     ];
   }

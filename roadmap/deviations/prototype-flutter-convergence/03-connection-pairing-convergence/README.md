@@ -39,24 +39,17 @@ paused connection/pairing convergence and led to the separate
 The detailed security analysis stays in the linked deviation and
 [`ai/context/security/identity-and-transport.md`](../../../../ai/context/security/identity-and-transport.md).
 
-## Current next action
+## Current disposition
 
-The current branch establishes the local Host discovery foundation: a real SDK loopback probe, typed
-middleware/Redux states, and a candidate containing only the fixed display label and endpoint. Its
-temporary state presentation does not complete or resume historical slice 03.6.
+The local Host discovery foundation, Known Host lifecycle integration, runtime availability, and
+canonical Connections / Discover presentation are established. Connections displays only durable
+Known Hosts; the Discover modal displays ephemeral candidates and their real search/result states.
+Selecting a candidate starts the SDK-backed authentication lifecycle and shows its checking state
+before handing off to the existing pairing UI. Discovery claims remain untrusted routing data, and
+discovery alone never creates or changes a Known Host.
 
-The next separate PR is **Known Host Lifecycle + Discovery Integration**. It will connect the SDK's
-existing Known Host loading and pairing persistence to app state, keep saved Hosts distinct from
-discovery candidates, and prove the first-run, association, restart, and already-known-local-route
-flows. Discovery identity claims remain untrusted; local de-duplication is product/routing
-correlation, not authentication. Known Host metadata remains saved through offline, revoked,
-blocked, unrecognized, or repair-required states, until a future explicit forget/remove action.
-
-After that, **Canonical Discovery / Connections UI Convergence** will present the tested Known Host
-lifecycle, discovery state, selected Host, and real connection/pairing state in the approved
-prototype UI. The canonical UI convergence follows Known Host lifecycle integration so the final UI
-can be built and tested against real saved/discovered Host behavior rather than temporary
-assumptions. Historical slice 03.6 remains paused and is not completed by either follow-up.
+This separately scheduled UI convergence does not complete historical slice 03.6, which remains
+paused with 03.4–03.10 for re-planning against the current architecture and security boundaries.
 
 Production LAN discovery and an approved SAS/secure initial-pairing ceremony remain later work. SAS
 is intended to replace the initial pairing ceremony only; it should not require rebuilding discovery,

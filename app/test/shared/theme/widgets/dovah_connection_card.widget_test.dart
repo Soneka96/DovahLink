@@ -189,7 +189,7 @@ void main() {
     );
 
     testWidgets(
-      'DovahConnectionCard shows a muted marker and chevron when its state is unknown',
+      'DovahConnectionCard shows a muted marker without an entry affordance when unknown',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(
           tester,
@@ -206,11 +206,11 @@ void main() {
           DovahThemePreset.dovah,
         ).extension<DovahThemeTokens>()!;
         final Icon marker = tester.widget(find.byIcon(Icons.circle).first);
-        final Text label = tester.widget(find.text('Not connected'));
+        final Text label = tester.widget(find.text('Unknown'));
 
         expect(marker.color, tokens.textMuted);
         expect(label.style?.color, tokens.textMuted);
-        expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+        expect(find.byIcon(Icons.chevron_right), findsNothing);
       },
     );
 
@@ -226,7 +226,7 @@ void main() {
         DovahConnectionCardState.available: 'Online',
         DovahConnectionCardState.connected: 'Connected',
         DovahConnectionCardState.reconnecting: 'Reconnecting…',
-        DovahConnectionCardState.unknown: 'Not connected',
+        DovahConnectionCardState.unknown: 'Unknown',
         DovahConnectionCardState.offline: 'Offline',
         DovahConnectionCardState.repair: 'Pair again',
       };
@@ -298,11 +298,12 @@ void main() {
     ) async {
       await pumpDovahThemedWidget(
         tester,
-        const DovahConnectionCard(
+        DovahConnectionCard(
           title: 'Gaming PC',
           subtitle: 'Skyrim Special Edition',
           detail: 'Level 43 · Whiterun',
           state: DovahConnectionCardState.available,
+          onTap: () {},
         ),
         preset: DovahThemePreset.dovah,
         size: dovahTestSizes.first,
@@ -311,16 +312,37 @@ void main() {
       expect(find.byIcon(Icons.chevron_right), findsOneWidget);
     });
 
-    testWidgets('DovahConnectionCard contains a chevron when it needs repair', (
+    testWidgets('DovahConnectionCard keeps Connected distinct from Online', (
       WidgetTester tester,
     ) async {
       await pumpDovahThemedWidget(
         tester,
         const DovahConnectionCard(
+          title: 'Gaming PC',
+          subtitle: 'Known Host',
+          detail: '127.0.0.1:58231',
+          state: DovahConnectionCardState.connected,
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expect(find.text('Connected'), findsOneWidget);
+      expect(find.text('Online'), findsNothing);
+      expect(find.byIcon(Icons.chevron_right), findsNothing);
+    });
+
+    testWidgets('DovahConnectionCard contains a chevron when it needs repair', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahConnectionCard(
           title: 'Laptop',
           subtitle: 'Skyrim Special Edition',
           detail: 'Trust changed in Skyrim',
           state: DovahConnectionCardState.repair,
+          onTap: () {},
         ),
         preset: DovahThemePreset.dovah,
         size: dovahTestSizes.first,
@@ -1042,7 +1064,7 @@ void main() {
     );
 
     testWidgets(
-      'DovahConnectionCard gives an admitted session the available edge',
+      'DovahConnectionCard does not give an admitted session the online edge',
       (WidgetTester tester) async {
         final DovahSurface surface = await pumpSurface(
           tester,
@@ -1052,7 +1074,7 @@ void main() {
         final DovahConnectionAccentPainter under =
             surface.underlay! as DovahConnectionAccentPainter;
 
-        expect(under.available, isTrue);
+        expect(under.available, isFalse);
       },
     );
 

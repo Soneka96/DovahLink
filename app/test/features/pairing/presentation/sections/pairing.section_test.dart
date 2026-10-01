@@ -115,7 +115,13 @@ void main() {
   });
 
   /// Pumps a route stack whose top route is the [PairingSection], so dismissal can be observed.
-  Future<void> pumpSection(WidgetTester tester) async {
+  /// @param startOnInit Whether the section starts a new authentication.
+  /// @param section The section to pump instead of a standalone one built from [startOnInit].
+  Future<void> pumpSection(
+    WidgetTester tester, {
+    bool startOnInit = true,
+    PairingSection? section,
+  }) async {
     await tester.binding.setSurfaceSize(const Size(900, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -130,8 +136,10 @@ void main() {
     );
     navigatorKey.currentState!.push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => const Scaffold(
-          body: SingleChildScrollView(child: PairingSection()),
+        builder: (BuildContext context) => Scaffold(
+          body: SingleChildScrollView(
+            child: section ?? PairingSection(startOnInit: startOnInit),
+          ),
         ),
       ),
     );
@@ -310,6 +318,17 @@ void main() {
     );
   });
 
+  group('PairingSection starts authentication conditionally', () {
+    testWidgets(
+      'PairingSection does not start another authentication after a real check',
+      (WidgetTester tester) async {
+        await pumpSection(tester, startOnInit: false);
+
+        expect(calls, isNot(contains('start')));
+      },
+    );
+  });
+
   testWidgets('PairingSection explains when secure storage is unavailable', (
     WidgetTester tester,
   ) async {
@@ -343,6 +362,31 @@ void main() {
 
       expect(calls, ['start', 'dispose']);
     });
+
+    testWidgets(
+      'PairingSection still disposes the reused lifecycle when it does not start one',
+      (WidgetTester tester) async {
+        await pumpSection(tester, startOnInit: false);
+
+        navigatorKey.currentState!.pop();
+        await tester.pumpAndSettle();
+
+        expect(calls, ['dispose']);
+      },
+    );
+
+    testWidgets(
+      'PairingSection.parentOwned neither starts nor disposes the parent-owned lifecycle',
+      (WidgetTester tester) async {
+        await pumpSection(tester, section: const PairingSection.parentOwned());
+
+        navigatorKey.currentState!.pop();
+        await tester.pumpAndSettle();
+
+        expect(find.byType(PairingSection), findsNothing);
+        expect(calls, isEmpty);
+      },
+    );
 
     testWidgets('PairingSection requests a code when Pair again is tapped', (
       WidgetTester tester,

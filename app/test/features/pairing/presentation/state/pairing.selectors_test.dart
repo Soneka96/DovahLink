@@ -189,6 +189,23 @@ void main() {
     });
   });
 
+  group('Selector canStartPairingSelector behaves correctly', () {
+    test(
+      'Selector canStartPairingSelector returns true only without an active lifecycle',
+      () {
+        for (final PairingPhase phase in PairingPhase.values) {
+          expect(
+            PairingSelectors.canStartPairingSelector(
+              buildPairingState(phase: phase),
+            ),
+            phase == PairingPhase.none,
+            reason: '$phase',
+          );
+        }
+      },
+    );
+  });
+
   group('Selector isRepairSelector behaves correctly', () {
     test(
       'Selector isRepairSelector returns true for revoked and unrecognized credentials',

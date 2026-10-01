@@ -11,6 +11,7 @@ import 'package:dovahlink_client/features/connection/presentation/viewdata/host_
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_footer.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
+import 'package:dovahlink_client/features/connection/presentation/widgets/discover_dialog.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -21,11 +22,11 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 
 /// The root screen: DovahLink's branded header, the "Connections" title with its Discover Skyrim
-/// action, and Known Hosts and candidates available to select, over the theme's atmosphere.
-/// Selecting an entry records its Host and source and opens the pairing dialog; the header's
-/// appearance action opens the theme
-/// picker. Content is capped at a comfortable reading width and scrolls both ways below its
-/// minimum width.
+/// action, and durable Known Hosts available to select, over the theme's atmosphere. Selecting a
+/// Known Host records the relationship and opens the pairing dialog; discovery candidates are
+/// presented separately by the Discover flow. The header's appearance action opens the theme
+/// picker. Content is capped at a comfortable reading width and scrolls both ways below its minimum
+/// width.
 class ConnectionsScreen extends StatelessWidget {
   /// Creates the connections screen.
   const ConnectionsScreen({super.key});
@@ -75,7 +76,9 @@ class ConnectionsScreen extends StatelessWidget {
                                 SizedBox(height: metrics.contentTopPadding),
                                 ConnectionsHero(
                                   onDiscover: viewModel.canDiscover
-                                      ? viewModel.onDiscover
+                                      ? () async {
+                                          await DiscoverDialog.show(context);
+                                        }
                                       : null,
                                 ),
                                 SizedBox(height: metrics.heroBottomGap),
@@ -83,8 +86,6 @@ class ConnectionsScreen extends StatelessWidget {
                                 // removal semantics are defined.
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
-                                  discoveryStatus: viewModel.discoveryStatus,
-                                  discoveryFailure: viewModel.discoveryFailure,
                                   onSelectHost: (HostCardViewData card) {
                                     viewModel.onSelectHost(card);
                                     PairingDialog.show(context);
