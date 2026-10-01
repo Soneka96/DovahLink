@@ -18,6 +18,7 @@ class PersistedClientStateDecoder {
     final Object? formatVersion = json['formatVersion'];
     if (formatVersion != 1 &&
         formatVersion != 2 &&
+        formatVersion != 3 &&
         formatVersion != PersistedClientState.currentFormatVersion) {
       throw DovahLinkStorageException(
         'Unsupported persisted client state format version: $formatVersion.',
@@ -32,12 +33,14 @@ class PersistedClientStateDecoder {
 
     // Earlier development formats held one global bearer credential. They are intentionally
     // discarded at this pre-release cutover; preserving them would require guessing an owner.
-    if (formatVersion != PersistedClientState.currentFormatVersion) {
+    if (formatVersion == 1 || formatVersion == 2) {
       return PersistedClientState(clientId: clientId as String?);
     }
 
     final Map<String, PersistedKnownHost> knownHosts = _decodeKnownHosts(
       json['knownHosts'],
+      requirePairingRequired:
+          formatVersion == PersistedClientState.currentFormatVersion,
     );
     final PendingPairingRecovery? recovery = _decodeRecovery(
       json['pendingPairingRecovery'],
@@ -57,9 +60,13 @@ class PersistedClientStateDecoder {
 
   /// Decodes the Host relationships keyed by validated Host IDs.
   /// @param raw The persisted `knownHosts` JSON object.
+  /// @param requirePairingRequired Whether the current format requires its recovery-hint field.
   /// @return Validated Host relationships keyed by normalized Host UUID.
   /// @throws [DovahLinkStorageException] if the collection or any relationship is malformed.
-  static Map<String, PersistedKnownHost> _decodeKnownHosts(Object? raw) {
+  static Map<String, PersistedKnownHost> _decodeKnownHosts(
+    Object? raw, {
+    required bool requirePairingRequired,
+  }) {
     if (raw is! Map<String, dynamic>) {
       throw const DovahLinkStorageException(
         'Persisted knownHosts is not an object.',
@@ -83,6 +90,7 @@ class PersistedClientStateDecoder {
       final Object? hostName = value['hostName'];
       final Object? endpointValue = value['endpoint'];
       final Object? credential = value['credential'];
+      final Object? pairingRequired = value['pairingRequired'];
       if (hostName is! String || !isValidHostName(hostName)) {
         throw const DovahLinkStorageException(
           'Persisted Known Host name is invalid.',
@@ -91,6 +99,11 @@ class PersistedClientStateDecoder {
       if (credential != null && credential is! String) {
         throw const DovahLinkStorageException(
           'Persisted Known Host credential is not a string.',
+        );
+      }
+      if (requirePairingRequired && pairingRequired is! bool) {
+        throw const DovahLinkStorageException(
+          'Persisted Known Host pairingRequired is not a boolean.',
         );
       }
       if (endpointValue is! String) {
@@ -106,6 +119,9 @@ class PersistedClientStateDecoder {
           endpoint: endpoint,
         ),
         credential: credential as String?,
+        pairingRequired: requirePairingRequired
+            ? pairingRequired as bool
+            : false,
       );
     }
     return hosts;

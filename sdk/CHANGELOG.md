@@ -27,6 +27,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Changed
 
+- SDK client state v4 migrates v3 Known Hosts and defaults their new repair hint to false.
 - `DovahLinkClient.close()` permanently closes the session lifecycle, so later connection or pairing authentication cannot reconnect.
 - The grouped pairing API now authenticates with the selected target, recovers pending confirmation,
   and completes code confirmation plus credential acknowledgement as SDK-owned operations.
