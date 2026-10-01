@@ -72,9 +72,11 @@ void main() {
   });
 
   /// Pumps a page whose Open button shows the pairing dialog at [size], and opens it.
+  /// @param startOnInit Whether the dialog starts a new authentication.
   Future<void> openDialog(
     WidgetTester tester, {
     Size size = const Size(1280, 720),
+    bool startOnInit = true,
   }) async {
     setDovahTestWindow(tester, size);
     await tester.pumpWidget(
@@ -85,7 +87,8 @@ void main() {
           home: Builder(
             builder: (BuildContext context) => Scaffold(
               body: TextButton(
-                onPressed: () => PairingDialog.show(context),
+                onPressed: () =>
+                    PairingDialog.show(context, startOnInit: startOnInit),
                 child: const Text('Open'),
               ),
             ),
@@ -157,6 +160,18 @@ void main() {
               find.byType(StoreConnector<AppState, PairingDialogViewModel>),
             );
         expect(connector.distinct, isTrue);
+      },
+    );
+
+    testWidgets(
+      'PairingDialog can reuse an authentication already started by Discover',
+      (WidgetTester tester) async {
+        await openDialog(tester, startOnInit: false);
+
+        final PairingSection section = tester.widget(
+          find.byType(PairingSection),
+        );
+        expect(section.startOnInit, isFalse);
       },
     );
 

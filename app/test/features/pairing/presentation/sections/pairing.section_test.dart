@@ -115,7 +115,11 @@ void main() {
   });
 
   /// Pumps a route stack whose top route is the [PairingSection], so dismissal can be observed.
-  Future<void> pumpSection(WidgetTester tester) async {
+  /// @param startOnInit Whether the section starts a new authentication.
+  Future<void> pumpSection(
+    WidgetTester tester, {
+    bool startOnInit = true,
+  }) async {
     await tester.binding.setSurfaceSize(const Size(900, 700));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(
@@ -130,8 +134,10 @@ void main() {
     );
     navigatorKey.currentState!.push(
       MaterialPageRoute<void>(
-        builder: (BuildContext context) => const Scaffold(
-          body: SingleChildScrollView(child: PairingSection()),
+        builder: (BuildContext context) => Scaffold(
+          body: SingleChildScrollView(
+            child: PairingSection(startOnInit: startOnInit),
+          ),
         ),
       ),
     );
@@ -306,6 +312,17 @@ void main() {
         await pumpSection(tester);
 
         expect(find.text('That code is not correct.'), findsOneWidget);
+      },
+    );
+  });
+
+  group('PairingSection starts authentication conditionally', () {
+    testWidgets(
+      'PairingSection does not start another authentication after a real check',
+      (WidgetTester tester) async {
+        await pumpSection(tester, startOnInit: false);
+
+        expect(calls, isNot(contains('start')));
       },
     );
   });

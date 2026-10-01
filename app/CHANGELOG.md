@@ -18,7 +18,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions.
 - The app distinguishes loading, ready, and failed Known Hosts observations while retaining the last successful collection on stream errors.
 - The connection state mirrors the SDK-owned Known Hosts and reconciled candidate collections without filtering either list.
-- The Connections screen discovers the local Host on demand and shows searching, available, empty, and failure states.
+- Discover Skyrim opens a separate modal with searching, available, empty, and failure states.
 - Discovery failures use app-owned semantic reasons in Redux, with user-facing copy beside the enum.
 - Add reusable layered theme materials, atmosphere recipes, and their rendering primitives.
 - Connection cards rise and take the raised material when hovered, and wear each theme's
@@ -34,6 +34,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Connections lists durable Known Hosts separately from ephemeral discovery candidates.
+- Candidate selection shows the real authentication check and opens the existing pairing flow only after its outcome.
 - Discovery completion updates operation status without replacing the SDK's candidate collection.
 - Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
 - Pairing selection rebinds from the SDK's Known Host projection after successful confirmation.

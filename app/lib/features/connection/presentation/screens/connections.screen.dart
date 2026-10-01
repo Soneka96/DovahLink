@@ -85,8 +85,10 @@ class ConnectionsScreen extends StatelessWidget {
                                               !context.mounted) {
                                             return;
                                           }
-                                          viewModel.onSelectHost(candidate);
-                                          await PairingDialog.show(context);
+                                          await PairingDialog.show(
+                                            context,
+                                            startOnInit: false,
+                                          );
                                         }
                                       : null,
                                 ),

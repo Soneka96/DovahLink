@@ -73,6 +73,7 @@ void main() {
   late MockPairingDialogViewModel pairingDialogViewModel;
   late List<String> pairingCalls;
   late List<String> discoveryCalls;
+  late List<HostCardViewData> selectedCandidates;
   late List<Host> selectedHosts;
   late List<ConnectionHostSelectionSource> selectedSources;
   late List<DovahThemePreset> selectedPresets;
@@ -88,6 +89,7 @@ void main() {
     when(() => pairingDialogViewModel.title).thenReturn('Pair with Local Host');
     pairingCalls = [];
     discoveryCalls = [];
+    selectedCandidates = [];
     selectedHosts = [];
     selectedSources = [];
     selectedPresets = [];
@@ -111,9 +113,21 @@ void main() {
     ).thenReturn(const <HostCardViewData>[]);
     when(() => discoverViewModel.failure).thenReturn(null);
     when(() => discoverViewModel.canDiscover).thenReturn(false);
+    when(() => discoverViewModel.selectedCandidate).thenReturn(null);
+    when(() => discoverViewModel.pairingPhase).thenReturn(PairingPhase.none);
+    when(
+      () => discoverViewModel.pairingSupport,
+    ).thenReturn(PairingSupport.available);
+    when(() => discoverViewModel.shouldContinueToPairing).thenReturn(false);
     when(
       () => discoverViewModel.onDiscover,
     ).thenReturn(() => discoveryCalls.add('discover'));
+    when(() => discoverViewModel.onSelectCandidate).thenReturn((
+      HostCardViewData card,
+    ) {
+      selectedCandidates.add(card);
+    });
+    when(() => discoverViewModel.onDispose).thenReturn(() {});
     when(() => viewModel.onSelectHost).thenReturn((HostCardViewData card) {
       selectedHosts.add(card.host);
       selectedSources.add(card.source);
@@ -586,7 +600,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen selects the discovered routing Host from the modal',
+      'ConnectionsScreen keeps the Discover modal open during candidate authentication',
       (WidgetTester tester) async {
         final HostCardViewData candidate = Fixtures.buildHostCardViewData(
           host: Fixtures.buildHost(uri: Uri.parse('ws://127.0.0.1:58231/')),
@@ -606,11 +620,13 @@ void main() {
           find.byKey(Key('discover-candidate-${candidate.host.hostId}')),
         );
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
 
-        expect(selectedHosts, [candidate.host]);
-        expect(selectedSources, [ConnectionHostSelectionSource.candidate]);
-        expect(find.byType(PairingDialog), findsOneWidget);
+        expect(selectedCandidates, [candidate]);
+        expect(selectedHosts, isEmpty);
+        expect(find.byType(DovahDialog), findsOneWidget);
+        expect(find.byType(PairingDialog), findsNothing);
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump(const Duration(milliseconds: 500));
       },
     );
 

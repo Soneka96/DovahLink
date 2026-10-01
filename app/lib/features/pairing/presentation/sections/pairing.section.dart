@@ -15,23 +15,30 @@ import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// The content of the pairing dialog: starts pairing when it appears, ends it when it goes away,
-/// and shows the state matching the current [PairingPhase]. An unpaired session waits for the
-/// user only when a trusted credential was rejected for repair; a blocked credential can only be
-/// closed, and otherwise the code is already being requested. Leaving while a code is being
-/// confirmed is blocked; every other exit -- the close button, Escape, the barrier -- ends
-/// pairing, keeping any trust already established.
+/// The content of the pairing dialog: starts pairing when it appears unless the caller already
+/// started authentication, ends pairing when it goes away, and shows the state matching the
+/// current [PairingPhase]. An unpaired session waits for the user only when a trusted credential was
+/// rejected for repair; a blocked credential can only be closed, and otherwise the code is already
+/// being requested. Leaving while a code is being confirmed is blocked; every other exit -- the
+/// close button, Escape, the barrier -- ends pairing, keeping any trust already established.
 class PairingSection extends StatelessWidget {
+  /// Whether this section starts a new authentication when it is mounted.
+  final bool startOnInit;
+
   /// Creates the pairing section.
-  const PairingSection({super.key});
+  /// @param startOnInit Whether to start authentication when the section appears.
+  const PairingSection({this.startOnInit = true, super.key});
 
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
     return StoreConnector<AppState, PairingSectionViewModel>(
       distinct: true,
-      onInit: (Store<AppState> store) =>
-          sl<PairingSectionViewModel>(param1: store).onStart(),
+      onInit: (Store<AppState> store) {
+        if (startOnInit) {
+          sl<PairingSectionViewModel>(param1: store).onStart();
+        }
+      },
       onDispose: (Store<AppState> store) =>
           sl<PairingSectionViewModel>(param1: store).onDispose(),
       converter: (Store<AppState> store) =>

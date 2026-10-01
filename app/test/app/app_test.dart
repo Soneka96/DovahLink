@@ -32,6 +32,7 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.sel
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_mark.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_success.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
@@ -153,11 +154,15 @@ void main() {
       await sl.reset();
     });
 
-    /// Builds the real app over a real store with the real pairing middleware, over [hosts].
+    /// Builds the real app over a store containing the supplied durable Known Hosts.
     Store<AppState> buildStore(List<Host> hosts) => const CreateStore()(
       middleware: [PairingMiddleware().call],
       initialState: AppState(
-        connection: ConnectionState(hosts: hosts),
+        connection: ConnectionState(
+          knownHosts: [
+            for (final Host host in hosts) Fixtures.buildKnownHost(host: host),
+          ],
+        ),
         pairing: PairingState.initial(),
       ),
     );
@@ -196,6 +201,129 @@ void main() {
     );
 
     testWidgets(
+      'DovahLinkApp checks a discovered candidate before opening Pairing',
+      (WidgetTester tester) async {
+        final Host candidate = Fixtures.buildHost(
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Completer<Either<Failure, PairingHandshake>> authentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        final MockObserveConnectionStatusUseCase observe =
+            MockObserveConnectionStatusUseCase();
+        when(
+          () => observe(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+        sl.unregister<ObserveConnectionStatusUseCase>();
+        sl.registerLazySingleton<ObserveConnectionStatusUseCase>(() => observe);
+        when(
+          () => authenticate(any()),
+        ).thenAnswer((_) => authentication.future);
+        final Store<AppState> store = const CreateStore()(
+          middleware: [PairingMiddleware().call],
+          initialState: AppState(
+            connection: ConnectionState(
+              hosts: [candidate],
+              discoveryStatus: ConnectionDiscoveryStatus.available,
+            ),
+            pairing: PairingState.initial(),
+          ),
+        );
+        await tester.pumpWidget(DovahLinkApp(store: store));
+
+        await tester.tap(find.text('Discover Skyrim'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.tap(
+          find.byKey(Key('discover-candidate-${candidate.hostId}')),
+        );
+        await tester.pump();
+
+        expect(find.text('Checking trusted connection…'), findsOneWidget);
+        expect(find.byType(PairingDialog), findsNothing);
+        expect(
+          ConnectionSelectors.selectedHostSourceSelector(store.state),
+          ConnectionHostSelectionSource.candidate,
+        );
+        expect(store.state.connection.knownHosts, isEmpty);
+        authentication.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: true)),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.byType(PairingDialog), findsOneWidget);
+        expect(find.text('Connected'), findsOneWidget);
+        expect(find.byType(PairingSuccess), findsOneWidget);
+        expect(store.state.connection.knownHosts, isEmpty);
+        verify(
+          () => authenticate(AuthenticateParams(hostUri: candidate.uri)),
+        ).called(1);
+      },
+    );
+
+    testWidgets(
+      'DovahLinkApp ignores a candidate authentication result after Discover closes',
+      (WidgetTester tester) async {
+        final Host candidate = Fixtures.buildHost(
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Completer<Either<Failure, PairingHandshake>> authentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        when(
+          () => authenticate(any()),
+        ).thenAnswer((_) => authentication.future);
+        final Store<AppState> store = const CreateStore()(
+          middleware: [PairingMiddleware().call],
+          initialState: AppState(
+            connection: ConnectionState(
+              hosts: [candidate],
+              discoveryStatus: ConnectionDiscoveryStatus.available,
+            ),
+            pairing: PairingState.initial(),
+          ),
+        );
+        await tester.pumpWidget(DovahLinkApp(store: store));
+
+        await tester.tap(find.text('Discover Skyrim'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        await tester.tap(
+          find.byKey(Key('discover-candidate-${candidate.hostId}')),
+        );
+        await tester.pump();
+        expect(find.text('Checking trusted connection…'), findsOneWidget);
+        expect(
+          PairingSelectors.phaseSelector(store.state),
+          PairingPhase.connecting,
+        );
+        expect(
+          ConnectionSelectors.selectedHostSourceSelector(store.state),
+          ConnectionHostSelectionSource.candidate,
+        );
+
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+        expect(find.byType(PairingDialog), findsNothing);
+        expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
+
+        authentication.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: true)),
+        );
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 500));
+
+        expect(find.byType(PairingDialog), findsNothing);
+        expect(find.byType(PairingSuccess), findsNothing);
+        expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
+        expect(store.state.connection.knownHosts, isEmpty);
+        verify(
+          () => authenticate(AuthenticateParams(hostUri: candidate.uri)),
+        ).called(1);
+      },
+    );
+
+    testWidgets(
       'DovahLinkApp authenticates with the second Host when two Hosts share a display name',
       (WidgetTester tester) async {
         final Host first = Fixtures.buildHost(
@@ -222,9 +350,13 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         verify(
-          () => authenticate(AuthenticateParams(hostUri: second.uri)),
+          () =>
+              authenticate(AuthenticateParams.knownHost(hostId: second.hostId)),
         ).called(1);
-        verifyNever(() => authenticate(AuthenticateParams(hostUri: first.uri)));
+        verifyNever(
+          () =>
+              authenticate(AuthenticateParams.knownHost(hostId: first.hostId)),
+        );
         expect(find.text('Check Skyrim'), findsOneWidget);
         expect(
           ConnectionSelectors.selectedHostSelector(store.state)?.uri,
@@ -358,11 +490,11 @@ void main() {
       await sl.reset();
     });
 
-    /// Builds the real app over a real store with the real pairing middleware and one Host.
+    /// Builds the real app over a store with one durable Known Host.
     Store<AppState> buildStore() => const CreateStore()(
       middleware: [PairingMiddleware().call],
       initialState: AppState(
-        connection: ConnectionState(hosts: [Fixtures.buildHost()]),
+        connection: ConnectionState(knownHosts: [Fixtures.buildKnownHost()]),
         pairing: PairingState.initial(),
       ),
     );
@@ -410,7 +542,7 @@ void main() {
         await openPairing(tester);
 
         expect(headerTitle('Pair with Local Host'), findsOneWidget);
-        expect(find.text('Connecting…'), findsOneWidget);
+        expect(find.text('Checking trusted connection…'), findsOneWidget);
         verifyNever(() => requestPairing(any()));
 
         handshake.complete(

@@ -18,13 +18,17 @@ class DiscoverCandidateCard extends StatefulWidget {
   /// The candidate's prototype-visible subtitle.
   final String subtitle;
 
-  /// Called when the candidate is activated.
-  final VoidCallback onTap;
+  /// Whether a real authentication check is active for this candidate.
+  final bool isChecking;
+
+  /// Called when the candidate is activated, or `null` while checking.
+  final VoidCallback? onTap;
 
   /// Creates a discovery candidate card.
   const DiscoverCandidateCard({
     required this.title,
     required this.subtitle,
+    this.isChecking = false,
     required this.onTap,
     super.key,
   });
@@ -50,21 +54,27 @@ class _DiscoverCandidateCardState extends State<DiscoverCandidateCard> {
         tokens.cornerStyle == DovahPanelCornerStyle.rounded
         ? tokens.panelCornerRadius
         : 0;
+    final String visibleSubtitle = widget.isChecking
+        ? 'Checking trusted connection…'
+        : widget.subtitle;
+    final bool enabled = widget.onTap != null;
 
     return MouseRegion(
-      onEnter: (_) => setState(() => _hovered = true),
-      onExit: (_) => setState(() => _hovered = false),
+      onEnter: enabled ? (_) => setState(() => _hovered = true) : null,
+      onExit: enabled ? (_) => setState(() => _hovered = false) : null,
       child: Semantics(
         excludeSemantics: true,
         button: true,
-        enabled: true,
-        label: '${widget.title}, ${widget.subtitle}',
+        enabled: enabled,
+        label: '${widget.title}, $visibleSubtitle',
         onTap: widget.onTap,
         child: InkWell(
           onTap: widget.onTap,
           splashFactory: NoSplash.splashFactory,
           overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-          mouseCursor: SystemMouseCursors.click,
+          mouseCursor: enabled
+              ? SystemMouseCursors.click
+              : SystemMouseCursors.basic,
           child: Builder(
             builder: (BuildContext context) {
               final bool focused = Focus.of(context).hasPrimaryFocus;
@@ -116,7 +126,7 @@ class _DiscoverCandidateCardState extends State<DiscoverCandidateCard> {
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              widget.subtitle,
+                              visibleSubtitle,
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -132,15 +142,27 @@ class _DiscoverCandidateCardState extends State<DiscoverCandidateCard> {
                       const SizedBox(
                         width: DovahDialogMetrics.discoveryCandidateContentGap,
                       ),
-                      Text(
-                        '›',
-                        style: TextStyle(
-                          color: tokens.accentPrimary,
-                          fontSize: DovahDialogMetrics
-                              .discoveryCandidateArrowFontSize,
-                          height: 1,
+                      if (widget.isChecking)
+                        SizedBox.square(
+                          dimension: DovahDialogMetrics.progressIndicatorSize,
+                          child: CircularProgressIndicator(
+                            key: const Key('candidate-checking-spinner'),
+                            strokeWidth:
+                                DovahDialogMetrics.progressIndicatorStrokeWidth,
+                            color: tokens.accentPrimary,
+                            backgroundColor: tokens.lineSubtle,
+                          ),
+                        )
+                      else
+                        Text(
+                          '›',
+                          style: TextStyle(
+                            color: tokens.accentPrimary,
+                            fontSize: DovahDialogMetrics
+                                .discoveryCandidateArrowFontSize,
+                            height: 1,
+                          ),
                         ),
-                      ),
                     ],
                   ),
                 ),

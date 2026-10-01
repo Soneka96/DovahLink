@@ -9,6 +9,7 @@ import 'package:dovahlink_client/features/connection/presentation/widgets/discov
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
@@ -41,6 +42,48 @@ void main() {
   });
 
   group('DiscoverCandidateCard selects its candidate', () {
+    testWidgets(
+      'DiscoverCandidateCard disables selection while real authentication is checking',
+      (WidgetTester tester) async {
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        try {
+          setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
+          await tester.pumpWidget(
+            MaterialApp(
+              theme: dovahThemeDataFor(DovahThemePreset.dovah),
+              home: const Scaffold(
+                body: DiscoverCandidateCard(
+                  title: 'Local Host',
+                  subtitle: 'DovahLink · Ready to connect',
+                  isChecking: true,
+                  onTap: null,
+                ),
+              ),
+            ),
+          );
+
+          expect(find.text('Checking trusted connection…'), findsOneWidget);
+          expect(
+            find.byKey(const Key('candidate-checking-spinner')),
+            findsOneWidget,
+          );
+          expect(
+            tester.getSemantics(
+              find.bySemanticsLabel('Local Host, Checking trusted connection…'),
+            ),
+            isSemantics(
+              label: 'Local Host, Checking trusted connection…',
+              isButton: true,
+              isEnabled: false,
+              hasTapAction: false,
+            ),
+          );
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+
     testWidgets('DiscoverCandidateCard calls onTap when tapped', (
       WidgetTester tester,
     ) async {

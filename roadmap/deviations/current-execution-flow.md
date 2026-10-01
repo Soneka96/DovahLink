@@ -14,19 +14,20 @@ active deviations.
    candidates, selected Host, and semantic failure reasons. Discovery returns candidates only; its
    claims are not identity, trust, authentication, or Known Host state. The temporary UI does not
    claim canonical prototype parity.
-2. **Known Host lifecycle + discovery integration — current branch.** The SDK owns the complete,
+2. **Known Host lifecycle + discovery integration — complete.** The SDK owns the complete,
    Host-ID-keyed Known Hosts collection and exposes it through `loadKnownHosts()` and complete
    committed snapshots on `knownHostsChanges`. `ConnectionMiddleware` subscribes at store
    initialization, maps SDK Hosts through `HostMapper`, and dispatches a typed observation action;
    Redux `knownHosts` is only that app-mapped projection. Pairing, authentication, credential
    recovery, and metadata refresh continue to follow SDK-owned rules. Discovery remains a separate
    command/result candidate list. A claimed `hostId` does not establish trust or mutate Known Hosts.
-   The next UI work consumes this projection alongside discovery candidates/status and real
-   connection/pairing state.
-3. **Next — Canonical Discovery / Connections UI Convergence.** Reproduce the approved prototype
-   presentation using the tested Known Host projection, discovery candidates/status, selected Host,
-   and real connection/pairing state. Keep presentation faithful to the prototype and add no fake
-   delays. This work does not mark historical slice 03.6 complete.
+   The canonical UI now consumes this projection alongside discovery candidates/status, selected
+   Host, and real connection/pairing state.
+3. **Canonical Discovery / Connections UI Convergence — complete.** The main list shows durable
+   Known Hosts, while Discover Skyrim presents ephemeral candidates in the prototype-shaped modal.
+   Redux state drives searching/results, and candidate selection waits for the real authentication
+   outcome before opening the existing pairing UI. No fake delays or SDK/state contract changes were
+   needed. Historical slice 03.6 remains paused and unmarked.
 4. **Later — production LAN discovery and secure initial pairing.** Production LAN exposure and
    secure first contact remain gated by the security requirements and integration evidence. If an
    approved SAS profile preserves the current human interaction, pairing implementation changes

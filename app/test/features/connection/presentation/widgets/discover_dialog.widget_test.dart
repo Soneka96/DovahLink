@@ -7,11 +7,13 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
-import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/discover_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_candidate_card.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_dialog.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -21,6 +23,9 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
+
+import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart'
+    as connection;
 
 /// Mock ViewModel supplied to [DiscoverDialog].
 class MockDiscoverDialogViewModel extends Mock
@@ -34,6 +39,8 @@ void main() {
   late MockStore store;
   late MockDiscoverDialogViewModel viewModel;
   late List<String> discoverCalls;
+  late List<HostCardViewData> selectedCandidates;
+  late List<String> disposeCalls;
   late HostCardViewData candidate;
 
   setUp(() async {
@@ -41,6 +48,8 @@ void main() {
     store = MockStore();
     viewModel = MockDiscoverDialogViewModel();
     discoverCalls = [];
+    selectedCandidates = [];
+    disposeCalls = [];
     candidate = Fixtures.buildHostCardViewData(
       host: Fixtures.buildHost(uri: Uri.parse('ws://127.0.0.1:58231/')),
       source: ConnectionHostSelectionSource.candidate,
@@ -56,9 +65,17 @@ void main() {
     when(() => viewModel.candidates).thenReturn(const <HostCardViewData>[]);
     when(() => viewModel.failure).thenReturn(null);
     when(() => viewModel.canDiscover).thenReturn(true);
+    when(() => viewModel.selectedCandidate).thenReturn(null);
+    when(() => viewModel.pairingPhase).thenReturn(PairingPhase.none);
+    when(() => viewModel.pairingSupport).thenReturn(PairingSupport.available);
+    when(() => viewModel.shouldContinueToPairing).thenReturn(false);
     when(
       () => viewModel.onDiscover,
     ).thenReturn(() => discoverCalls.add('discover'));
+    when(() => viewModel.onSelectCandidate).thenReturn(selectedCandidates.add);
+    when(
+      () => viewModel.onDispose,
+    ).thenReturn(() => disposeCalls.add('dispose'));
     sl.registerFactoryParam<DiscoverDialogViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => viewModel,
     );
@@ -147,43 +164,6 @@ void main() {
       },
     );
 
-    testWidgets('DiscoverDialog returns the selected candidate unchanged', (
-      WidgetTester tester,
-    ) async {
-      when(
-        () => viewModel.status,
-      ).thenReturn(ConnectionDiscoveryStatus.available);
-      when(() => viewModel.candidates).thenReturn([candidate]);
-      late Future<HostCardViewData?> selection;
-
-      setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
-      await tester.pumpWidget(
-        StoreProvider<AppState>(
-          store: store,
-          child: MaterialApp(
-            theme: dovahThemeDataFor(DovahThemePreset.dovah),
-            home: Builder(
-              builder: (BuildContext context) => Scaffold(
-                body: TextButton(
-                  onPressed: () => selection = DiscoverDialog.show(context),
-                  child: const Text('Open Discover'),
-                ),
-              ),
-            ),
-          ),
-        ),
-      );
-
-      await tester.tap(find.text('Open Discover'));
-      await tester.pumpAndSettle();
-      await tester.tap(
-        find.byKey(Key('discover-candidate-${candidate.host.hostId}')),
-      );
-      await tester.pumpAndSettle();
-
-      expect(await selection, candidate);
-    });
-
     testWidgets(
       'DiscoverDialog handles available status before its candidate snapshot',
       (WidgetTester tester) async {
@@ -202,17 +182,26 @@ void main() {
 
   group('DiscoverDialog follows Redux discovery state', () {
     testWidgets(
-      'Discovery actions update searching, available, empty and failed presentation',
+      'candidate checking stays in discovery until authentication reports its outcome',
       (WidgetTester tester) async {
-        final Store<AppState> realStore = const CreateStore()();
+        final Host discoveredHost = Fixtures.buildHost(
+          uri: Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        final Store<AppState> realStore = const CreateStore()(
+          initialState: AppState(
+            connection: connection.ConnectionState(
+              hosts: [discoveredHost],
+              discoveryStatus: ConnectionDiscoveryStatus.available,
+            ),
+            pairing: PairingState.initial(),
+          ),
+        );
         sl.unregister<DiscoverDialogViewModel>();
         sl.registerFactoryParam<DiscoverDialogViewModel, Store<AppState>, void>(
           (Store<AppState> store, void _) =>
               DiscoverDialogViewModel.fromStore(store),
         );
-        final Host discoveredHost = Fixtures.buildHost(
-          uri: Uri.parse('ws://127.0.0.1:58231/'),
-        );
+        late Future<HostCardViewData?> selection;
 
         setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
         await tester.pumpWidget(
@@ -220,49 +209,47 @@ void main() {
             store: realStore,
             child: MaterialApp(
               theme: dovahThemeDataFor(DovahThemePreset.dovah),
-              home: const Scaffold(body: DiscoverDialog()),
+              home: Builder(
+                builder: (BuildContext context) => Scaffold(
+                  body: TextButton(
+                    onPressed: () => selection = DiscoverDialog.show(context),
+                    child: const Text('Open Discover'),
+                  ),
+                ),
+              ),
             ),
           ),
         );
-        expect(
-          find.text('Searching for DovahLink on this PC…'),
-          findsOneWidget,
-        );
-
-        realStore.dispatch(const ConnectionDiscoveryStartedAction());
-        await tester.pump();
-        expect(
-          find.text('Searching for DovahLink on this PC…'),
-          findsOneWidget,
-        );
-
-        realStore.dispatch(ConnectionCandidatesChangedAction([discoveredHost]));
-        realStore.dispatch(
-          const ConnectionDiscoverySucceededAction(hasCandidates: true),
-        );
-        await tester.pump();
+        await tester.tap(find.text('Open Discover'));
+        await tester.pumpAndSettle();
         expect(find.text('Local Host'), findsOneWidget);
         expect(find.text('DovahLink · Ready to connect'), findsOneWidget);
+        expect(realStore.state.connection.knownHosts, isEmpty);
 
-        realStore.dispatch(
-          const ConnectionDiscoverySucceededAction(hasCandidates: false),
+        await tester.tap(
+          find.byKey(Key('discover-candidate-${discoveredHost.hostId}')),
         );
         await tester.pump();
-        expect(find.text('No new local Hosts found.'), findsOneWidget);
+        expect(find.text('Checking trusted connection…'), findsOneWidget);
+        expect(find.byType(PairingDialog), findsNothing);
+        expect(realStore.state.connection.selectedHost, discoveredHost);
+        expect(realStore.state.connection.knownHosts, isEmpty);
+        expect(realStore.state.pairing.phase, PairingPhase.connecting);
 
-        realStore.dispatch(const ConnectionDiscoveryStartedAction());
+        realStore.dispatch(const PairingDisconnectedAction());
+        await tester.pump();
+        expect(find.text('Local Host is offline'), findsOneWidget);
+        expect(find.text('Waiting for Skyrim…'), findsOneWidget);
+        expect(find.byType(PairingDialog), findsNothing);
+
         realStore.dispatch(
-          const ConnectionDiscoveryFailedAction(
-            ConnectionFailureReason.hostUnavailable,
-          ),
+          const PairingAuthenticatedAction(hostVersion: '0.5.0', trusted: true),
         );
         await tester.pump();
-        expect(
-          find.text(
-            'Could not reach the local Host. Check that it is running and try again.',
-          ),
-          findsOneWidget,
-        );
+        await tester.pumpAndSettle();
+
+        expect(await selection, candidate);
+        expect(realStore.state.pairing.phase, PairingPhase.trusted);
       },
     );
   });
