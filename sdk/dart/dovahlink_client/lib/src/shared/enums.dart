@@ -35,6 +35,15 @@ enum DovahLinkConnectionState {
   reauthenticating,
 }
 
+/// The SDK's current state for automatic retries after an initial connection failure.
+enum DovahLinkInitialConnectionRetryStatus {
+  /// No initial connection retry is active.
+  inactive,
+
+  /// The SDK owns an initial retry intent, waiting or making background attempts.
+  retrying,
+}
+
 /// The session lifecycle for one exact durable Known Host relationship.
 enum DovahLinkKnownHostSessionState {
   /// No admitted or in-progress session belongs to this Known Host.

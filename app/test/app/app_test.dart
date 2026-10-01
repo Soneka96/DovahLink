@@ -45,6 +45,12 @@ import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import '../fixtures/fixtures.dart';
 import '../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show
+        DovahLinkClient,
+        DovahLinkInitialConnectionRetryStatus,
+        IDovahLinkConnections;
+
 /// Mocks the authentication use case the real pairing middleware resolves.
 class MockAuthenticateUseCase extends Mock implements AuthenticateUseCase {}
 
@@ -63,8 +69,35 @@ class MockConfirmPairingCodeUseCase extends Mock
 class MockObserveConnectionStatusUseCase extends Mock
     implements ObserveConnectionStatusUseCase {}
 
+class MockPairingDovahLinkClient extends Mock implements DovahLinkClient {}
+
+class MockPairingDovahLinkConnections extends Mock
+    implements IDovahLinkConnections {}
+
 /// Exercises the root application shell before connection.
 void main() {
+  StreamController<DovahLinkInitialConnectionRetryStatus>
+  installInactiveRetryClient() {
+    final MockPairingDovahLinkClient client = MockPairingDovahLinkClient();
+    final MockPairingDovahLinkConnections connections =
+        MockPairingDovahLinkConnections();
+    final StreamController<DovahLinkInitialConnectionRetryStatus> statuses =
+        StreamController<DovahLinkInitialConnectionRetryStatus>.broadcast();
+    addTearDown(statuses.close);
+    when(() => client.connections).thenReturn(connections);
+    when(() => connections.initialConnectionRetryChanges).thenAnswer(
+      (_) => Stream<DovahLinkInitialConnectionRetryStatus>.multi((sink) {
+        sink.add(DovahLinkInitialConnectionRetryStatus.inactive);
+        final StreamSubscription<DovahLinkInitialConnectionRetryStatus>
+        subscription = statuses.stream.listen(sink.add);
+        sink.onCancel = subscription.cancel;
+      }, isBroadcast: true),
+    );
+    sl.unregister<DovahLinkClient>();
+    sl.registerSingleton<DovahLinkClient>(client);
+    return statuses;
+  }
+
   setUpAll(() {
     TestWidgetsFlutterBinding.ensureInitialized();
   });
@@ -97,6 +130,7 @@ void main() {
     setUp(() async {
       await sl.reset();
       await initDependencies();
+      installInactiveRetryClient();
       authenticate = MockAuthenticateUseCase();
       disconnect = MockDisconnectUseCase();
       requestPairing = MockRequestPairingUseCase();
@@ -277,6 +311,8 @@ void main() {
     late MockRequestPairingUseCase requestPairing;
     late MockConfirmPairingCodeUseCase confirm;
     late MockObserveConnectionStatusUseCase observe;
+    late StreamController<DovahLinkInitialConnectionRetryStatus>
+    initialRetryStatuses;
 
     const Key hostCard = Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea');
 
@@ -289,6 +325,7 @@ void main() {
     setUp(() async {
       await sl.reset();
       await initDependencies();
+      initialRetryStatuses = installInactiveRetryClient();
       authenticate = MockAuthenticateUseCase();
       disconnect = MockDisconnectUseCase();
       requestPairing = MockRequestPairingUseCase();
@@ -401,20 +438,23 @@ void main() {
     testWidgets(
       'DovahLinkApp titles the dialog Skyrim isn’t running while the Host is unreachable and recovers when it returns',
       (WidgetTester tester) async {
-        when(
-          () => authenticate(any()),
-        ).thenAnswer((_) async => const Left(NetworkFailure('unreachable')));
+        final Completer<Either<Failure, PairingHandshake>> handshake =
+            Completer<Either<Failure, PairingHandshake>>();
+        when(() => authenticate(any())).thenAnswer((_) => handshake.future);
 
         await openPairing(tester);
+        initialRetryStatuses.add(
+          DovahLinkInitialConnectionRetryStatus.retrying,
+        );
+        await settle(tester);
 
         expect(headerTitle('Skyrim isn’t running'), findsOneWidget);
         expect(find.text('Local Host is offline'), findsOneWidget);
         expect(find.textContaining('Start Skyrim'), findsOneWidget);
 
-        when(() => authenticate(any())).thenAnswer(
-          (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+        handshake.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: false)),
         );
-        await tester.pump(const Duration(seconds: 3));
         await settle(tester);
 
         expect(headerTitle('Skyrim isn’t running'), findsNothing);

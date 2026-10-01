@@ -51,6 +51,9 @@ const List<Duration> kReconnectAttemptDelays = <Duration>[
 /// [kReconnectAttemptDelays] has attempts remaining.
 const Duration kReconnectDeadline = Duration(seconds: 10);
 
+/// The delay between SDK-owned initial connection retries, matching the former app policy.
+const Duration kInitialConnectionRetryDelay = Duration(seconds: 3);
+
 // ---- Transport ----
 
 /// The bounded wait allowed for one transport `connect()` attempt before it is treated as failed

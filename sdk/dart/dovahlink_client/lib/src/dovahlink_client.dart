@@ -116,6 +116,7 @@ class DovahLinkClient {
     List<Duration> attemptDelays = kReconnectAttemptDelays,
     Duration reconnectDeadline = kReconnectDeadline,
     DateTime Function() reconnectNow = DateTime.now,
+    Duration initialConnectionRetryDelay = kInitialConnectionRetryDelay,
     Duration hostPresenceRefreshInterval = kKnownHostPresenceRefreshInterval,
     Stream<void>? hostPresenceRefreshTicks,
     int hostPresenceMaxConcurrentProbes = kKnownHostPresenceMaxConcurrentProbes,
@@ -340,6 +341,7 @@ class DovahLinkClient {
       attemptDelays: attemptDelays,
       deadline: reconnectDeadline,
       now: reconnectNow,
+      initialConnectionRetryDelay: initialConnectionRetryDelay,
     );
     if (reconnectEnabled) {
       _sessionService.onOrdinaryTransportLoss =
@@ -823,6 +825,7 @@ class DovahLinkClient {
 /// @param reconnectAttemptDelays The bounded reconnect attempt schedule.
 /// @param reconnectDeadline The overall limit for one reconnect cycle.
 /// @param now The clock used to measure the reconnect deadline.
+/// @param initialConnectionRetryDelay The wait between initial connection retries.
 /// @param hostPresenceProbe The probe used when monitoring is enabled.
 /// @param discoveryService The discovery contract used by this composed client.
 /// @param knownHostPresenceMonitoringEnabled Whether this test client starts the monitor.
@@ -838,6 +841,7 @@ DovahLinkClient buildDovahLinkClientForTesting({
   List<Duration> reconnectAttemptDelays = kReconnectAttemptDelays,
   Duration reconnectDeadline = kReconnectDeadline,
   DateTime Function() now = DateTime.now,
+  Duration initialConnectionRetryDelay = kInitialConnectionRetryDelay,
   bool reconnectEnabled = true,
   IHostPresenceProbe? hostPresenceProbe,
   IDovahLinkDiscoveryService? discoveryService,
@@ -854,6 +858,7 @@ DovahLinkClient buildDovahLinkClientForTesting({
   attemptDelays: reconnectAttemptDelays,
   reconnectDeadline: reconnectDeadline,
   reconnectNow: now,
+  initialConnectionRetryDelay: initialConnectionRetryDelay,
   reconnectEnabled: reconnectEnabled,
   knownHostPresenceMonitoringEnabled: knownHostPresenceMonitoringEnabled,
   hostPresenceRefreshInterval: hostPresenceRefreshInterval,

@@ -29,6 +29,9 @@ class MockConnectionsReconnectService extends Mock
 class MockConnectionsSubscriptionService extends Mock
     implements ISubscriptionService {}
 
+/// Builds a fallback successful handshake for the mocked retry callback.
+Future<HelloResult> buildRetryFallback() async => Fixtures.buildHelloResult();
+
 /// Tests the grouped connection view over the existing SDK engine.
 void main() {
   late MockConnectionsSessionService sessionService;
@@ -37,11 +40,26 @@ void main() {
   late MockConnectionsSubscriptionService subscriptionService;
   late DovahLinkConnections connections;
 
+  setUpAll(() {
+    registerFallbackValue(buildRetryFallback);
+  });
+
   setUp(() {
     sessionService = MockConnectionsSessionService();
     authenticationService = MockConnectionsAuthenticationService();
     reconnectService = MockConnectionsReconnectService();
     subscriptionService = MockConnectionsSubscriptionService();
+    when(() => reconnectService.connectWithInitialRetry(any())).thenAnswer((
+      Invocation invocation,
+    ) {
+      final Future<HelloResult> Function() attempt =
+          invocation.positionalArguments.single
+              as Future<HelloResult> Function();
+      return attempt();
+    });
+    when(() => reconnectService.initialConnectionRetryChanges).thenAnswer(
+      (_) => const Stream<DovahLinkInitialConnectionRetryStatus>.empty(),
+    );
     connections = DovahLinkConnections(
       sessionService: sessionService,
       authenticationService: authenticationService,
@@ -63,9 +81,7 @@ void main() {
         ).thenAnswer((_) async => result);
 
         expect(await connections.connectCandidate(uri), same(result));
-        verify(
-          () => authenticationService.authenticateCandidate(uri),
-        ).called(1);
+        verify(() => reconnectService.connectWithInitialRetry(any())).called(1);
       },
     );
 
@@ -100,9 +116,7 @@ void main() {
         ).thenAnswer((_) async => result);
 
         expect(await connections.connectKnownHost(hostId), same(result));
-        verify(
-          () => authenticationService.authenticateKnownHost(hostId),
-        ).called(1);
+        verify(() => reconnectService.connectWithInitialRetry(any())).called(1);
       },
     );
 
@@ -166,6 +180,25 @@ void main() {
     });
   });
 
+  group('Property initialConnectionRetryChanges behaves correctly', () {
+    test(
+      'Property initialConnectionRetryChanges exposes the SDK retry lifecycle',
+      () {
+        const Stream<DovahLinkInitialConnectionRetryStatus> changes =
+            Stream<DovahLinkInitialConnectionRetryStatus>.empty();
+        when(
+          () => reconnectService.initialConnectionRetryChanges,
+        ).thenAnswer((_) => changes);
+
+        expect(
+          identical(connections.initialConnectionRetryChanges, changes),
+          isTrue,
+        );
+        verify(() => reconnectService.initialConnectionRetryChanges).called(1);
+      },
+    );
+  });
+
   group('Method disconnect behaves correctly', () {
     test(
       'Method disconnect cancels authentication and recovery before teardown',
@@ -175,7 +208,7 @@ void main() {
         await connections.disconnect();
 
         verifyInOrder([
-          () => authenticationService.cancelPendingAuthentication(),
+          () => reconnectService.stopInitialConnectionRetry(),
           () => reconnectService.stopRecovery(),
           () => subscriptionService.clearDesiredStateAreas(),
           () => sessionService.disconnect(),
@@ -190,9 +223,7 @@ void main() {
       when(() => sessionService.disconnect()).thenThrow(failure);
 
       await expectLater(connections.disconnect(), throwsA(same(failure)));
-      verify(
-        () => authenticationService.cancelPendingAuthentication(),
-      ).called(1);
+      verify(() => reconnectService.stopInitialConnectionRetry()).called(1);
       verify(() => reconnectService.stopRecovery()).called(1);
       verify(() => subscriptionService.clearDesiredStateAreas()).called(1);
     });

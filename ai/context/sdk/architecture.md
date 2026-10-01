@@ -94,7 +94,8 @@ credential, and trust outcomes are not blanket transport-failure signals.
 Candidate authentication and discovery never update a Known Host's availability based on a claimed
 Host ID. Recovery must carry the verified Known Host relationship ID from the admitted operation;
 do not infer it from an endpoint, display metadata, or discovery. The monitor owns only bounded
-reachability scheduling; `ReconnectService` remains responsible for recovering an established session.
+reachability scheduling. `ReconnectService` separately owns initial retries after an explicit
+candidate/Known Host attempt and bounded recovery after an established session loses transport.
 
 The owner suppresses equivalent successive projections. After a stream error, it emits the next
 valid complete snapshot even if the projection is unchanged, so subscribers can observe recovery
@@ -251,9 +252,12 @@ The nine Services:
 - `IPairingService`/`PairingService` — pairing operations.
 - `IClientStateService`/`ClientStateService` — the sole owner of persisted client-state loads and
   serialized complete-state mutations, with save-before-publish Known Hosts projections.
-- `IReconnectService`/`ReconnectService` — bounded automatic recovery from ordinary transport
-  loss, reconnecting and re-authenticating up to an attempt budget and a hard deadline without
-  taking over transport or authentication state from `ISessionService`/`IAuthenticationService`.
+- `IReconnectService`/`ReconnectService` — SDK-owned initial connection retry after a failed
+  explicit attempt, plus bounded automatic recovery after ordinary established-session transport
+  loss. Initial retry repeats every three seconds until success, explicit replacement, deliberate
+  disconnect, shutdown, or administrative invalidation. Established recovery retains its own
+  bounded attempt budget and hard deadline. Both modes use the same
+  `ISessionService`/`IAuthenticationService` owners and never create a second connection engine.
 - `ISubscriptionService`/`SubscriptionService` — owns the client's desired state-area set and
   reconciles it with the Host using the canonical complete-set `subscribe` operation. It applies
   only Host-accepted areas to `StateMessageHandler`; rejected and removed areas stop updating their
@@ -456,14 +460,10 @@ same command only after the relationship is durable and the same session remains
 called by `PairingService` after a successful pairing acknowledgement). No other class assigns
 `sessionId` or trust state directly.
 
-`ReconnectService` never assigns connection state directly either: it only drives the same
-`connect`/`disconnect` commands (via `ISessionService`) and the same `hello` call (via
-`IAuthenticationService`, an explicit constructor dependency) any other caller uses.
-`SessionService` still decides the resulting state transitions itself -- entering `reconnecting`
-only after ordinary transport loss tears down cleanly with a known endpoint (driving
-`ReconnectService` through the `onOrdinaryTransportLoss` callback above), moving to
-`reauthenticating` once a recovery attempt's transport reconnects (trust not yet confirmed), and
-resolving out of that to `connected` (that attempt's `hello` actually admits a session) or
-`disconnected` (a deliberate disconnect, an administrative invalidation, or the reconnect service's
-own final give-up) -- so `ReconnectService` orchestrates *when* to retry while `SessionService`
-remains the sole owner of *what state that produces*.
+`ReconnectService` never assigns connection state directly: both retry modes drive the same
+`connect`/`disconnect` commands via `ISessionService` and the same `hello` operations via
+`IAuthenticationService`. `SessionService` remains the sole connection-state owner. Established
+recovery alone enters `reconnecting` after ordinary transport loss and `reauthenticating` while its
+reconnected transport awaits `hello`. Initial retries remain a separate intent, report their
+`inactive`/`retrying` status through the grouped connection API, and do not present themselves as
+established-session recovery.

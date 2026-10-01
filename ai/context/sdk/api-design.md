@@ -39,7 +39,7 @@ The intended mapping is:
 | `knownHostsChanges` | `hosts.knownHostsChanges` | `ClientStateService`; current complete durable snapshot on listen, then committed changes; storage errors are stream errors and the listener can recover. |
 | `knownHostStatesChanges` | `hosts.knownHostStatesChanges` | `HostAvailabilityService`; durable metadata plus runtime availability and exact-relationship session state; availability is not persisted. |
 | `discoverHosts()` and `candidateHostsChanges` | `pairing.discoverHosts()` and `pairing.candidates` | `DovahLinkClient` reconciliation over `DovahLinkDiscoveryService` and `ClientStateService`; candidates remain runtime-only and claims matching Known Host IDs are excluded. |
-| `connect(uri)`, `hello()`, `authenticateCandidate(uri)`, `authenticateKnownHost(hostId)`, `disconnect()`, `connectionState`, `connectionStateChanges` | `connections.connectCandidate(uri)`, `connections.connectKnownHost(hostId)`, `connections.disconnect()`, `connections.state`, and `connections.stateChanges` | `SessionService`, `AuthenticationService`, and existing reconnect services; candidate/Known Host operations complete hello admission, while the internal transport-open phase is not presented as a usable session. State becomes `connected` only after session admission. Candidate authentication never selects a Known Host credential. |
+| `connect(uri)`, `hello()`, `authenticateCandidate(uri)`, `authenticateKnownHost(hostId)`, `disconnect()`, `connectionState`, `connectionStateChanges` | `connections.connectCandidate(uri)`, `connections.connectKnownHost(hostId)`, `connections.disconnect()`, `connections.state`, `connections.stateChanges`, and `connections.initialConnectionRetryChanges` | `SessionService`, `AuthenticationService`, and `ReconnectService`; candidate/Known Host operations complete hello admission, while the internal transport-open phase is not presented as a usable session. State becomes `connected` only after session admission. Candidate authentication never selects a Known Host credential. Initial retries retain a separate typed lifecycle and do not enter established-session `reconnecting` state. |
 | `requestPairing()`, `requestPairingRenotify()`, `cancelPairing()`, `confirmPairingCode()`, `acknowledgeTrustedCredential()`, `recoverPendingPairing()` | `pairing.requestCode()`, `pairing.renotify()`, `pairing.cancel()`, `pairing.confirmCode(...)`, `pairing.acknowledgeTrustedCredential()`, and `pairing.recoverPendingPairing()` | `PairingService` and `ClientStateService`; this API slice keeps confirmation and acknowledgement explicit. The later pairing-orchestration step will absorb the Flutter sequencing into cohesive SDK operations. Existing typed outcomes, Host-scoped credential persistence, cancellation, and pending-confirmation recovery are preserved. |
 | `characterXpChanges`, `characterHealthChanges`, `characterMagickaChanges`, `characterStaminaChanges`, `characterLevelChanges`, and state subscribe/unsubscribe operations | `currentHost` streams and subscription operations | Existing state trackers and `SubscriptionService`; retain per-domain replay, synchronization, error, and recovery behavior. |
 
@@ -49,16 +49,16 @@ session. A candidate or a UI selection is not an admitted Host. No grouped opera
 trust from discovery metadata or use a Known Host credential based only on a candidate's Host-ID
 claim.
 
-The Flutter app will map these grouped values into Redux and retain navigation, dialog lifetime,
-user input, and display decisions. Today `PairingMiddleware` schedules an initial retry after a
-network failure using a three-second timer, a flow generation, and the disconnected presentation
-phase as eligibility. Move that same retry behavior, cancellation, and stale-attempt protection into
-the SDK; keep established-session recovery as a distinct SDK lifecycle. Pairing orchestration today
-spans `PairingRemoteDataSource.authenticate` (authentication followed by pending-confirmation
-recovery), `confirmPairingCode` (confirmation followed by credential acknowledgement), and
-Flutter's failure/status interpretation. Move protocol ordering and authoritative outcomes into SDK
-operations, while retaining user-facing wording, failure-to-presentation mapping, navigation, and
-dialog lifecycle in Flutter.
+The Flutter app maps these grouped values into Redux and retains navigation, dialog lifetime, user
+input, and display decisions. `ReconnectService` owns the three-second initial retry schedule and
+cancellation separately from its bounded established-session recovery. It reports the active
+initial-retry intent through `connections.initialConnectionRetryChanges`; Flutter keeps the pairing
+and Known Host presentation Offline while that intent is active. Pairing orchestration still spans
+`PairingRemoteDataSource.authenticate` (authentication followed by pending-confirmation recovery),
+`confirmPairingCode` (confirmation followed by credential acknowledgement), and Flutter's
+failure/status interpretation. The grouped pairing API exposes these operations but does not yet
+absorb those cross-operation sequences. Flutter retains user-facing wording, failure-to-presentation
+mapping, navigation, and dialog lifecycle.
 
 The current owner audit is:
 
@@ -67,7 +67,7 @@ The current owner audit is:
 | Known Host persistence and candidate reconciliation | `ClientStateService` owns durable Host metadata; `DovahLinkClient` reconciles runtime candidates against committed Known Hosts. | Keep both SDK-owned; expose them through `hosts` and `pairing`. | Preserve storage errors, deterministic snapshots, race suppression, and the rule that candidate claims never select credentials. |
 | Known Host availability and session projection | `HostAvailabilityService` owns runtime availability; `SessionService` supplies the admitted relationship lifecycle. | Keep the existing projection owner and expose its complete typed view through `hosts`. | Preserve replay, recovery after stream errors, runtime-only availability, and exact relationship matching. |
 | Connection/authentication and established recovery | `SessionService`, `AuthenticationService`, and `ReconnectService` own one session engine and its recovery. | Keep the services; expose them through `connections`. | Transport-open is not session admission. Initial retries must not replace or interfere with established-session recovery. |
-| Initial retry | `PairingMiddleware` owns timer, flow generation, cancellation, and presentation eligibility. | Move retry scheduling and attempt validity into the SDK; Flutter continues to present disconnected/offline state. | Preserve the current three-second user experience, dialog cancellation, deliberate disconnect, shutdown, invalidation, and Host-switch behavior. |
+| Initial retry | `ReconnectService` owns a cancellable three-second retry for an explicitly selected candidate or Known Host and reports whether that intent is active; `SessionService` remains the connection-state owner. | Keep initial retry separate from established-session recovery; Flutter maps the typed retry status to Offline presentation and owns dialog cancellation. | Preserve cancellation on deliberate disconnect, shutdown, invalidation, and Host switching; reject late results from stale attempts. |
 | Pairing protocol sequencing | `PairingService` owns wire operations; `PairingRemoteDataSource` sequences authentication/recovery and confirmation/acknowledgement. | Move those protocol sequences into SDK-owned cohesive operations; retain typed failures. | Preserve crash recovery, retriable wrong-code/pacing outcomes, expiry, cooldown, credential rejection, and administrative invalidation. |
 | Redux and presentation | Connection middleware mirrors SDK projections; pairing middleware coordinates UI events and presentation lifecycle. | Keep Redux projection, selection, wording, navigation, and dialog lifecycle in Flutter; remove only the SDK retry/protocol logic migrated above. | Avoid treating app selection as SDK session identity or deleting useful error-to-presentation mapping. |
 | SDK composition and shutdown | `app/lib/injection_container.dart` constructs one `DovahLinkClient`; `AppShutdownService` closes it with middleware cleanup. | Keep one client composition root and terminal shutdown; groups reference the same engine. | Preserve idempotent close and ensure no late operation republishes after shutdown. |

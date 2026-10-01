@@ -30,6 +30,7 @@ export 'src/shared/enums.dart'
         CredentialRejectionReason,
         HostVersionCompatibilityFailure,
         DovahLinkConnectionState,
+        DovahLinkInitialConnectionRetryStatus,
         DovahLinkHostAvailability,
         DovahLinkKnownHostSessionState,
         DovahLinkStateArea,

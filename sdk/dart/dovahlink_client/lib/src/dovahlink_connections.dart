@@ -21,10 +21,16 @@ abstract interface class IDovahLinkConnections {
   /// Emits the current lifecycle phase on listen and every subsequent transition.
   Stream<DovahLinkConnectionState> get stateChanges;
 
+  /// Replays `inactive` or `retrying` immediately, then emits initial-retry transitions.
+  Stream<DovahLinkInitialConnectionRetryStatus>
+  get initialConnectionRetryChanges;
+
   /// The administrative reason for invalidation, or `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason;
 
   /// Connects and authenticates a discovered candidate without using Known Host credentials.
+  /// An initial connection or protocol failure is retried by the SDK every three seconds until
+  /// success, cancellation, or administrative invalidation.
   /// @param uri The candidate endpoint.
   /// @return The admitted Host handshake and trust result.
   /// @throws [DovahLinkConnectionException] if connection or authentication fails.
@@ -35,6 +41,8 @@ abstract interface class IDovahLinkConnections {
   Future<HelloResult> connectCandidate(Uri uri);
 
   /// Connects and authenticates the Known Host selected by stable identity.
+  /// An initial connection or protocol failure is retried by the SDK every three seconds until
+  /// success, cancellation, or administrative invalidation.
   /// @param hostId The Known Host relationship whose endpoint and credential are used.
   /// @return The admitted Host handshake and trust result.
   /// @throws [DovahLinkKnownHostNotFoundException] if [hostId] is not known.
@@ -88,6 +96,12 @@ class DovahLinkConnections implements IDovahLinkConnections {
   Stream<DovahLinkConnectionState> get stateChanges =>
       _sessionService.connectionStateChanges;
 
+  /// Implements [IDovahLinkConnections.initialConnectionRetryChanges].
+  @override
+  Stream<DovahLinkInitialConnectionRetryStatus>
+  get initialConnectionRetryChanges =>
+      _reconnectService.initialConnectionRetryChanges;
+
   /// Implements [IDovahLinkConnections.invalidationReason].
   @override
   AdministrativeInvalidationReason? get invalidationReason =>
@@ -96,17 +110,22 @@ class DovahLinkConnections implements IDovahLinkConnections {
   /// Implements [IDovahLinkConnections.connectCandidate].
   @override
   Future<HelloResult> connectCandidate(Uri uri) =>
-      _authenticationService.authenticateCandidate(uri);
+      _reconnectService.connectWithInitialRetry(
+        () => _authenticationService.authenticateCandidate(uri),
+      );
 
   /// Implements [IDovahLinkConnections.connectKnownHost].
   @override
   Future<HelloResult> connectKnownHost(DovahLinkHostId hostId) =>
-      _authenticationService.authenticateKnownHost(hostId);
+      _reconnectService.connectWithInitialRetry(
+        () => _authenticationService.authenticateKnownHost(hostId),
+      );
 
   /// Implements [IDovahLinkConnections.disconnect].
   @override
   Future<void> disconnect() async {
     _authenticationService.cancelPendingAuthentication();
+    _reconnectService.stopInitialConnectionRetry();
     _reconnectService.stopRecovery();
     _subscriptionService.clearDesiredStateAreas();
     await _sessionService.disconnect();

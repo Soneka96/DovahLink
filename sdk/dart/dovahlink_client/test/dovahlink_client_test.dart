@@ -588,6 +588,97 @@ void main() {
     );
 
     test(
+      'Behavior grouped API composition stops an initial retry on deliberate disconnect',
+      () async {
+        final FakeDovahLinkTransport retryTransport = FakeDovahLinkTransport()
+          ..failConnectWith = StateError('Host unavailable');
+        final DovahLinkClient retryClient = buildDovahLinkClientForTesting(
+          transport: retryTransport,
+          storage: InMemoryClientStorage(),
+          initialConnectionRetryDelay: const Duration(seconds: 30),
+        );
+        addTearDown(retryClient.close);
+        final StreamIterator<DovahLinkInitialConnectionRetryStatus>
+        retryStates = StreamIterator(
+          retryClient.connections.initialConnectionRetryChanges,
+        );
+        addTearDown(retryStates.cancel);
+        expect(await retryStates.moveNext(), isTrue);
+        expect(
+          retryStates.current,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        );
+
+        final Future<HelloResult> connection = retryClient.connections
+            .connectCandidate(Uri.parse('ws://127.0.0.1:58231/'));
+        expect(await retryStates.moveNext(), isTrue);
+        expect(
+          retryStates.current,
+          DovahLinkInitialConnectionRetryStatus.retrying,
+        );
+        final Future<void> canceledConnection = expectLater(
+          connection,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        await retryClient.connections.disconnect();
+        await canceledConnection;
+        expect(await retryStates.moveNext(), isTrue);
+        expect(
+          retryStates.current,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        );
+        expect(retryTransport.connectCalls, isEmpty);
+      },
+    );
+
+    test(
+      'Behavior grouped API composition cancels an active initial retry on close',
+      () async {
+        final FakeDovahLinkTransport retryTransport = FakeDovahLinkTransport()
+          ..failConnectWith = StateError('Host unavailable');
+        final DovahLinkClient retryClient = buildDovahLinkClientForTesting(
+          transport: retryTransport,
+          storage: InMemoryClientStorage(),
+          initialConnectionRetryDelay: const Duration(seconds: 30),
+        );
+        addTearDown(retryClient.close);
+        final StreamIterator<DovahLinkInitialConnectionRetryStatus>
+        retryStates = StreamIterator(
+          retryClient.connections.initialConnectionRetryChanges,
+        );
+        addTearDown(retryStates.cancel);
+        expect(await retryStates.moveNext(), isTrue);
+        expect(
+          retryStates.current,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        );
+
+        final Future<HelloResult> connection = retryClient.connections
+            .connectCandidate(Uri.parse('ws://127.0.0.1:58231/'));
+        expect(await retryStates.moveNext(), isTrue);
+        expect(
+          retryStates.current,
+          DovahLinkInitialConnectionRetryStatus.retrying,
+        );
+        final Future<void> canceledConnection = expectLater(
+          connection,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        await retryClient.close();
+
+        await canceledConnection;
+        expect(await retryStates.moveNext(), isTrue);
+        expect(
+          retryStates.current,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        );
+        expect(retryTransport.connectCalls, isEmpty);
+      },
+    );
+
+    test(
       'Behavior grouped API composition exposes the client-owned candidate projection',
       () async {
         final DovahLinkHost candidate = Fixtures.buildDovahLinkHost();
@@ -1553,14 +1644,32 @@ void main() {
         final DovahLinkClient runtimeClient = buildDovahLinkClientForTesting(
           transport: runtimeTransport,
           storage: runtimeStorage,
+          initialConnectionRetryDelay: const Duration(seconds: 30),
         );
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
             runtimeClient.hosts.knownHostStatesChanges.listen(snapshots.add);
+        final StreamIterator<DovahLinkInitialConnectionRetryStatus>
+        retryStates = StreamIterator(
+          runtimeClient.connections.initialConnectionRetryChanges,
+        );
+        addTearDown(retryStates.cancel);
         await Future<void>.delayed(Duration.zero);
 
-        await expectLater(
-          runtimeClient.authenticateKnownHost(DovahLinkHostId(hostId)),
+        final Future<HelloResult> authentication = runtimeClient.connections
+            .connectKnownHost(DovahLinkHostId(hostId));
+        expect(await retryStates.moveNext(), isTrue);
+        expect(
+          retryStates.current,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        );
+        expect(await retryStates.moveNext(), isTrue);
+        expect(
+          retryStates.current,
+          DovahLinkInitialConnectionRetryStatus.retrying,
+        );
+        final Future<void> canceledAuthentication = expectLater(
+          authentication,
           throwsA(isA<DovahLinkConnectionException>()),
         );
         await Future<void>.delayed(Duration.zero);
@@ -1581,7 +1690,8 @@ void main() {
           snapshots.last.single.sessionState,
           DovahLinkKnownHostSessionState.disconnected,
         );
-        await runtimeClient.disconnect();
+        await runtimeClient.connections.disconnect();
+        await canceledAuthentication;
         await Future<void>.delayed(Duration.zero);
         expect(
           snapshots.last.single.availability,

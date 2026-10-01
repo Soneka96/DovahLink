@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
@@ -30,6 +29,12 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import '../../../../fixtures/fixtures.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show
+        DovahLinkClient,
+        DovahLinkInitialConnectionRetryStatus,
+        IDovahLinkConnections;
+
 /// Mocks for the use cases [PairingMiddleware] resolves through [sl].
 class MockAuthenticateUseCase extends Mock implements AuthenticateUseCase {}
 
@@ -47,6 +52,13 @@ class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
 
 class MockObserveConnectionStatusUseCase extends Mock
     implements ObserveConnectionStatusUseCase {}
+
+/// Mocks the SDK client used to observe initial retry presentation state.
+class MockPairingDovahLinkClient extends Mock implements DovahLinkClient {}
+
+/// Mocks grouped SDK connection lifecycle state.
+class MockPairingDovahLinkConnections extends Mock
+    implements IDovahLinkConnections {}
 
 /// Mocktail double for [Store], called directly rather than dispatched
 /// through -- `dispatch` and the middleware's own `next` both append to one
@@ -97,6 +109,11 @@ void main() {
   late MockConfirmPairingCodeUseCase mockConfirmPairingCode;
   late MockDisconnectUseCase mockDisconnect;
   late MockObserveConnectionStatusUseCase mockObserveConnectionStatus;
+  late MockPairingDovahLinkClient mockDovahLinkClient;
+  late MockPairingDovahLinkConnections mockDovahLinkConnections;
+  late StreamController<DovahLinkInitialConnectionRetryStatus>
+  initialRetryStatusController;
+  late DovahLinkInitialConnectionRetryStatus initialRetryStatus;
   late MockStore store;
   late List<Object?> actionLog;
 
@@ -116,6 +133,29 @@ void main() {
     mockConfirmPairingCode = MockConfirmPairingCodeUseCase();
     mockDisconnect = MockDisconnectUseCase();
     mockObserveConnectionStatus = MockObserveConnectionStatusUseCase();
+    mockDovahLinkClient = MockPairingDovahLinkClient();
+    mockDovahLinkConnections = MockPairingDovahLinkConnections();
+    initialRetryStatusController =
+        StreamController<DovahLinkInitialConnectionRetryStatus>.broadcast();
+    initialRetryStatus = DovahLinkInitialConnectionRetryStatus.inactive;
+    when(
+      () => mockDovahLinkClient.connections,
+    ).thenReturn(mockDovahLinkConnections);
+    when(
+      () => mockDovahLinkConnections.initialConnectionRetryChanges,
+    ).thenAnswer(
+      (_) => Stream<DovahLinkInitialConnectionRetryStatus>.multi((sink) {
+        sink.add(initialRetryStatus);
+        final StreamSubscription<DovahLinkInitialConnectionRetryStatus>
+        subscription = initialRetryStatusController.stream.listen((
+          DovahLinkInitialConnectionRetryStatus status,
+        ) {
+          initialRetryStatus = status;
+          sink.add(status);
+        }, onError: sink.addError);
+        sink.onCancel = subscription.cancel;
+      }, isBroadcast: true),
+    );
     sl.registerLazySingleton<AuthenticateUseCase>(() => mockAuthenticate);
     sl.registerLazySingleton<RequestPairingUseCase>(() => mockRequestPairing);
     sl.registerLazySingleton<ConfirmPairingCodeUseCase>(
@@ -138,9 +178,7 @@ void main() {
       (Invocation invocation) =>
           actionLog.add(invocation.positionalArguments[0]),
     );
-    // Baseline default for _scheduleReconnect's disconnected-phase check; every test that
-    // reaches it runs inside fakeAsync and elapses its own timer before returning, so this value
-    // only matters to tests that don't override it with a more specific phase.
+    sl.registerSingleton<DovahLinkClient>(mockDovahLinkClient);
     when(() => store.state).thenReturn(_stateWithPhase(PairingPhase.none));
   });
 
@@ -159,6 +197,8 @@ void main() {
   });
 
   tearDown(() async {
+    await middleware.shutdown();
+    await initialRetryStatusController.close();
     await sl.reset();
     reset(mockAuthenticate);
     reset(mockRequestPairing);
@@ -443,40 +483,6 @@ void main() {
     );
 
     test(
-      'PairingStartedAction maps a successful automatic retry to the SDK authenticated state without scheduling another retry',
-      () {
-        fakeAsync((FakeAsync async) {
-          final PairingMiddleware retryMiddleware = PairingMiddleware(
-            reconnectDelay: const Duration(seconds: 3),
-          );
-          final PairingHandshake handshake = Fixtures.buildPairingHandshake(
-            trusted: true,
-          );
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) async => Right(handshake));
-
-          retryMiddleware.call(
-            store,
-            const PairingStartedAction(isAutomaticRetry: true),
-            next,
-          );
-          async.flushMicrotasks();
-
-          expect(actionLog, [
-            const PairingStartedAction(isAutomaticRetry: true),
-            isA<PairingAuthenticatedAction>(),
-            const PairingSessionTrustedAction(),
-          ]);
-          async.elapse(const Duration(seconds: 3));
-          async.flushMicrotasks();
-          expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
-          verify(() => mockAuthenticate(any())).called(1);
-        });
-      },
-    );
-
-    test(
       'PairingStartedAction dispatches PairingAuthenticatedAction carrying the credential-rejected message through',
       () async {
         final PairingHandshake handshake = Fixtures.buildPairingHandshake(
@@ -506,29 +512,94 @@ void main() {
 
     test(
       'PairingStartedAction dispatches PairingDisconnectedAction when authentication fails with a NetworkFailure',
-      () {
-        fakeAsync((FakeAsync async) {
-          const NetworkFailure failure = NetworkFailure('unreachable');
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) async => const Left(failure));
+      () async {
+        const NetworkFailure failure = NetworkFailure('unreachable');
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => const Left(failure));
 
-          middleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
 
-          expect(actionLog, [
-            isA<PairingStartedAction>(),
-            isA<PairingDisconnectedAction>(),
-          ]);
+        expect(actionLog, [
+          isA<PairingStartedAction>(),
+          isA<PairingDisconnectedAction>(),
+        ]);
+      },
+    );
 
-          // A NetworkFailure also schedules a real Future.delayed reconnect (_scheduleReconnect);
-          // drive it to completion inside this fakeAsync zone instead of leaving it pending as a
-          // genuine 3-second timer that would fire during a later test, after tearDown resets
-          // store's stubs. store.state's baseline stub (PairingPhase.none, set in setUp) means the
-          // reconnect's disconnected-phase check is false, so this does not redispatch.
-          async.elapse(middleware.reconnectDelay);
-          async.flushMicrotasks();
-        });
+    test(
+      'PairingStartedAction maps SDK initial retrying state to Offline without restarting authentication',
+      () async {
+        final Completer<Either<Failure, PairingHandshake>> authentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) => authentication.future);
+        when(
+          () => mockRequestPairing(any()),
+        ).thenAnswer((_) async => const Right(300));
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.connecting));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        initialRetryStatusController.add(
+          DovahLinkInitialConnectionRetryStatus.retrying,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          const PairingStartedAction(),
+          const PairingDisconnectedAction(),
+        ]);
+        expect(initialRetryStatusController.hasListener, isTrue);
+        verify(() => mockAuthenticate(any())).called(1);
+
+        authentication.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          const PairingStartedAction(),
+          const PairingDisconnectedAction(),
+          isA<PairingAuthenticatedAction>(),
+          const PairingCodeRequestedAction(),
+        ]);
+        expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
+        expect(initialRetryStatusController.hasListener, isFalse);
+      },
+    );
+
+    test(
+      'PairingStartedAction does not dispatch a duplicate disconnect when already disconnected',
+      () async {
+        final Completer<Either<Failure, PairingHandshake>> authentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) => authentication.future);
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        initialRetryStatusController.add(
+          DovahLinkInitialConnectionRetryStatus.retrying,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [const PairingStartedAction()]);
+
+        authentication.complete(const Left(PairingFailure('failed')));
+        await Future<void>.delayed(Duration.zero);
+        expect(actionLog, [
+          const PairingStartedAction(),
+          const PairingFailedAction('failed'),
+        ]);
       },
     );
 
@@ -548,10 +619,9 @@ void main() {
       },
     );
 
-    test('PairingStartedAction dispatches PairingFailedAction, and never '
-        'schedules a reconnect, when authentication fails with a '
-        'SessionInvalidatedFailure', () {
-      fakeAsync((FakeAsync async) {
+    test(
+      'PairingStartedAction dispatches PairingFailedAction for a SessionInvalidatedFailure',
+      () async {
         const SessionInvalidatedFailure failure = SessionInvalidatedFailure(
           'disconnected by the host',
         );
@@ -563,350 +633,141 @@ void main() {
         ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
 
         middleware.call(store, const PairingStartedAction(), next);
-        async.flushMicrotasks();
+        await Future<void>.delayed(Duration.zero);
 
         expect(actionLog, [
           isA<PairingStartedAction>(),
           const PairingFailedAction('disconnected by the host'),
         ]);
+      },
+    );
 
-        // Administrative invalidation must never auto-retry, unlike NetworkFailure above --
-        // elapsing the same reconnectDelay proves no PairingStartedAction was scheduled, even
-        // with store.state stubbed to the disconnected phase _scheduleReconnect checks for.
-        async.elapse(middleware.reconnectDelay);
-        async.flushMicrotasks();
+    test(
+      'PairingStartedAction presents the SDK retrying state as disconnected while the original authentication completes',
+      () async {
+        final Completer<Either<Failure, PairingHandshake>> authentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) => authentication.future);
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+        when(
+          () => store.state,
+        ).thenReturn(_stateWithPhase(PairingPhase.connecting));
 
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        initialRetryStatusController.add(
+          DovahLinkInitialConnectionRetryStatus.retrying,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          const PairingStartedAction(),
+          const PairingDisconnectedAction(),
+        ]);
+        expect(initialRetryStatusController.hasListener, isTrue);
+
+        authentication.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          const PairingStartedAction(),
+          const PairingDisconnectedAction(),
+          isA<PairingAuthenticatedAction>(),
+          const PairingCodeRequestedAction(),
+        ]);
         expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
-      });
-    });
-
-    test(
-      'PairingStartedAction dispatches marked automatic retries after each failed attempt',
-      () {
-        fakeAsync((FakeAsync async) {
-          const Duration delay = Duration(seconds: 3);
-          final PairingMiddleware retryMiddleware = PairingMiddleware(
-            reconnectDelay: delay,
-          );
-          const NetworkFailure failure = NetworkFailure('unreachable');
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) async => const Left(failure));
-          when(
-            () => store.state,
-          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
-
-          retryMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-
-          async.elapse(delay);
-          async.flushMicrotasks();
-
-          final PairingStartedAction firstRetry = actionLog
-              .whereType<PairingStartedAction>()
-              .last;
-          expect(firstRetry.isAutomaticRetry, isTrue);
-
-          actionLog.clear();
-          retryMiddleware.call(store, firstRetry, next);
-          async.flushMicrotasks();
-          async.elapse(delay);
-          async.flushMicrotasks();
-
-          expect(
-            actionLog.whereType<PairingStartedAction>().every(
-              (PairingStartedAction action) => action.isAutomaticRetry,
-            ),
-            isTrue,
-          );
-          expect(actionLog.whereType<PairingStartedAction>(), hasLength(2));
-          verify(() => mockAuthenticate(any())).called(2);
-        });
+        expect(initialRetryStatusController.hasListener, isFalse);
+        verify(() => mockAuthenticate(any())).called(1);
       },
     );
 
     test(
-      'PairingStartedAction lets an explicit retry replace a scheduled automatic retry',
-      () {
-        fakeAsync((FakeAsync async) {
-          const Duration delay = Duration(seconds: 3);
-          final PairingMiddleware retryMiddleware = PairingMiddleware(
-            reconnectDelay: delay,
-          );
-          int authenticationCount = 0;
-          when(
-            () => store.state,
-          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
-          when(() => mockAuthenticate(any())).thenAnswer((_) async {
-            authenticationCount++;
-            if (authenticationCount == 1) {
-              return const Left(NetworkFailure('unreachable'));
-            }
-            return Right(Fixtures.buildPairingHandshake(trusted: true));
-          });
-          when(
-            () => mockObserveConnectionStatus(any()),
-          ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+      'PairingDisposedAction disconnects the SDK retry intent and suppresses late authentication',
+      () async {
+        final Completer<Either<Failure, PairingHandshake>> authentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) => authentication.future);
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
 
-          retryMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-          retryMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-          async.elapse(delay);
-          async.flushMicrotasks();
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await Future<void>.delayed(Duration.zero);
+        authentication.complete(const Left(NetworkFailure('unreachable')));
+        await Future<void>.delayed(Duration.zero);
 
-          expect(actionLog.whereType<PairingStartedAction>(), hasLength(2));
-          expect(actionLog.last, const PairingSessionTrustedAction());
-          verify(() => mockAuthenticate(any())).called(2);
-        });
-      },
-    );
-
-    test(
-      'PairingDisposedAction cancels a pending automatic retry while waiting offline',
-      () {
-        fakeAsync((FakeAsync async) {
-          const Duration delay = Duration(seconds: 3);
-          final PairingMiddleware retryMiddleware = PairingMiddleware(
-            reconnectDelay: delay,
-          );
-          const NetworkFailure failure = NetworkFailure('unreachable');
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) async => const Left(failure));
-          when(
-            () => store.state,
-          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
-          when(
-            () => mockDisconnect(any()),
-          ).thenAnswer((_) async => const Right(unit));
-
-          retryMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-
-          when(
-            () => store.state,
-          ).thenReturn(_stateWithPhase(PairingPhase.none));
-          retryMiddleware.call(
-            store,
-            const PairingDisposedAction(wasTrusted: false),
-            next,
-          );
-          async.flushMicrotasks();
-          async.elapse(delay);
-          async.flushMicrotasks();
-
-          expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
-          verify(() => mockAuthenticate(any())).called(1);
-          verify(() => mockDisconnect(any())).called(1);
-        });
-      },
-    );
-
-    test(
-      'PairingDisposedAction suppresses an authentication failure that completes late',
-      () {
-        fakeAsync((FakeAsync async) {
-          const Duration delay = Duration(seconds: 3);
-          final PairingMiddleware pendingMiddleware = PairingMiddleware(
-            reconnectDelay: delay,
-          );
-          final Completer<Either<Failure, PairingHandshake>> authentication =
-              Completer<Either<Failure, PairingHandshake>>();
-          when(
-            () => store.state,
-          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) => authentication.future);
-          when(
-            () => mockDisconnect(any()),
-          ).thenAnswer((_) async => const Right(unit));
-
-          pendingMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-          pendingMiddleware.call(
-            store,
-            const PairingDisposedAction(wasTrusted: false),
-            next,
-          );
-          async.flushMicrotasks();
-          authentication.complete(const Left(NetworkFailure('unreachable')));
-          async.flushMicrotasks();
-          async.elapse(delay);
-          async.flushMicrotasks();
-
-          expect(actionLog, [
-            isA<PairingStartedAction>(),
-            const PairingDisposedAction(wasTrusted: false),
-          ]);
-          verify(() => mockAuthenticate(any())).called(1);
-          verify(() => mockDisconnect(any())).called(1);
-        });
-      },
-    );
-
-    test(
-      'PairingDisposedAction suppresses a successful authentication that completes late',
-      () {
-        fakeAsync((FakeAsync async) {
-          final PairingMiddleware pendingMiddleware = PairingMiddleware();
-          final Completer<Either<Failure, PairingHandshake>> authentication =
-              Completer<Either<Failure, PairingHandshake>>();
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) => authentication.future);
-          when(
-            () => mockDisconnect(any()),
-          ).thenAnswer((_) async => const Right(unit));
-
-          pendingMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-          pendingMiddleware.call(
-            store,
-            const PairingDisposedAction(wasTrusted: false),
-            next,
-          );
-          async.flushMicrotasks();
-          authentication.complete(
-            Right(Fixtures.buildPairingHandshake(trusted: false)),
-          );
-          async.flushMicrotasks();
-
-          expect(actionLog, [
-            isA<PairingStartedAction>(),
-            const PairingDisposedAction(wasTrusted: false),
-          ]);
-          verify(() => mockAuthenticate(any())).called(1);
-          verify(() => mockDisconnect(any())).called(1);
-        });
+        expect(actionLog, [
+          const PairingStartedAction(),
+          const PairingDisposedAction(wasTrusted: false),
+        ]);
+        expect(initialRetryStatusController.hasListener, isFalse);
+        verify(() => mockDisconnect(any())).called(1);
       },
     );
 
     test(
       'PairingStartedAction lets a new flow succeed and ignores the older result',
-      () {
-        fakeAsync((FakeAsync async) {
-          const Duration delay = Duration(seconds: 3);
-          final PairingMiddleware flowMiddleware = PairingMiddleware(
-            reconnectDelay: delay,
-          );
-          final Completer<Either<Failure, PairingHandshake>>
-          olderAuthentication = Completer<Either<Failure, PairingHandshake>>();
-          final Completer<Either<Failure, PairingHandshake>>
-          currentAuthentication =
-              Completer<Either<Failure, PairingHandshake>>();
-          int authenticationCount = 0;
-          when(
-            () => store.state,
-          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
-          when(() => mockAuthenticate(any())).thenAnswer((_) {
-            authenticationCount++;
-            return authenticationCount == 1
-                ? olderAuthentication.future
-                : currentAuthentication.future;
-          });
-          when(
-            () => mockDisconnect(any()),
-          ).thenAnswer((_) async => const Right(unit));
-          when(
-            () => mockObserveConnectionStatus(any()),
-          ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
-
-          flowMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-          flowMiddleware.call(
-            store,
-            const PairingDisposedAction(wasTrusted: false),
-            next,
-          );
-          async.flushMicrotasks();
-          flowMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-          currentAuthentication.complete(
-            Right(Fixtures.buildPairingHandshake(trusted: true)),
-          );
-          async.flushMicrotasks();
-          final int actionsAfterCurrentFlow = actionLog.length;
-
-          olderAuthentication.complete(
-            Right(Fixtures.buildPairingHandshake(trusted: false)),
-          );
-          async.flushMicrotasks();
-          async.elapse(delay);
-          async.flushMicrotasks();
-
-          expect(actionLog.length, actionsAfterCurrentFlow);
-          expect(actionLog.whereType<PairingStartedAction>(), hasLength(2));
-          expect(actionLog.last, const PairingSessionTrustedAction());
-          verify(() => mockAuthenticate(any())).called(2);
-          verify(() => mockDisconnect(any())).called(1);
+      () async {
+        final Completer<Either<Failure, PairingHandshake>> olderAuthentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        final Completer<Either<Failure, PairingHandshake>>
+        currentAuthentication = Completer<Either<Failure, PairingHandshake>>();
+        int authenticationCount = 0;
+        when(() => mockAuthenticate(any())).thenAnswer((_) {
+          authenticationCount++;
+          return authenticationCount == 1
+              ? olderAuthentication.future
+              : currentAuthentication.future;
         });
-      },
-    );
+        when(
+          () => mockDisconnect(any()),
+        ).thenAnswer((_) async => const Right(unit));
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
 
-    test(
-      'PairingStartedAction does not retry once the Store reports a phase other than disconnected before reconnectDelay elapses',
-      () {
-        fakeAsync((FakeAsync async) {
-          const Duration delay = Duration(seconds: 3);
-          final PairingMiddleware retryMiddleware = PairingMiddleware(
-            reconnectDelay: delay,
-          );
-          const NetworkFailure failure = NetworkFailure('unreachable');
-          when(
-            () => mockAuthenticate(any()),
-          ).thenAnswer((_) async => const Left(failure));
-          when(
-            () => store.state,
-          ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
-
-          retryMiddleware.call(store, const PairingStartedAction(), next);
-          async.flushMicrotasks();
-
-          // A real reconnect (e.g. a manual retry landing before the
-          // scheduled one) would move the phase off disconnected via the
-          // reducer; simulated directly since no real reducer runs against
-          // a mocked Store.
-          when(
-            () => store.state,
-          ).thenReturn(_stateWithPhase(PairingPhase.unpaired));
-          async.elapse(delay);
-          async.flushMicrotasks();
-
-          expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
-          verify(() => mockAuthenticate(any())).called(1);
-        });
-      },
-    );
-
-    test('shutdown cancels a pending pairing retry', () {
-      fakeAsync((FakeAsync async) {
-        const Duration delay = Duration(seconds: 3);
-        final PairingMiddleware retryMiddleware = PairingMiddleware(
-          reconnectDelay: delay,
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
         );
-        const NetworkFailure failure = NetworkFailure('unreachable');
-        when(
-          () => mockAuthenticate(any()),
-        ).thenAnswer((_) async => const Left(failure));
-        when(
-          () => store.state,
-        ).thenReturn(_stateWithPhase(PairingPhase.disconnected));
+        await Future<void>.delayed(Duration.zero);
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        currentAuthentication.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: true)),
+        );
+        await Future<void>.delayed(Duration.zero);
+        final int actionsAfterCurrentFlow = actionLog.length;
 
-        retryMiddleware.call(store, const PairingStartedAction(), next);
-        async.flushMicrotasks();
-        bool shutdownCompleted = false;
-        retryMiddleware.shutdown().then((_) => shutdownCompleted = true);
-        async.flushMicrotasks();
-        async.elapse(delay);
-        async.flushMicrotasks();
+        olderAuthentication.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: false)),
+        );
+        await Future<void>.delayed(Duration.zero);
 
-        expect(shutdownCompleted, isTrue);
-        expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
-        verify(() => mockAuthenticate(any())).called(1);
-      });
-    });
+        expect(actionLog.length, actionsAfterCurrentFlow);
+        expect(actionLog.whereType<PairingStartedAction>(), hasLength(2));
+        expect(actionLog.last, const PairingSessionTrustedAction());
+        verify(() => mockAuthenticate(any())).called(2);
+        verify(() => mockDisconnect(any())).called(1);
+      },
+    );
   });
 
   group('PairingMiddleware shutdown behaves correctly', () {
@@ -920,7 +781,10 @@ void main() {
         ).thenAnswer((_) => authentication.future);
 
         middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+        expect(initialRetryStatusController.hasListener, isTrue);
         await middleware.shutdown();
+        expect(initialRetryStatusController.hasListener, isFalse);
         authentication.complete(
           Right(Fixtures.buildPairingHandshake(trusted: false)),
         );

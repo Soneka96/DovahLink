@@ -40,30 +40,6 @@ void main() {
       expect(result.credentialRejectionReason, isNull);
       expect(result.isRenotifyPending, isFalse);
     });
-
-    test(
-      'PairingStartedAction keeps the offline phase during an automatic retry',
-      () {
-        const PairingState offline = PairingState(
-          phase: PairingPhase.disconnected,
-          hostVersion: null,
-          error: null,
-          codeExpiresAt: null,
-          renotifyAvailableAt: null,
-        );
-
-        PairingState result = offline;
-        for (int retry = 0; retry < 2; retry++) {
-          result = pairingReducer(
-            result,
-            const PairingStartedAction(isAutomaticRetry: true),
-          );
-          result = pairingReducer(result, const PairingDisconnectedAction());
-        }
-
-        expect(result, offline);
-      },
-    );
   });
 
   group('Action PairingAuthenticatedAction behaves correctly', () {

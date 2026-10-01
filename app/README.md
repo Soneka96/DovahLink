@@ -14,7 +14,8 @@ The app consumes the SDK's `hosts`, `connections`, and `pairing` API groups from
 [`DovahLinkClient`](../sdk/README.md); `currentHost` exposes typed game-state APIs for a later app
 integration. The `features/connection/` area owns Host selection and navigation while mirroring the
 SDK's Known Host and candidate streams. Candidate membership and identity reconciliation stay in
-the SDK. Flutter does not implement live-state synchronization. Flutter conventions point to
+the SDK. Initial connection retries and bounded established-session recovery also stay in the SDK
+as separate policies. Flutter does not implement live-state synchronization. Flutter conventions point to
 [`ai/context/sdk/`](../ai/context/sdk/) for SDK-owned protocol behavior rather than duplicating it
 in the app.
 

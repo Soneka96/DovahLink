@@ -78,6 +78,11 @@ may report acceptance, rejection, an error, or operation-specific metadata, but 
 fabricate the resulting authoritative Host, session, trust, pairing, or game state from command
 success.
 
+`ReconnectService` owns initial connection retries after an explicit candidate or Known Host attempt;
+established-session recovery remains a separate bounded lifecycle. `PairingMiddleware` observes the
+typed initial-retry status and keeps pairing Offline while the SDK waits or retries. Dialog disposal
+and application shutdown disconnect through the SDK, which cancels that retry intent.
+
 For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
 of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with independent
 `HostAvailability` and `KnownHostSessionState` values. An admitted session renders `Connected`;

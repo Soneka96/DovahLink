@@ -4,6 +4,24 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Runs [CredentialRejectionReason.fromProtocolErrorCode] behavior tests.
 void main() {
+  group(
+    'Property values in DovahLinkInitialConnectionRetryStatus behaves correctly',
+    () {
+      test(
+        'Property values in DovahLinkInitialConnectionRetryStatus distinguishes inactive and retrying',
+        () {
+          expect(
+            DovahLinkInitialConnectionRetryStatus.values,
+            <DovahLinkInitialConnectionRetryStatus>[
+              DovahLinkInitialConnectionRetryStatus.inactive,
+              DovahLinkInitialConnectionRetryStatus.retrying,
+            ],
+          );
+        },
+      );
+    },
+  );
+
   group('Property values in DovahLinkHostAvailability behaves correctly', () {
     test(
       'Property values in DovahLinkHostAvailability contains every reachability state',

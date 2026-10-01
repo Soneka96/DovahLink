@@ -83,6 +83,8 @@ void main() {
   ReconnectService buildService({
     List<Duration> attemptDelays = _shortDelays,
     Duration deadline = const Duration(seconds: 30),
+    Duration initialConnectionRetryDelay = const Duration(seconds: 3),
+    Stream<void>? initialConnectionRetryTicks,
     DateTime Function()? now,
   }) => ReconnectService(
     sessionService: sessionService,
@@ -91,7 +93,342 @@ void main() {
     attemptDelays: attemptDelays,
     deadline: deadline,
     now: now ?? DateTime.now,
+    initialConnectionRetryDelay: initialConnectionRetryDelay,
+    initialConnectionRetryTicks: initialConnectionRetryTicks,
   );
+
+  group('Method connectWithInitialRetry behaves correctly', () {
+    test(
+      'Method connectWithInitialRetry retries transient failures until authentication succeeds',
+      () async {
+        int attemptCount = 0;
+        final List<DovahLinkInitialConnectionRetryStatus> statuses =
+            <DovahLinkInitialConnectionRetryStatus>[];
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+        final StreamSubscription<DovahLinkInitialConnectionRetryStatus>
+        subscription = service.initialConnectionRetryChanges.listen(
+          statuses.add,
+        );
+        addTearDown(subscription.cancel);
+
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () async {
+            attemptCount++;
+            if (attemptCount == 1) {
+              throw const DovahLinkConnectionException('unreachable');
+            }
+            if (attemptCount < 5) {
+              throw const DovahLinkProtocolException(
+                code: ProtocolErrorCode.malformedMessage,
+                message: 'invalid initial reply',
+                retryable: false,
+              );
+            }
+            return Fixtures.buildHelloResult(
+              trustState: DovahLinkTrustState.unpaired,
+            );
+          },
+        );
+        final HelloResult result = await connection;
+        await pumpEventQueue();
+
+        expect(attemptCount, 5);
+        expect(result.trustState, DovahLinkTrustState.unpaired);
+        expect(statuses, <DovahLinkInitialConnectionRetryStatus>[
+          DovahLinkInitialConnectionRetryStatus.inactive,
+          DovahLinkInitialConnectionRetryStatus.retrying,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        ]);
+      },
+    );
+
+    test(
+      'Method connectWithInitialRetry stops after administrative invalidation',
+      () async {
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () async {
+            attemptCount++;
+            if (attemptCount == 1) {
+              throw const DovahLinkConnectionException('unreachable');
+            }
+            when(
+              () => sessionService.connectionState,
+            ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
+            throw const DovahLinkConnectionException('invalidated');
+          },
+        );
+
+        await expectLater(
+          connection,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(attemptCount, 2);
+      },
+    );
+
+    test(
+      'Method stopInitialConnectionRetry cancels its delay without another attempt',
+      () async {
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: const Duration(seconds: 30),
+        );
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () async {
+            attemptCount++;
+            throw const DovahLinkConnectionException('unreachable');
+          },
+        );
+        await pumpEventQueue();
+
+        service.stopInitialConnectionRetry();
+        await expectLater(
+          connection,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(attemptCount, 1);
+        expect(
+          await service.initialConnectionRetryChanges.first,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        );
+      },
+    );
+
+    test(
+      'Method stopRecovery does not cancel an initial connection retry',
+      () async {
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () async {
+            attemptCount++;
+            if (attemptCount == 1) {
+              throw const DovahLinkConnectionException('unreachable');
+            }
+            return Fixtures.buildHelloResult();
+          },
+        );
+        service.stopRecovery();
+
+        await connection;
+
+        expect(attemptCount, 2);
+      },
+    );
+  });
+
+  group('Method connectWithInitialRetry behaves correctly', () {
+    test(
+      'Method connectWithInitialRetry retries transient failures until success',
+      () async {
+        int attemptCount = 0;
+        final List<DovahLinkInitialConnectionRetryStatus> statuses =
+            <DovahLinkInitialConnectionRetryStatus>[];
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+        final StreamSubscription<DovahLinkInitialConnectionRetryStatus>
+        subscription = service.initialConnectionRetryChanges.listen(
+          statuses.add,
+        );
+        addTearDown(subscription.cancel);
+
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () async {
+            attemptCount++;
+            if (attemptCount < 5) {
+              throw const DovahLinkConnectionException('unreachable');
+            }
+            return Fixtures.buildHelloResult(
+              trustState: DovahLinkTrustState.unpaired,
+            );
+          },
+        );
+        final HelloResult result = await connection;
+        await pumpEventQueue();
+
+        expect(attemptCount, 5);
+        expect(result.trustState, DovahLinkTrustState.unpaired);
+        expect(statuses, <DovahLinkInitialConnectionRetryStatus>[
+          DovahLinkInitialConnectionRetryStatus.inactive,
+          DovahLinkInitialConnectionRetryStatus.retrying,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        ]);
+      },
+    );
+
+    test(
+      'Method connectWithInitialRetry does not retry after administrative invalidation',
+      () async {
+        DovahLinkConnectionState connectionState =
+            DovahLinkConnectionState.disconnected;
+        when(
+          () => sessionService.connectionState,
+        ).thenAnswer((_) => connectionState);
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+
+        await expectLater(
+          service.connectWithInitialRetry(() async {
+            attemptCount++;
+            connectionState =
+                DovahLinkConnectionState.administrativelyInvalidated;
+            throw const DovahLinkConnectionException(
+              'Host invalidated session',
+            );
+          }),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(attemptCount, 1);
+      },
+    );
+
+    test(
+      'Method connectWithInitialRetry does not retry when invalidated during its delay',
+      () async {
+        DovahLinkConnectionState connectionState =
+            DovahLinkConnectionState.disconnected;
+        when(
+          () => sessionService.connectionState,
+        ).thenAnswer((_) => connectionState);
+        final StreamController<void> ticks = StreamController<void>.broadcast();
+        addTearDown(ticks.close);
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryTicks: ticks.stream,
+        );
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () async {
+            attemptCount++;
+            throw const DovahLinkConnectionException('unreachable');
+          },
+        );
+        await pumpEventQueue();
+
+        connectionState = DovahLinkConnectionState.administrativelyInvalidated;
+        ticks.add(null);
+        await expectLater(
+          connection,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(attemptCount, 1);
+      },
+    );
+
+    test(
+      'Method stopInitialConnectionRetry cancels a pending delay and suppresses its late result',
+      () async {
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: const Duration(seconds: 30),
+        );
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () async {
+            attemptCount++;
+            throw const DovahLinkConnectionException('unreachable');
+          },
+        );
+        await pumpEventQueue();
+
+        service.stopInitialConnectionRetry();
+        await expectLater(
+          connection,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(attemptCount, 1);
+        expect(
+          await service.initialConnectionRetryChanges.first,
+          DovahLinkInitialConnectionRetryStatus.inactive,
+        );
+      },
+    );
+
+    test(
+      'Method stopInitialConnectionRetry ignores a successful in-flight result',
+      () async {
+        final Completer<HelloResult> attempt = Completer<HelloResult>();
+        final ReconnectService service = buildService();
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () => attempt.future,
+        );
+        service.stopInitialConnectionRetry();
+        attempt.complete(Fixtures.buildHelloResult());
+
+        await expectLater(
+          connection,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+      },
+    );
+
+    test(
+      'Method connectWithInitialRetry invalidates an older Host attempt when a new one starts',
+      () async {
+        final Completer<HelloResult> olderAttempt = Completer<HelloResult>();
+        final HelloResult currentHost = Fixtures.buildHelloResult(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+        );
+        final ReconnectService service = buildService();
+        final Future<HelloResult> olderConnection = service
+            .connectWithInitialRetry(() => olderAttempt.future);
+
+        expect(
+          await service.connectWithInitialRetry(() async => currentHost),
+          same(currentHost),
+        );
+        olderAttempt.complete(
+          Fixtures.buildHelloResult(
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+          ),
+        );
+        await expectLater(
+          olderConnection,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+      },
+    );
+
+    test(
+      'Method stopRecovery does not cancel an initial connection retry',
+      () async {
+        int attemptCount = 0;
+        final ReconnectService service = buildService(
+          initialConnectionRetryDelay: Duration.zero,
+        );
+
+        final Future<HelloResult> connection = service.connectWithInitialRetry(
+          () async {
+            attemptCount++;
+            if (attemptCount == 1) {
+              throw const DovahLinkConnectionException('unreachable');
+            }
+            return Fixtures.buildHelloResult();
+          },
+        );
+        service.stopRecovery();
+
+        await connection;
+
+        expect(attemptCount, 2);
+      },
+    );
+  });
 
   group('Method onOrdinaryTransportLoss behaves correctly', () {
     test(

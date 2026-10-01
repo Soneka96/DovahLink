@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:fpdart/fpdart.dart' show Either;
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
@@ -23,6 +24,9 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show DovahLinkClient, DovahLinkInitialConnectionRetryStatus;
+
 /// Defines the pairing Redux middleware contract and its shutdown cleanup.
 abstract interface class IPairingMiddleware {
   /// Handles one Redux [action] with the supplied [store] and [next] dispatcher.
@@ -39,9 +43,6 @@ abstract interface class IPairingMiddleware {
 /// Handles pairing actions, resolving use cases through [sl] and releasing owned resources.
 class PairingMiddleware extends MiddlewareClass<AppState>
     implements IPairingMiddleware {
-  /// Delay before automatically retrying after [PairingDisconnectedAction].
-  final Duration reconnectDelay;
-
   /// The active subscription started by [_pairingSessionTrusted], or `null` before the first
   /// trusted session this middleware instance has observed, or after the session it was watching
   /// was administratively invalidated. Survives navigation away from the pairing screen (see
@@ -51,8 +52,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   /// reusing one still delivering events for the session that is now gone.
   StreamSubscription<PairingConnectionStatus>? _connectionStatusSubscription;
 
-  /// Retry timer scheduled after a failed initial pairing connection.
-  Timer? _reconnectTimer;
+  /// Observes SDK-owned initial retry presentation state for the active pairing flow.
+  StreamSubscription<DovahLinkInitialConnectionRetryStatus>?
+  _initialConnectionRetrySubscription;
 
   /// Generation of the pairing flow allowed to publish authentication results.
   int _pairingFlowGeneration = 0;
@@ -60,10 +62,8 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   /// Whether shutdown has started and no new pairing work should be started.
   bool _isShuttingDown = false;
 
-  /// Creates pairing middleware. [reconnectDelay] is the wait before
-  /// silently retrying after the host is found unreachable; injectable so
-  /// tests don't wait in real time.
-  PairingMiddleware({this.reconnectDelay = const Duration(seconds: 3)});
+  /// Creates pairing middleware without an active SDK subscription.
+  PairingMiddleware();
 
   /// See [MiddlewareClass.call].
   @override
@@ -80,8 +80,8 @@ class PairingMiddleware extends MiddlewareClass<AppState>
 
     switch (action) {
       case final PairingStartedAction pairingAction:
-        _reconnectTimer?.cancel();
-        _reconnectTimer = null;
+        unawaited(_initialConnectionRetrySubscription?.cancel());
+        _initialConnectionRetrySubscription = null;
         _pairingFlowGeneration++;
         _pairingStarted(store, pairingAction, _pairingFlowGeneration);
       case PairingCodeRequestedAction _:
@@ -104,8 +104,10 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   Future<void> shutdown() async {
     _isShuttingDown = true;
     _pairingFlowGeneration++;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+    final StreamSubscription<DovahLinkInitialConnectionRetryStatus>?
+    initialRetrySubscription = _initialConnectionRetrySubscription;
+    _initialConnectionRetrySubscription = null;
+    await initialRetrySubscription?.cancel();
     final StreamSubscription<PairingConnectionStatus>? subscription =
         _connectionStatusSubscription;
     _connectionStatusSubscription = null;
@@ -114,8 +116,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
 
   /// Handles [PairingStartedAction] by authenticating with the Host the user selected through
   /// [AuthenticateUseCase]. With no Host selected there is nothing to connect to, so it
-  /// dispatches [PairingFailedAction] rather than falling back to some default Host. The silent
-  /// reconnect scheduled by [_scheduleReconnect] re-enters here and so reuses the same selection.
+  /// dispatches [PairingFailedAction] rather than falling back to some default Host. The SDK's
+  /// retry status changes the presentation to Offline while its original authentication operation
+  /// remains pending; the same selected Host and operation complete on retry success.
   /// Selecting a Host already expresses the intent to pair, so an unpaired session with no
   /// rejected credential goes on to dispatch [PairingCodeRequestedAction] itself, once per
   /// authentication. A session that recovered from a rejected credential does not automatically
@@ -139,7 +142,27 @@ class PairingMiddleware extends MiddlewareClass<AppState>
             ConnectionHostSelectionSource.knownHost
         ? AuthenticateParams.knownHost(hostId: host.hostId)
         : AuthenticateParams(hostUri: host.uri);
-    final result = await sl<AuthenticateUseCase>()(params);
+    final Future<Either<Failure, PairingHandshake>> authentication =
+        sl<AuthenticateUseCase>()(params);
+    final StreamSubscription<DovahLinkInitialConnectionRetryStatus>
+    retrySubscription = sl<DovahLinkClient>()
+        .connections
+        .initialConnectionRetryChanges
+        .listen((DovahLinkInitialConnectionRetryStatus status) {
+          if (!_isShuttingDown &&
+              generation == _pairingFlowGeneration &&
+              status == DovahLinkInitialConnectionRetryStatus.retrying &&
+              PairingSelectors.phaseSelector(store.state) !=
+                  PairingPhase.disconnected) {
+            store.dispatch(const PairingDisconnectedAction());
+          }
+        });
+    _initialConnectionRetrySubscription = retrySubscription;
+    final Either<Failure, PairingHandshake> result = await authentication;
+    if (identical(_initialConnectionRetrySubscription, retrySubscription)) {
+      _initialConnectionRetrySubscription = null;
+      unawaited(retrySubscription.cancel());
+    }
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
@@ -147,7 +170,6 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       (Failure failure) {
         if (failure is NetworkFailure) {
           store.dispatch(const PairingDisconnectedAction());
-          _scheduleReconnect(store, generation);
         } else {
           store.dispatch(PairingFailedAction(failure.message));
         }
@@ -224,26 +246,6 @@ class PairingMiddleware extends MiddlewareClass<AppState>
         store.dispatch(const PairingCancelSucceededAction());
       },
     );
-  }
-
-  /// Silently retries authentication after [reconnectDelay] while the app is open and the pairing
-  /// state is still [PairingPhase.disconnected]. The retry marker preserves Offline presentation.
-  /// @param store The application store used to check the current pairing phase and dispatch retry.
-  /// @param generation The pairing flow authorized to schedule this retry.
-  void _scheduleReconnect(Store<AppState> store, int generation) {
-    if (_isShuttingDown || generation != _pairingFlowGeneration) {
-      return;
-    }
-    _reconnectTimer?.cancel();
-    _reconnectTimer = Timer(reconnectDelay, () {
-      _reconnectTimer = null;
-      if (!_isShuttingDown &&
-          generation == _pairingFlowGeneration &&
-          PairingSelectors.phaseSelector(store.state) ==
-              PairingPhase.disconnected) {
-        store.dispatch(const PairingStartedAction(isAutomaticRetry: true));
-      }
-    });
   }
 
   /// Handles [PairingCodeRequestedAction] by requesting a pairing challenge
@@ -345,8 +347,10 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     final String? pendingPairingHostId =
         ConnectionSelectors.pendingPairingHostIdSelector(store.state);
     _pairingFlowGeneration++;
-    _reconnectTimer?.cancel();
-    _reconnectTimer = null;
+    final StreamSubscription<DovahLinkInitialConnectionRetryStatus>?
+    initialRetrySubscription = _initialConnectionRetrySubscription;
+    _initialConnectionRetrySubscription = null;
+    await initialRetrySubscription?.cancel();
     if (action.wasTrusted) {
       return;
     }
