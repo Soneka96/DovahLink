@@ -1498,6 +1498,75 @@ void main() {
         verify(() => sessionTrustService.markTrusted()).called(1);
       },
     );
+
+    test(
+      'Method confirmPairingCodeAndAcknowledge preserves recovery and rejects a replacement session with the same Host ID',
+      () async {
+        final DovahLinkHost hostA = _currentHost();
+        final Completer<void> updateGate = Completer<void>();
+        final GatedClientStateService gatedStorage = GatedClientStateService(
+          loadedState: _state(clientId: 'client-1'),
+          updateGate: updateGate,
+        );
+        service = PairingService(
+          authenticationService: authenticationService,
+          reconnectService: reconnectService,
+          sessionService: sessionService,
+          sessionTrustService: sessionTrustService,
+          requestService: requestService,
+          clientStateService: gatedStorage,
+          hostAvailabilityService: hostAvailabilityService,
+        );
+        stubSendAndAwait(
+          requestService,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
+            credential: 'credential-A',
+          ),
+        );
+
+        final Future<void> confirmation = service
+            .confirmPairingCodeAndAcknowledge(code: '123456');
+        await gatedStorage.updateStarted.future;
+        currentSessionId = 'session-2';
+        updateGate.complete();
+
+        await expectLater(
+          confirmation,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        expect(
+          await gatedStorage.load(),
+          _state(
+            clientId: 'client-1',
+            credential: 'credential-A',
+            recoveryState: PairingRecoveryState.confirming,
+            knownHost: hostA,
+          ),
+        );
+        verify(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.pairingConfirm,
+            payload: any(named: 'payload'),
+            expectedType: ProtocolMessageType.pairingOutcome,
+            policy: any(named: 'policy'),
+          ),
+        ).called(1);
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.pairingAck,
+            payload: any(named: 'payload'),
+            expectedType: ProtocolMessageType.pairingOutcome,
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNever(() => sessionTrustService.markTrusted());
+        verifyNever(() => sessionService.associateKnownHost(any()));
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+      },
+    );
   });
 
   group('Method acknowledgeTrustedCredential behaves correctly', () {

@@ -69,7 +69,13 @@ abstract interface class IPairingService {
   /// @throws [DovahLinkConnectionException] if the active session has no current Host context.
   Future<void> confirmPairingCode({required String code, String? displayName});
 
-  /// Confirms a code and completes the Host's trusted-credential acknowledgement.
+  /// Confirms a code and acknowledges its credential on the session active before confirmation.
+  /// @param code The six-digit code shown by Skyrim.
+  /// @param displayName The optional Client display name for Host pairing metadata.
+  /// @throws [DovahLinkPairingException] if the code or pending acknowledgement is rejected.
+  /// @throws [DovahLinkConnectionException] if no active context exists or its Host/session
+  ///     changes before acknowledgement.
+  /// @throws [DovahLinkProtocolException] if either Host response is malformed.
   Future<void> confirmPairingCodeAndAcknowledge({
     required String code,
     String? displayName,
@@ -371,7 +377,25 @@ class PairingService implements IPairingService {
     required String code,
     String? displayName,
   }) async {
+    final DovahLinkHost? expectedHost = _sessionService.currentHost;
+    if (expectedHost == null) {
+      throw const DovahLinkConnectionException(
+        'The current Host context is unavailable.',
+      );
+    }
+    final String? expectedSessionId = _sessionService.currentSessionId;
+    if (expectedSessionId == null) {
+      throw const DovahLinkConnectionException(
+        'The current session is unavailable.',
+      );
+    }
     await confirmPairingCode(code: code, displayName: displayName);
+    if (_sessionService.currentSessionId != expectedSessionId ||
+        _sessionService.currentHost?.hostId != expectedHost.hostId) {
+      throw const DovahLinkConnectionException(
+        'The active session changed while pairing confirmation was persisted.',
+      );
+    }
     await acknowledgeTrustedCredential();
   }
 

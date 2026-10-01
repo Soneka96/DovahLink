@@ -43,6 +43,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- Combined pairing confirmation rejects a changed Host session before acknowledgement while
+  preserving its durable recovery state.
 - Initial connection retry stops immediately for terminal or non-retryable protocol failures.
 - Pending discovery checks terminal shutdown after storage and probe awaits, preventing late
   subscriptions, probes, and candidate updates.
