@@ -1,4 +1,7 @@
+import 'dart:ui' show Tristate;
+
 import 'package:flutter/material.dart';
+import 'package:flutter/semantics.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -93,7 +96,7 @@ void main() {
           size: dovahTestSizes.first,
         );
 
-        expect(find.text('Not connected'), findsOneWidget);
+        expect(find.text('Unknown'), findsOneWidget);
         expect(find.text('Known Host'), findsOneWidget);
       },
     );
@@ -258,6 +261,7 @@ void main() {
           source: ConnectionHostSelectionSource.knownHost,
           title: 'Second Host',
           subtitle: 'Known Host',
+          state: DovahConnectionCardState.available,
         );
         await pumpDovahThemedWidget(
           tester,
@@ -268,6 +272,7 @@ void main() {
                 source: ConnectionHostSelectionSource.knownHost,
                 title: 'First Host',
                 subtitle: 'Known Host',
+                state: DovahConnectionCardState.available,
               ),
               secondCard,
             ],
@@ -312,11 +317,13 @@ void main() {
                 host: first,
                 source: ConnectionHostSelectionSource.knownHost,
                 subtitle: 'Known Host',
+                state: DovahConnectionCardState.available,
               ),
               Fixtures.buildHostCardViewData(
                 host: second,
                 source: ConnectionHostSelectionSource.knownHost,
                 subtitle: 'Known Host',
+                state: DovahConnectionCardState.available,
               ),
             ],
             onSelectHost: selected.add,
@@ -332,11 +339,13 @@ void main() {
                 host: second,
                 source: ConnectionHostSelectionSource.knownHost,
                 subtitle: 'Known Host',
+                state: DovahConnectionCardState.available,
               ),
               Fixtures.buildHostCardViewData(
                 host: first,
                 source: ConnectionHostSelectionSource.knownHost,
                 subtitle: 'Known Host',
+                state: DovahConnectionCardState.available,
               ),
             ],
             onSelectHost: selected.add,
@@ -381,6 +390,7 @@ void main() {
                 host: before,
                 source: ConnectionHostSelectionSource.knownHost,
                 subtitle: 'Known Host',
+                state: DovahConnectionCardState.available,
               ),
             ],
             onSelectHost: (HostCardViewData card) => selected.add(card.host),
@@ -398,6 +408,7 @@ void main() {
                 host: after,
                 source: ConnectionHostSelectionSource.knownHost,
                 subtitle: 'Known Host',
+                state: DovahConnectionCardState.available,
               ),
             ],
             onSelectHost: (HostCardViewData card) => selected.add(card.host),
@@ -435,6 +446,69 @@ void main() {
         expect(selected, isEmpty);
       },
     );
+
+    testWidgets(
+      'ConnectionsHostSection keeps non-online Known Hosts visible but not selectable',
+      (WidgetTester tester) async {
+        final List<HostCardViewData> selected = [];
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        try {
+          for (final DovahConnectionCardState state in [
+            DovahConnectionCardState.offline,
+            DovahConnectionCardState.connected,
+            DovahConnectionCardState.reconnecting,
+            DovahConnectionCardState.checking,
+            DovahConnectionCardState.unknown,
+          ]) {
+            await pumpDovahThemedWidget(
+              tester,
+              ConnectionsHostSection(
+                cards: [
+                  Fixtures.buildHostCardViewData(
+                    source: ConnectionHostSelectionSource.knownHost,
+                    subtitle: 'Known Host',
+                    state: state,
+                  ),
+                ],
+                onSelectHost: selected.add,
+              ),
+              preset: DovahThemePreset.dovah,
+              size: dovahTestSizes.first,
+            );
+
+            final DovahConnectionCard card = tester.widget(
+              find.byType(DovahConnectionCard),
+            );
+            final SemanticsData semanticsData = tester
+                .getSemantics(
+                  find.bySemanticsLabel(
+                    'Local Host, Known Host, 127.0.0.1:58231, ${state.label}',
+                  ),
+                )
+                .getSemanticsData();
+            expect(card.onTap, isNull, reason: state.name);
+            expect(
+              semanticsData.flagsCollection.isEnabled,
+              Tristate.isFalse,
+              reason: state.name,
+            );
+            expect(
+              semanticsData.hasAction(SemanticsAction.tap),
+              isFalse,
+              reason: state.name,
+            );
+            expect(find.byIcon(Icons.chevron_right), findsNothing);
+            await tester.tap(
+              find.byType(DovahConnectionCard),
+              warnIfMissed: false,
+            );
+            expect(selected, isEmpty, reason: state.name);
+          }
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
   });
 
   group('ConnectionsHostSection exposes sensible semantics', () {
@@ -458,12 +532,15 @@ void main() {
             size: dovahTestSizes.first,
           );
 
-          expect(
-            find.bySemanticsLabel(
-              'Local Host, Known Host, 127.0.0.1:58231, Not connected',
-            ),
-            findsOneWidget,
-          );
+          final SemanticsData host = tester
+              .getSemantics(
+                find.bySemanticsLabel(
+                  'Local Host, Known Host, 127.0.0.1:58231, Unknown',
+                ),
+              )
+              .getSemanticsData();
+          expect(host.flagsCollection.isButton, isTrue);
+          expect(host.flagsCollection.isEnabled, Tristate.isFalse);
           await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
         } finally {
           semantics.dispose();

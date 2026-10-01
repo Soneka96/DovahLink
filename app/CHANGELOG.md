@@ -34,6 +34,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,
+  and Unknown states remain visible without an entry affordance.
 - Connections lists durable Known Hosts separately from ephemeral discovery candidates.
 - Candidate selection shows the real authentication check and opens the existing pairing flow only after its outcome.
 - Discovery completion updates operation status without replacing the SDK's candidate collection.

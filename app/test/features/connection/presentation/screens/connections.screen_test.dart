@@ -102,6 +102,7 @@ void main() {
       Fixtures.buildHostCardViewData(
         source: ConnectionHostSelectionSource.knownHost,
         subtitle: 'Known Host',
+        state: DovahConnectionCardState.available,
       ),
     ]);
     when(() => viewModel.canDiscover).thenReturn(true);
@@ -457,31 +458,30 @@ void main() {
       expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
     });
 
-    testWidgets(
-      'ConnectionsScreen preserves Known Host source when its card is tapped',
-      (WidgetTester tester) async {
-        final Host host = Fixtures.buildHost();
-        when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewData(
-            host: host,
-            source: ConnectionHostSelectionSource.knownHost,
-            subtitle: 'Known Host',
-            state: DovahConnectionCardState.offline,
-          ),
-        ]);
+    testWidgets('ConnectionsScreen does not select an Offline Known Host', (
+      WidgetTester tester,
+    ) async {
+      final Host host = Fixtures.buildHost();
+      when(() => viewModel.hostCards).thenReturn([
+        Fixtures.buildHostCardViewData(
+          host: host,
+          source: ConnectionHostSelectionSource.knownHost,
+          subtitle: 'Known Host',
+          state: DovahConnectionCardState.offline,
+        ),
+      ]);
 
-        await tester.pumpWidget(buildWidget());
-        await tester.tap(
-          find.byKey(
-            const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
-          ),
-        );
-        await tester.pump();
+      await tester.pumpWidget(buildWidget());
+      await tester.tap(
+        find.byKey(const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea')),
+        warnIfMissed: false,
+      );
+      await tester.pump();
 
-        expect(selectedHosts, [host]);
-        expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
-      },
-    );
+      expect(find.byType(DovahDialog), findsNothing);
+      expect(selectedHosts, isEmpty);
+      expect(selectedSources, isEmpty);
+    });
 
     testWidgets(
       'ConnectionsScreen passes the second Host, not the first, when the second card is tapped',
@@ -497,8 +497,16 @@ void main() {
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewData(host: first, title: 'First Host'),
-          Fixtures.buildHostCardViewData(host: second, title: 'Second Host'),
+          Fixtures.buildHostCardViewData(
+            host: first,
+            title: 'First Host',
+            state: DovahConnectionCardState.available,
+          ),
+          Fixtures.buildHostCardViewData(
+            host: second,
+            title: 'Second Host',
+            state: DovahConnectionCardState.available,
+          ),
         ]);
         await useSurface(tester, const Size(1280, 900));
         await tester.pumpWidget(buildWidget());
@@ -528,10 +536,15 @@ void main() {
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewData(host: first, title: first.displayName),
+          Fixtures.buildHostCardViewData(
+            host: first,
+            title: first.displayName,
+            state: DovahConnectionCardState.available,
+          ),
           Fixtures.buildHostCardViewData(
             host: second,
             title: second.displayName,
+            state: DovahConnectionCardState.available,
           ),
         ]);
         await useSurface(tester, const Size(1280, 900));
@@ -720,8 +733,16 @@ void main() {
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewData(host: first, title: 'First Host'),
-          Fixtures.buildHostCardViewData(host: second, title: 'Second Host'),
+          Fixtures.buildHostCardViewData(
+            host: first,
+            title: 'First Host',
+            state: DovahConnectionCardState.available,
+          ),
+          Fixtures.buildHostCardViewData(
+            host: second,
+            title: 'Second Host',
+            state: DovahConnectionCardState.available,
+          ),
         ]);
         useWindow(tester, const Size(1280, 900));
         await tester.pumpWidget(buildWidget());
@@ -747,10 +768,15 @@ void main() {
           uri: Uri.parse('ws://127.0.0.1:2/'),
         );
         when(() => viewModel.hostCards).thenReturn([
-          Fixtures.buildHostCardViewData(host: first, title: first.displayName),
+          Fixtures.buildHostCardViewData(
+            host: first,
+            title: first.displayName,
+            state: DovahConnectionCardState.available,
+          ),
           Fixtures.buildHostCardViewData(
             host: second,
             title: second.displayName,
+            state: DovahConnectionCardState.available,
           ),
         ]);
         useWindow(tester, const Size(1280, 900));
@@ -1143,7 +1169,7 @@ void main() {
           final SemanticsData host = tester
               .getSemantics(
                 find.bySemanticsLabel(
-                  'Local Host, Known Host, 127.0.0.1:58231, Not connected',
+                  'Local Host, Known Host, 127.0.0.1:58231, Online',
                 ),
               )
               .getSemanticsData();

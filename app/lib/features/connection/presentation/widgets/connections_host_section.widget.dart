@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -79,7 +80,9 @@ class ConnectionsHostSection extends StatelessWidget {
               subtitle: card.subtitle,
               detail: card.detail,
               state: card.state,
-              onTap: () => onSelectHost(card),
+              onTap: card.state == DovahConnectionCardState.available
+                  ? () => onSelectHost(card)
+                  : null,
             );
           },
         ),
