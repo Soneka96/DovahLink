@@ -8,6 +8,8 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/discover_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_candidate_card.widget.dart';
@@ -85,7 +87,10 @@ void main() {
     when(
       () => viewModel.onDiscover,
     ).thenReturn(() => discoverCalls.add('discover'));
-    when(() => viewModel.onSelectCandidate).thenReturn(selectedCandidates.add);
+    when(() => viewModel.onSelectCandidate).thenReturn((HostCardViewData card) {
+      selectedCandidates.add(card);
+      return true;
+    });
     when(
       () => viewModel.onDispose,
     ).thenReturn(() => disposeCalls.add('dispose'));
@@ -132,6 +137,38 @@ void main() {
       expect(find.byType(DovahDialog), findsOneWidget);
       expect(find.text('Discover Skyrim'), findsOneWidget);
     });
+
+    testWidgets(
+      'DiscoverDialog does not dispose pairing when closed unselected',
+      (WidgetTester tester) async {
+        late Future<void> flow;
+        setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
+        await tester.pumpWidget(
+          StoreProvider<AppState>(
+            store: store,
+            child: MaterialApp(
+              theme: dovahThemeDataFor(DovahThemePreset.dovah),
+              home: Builder(
+                builder: (BuildContext context) => Scaffold(
+                  body: TextButton(
+                    onPressed: () => flow = DiscoverDialog.show(context),
+                    child: const Text('Open Discover'),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+
+        await tester.tap(find.text('Open Discover'));
+        await tester.pump();
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+        await flow;
+
+        expect(disposeCalls, isEmpty);
+      },
+    );
 
     testWidgets('DiscoverDialog announces and spins while discovering', (
       WidgetTester tester,
@@ -239,6 +276,32 @@ void main() {
         },
       );
     }
+
+    testWidgets(
+      'DiscoverDialog does not dispose a candidate lifecycle when selection did not start one',
+      (WidgetTester tester) async {
+        when(
+          () => viewModel.status,
+        ).thenReturn(ConnectionDiscoveryStatus.available);
+        when(() => viewModel.candidates).thenReturn([candidate]);
+        when(() => viewModel.canSelectCandidate).thenReturn(true);
+        when(() => viewModel.onSelectCandidate).thenReturn((
+          HostCardViewData _,
+        ) {
+          return false;
+        });
+        setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
+        await tester.pumpWidget(buildDialog());
+
+        await tester.tap(
+          find.byKey(Key('discover-candidate-${candidate.host.hostId}')),
+        );
+        await tester.pump();
+        await tester.pumpWidget(const SizedBox.shrink());
+
+        expect(disposeCalls, isEmpty);
+      },
+    );
 
     testWidgets(
       'DiscoverDialog handles available status before its candidate snapshot',
@@ -396,13 +459,9 @@ void main() {
           initialState: AppState(
             connection: connection.ConnectionState(
               hosts: [candidateHost],
-              selectedHost: candidateHost,
-              selectedHostSource: ConnectionHostSelectionSource.candidate,
               discoveryStatus: ConnectionDiscoveryStatus.available,
             ),
-            pairing: PairingState.initial().copyWith(
-              phase: PairingPhase.connecting,
-            ),
+            pairing: PairingState.initial(),
           ),
           middleware: [recordActions],
         );
@@ -432,6 +491,11 @@ void main() {
         );
         await tester.tap(find.text('Open Discover'));
         await tester.pump();
+        await tester.tap(
+          find.byKey(Key('discover-candidate-${candidateHost.hostId}')),
+        );
+        await tester.pump();
+        expect(realStore.state.pairing.phase, PairingPhase.connecting);
 
         await tester.tap(find.byTooltip('Close'));
         await tester.pumpAndSettle();
@@ -608,29 +672,30 @@ void main() {
       final PairingMiddleware pairingMiddleware = PairingMiddleware();
       addTearDown(pairingMiddleware.shutdown);
 
-      /// Records Redux actions before the real pairing middleware handles them.
+      /// Records actions, simulates SDK pairing results, and runs real disposal middleware.
       void recordActions(
         Store<AppState> store,
         dynamic action,
         NextDispatcher next,
       ) {
         actions.add(action);
-        next(action);
+        if (action is PairingStartedAction ||
+            action is PairingCodeSubmittedAction) {
+          next(action);
+        } else {
+          pairingMiddleware.call(store, action, next);
+        }
       }
 
       realStore = const CreateStore()(
         initialState: AppState(
           connection: connection.ConnectionState(
             hosts: [candidateHost],
-            selectedHost: candidateHost,
-            selectedHostSource: ConnectionHostSelectionSource.candidate,
             discoveryStatus: ConnectionDiscoveryStatus.available,
           ),
-          pairing: PairingState.initial().copyWith(
-            phase: PairingPhase.connecting,
-          ),
+          pairing: PairingState.initial(),
         ),
-        middleware: [recordActions, pairingMiddleware.call],
+        middleware: [recordActions],
       );
       sl.unregister<DiscoverDialogViewModel>();
       sl.registerFactoryParam<DiscoverDialogViewModel, Store<AppState>, void>(
@@ -640,8 +705,8 @@ void main() {
       registerRealPairingViewModels();
     });
 
-    /// Opens Discover through its real dialog route during candidate authentication and moves it
-    /// into the embedded pairing flow with an unpaired outcome, keeping the route future in [flow].
+    /// Opens Discover through its real route, selects its candidate, and applies an unpaired SDK
+    /// outcome, keeping the route future in [flow].
     Future<void> openEmbeddedPairing(WidgetTester tester) async {
       setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
       await tester.pumpWidget(
@@ -662,7 +727,10 @@ void main() {
       );
       await tester.tap(find.text('Open Discover'));
       await tester.pump();
-      await tester.pump(const Duration(seconds: 1));
+      await tester.tap(
+        find.byKey(Key('discover-candidate-${candidateHost.hostId}')),
+      );
+      await tester.pump();
       expect(find.text('Checking trusted connection…'), findsOneWidget);
       realStore.dispatch(
         const PairingAuthenticatedAction(hostVersion: '0.5.0', trusted: false),
@@ -670,6 +738,9 @@ void main() {
       await tester.pump();
       await tester.pump();
       expect(find.byType(PairingSection), findsOneWidget);
+      final PairingSection section = tester.widget(find.byType(PairingSection));
+      expect(section.startOnInit, isFalse);
+      expect(section.disposeOnRemove, isFalse);
     }
 
     testWidgets(
@@ -697,8 +768,34 @@ void main() {
       'DiscoverDialog keeps the session when Done closes a successful embedded pairing',
       (WidgetTester tester) async {
         await openEmbeddedPairing(tester);
+        realStore.dispatch(
+          ConnectionKnownHostsChangedAction([
+            KnownHost(
+              host: candidateHost,
+              availability: HostAvailability.online,
+            ),
+          ]),
+        );
+        await tester.pump();
+
+        expect(
+          realStore.state.connection.selectedHostSource,
+          ConnectionHostSelectionSource.knownHost,
+        );
+        expect(realStore.state.connection.selectedHost, candidateHost);
+        expect(
+          realStore.state.connection.knownHosts.single.host,
+          candidateHost,
+        );
+        expect(actions.whereType<ConnectionHostSelectedAction>(), hasLength(1));
+        expect(actions.whereType<PairingStartedAction>(), hasLength(1));
+
+        realStore.dispatch(const PairingCodeSubmittedAction(code: '123456'));
+        await tester.pump();
+        expect(realStore.state.pairing.phase, PairingPhase.confirming);
         realStore.dispatch(const PairingConfirmedAction());
         await tester.pump();
+        expect(realStore.state.pairing.phase, PairingPhase.trusted);
 
         await tester.tap(find.text('Done'));
         await tester.pumpAndSettle();
@@ -711,6 +808,12 @@ void main() {
           actions.whereType<PairingDisposedAction>().single.wasTrusted,
           isTrue,
         );
+        expect(realStore.state.pairing.phase, PairingPhase.none);
+        expect(
+          realStore.state.connection.selectedHostSource,
+          ConnectionHostSelectionSource.knownHost,
+        );
+        expect(realStore.state.connection.selectedHost, candidateHost);
         verifyNever(() => mockDisconnect(any()));
       },
     );

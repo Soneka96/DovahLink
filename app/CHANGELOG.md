@@ -78,6 +78,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Discover now disposes a candidate pairing lifecycle after the selected Host becomes a Known Host.
 - Terminal authentication protocol failures now show a safe pairing error instead of Offline.
 - Connections now shows restored Known Hosts alongside candidates and preserves the selected entry's authentication source.
 - Normal Windows close stops pairing work and invalidates SDK authentication/reconnect before its

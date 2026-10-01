@@ -27,14 +27,11 @@ class DiscoverDialog extends StatefulWidget {
   /// Shows discovery and, when needed, pairing within one continuous dialog route. Discover owns the
   /// candidate pairing lifecycle it started, so it alone ends that lifecycle once the route pops;
   /// the embedded [PairingSection.parentOwned] never disposes it again during route teardown.
-  static Future<void> show(BuildContext context) async {
-    final Store<AppState> store = StoreProvider.of<AppState>(context);
-    await DovahDialog.showBuilder<void>(
-      context,
-      builder: (BuildContext _) => const DiscoverDialog(),
-    );
-    sl<DiscoverDialogViewModel>(param1: store).onDispose();
-  }
+  static Future<void> show(BuildContext context) =>
+      DovahDialog.showBuilder<void>(
+        context,
+        builder: (BuildContext _) => const DiscoverDialog(),
+      );
 
   /// Creates the state that keeps the discovery and pairing flow in one route.
   @override
@@ -46,6 +43,9 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
   /// Whether a real unpaired outcome has moved this dialog into the pairing flow.
   bool _isShowingPairing = false;
 
+  /// Whether this route started the candidate pairing lifecycle it must dispose.
+  bool _ownsCandidatePairingLifecycle = false;
+
   /// See [State.build].
   @override
   Widget build(BuildContext context) {
@@ -53,6 +53,11 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
       distinct: true,
       onInit: (Store<AppState> store) =>
           sl<DiscoverDialogViewModel>(param1: store).onDiscover(),
+      onDispose: (Store<AppState> store) {
+        if (_ownsCandidatePairingLifecycle) {
+          sl<DiscoverDialogViewModel>(param1: store).onDispose();
+        }
+      },
       onDidChange: (DiscoverDialogViewModel? _, DiscoverDialogViewModel vm) {
         if (_isShowingPairing) {
           return;
@@ -187,42 +192,45 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
                         height: DovahRootMetrics.sectionLabelBottomGap,
                       ),
                       LayoutBuilder(
-                        builder:
-                            (BuildContext context, BoxConstraints constraints) {
-                              const double gap = DovahRootMetrics.listGap;
-                              final List<HostCardViewData> candidates =
-                                  isChecking
-                                  ? [selectedCandidate]
-                                  : viewModel.candidates;
-                              final double cardWidth = candidates.length == 1
-                                  ? constraints.maxWidth
-                                  : (constraints.maxWidth - gap) / 2;
+                        builder: (BuildContext context, BoxConstraints constraints) {
+                          const double gap = DovahRootMetrics.listGap;
+                          final List<HostCardViewData> candidates = isChecking
+                              ? [selectedCandidate]
+                              : viewModel.candidates;
+                          final double cardWidth = candidates.length == 1
+                              ? constraints.maxWidth
+                              : (constraints.maxWidth - gap) / 2;
 
-                              return Wrap(
-                                spacing: gap,
-                                runSpacing: gap,
-                                children: [
-                                  for (final HostCardViewData candidate
-                                      in candidates)
-                                    SizedBox(
-                                      width: cardWidth,
-                                      child: DiscoverCandidateCard(
-                                        key: Key(
-                                          'discover-candidate-${candidate.host.hostId}',
-                                        ),
-                                        title: candidate.title,
-                                        subtitle: candidate.subtitle,
-                                        isChecking: isChecking,
-                                        onTap: viewModel.canSelectCandidate
-                                            ? () => viewModel.onSelectCandidate(
-                                                candidate,
-                                              )
-                                            : null,
-                                      ),
+                          return Wrap(
+                            spacing: gap,
+                            runSpacing: gap,
+                            children: [
+                              for (final HostCardViewData candidate
+                                  in candidates)
+                                SizedBox(
+                                  width: cardWidth,
+                                  child: DiscoverCandidateCard(
+                                    key: Key(
+                                      'discover-candidate-${candidate.host.hostId}',
                                     ),
-                                ],
-                              );
-                            },
+                                    title: candidate.title,
+                                    subtitle: candidate.subtitle,
+                                    isChecking: isChecking,
+                                    onTap: viewModel.canSelectCandidate
+                                        ? () {
+                                            if (viewModel.onSelectCandidate(
+                                              candidate,
+                                            )) {
+                                              _ownsCandidatePairingLifecycle =
+                                                  true;
+                                            }
+                                          }
+                                        : null,
+                                  ),
+                                ),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ),

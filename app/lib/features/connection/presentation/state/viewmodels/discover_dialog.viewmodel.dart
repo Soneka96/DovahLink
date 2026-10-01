@@ -39,8 +39,8 @@ class DiscoverDialogViewModel extends Equatable {
   /// Called when the dialog opens or the user requests another search.
   final void Function() onDiscover;
 
-  /// Selects [candidate] and starts its real SDK-backed authentication lifecycle.
-  final void Function(HostCardViewData candidate) onSelectCandidate;
+  /// Selects [candidate] and starts its real SDK-backed authentication lifecycle when allowed.
+  final bool Function(HostCardViewData candidate) onSelectCandidate;
 
   /// Ends a candidate authentication flow when the dialog is dismissed before its outcome.
   final void Function() onDispose;
@@ -105,7 +105,7 @@ class DiscoverDialogViewModel extends Equatable {
           store.dispatch(const ConnectionDiscoveryRequestedAction()),
       onSelectCandidate: (HostCardViewData candidate) {
         if (!PairingSelectors.canStartPairingSelector(store.state)) {
-          return;
+          return false;
         }
         store.dispatch(
           ConnectionHostSelectedAction(
@@ -114,18 +114,13 @@ class DiscoverDialogViewModel extends Equatable {
           ),
         );
         store.dispatch(const PairingStartedAction());
+        return true;
       },
       onDispose: () {
-        final Host? selectedHost = ConnectionSelectors.selectedHostSelector(
-          store.state,
-        );
         final PairingPhase pairingPhase = PairingSelectors.phaseSelector(
           store.state,
         );
-        if (selectedHost != null &&
-            ConnectionSelectors.selectedHostSourceSelector(store.state) ==
-                ConnectionHostSelectionSource.candidate &&
-            pairingPhase != PairingPhase.none) {
+        if (pairingPhase != PairingPhase.none) {
           store.dispatch(
             PairingDisposedAction(
               wasTrusted: pairingPhase == PairingPhase.trusted,

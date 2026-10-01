@@ -129,6 +129,7 @@ void main() {
       HostCardViewData card,
     ) {
       selectedCandidates.add(card);
+      return true;
     });
     when(() => discoverViewModel.onDispose).thenReturn(() {});
     when(() => viewModel.onSelectHost).thenReturn((HostCardViewData card) {

@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
+import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
@@ -116,7 +117,10 @@ void main() {
         final DiscoverDialogViewModel viewModel =
             DiscoverDialogViewModel.fromStore(store);
 
-        viewModel.onSelectCandidate(viewModel.candidates.single);
+        expect(
+          viewModel.onSelectCandidate(viewModel.candidates.single),
+          isTrue,
+        );
 
         expect(actions, [
           ConnectionHostSelectedAction(
@@ -161,8 +165,11 @@ void main() {
         middleware: [recordActions],
       );
 
-      DiscoverDialogViewModel.fromStore(store).onSelectCandidate(
-        DiscoverDialogViewModel.fromStore(store).candidates.single,
+      expect(
+        DiscoverDialogViewModel.fromStore(store).onSelectCandidate(
+          DiscoverDialogViewModel.fromStore(store).candidates.single,
+        ),
+        isFalse,
       );
 
       expect(actions, isEmpty);
@@ -183,7 +190,9 @@ void main() {
           final DiscoverDialogViewModel viewModel =
               DiscoverDialogViewModel.fromStore(store);
 
-          viewModel.onSelectCandidate(viewModel.candidates.single);
+          final bool started = viewModel.onSelectCandidate(
+            viewModel.candidates.single,
+          );
 
           expect(
             viewModel.canSelectCandidate,
@@ -195,6 +204,7 @@ void main() {
             viewModel.canSelectCandidate,
             reason: '$phase',
           );
+          expect(started, viewModel.canSelectCandidate, reason: '$phase');
         }
       },
     );
@@ -319,14 +329,16 @@ void main() {
       },
     );
 
-    test('onDispose cancels a pending candidate authentication', () {
+    test('onDispose cancels an active pairing regardless of Host source', () {
       final Host candidate = Fixtures.buildHost();
       final Store<AppState> store = const CreateStore()(
         initialState: AppState(
           connection: ConnectionState(
-            hosts: [candidate],
+            knownHosts: [
+              KnownHost(host: candidate, availability: HostAvailability.online),
+            ],
             selectedHost: candidate,
-            selectedHostSource: ConnectionHostSelectionSource.candidate,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
           ),
           pairing: PairingState.initial().copyWith(
             phase: PairingPhase.connecting,
