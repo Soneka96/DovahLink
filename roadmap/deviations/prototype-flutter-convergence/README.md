@@ -144,9 +144,7 @@ race.
 Connections presents durable Known Hosts separately from ephemeral discovery candidates. An Online
 Known Host is selectable and starts SDK authentication. Offline, Connected, Reconnecting, Checking,
 and Unknown cards remain visible and nonselectable; Unknown is neutral reachability evidence, not
-Offline or “Not connected.” Connected is an admitted session, normally handed to the companion
-Session Shell; that route is not available yet, so the root card remains visibly Connected without
-offering entry. Reconnecting is session recovery, not ordinary availability.
+Offline or “Not connected.” Reconnecting is session recovery, not ordinary availability.
 
 Redux discovery status drives searching, available, empty, and failed feedback. A real candidate
 result shows “Local Host found.” followed by AVAILABLE and the candidate card. Selecting it starts
@@ -155,11 +153,25 @@ connecting. An already trusted outcome closes Discover without reopening Pairing
 failed outcome transitions to the existing pairing section within the same modal route. No fake
 delay or Flutter-owned pairing policy is used. Discovery alone does not add a Known Host.
 
-The SDK's Known Host projection currently exposes Host metadata, reachability, and session lifecycle,
-but no persistent typed state meaning “Pair again.” A rejected credential reason exists only on an
-authentication outcome and does not provide a durable root-card recovery projection. Keep that card
-state unresolved until the SDK exposes typed Known Host recovery/trust state. No SDK/state contract
-change or discovery persistence was required for the supported states in this slice.
+### Session Shell handoff — unresolved
+
+The SDK may establish a trusted, connected session, and product semantics normally hand that
+session into the Companion Session Shell. The Session Shell does not exist yet, so Connected may
+temporarily remain visible on the Connections root. This is a presentation/navigation limitation;
+do not add a fake Companion screen to this convergence work.
+
+### Known Host “Pair again” / repair projection — unresolved
+
+The prototype has a durable root-card state such as “Trust changed in Skyrim” with a “Pair again”
+action, and Flutter has a visual repair state. The SDK's current Known Host projection exposes Host
+metadata, reachability, and session lifecycle, but no durable typed recovery/trust state to drive that
+card truthfully. A rejected credential reason exists only on an authentication outcome and does not
+provide a durable projection. Do not infer repair from Offline, Unknown, discovery, endpoint matching,
+or generic authentication failure. Leave the state unresolved until a focused SDK contract change
+exposes it; this branch does not add that change.
+
+No SDK/state contract change or discovery persistence was required for the supported states in this
+slice.
 
 The current prototype artifact is not stored in the repository; exact pixel comparison of the
 candidate's nearby-card radius and hover outline remains subject to review against the approved
