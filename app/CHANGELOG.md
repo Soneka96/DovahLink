@@ -37,7 +37,12 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,
   and Unknown states remain visible without an entry affordance.
 - Connections lists durable Known Hosts separately from ephemeral discovery candidates.
-- Candidate selection shows the real authentication check and opens the existing pairing flow only after its outcome.
+- Discover shows “Local Host found.” after real candidates arrive and keeps authentication and any
+  required pairing inside the same modal flow.
+- Already trusted candidates close Discover without reopening Pairing; unpaired candidates continue
+  into the existing pairing flow after the SDK outcome.
+- Discover candidate cards use the nearby-card shape, primary hover accent, compact icon metrics, and
+  disabled checking treatment.
 - Discovery completion updates operation status without replacing the SDK's candidate collection.
 - Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
 - Pairing selection rebinds from the SDK's Known Host projection after successful confirmation.

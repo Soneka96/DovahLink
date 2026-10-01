@@ -120,6 +120,7 @@ void main() {
       () => discoverViewModel.pairingSupport,
     ).thenReturn(PairingSupport.available);
     when(() => discoverViewModel.shouldContinueToPairing).thenReturn(false);
+    when(() => discoverViewModel.hasTrustedCandidate).thenReturn(false);
     when(
       () => discoverViewModel.onDiscover,
     ).thenReturn(() => discoveryCalls.add('discover'));

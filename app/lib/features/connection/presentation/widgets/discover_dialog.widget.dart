@@ -6,6 +6,8 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/discover_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_candidate_card.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_progress.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -22,29 +24,25 @@ class DiscoverDialog extends StatefulWidget {
   /// Creates the discovery dialog.
   const DiscoverDialog({super.key});
 
-  /// Shows the dialog and returns the candidate after real authentication completes.
-  static Future<HostCardViewData?> show(BuildContext context) async {
+  /// Shows discovery and, when needed, pairing within one continuous dialog route.
+  static Future<void> show(BuildContext context) async {
     final Store<AppState> store = StoreProvider.of<AppState>(context);
-    final HostCardViewData? candidate =
-        await DovahDialog.showBuilder<HostCardViewData>(
-          context,
-          builder: (BuildContext _) => const DiscoverDialog(),
-        );
-    if (candidate == null) {
-      sl<DiscoverDialogViewModel>(param1: store).onDispose();
-    }
-    return candidate;
+    await DovahDialog.showBuilder<void>(
+      context,
+      builder: (BuildContext _) => const DiscoverDialog(),
+    );
+    sl<DiscoverDialogViewModel>(param1: store).onDispose();
   }
 
-  /// Creates the state that hands authenticated selections to the pairing flow.
+  /// Creates the state that keeps the discovery and pairing flow in one route.
   @override
   State<DiscoverDialog> createState() => _DiscoverDialogState();
 }
 
-/// Keeps the discovery route open during candidate authentication and returns on its real outcome.
+/// Keeps Discover open through authentication and any pairing required by the real outcome.
 class _DiscoverDialogState extends State<DiscoverDialog> {
-  /// Whether a completed selection is already being returned to the Connections screen.
-  bool _isReturningCandidate = false;
+  /// Whether a real unpaired outcome has moved this dialog into the pairing flow.
+  bool _isShowingPairing = false;
 
   /// See [State.build].
   @override
@@ -54,18 +52,30 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
       onInit: (Store<AppState> store) =>
           sl<DiscoverDialogViewModel>(param1: store).onDiscover(),
       onDidChange: (DiscoverDialogViewModel? _, DiscoverDialogViewModel vm) {
-        if (_isReturningCandidate || !vm.shouldContinueToPairing) {
+        if (_isShowingPairing) {
           return;
         }
-        final HostCardViewData? candidate = vm.selectedCandidate;
-        if (candidate != null) {
-          _isReturningCandidate = true;
-          Navigator.of(context).pop(candidate);
+        if (vm.hasTrustedCandidate) {
+          Navigator.of(context).pop();
+        } else if (vm.shouldContinueToPairing) {
+          setState(() => _isShowingPairing = true);
         }
       },
       converter: (Store<AppState> store) =>
           sl<DiscoverDialogViewModel>(param1: store),
       builder: (BuildContext context, DiscoverDialogViewModel viewModel) {
+        if (_isShowingPairing) {
+          return StoreConnector<AppState, PairingDialogViewModel>(
+            distinct: true,
+            converter: (Store<AppState> store) =>
+                sl<PairingDialogViewModel>(param1: store),
+            builder: (BuildContext context, PairingDialogViewModel pairing) =>
+                DovahDialog(
+                  title: pairing.title,
+                  child: const PairingSection(startOnInit: false),
+                ),
+          );
+        }
         final tokens = context.dovahTokens;
         const String searchingMessage = 'Searching for DovahLink on this PC…';
         final HostCardViewData? selectedCandidate = viewModel.selectedCandidate;
@@ -126,6 +136,17 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      Text(
+                        'Local Host found.',
+                        style: TextStyle(
+                          color: tokens.success,
+                          fontSize: DovahThemeTokens.compactFontSize,
+                          height: DovahThemeTokens.bodyLineHeight,
+                        ),
+                      ),
+                      const SizedBox(
+                        height: DovahDialogMetrics.progressStatusGap,
+                      ),
                       Row(
                         children: [
                           Text(

@@ -66,10 +66,15 @@ class DiscoverDialogViewModel extends Equatable {
         PairingPhase.requestingCode ||
         PairingPhase.awaitingCode ||
         PairingPhase.confirming ||
-        PairingPhase.trusted ||
         PairingPhase.failed => true,
-        PairingPhase.none || PairingPhase.disconnected => false,
+        PairingPhase.none ||
+        PairingPhase.disconnected ||
+        PairingPhase.trusted => false,
       };
+
+  /// Whether candidate authentication produced an already trusted session.
+  bool get hasTrustedCandidate =>
+      selectedCandidate != null && pairingPhase == PairingPhase.trusted;
 
   /// Builds a ViewModel from the Redux [store].
   factory DiscoverDialogViewModel.fromStore(Store<AppState> store) {

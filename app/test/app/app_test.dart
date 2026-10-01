@@ -160,7 +160,11 @@ void main() {
       initialState: AppState(
         connection: ConnectionState(
           knownHosts: [
-            for (final Host host in hosts) Fixtures.buildKnownHost(host: host),
+            for (final Host host in hosts)
+              Fixtures.buildKnownHost(
+                host: host,
+                availability: HostAvailability.online,
+              ),
           ],
         ),
         pairing: PairingState.initial(),
@@ -201,7 +205,7 @@ void main() {
     );
 
     testWidgets(
-      'DovahLinkApp checks a discovered candidate before opening Pairing',
+      'DovahLinkApp closes Discover for an already trusted candidate',
       (WidgetTester tester) async {
         final Host candidate = Fixtures.buildHost(
           uri: Uri.parse('ws://127.0.0.1:58231/'),
@@ -240,6 +244,7 @@ void main() {
 
         expect(find.text('Checking trusted connection…'), findsOneWidget);
         expect(find.byType(PairingDialog), findsNothing);
+        expect(find.byType(PairingSection), findsNothing);
         expect(
           ConnectionSelectors.selectedHostSourceSelector(store.state),
           ConnectionHostSelectionSource.candidate,
@@ -249,15 +254,17 @@ void main() {
           Right(Fixtures.buildPairingHandshake(trusted: true)),
         );
         await tester.pump();
-        await tester.pump(const Duration(milliseconds: 500));
+        await tester.pumpAndSettle();
 
-        expect(find.byType(PairingDialog), findsOneWidget);
-        expect(find.text('Connected'), findsOneWidget);
-        expect(find.byType(PairingSuccess), findsOneWidget);
+        expect(find.byType(DovahDialog), findsNothing);
+        expect(find.byType(PairingDialog), findsNothing);
+        expect(find.byType(PairingSuccess), findsNothing);
+        expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
         expect(store.state.connection.knownHosts, isEmpty);
         verify(
           () => authenticate(AuthenticateParams(hostUri: candidate.uri)),
         ).called(1);
+        verifyNever(() => disconnect(any()));
       },
     );
 
@@ -494,7 +501,11 @@ void main() {
     Store<AppState> buildStore() => const CreateStore()(
       middleware: [PairingMiddleware().call],
       initialState: AppState(
-        connection: ConnectionState(knownHosts: [Fixtures.buildKnownHost()]),
+        connection: ConnectionState(
+          knownHosts: [
+            Fixtures.buildKnownHost(availability: HostAvailability.online),
+          ],
+        ),
         pairing: PairingState.initial(),
       ),
     );

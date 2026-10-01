@@ -88,6 +88,9 @@ class DovahDialogMetrics extends Equatable {
   /// Inner padding of a discovery candidate card (the prototype's `.nearby-card`).
   static const double discoveryCandidateCardPadding = 15;
 
+  /// Corner radius of the small rounded candidate card (the prototype's `.nearby-card`).
+  static const double discoveryCandidateCardCornerRadius = 8;
+
   /// Gap between a discovery candidate's icon and text (the prototype's `.nearby-card` `gap`).
   static const double discoveryCandidateContentGap = 12;
 

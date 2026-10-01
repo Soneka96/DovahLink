@@ -193,6 +193,20 @@ void main() {
           reason: '$phase',
         );
       }
+
+      final Store<AppState> knownHostStore = const CreateStore()(
+        initialState: AppState(
+          connection: ConnectionState(
+            selectedHost: candidate,
+            selectedHostSource: ConnectionHostSelectionSource.knownHost,
+          ),
+          pairing: PairingState.initial().copyWith(phase: PairingPhase.trusted),
+        ),
+      );
+      expect(
+        DiscoverDialogViewModel.fromStore(knownHostStore).hasTrustedCandidate,
+        isFalse,
+      );
     });
 
     test(
@@ -203,7 +217,7 @@ void main() {
           PairingPhase.unpaired,
           PairingPhase.requestingCode,
           PairingPhase.awaitingCode,
-          PairingPhase.trusted,
+          PairingPhase.confirming,
           PairingPhase.failed,
         ]) {
           final Store<AppState> store = const CreateStore()(
@@ -225,6 +239,32 @@ void main() {
         }
       },
     );
+
+    test('hasTrustedCandidate identifies only an authenticated candidate', () {
+      final Host candidate = Fixtures.buildHost();
+      for (final PairingPhase phase in [
+        PairingPhase.none,
+        PairingPhase.connecting,
+        PairingPhase.unpaired,
+        PairingPhase.trusted,
+      ]) {
+        final Store<AppState> store = const CreateStore()(
+          initialState: AppState(
+            connection: ConnectionState(
+              selectedHost: candidate,
+              selectedHostSource: ConnectionHostSelectionSource.candidate,
+            ),
+            pairing: PairingState.initial().copyWith(phase: phase),
+          ),
+        );
+
+        expect(
+          DiscoverDialogViewModel.fromStore(store).hasTrustedCandidate,
+          phase == PairingPhase.trusted,
+          reason: '$phase',
+        );
+      }
+    });
 
     test(
       'shouldContinueToPairing returns when secure storage is unavailable',

@@ -1,8 +1,9 @@
 # Prototype → Flutter Convergence
 
-**Status:** Active — design/material foundations and canonical Connections / Discover UI are
-complete; broader historical connection/pairing slices remain paused for re-planning. Local Host
-discovery, Known Host lifecycle, and runtime availability foundations are established.
+**Status:** Active — design/material foundations are complete; canonical Connections / Discover
+convergence still has documented Session Shell and Known Host repair-state gaps. Broader historical
+connection/pairing slices remain paused for re-planning. Local Host discovery, Known Host lifecycle,
+and runtime availability foundations are established.
 
 ## Why this deviation exists
 
@@ -138,14 +139,31 @@ behavior. A Known Host record does not represent live trust. The SDK's saved Hos
 its initial stream value; Flutter does not load and subscribe separately or reconcile a startup
 race.
 
-## Canonical Discovery / Connections UI Convergence — complete
+## Canonical Discovery / Connections UI Convergence — partial
 
-Connections now presents Known Hosts in its normal list and opens discovery in the prototype-shaped
-modal. Redux discovery status drives searching, available, empty, and failed feedback; available
-uses the fixed Local Host presentation with the candidate's real route. Selecting it starts the
-existing candidate authentication lifecycle. The modal shows “Checking trusted connection…” from
-the pairing phase and hands off to the existing pairing UI only after a real outcome. No SDK/state
-contract change or discovery persistence was required.
+Connections presents durable Known Hosts separately from ephemeral discovery candidates. An Online
+Known Host is selectable and starts SDK authentication. Offline, Connected, Reconnecting, Checking,
+and Unknown cards remain visible and nonselectable; Unknown is neutral reachability evidence, not
+Offline or “Not connected.” Connected is an admitted session, normally handed to the companion
+Session Shell; that route is not available yet, so the root card remains visibly Connected without
+offering entry. Reconnecting is session recovery, not ordinary availability.
+
+Redux discovery status drives searching, available, empty, and failed feedback. A real candidate
+result shows “Local Host found.” followed by AVAILABLE and the candidate card. Selecting it starts
+the SDK authentication lifecycle and shows “Checking trusted connection…” while that lifecycle is
+connecting. An already trusted outcome closes Discover without reopening Pairing. An unpaired or
+failed outcome transitions to the existing pairing section within the same modal route. No fake
+delay or Flutter-owned pairing policy is used. Discovery alone does not add a Known Host.
+
+The SDK's Known Host projection currently exposes Host metadata, reachability, and session lifecycle,
+but no persistent typed state meaning “Pair again.” A rejected credential reason exists only on an
+authentication outcome and does not provide a durable root-card recovery projection. Keep that card
+state unresolved until the SDK exposes typed Known Host recovery/trust state. No SDK/state contract
+change or discovery persistence was required for the supported states in this slice.
+
+The current prototype artifact is not stored in the repository; exact pixel comparison of the
+candidate's nearby-card radius and hover outline remains subject to review against the approved
+`DovahLink-Prototype-final` reference.
 
 Two visual behaviors intentionally follow production state: the candidate appears after the real
 discovery result instead of alongside the prototype's artificial search presentation, and the

@@ -77,18 +77,7 @@ class ConnectionsScreen extends StatelessWidget {
                                 ConnectionsHero(
                                   onDiscover: viewModel.canDiscover
                                       ? () async {
-                                          final HostCardViewData? candidate =
-                                              await DiscoverDialog.show(
-                                                context,
-                                              );
-                                          if (candidate == null ||
-                                              !context.mounted) {
-                                            return;
-                                          }
-                                          await PairingDialog.show(
-                                            context,
-                                            startOnInit: false,
-                                          );
+                                          await DiscoverDialog.show(context);
                                         }
                                       : null,
                                 ),
