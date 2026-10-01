@@ -1,8 +1,10 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_pairing_handshake.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
@@ -26,6 +28,15 @@ abstract interface class IDovahLinkPairing {
   /// @throws [DovahLinkStorageException] if authoritative Known Host state cannot be read.
   Future<List<DovahLinkHost>> discoverHosts();
 
+  /// Authenticates a discovered candidate and recovers interrupted pairing confirmation.
+  /// Candidate discovery claims never authorize Known Host credential use.
+  Future<DovahLinkPairingHandshake> authenticateCandidate(Uri uri);
+
+  /// Authenticates the specified Known Host and recovers interrupted pairing confirmation.
+  Future<DovahLinkPairingHandshake> authenticateKnownHost(
+    DovahLinkHostId hostId,
+  );
+
   /// Starts or queries the current pairing challenge.
   /// @return Host-reported pairing availability and challenge expiry.
   /// @throws [DovahLinkConnectionException] if there is no active session.
@@ -46,7 +57,7 @@ abstract interface class IDovahLinkPairing {
   /// @throws [DovahLinkProtocolException] if the Host reply is malformed.
   Future<PairingCancelOutcome> cancel();
 
-  /// Confirms the six-digit code and durably stores the Host-issued credential.
+  /// Confirms the six-digit code, persists the issued credential, and acknowledges it with the Host.
   /// @param code The six-digit code shown by Skyrim.
   /// @param displayName The optional Client display name.
   /// @throws [DovahLinkConnectionException] if there is no admitted Host session.
@@ -54,14 +65,6 @@ abstract interface class IDovahLinkPairing {
   /// @throws [DovahLinkProtocolException] if the Host reply is malformed.
   /// @throws [DovahLinkStorageException] if the credential cannot be persisted.
   Future<void> confirmCode({required String code, String? displayName});
-
-  /// Acknowledges the pending Host-scoped credential after code confirmation.
-  /// @throws [DovahLinkConnectionException] if there is no admitted Host session.
-  /// @throws [DovahLinkHostIdentityMismatchException] if pending recovery belongs to another Host.
-  /// @throws [DovahLinkPairingException] if no matching pending confirmation exists.
-  /// @throws [DovahLinkProtocolException] if the Host reply is malformed.
-  /// @throws [DovahLinkStorageException] if recovery state cannot be read or written.
-  Future<void> acknowledgeTrustedCredential();
 
   /// Recovers an interrupted confirmation and reports the resulting session trust state.
   /// A no-op returns `unpaired` when there is no pending confirmation.
@@ -110,6 +113,32 @@ class DovahLinkPairing implements IDovahLinkPairing {
   @override
   Future<List<DovahLinkHost>> discoverHosts() => _discoverHosts();
 
+  /// Implements [IDovahLinkPairing.authenticateCandidate].
+  @override
+  Future<DovahLinkPairingHandshake> authenticateCandidate(Uri uri) async {
+    final DovahLinkPairingHandshake result = await _pairingService
+        .authenticateCandidate(uri);
+    if (result.hello.trustState == DovahLinkTrustState.unpaired &&
+        result.trustState == DovahLinkTrustState.trusted) {
+      _subscriptionService.restoreDesiredStateAreas();
+    }
+    return result;
+  }
+
+  /// Implements [IDovahLinkPairing.authenticateKnownHost].
+  @override
+  Future<DovahLinkPairingHandshake> authenticateKnownHost(
+    DovahLinkHostId hostId,
+  ) async {
+    final DovahLinkPairingHandshake result = await _pairingService
+        .authenticateKnownHost(hostId);
+    if (result.hello.trustState == DovahLinkTrustState.unpaired &&
+        result.trustState == DovahLinkTrustState.trusted) {
+      _subscriptionService.restoreDesiredStateAreas();
+    }
+    return result;
+  }
+
   /// Implements [IDovahLinkPairing.requestCode].
   @override
   Future<PairingChallengeStatus> requestCode() =>
@@ -126,13 +155,11 @@ class DovahLinkPairing implements IDovahLinkPairing {
 
   /// Implements [IDovahLinkPairing.confirmCode].
   @override
-  Future<void> confirmCode({required String code, String? displayName}) =>
-      _pairingService.confirmPairingCode(code: code, displayName: displayName);
-
-  /// Implements [IDovahLinkPairing.acknowledgeTrustedCredential].
-  @override
-  Future<void> acknowledgeTrustedCredential() async {
-    await _pairingService.acknowledgeTrustedCredential();
+  Future<void> confirmCode({required String code, String? displayName}) async {
+    await _pairingService.confirmPairingCodeAndAcknowledge(
+      code: code,
+      displayName: displayName,
+    );
     _subscriptionService.restoreDesiredStateAreas();
   }
 

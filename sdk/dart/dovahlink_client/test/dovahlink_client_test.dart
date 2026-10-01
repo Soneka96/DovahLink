@@ -555,6 +555,37 @@ void main() {
 
   group('Behavior grouped API composition behaves correctly', () {
     test(
+      'Behavior grouped API pairing authentication recovers pending confirmation in the SDK',
+      () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'stored-credential',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+
+        final DovahLinkPairingHandshake handshake = await client.pairing
+            .authenticateCandidate(Uri.parse('ws://127.0.0.1:58231/'));
+
+        expect(handshake.hello.trustState, DovahLinkTrustState.unpaired);
+        expect(handshake.trustState, DovahLinkTrustState.trusted);
+        expect(client.trustState, DovahLinkTrustState.trusted);
+        expect((await storage.load()).pendingPairingRecovery, isNull);
+        expect(
+          transport.sent.map(
+            (String frame) => (jsonDecode(frame) as JsonMap)['messageType'],
+          ),
+          containsAllInOrder(<String>['hello', 'pairing_ack']),
+        );
+      },
+    );
+
+    test(
       'Behavior grouped API composition exposes one admitted candidate session',
       () async {
         final Uri endpoint = Uri.parse('ws://127.0.0.1:58231/');
@@ -1256,6 +1287,9 @@ void main() {
         pairingTransport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
         );
+        pairingTransport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
         await discoveryClient.confirmPairingCode(code: '123456');
 
         discoveryResult.complete(<DovahLinkHost>[claimedHost]);
@@ -1386,6 +1420,9 @@ void main() {
         await discoveryClient.authenticateCandidate(candidate.endpoint);
         pairingTransport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+        );
+        pairingTransport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
         await discoveryClient.confirmPairingCode(code: '123456');
 
@@ -1743,6 +1780,9 @@ void main() {
                 as JsonMap;
         pairingOutcome['sessionId'] = 'session-paired-1';
         runtimeTransport.queueResponse(jsonEncode(pairingOutcome));
+        runtimeTransport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
         await runtimeClient.confirmPairingCode(code: '123456');
         await Future<void>.delayed(Duration.zero);
 
@@ -2545,7 +2585,6 @@ void main() {
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
         );
-        await client.confirmPairingCode(code: '123456', displayName: 'My PC');
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
@@ -2555,7 +2594,7 @@ void main() {
             sessionId: 'session-1',
           ),
         );
-        await client.acknowledgeTrustedCredential();
+        await client.pairing.confirmCode(code: '123456', displayName: 'My PC');
 
         for (
           int attempt = 0;
@@ -3359,6 +3398,9 @@ void main() {
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
         );
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
 
         await client.confirmPairingCode(code: '123456', displayName: 'My PC');
 
@@ -3374,10 +3416,8 @@ void main() {
         final PersistedClientState stored = await storage.load();
         expect(stored.clientId, 'client-1');
         expect(stored.knownHosts.values.single.credential, 'a1b2c3d4e5f6');
-        expect(
-          stored.pendingPairingRecovery?.state,
-          PairingRecoveryState.confirming,
-        );
+        expect(stored.pendingPairingRecovery, isNull);
+        expect(client.trustState, DovahLinkTrustState.trusted);
         expect(
           stored.knownHosts.values.single.host,
           DovahLinkHost(
@@ -3401,6 +3441,9 @@ void main() {
         await _connectAndHello(transport, client);
         transport.queueResponse(
           _rawFixture('pairing/pairing-outcome-credential-issued.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
         );
 
         await client.confirmPairingCode(code: '123456', displayName: 'My PC');
@@ -3479,55 +3522,6 @@ void main() {
             ),
           ),
         );
-      },
-    );
-  });
-
-  group('Method acknowledgeTrustedCredential behaves correctly', () {
-    test(
-      'Method acknowledgeTrustedCredential sets trustState to trusted and clears recovery to none on a trusted outcome',
-      () async {
-        await storage.save(
-          Fixtures.buildPersistedClientState(
-            clientId: 'client-1',
-            credential: 'a1b2c3d4e5f6',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        await _connectAndHello(transport, client);
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-trusted.json'),
-        );
-
-        await client.acknowledgeTrustedCredential();
-
-        expect(client.trustState, DovahLinkTrustState.trusted);
-        final PersistedClientState stored = await storage.load();
-        expect(stored.knownHosts.values.single.credential, 'a1b2c3d4e5f6');
-        expect(stored.pendingPairingRecovery, isNull);
-      },
-    );
-
-    test(
-      'Method acknowledgeTrustedCredential keeps its Host-scoped credential in the SDK',
-      () async {
-        await storage.save(
-          Fixtures.buildPersistedClientState(
-            clientId: null,
-            credential: 'stored-credential',
-            recoveryState: PairingRecoveryState.confirming,
-          ),
-        );
-        await _connectAndHello(transport, client);
-        transport.queueResponse(
-          _rawFixture('pairing/pairing-outcome-trusted.json'),
-        );
-
-        // The app does not receive or pass the credential back to the SDK.
-        await client.acknowledgeTrustedCredential();
-
-        final PersistedClientState stored = await storage.load();
-        expect(stored.knownHosts.values.single.credential, 'stored-credential');
       },
     );
   });
@@ -4159,8 +4153,8 @@ void main() {
         await reconnectStorage.save(pendingState);
         await _connectAndHello(reconnectTransport, reconnectClient);
 
-        final Future<void> pending = reconnectClient
-            .acknowledgeTrustedCredential();
+        final Future<DovahLinkTrustState> pending = reconnectClient
+            .recoverPendingPairing();
         final Future<void> pendingFails = expectLater(
           pending,
           throwsA(isA<DovahLinkHostIdentityMismatchException>()),
@@ -4882,7 +4876,7 @@ void main() {
       },
     );
 
-    test('Behavior request timeout handling retransmits retry-safe acknowledgeTrustedCredential '
+    test('Behavior request timeout handling retransmits retry-safe pairing recovery '
         'after ordinary transport loss, via automatic reconnect', () async {
       await storage.save(
         Fixtures.buildPersistedClientState(
@@ -4898,7 +4892,8 @@ void main() {
       );
       await client.hello();
 
-      final Future<void> pending = client.acknowledgeTrustedCredential();
+      final Future<DovahLinkTrustState> pending = client
+          .recoverPendingPairing();
       final Future<void> pendingCompletes = expectLater(pending, completes);
       await pumpEventQueue();
       // Queued ahead of the drop so bounded automatic reconnect's own connect()+hello()+retry

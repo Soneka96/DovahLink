@@ -27,6 +27,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Changed
 
+- The grouped pairing API now authenticates with the selected target, recovers pending confirmation,
+  and completes code confirmation plus credential acknowledgement as SDK-owned operations.
 - Initial candidate and Known Host connection failures now retry in the SDK every three seconds, independently from bounded established-session recovery; the previous Offline presentation is preserved.
 - Discovery reconciles claims with committed Known Hosts by normalized Host ID; candidates are never persisted.
 - Pairing credentials no longer leave the SDK API, and candidate authentication never selects a Known Host credential.

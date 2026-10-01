@@ -110,9 +110,11 @@ Host selection records whether the selected `Host` is an ephemeral discovery can
 Known Host intent. Selection refreshes and card keys use normalized Host IDs, so endpoint changes
 preserve the same Host selection and widget identity. When an SDK candidate disappears, its
 candidate selection is cleared; after the SDK confirms pairing, the selected target uses Known Host
-authentication. Pairing sends candidate endpoints through `client.connections.connectCandidate`
-and Known Host IDs through `client.connections.connectKnownHost`; it never sends a mapped Host
-snapshot as an SDK command.
+authentication. Pairing sends candidate endpoints through `client.pairing.authenticateCandidate`
+and Known Host IDs through `client.pairing.authenticateKnownHost`; the SDK performs authentication
+and pending-confirmation recovery. `client.pairing.confirmCode` completes confirmation and
+credential acknowledgement. Flutter maps the returned typed result and failures; it never sequences
+those protocol exchanges or sends a mapped Host snapshot as an SDK command.
 
 ## Feature structure
 

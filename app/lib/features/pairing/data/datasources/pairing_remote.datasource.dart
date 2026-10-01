@@ -7,9 +7,8 @@ import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Wraps grouped SDK APIs for the pairing feature's remote operations.
 abstract interface class IPairingRemoteDataSource {
-  /// Connects to the Host at [hostUri] and authenticates, recovering an
-  /// interrupted pairing confirmation when the session authenticates as
-  /// unpaired. A left target is an untrusted endpoint candidate; a right target is a Known Host ID.
+  /// Authenticates and recovers an interrupted confirmation through the SDK. A left target is an
+  /// untrusted endpoint candidate; a right target is a Known Host ID.
   Future<Either<Failure, PairingHandshakeModel>> authenticate({
     required Either<Uri, String> target,
   });
@@ -61,28 +60,19 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// Creates a data source backed by [_client].
   PairingRemoteDataSource(this._client);
 
-  /// See [IPairingRemoteDataSource.authenticate]. Delegates connection and Known Host credential
-  /// selection to the grouped SDK connection API; this layer only picks the user-safe wording for
-  /// [HelloResult.recoveredFromRejectedCredential] when the SDK reports credential repair.
+  /// See [IPairingRemoteDataSource.authenticate]. The SDK owns connection, authentication, and
+  /// pending-pairing recovery; this layer maps its typed result to presentation-safe data.
   @override
   Future<Either<Failure, PairingHandshakeModel>> authenticate({
     required Either<Uri, String> target,
   }) async {
     try {
-      final HelloResult hello = await target.fold(
-        _client.connections.connectCandidate,
+      final DovahLinkPairingHandshake handshake = await target.fold(
+        _client.pairing.authenticateCandidate,
         (String hostId) =>
-            _client.connections.connectKnownHost(DovahLinkHostId(hostId)),
+            _client.pairing.authenticateKnownHost(DovahLinkHostId(hostId)),
       );
-      bool trusted = hello.trustState == DovahLinkTrustState.trusted;
-      if (!trusted) {
-        final DovahLinkTrustState recovered = await _client.pairing
-            .recoverPendingPairing();
-        trusted = recovered == DovahLinkTrustState.trusted;
-      }
-      return Right(
-        PairingHandshakeModel.fromHelloResult(hello: hello, trusted: trusted),
-      );
+      return Right(PairingHandshakeModel.fromPairingHandshake(handshake));
     } on DovahLinkConnectionException catch (error) {
       // Administrative invalidation (revoked/blocked/trustReset/factoryReset) can fail this same
       // pending call with a generic DovahLinkConnectionException; distinguishing it here through
@@ -147,7 +137,6 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   }) async {
     try {
       await _client.pairing.confirmCode(code: code, displayName: displayName);
-      await _client.pairing.acknowledgeTrustedCredential();
       return const Right(unit);
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));

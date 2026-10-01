@@ -15,9 +15,10 @@ The app consumes the SDK's `hosts`, `connections`, and `pairing` API groups from
 integration. The `features/connection/` area owns Host selection and navigation while mirroring the
 SDK's Known Host and candidate streams. Candidate membership and identity reconciliation stay in
 the SDK. Initial connection retries and bounded established-session recovery also stay in the SDK
-as separate policies. Flutter does not implement live-state synchronization. Flutter conventions point to
-[`ai/context/sdk/`](../ai/context/sdk/) for SDK-owned protocol behavior rather than duplicating it
-in the app.
+as separate policies. Flutter does not implement live-state synchronization. Flutter conventions
+point to [`ai/context/sdk/`](../ai/context/sdk/) for SDK-owned protocol behavior rather than
+duplicating it in the app. The SDK pairing group also owns authentication plus pending-confirmation recovery and
+the confirmation/credential-acknowledgement sequence; Flutter maps the typed result for presentation.
 
 ## Development checks
 

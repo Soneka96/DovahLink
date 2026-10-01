@@ -26,6 +26,14 @@ void main() {
   late DovahLinkPairing pairing;
   late int discoveryCalls;
   late List<DovahLinkHost> discoveredHosts;
+  final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+  final DovahLinkHostId hostId = DovahLinkHostId(
+    '81869993-955c-4ba3-a7d0-d35ca86078ea',
+  );
+
+  setUpAll(() {
+    registerFallbackValue(uri);
+  });
 
   setUp(() {
     pairingService = MockClientPairingService();
@@ -62,6 +70,111 @@ void main() {
 
       await expectLater(pairing.discoverHosts(), throwsA(same(failure)));
     });
+  });
+
+  group('Method authenticateCandidate behaves correctly', () {
+    test(
+      'Method authenticateCandidate restores subscriptions after pairing recovery',
+      () async {
+        final HelloResult hello = HelloResult(
+          hostId: Fixtures.buildDovahLinkHost().hostId,
+          hostName: 'LOCAL-HOST',
+          hostVersion: '1.2.3',
+          trustState: DovahLinkTrustState.unpaired,
+        );
+        final DovahLinkPairingHandshake result = DovahLinkPairingHandshake(
+          hello: hello,
+          trustState: DovahLinkTrustState.trusted,
+        );
+        when(
+          () => pairingService.authenticateCandidate(any()),
+        ).thenAnswer((_) async => result);
+
+        expect(await pairing.authenticateCandidate(uri), same(result));
+        verify(() => pairingService.authenticateCandidate(uri)).called(1);
+        verify(() => subscriptionService.restoreDesiredStateAreas()).called(1);
+      },
+    );
+
+    test(
+      'Method authenticateCandidate does not restore subscriptions for an unpaired result',
+      () async {
+        when(() => pairingService.authenticateCandidate(any())).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: HelloResult(
+              hostId: Fixtures.buildDovahLinkHost().hostId,
+              hostName: 'LOCAL-HOST',
+              hostVersion: '1.2.3',
+              trustState: DovahLinkTrustState.unpaired,
+            ),
+            trustState: DovahLinkTrustState.unpaired,
+          ),
+        );
+
+        await pairing.authenticateCandidate(uri);
+
+        verifyNever(() => subscriptionService.restoreDesiredStateAreas());
+      },
+    );
+
+    test(
+      'Method authenticateCandidate leaves trusted hello restoration to session admission',
+      () async {
+        when(() => pairingService.authenticateCandidate(any())).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: HelloResult(
+              hostId: Fixtures.buildDovahLinkHost().hostId,
+              hostName: 'LOCAL-HOST',
+              hostVersion: '1.2.3',
+              trustState: DovahLinkTrustState.trusted,
+            ),
+            trustState: DovahLinkTrustState.trusted,
+          ),
+        );
+
+        await pairing.authenticateCandidate(uri);
+
+        verifyNever(() => subscriptionService.restoreDesiredStateAreas());
+      },
+    );
+
+    test(
+      'Method authenticateCandidate propagates errors without restoring subscriptions',
+      () async {
+        const DovahLinkPairingException failure = DovahLinkPairingException(
+          PairingOutcome.pendingNotFound,
+        );
+        when(
+          () => pairingService.authenticateCandidate(any()),
+        ).thenAnswer((_) async => throw failure);
+
+        await expectLater(
+          pairing.authenticateCandidate(uri),
+          throwsA(same(failure)),
+        );
+        verifyNever(() => subscriptionService.restoreDesiredStateAreas());
+      },
+    );
+  });
+
+  test('Method authenticateKnownHost delegates the exact identity', () async {
+    final HelloResult hello = HelloResult(
+      hostId: Fixtures.buildDovahLinkHost().hostId,
+      hostName: 'LOCAL-HOST',
+      hostVersion: '1.2.3',
+      trustState: DovahLinkTrustState.trusted,
+    );
+    when(() => pairingService.authenticateKnownHost(hostId)).thenAnswer(
+      (_) async => DovahLinkPairingHandshake(
+        hello: hello,
+        trustState: DovahLinkTrustState.trusted,
+      ),
+    );
+
+    await pairing.authenticateKnownHost(hostId);
+
+    verify(() => pairingService.authenticateKnownHost(hostId)).called(1);
+    verifyNever(() => subscriptionService.restoreDesiredStateAreas());
   });
 
   group('Property candidates behaves correctly', () {
@@ -158,7 +271,7 @@ void main() {
   group('Method confirmCode behaves correctly', () {
     test('Method confirmCode forwards code and display name', () async {
       when(
-        () => pairingService.confirmPairingCode(
+        () => pairingService.confirmPairingCodeAndAcknowledge(
           code: '123456',
           displayName: 'Tablet',
         ),
@@ -167,11 +280,12 @@ void main() {
       await pairing.confirmCode(code: '123456', displayName: 'Tablet');
 
       verify(
-        () => pairingService.confirmPairingCode(
+        () => pairingService.confirmPairingCodeAndAcknowledge(
           code: '123456',
           displayName: 'Tablet',
         ),
       ).called(1);
+      verify(() => subscriptionService.restoreDesiredStateAreas()).called(1);
     });
 
     test('Method confirmCode propagates typed persistence failures', () async {
@@ -179,7 +293,7 @@ void main() {
         'credential write failed',
       );
       when(
-        () => pairingService.confirmPairingCode(
+        () => pairingService.confirmPairingCodeAndAcknowledge(
           code: '123456',
           displayName: 'Tablet',
         ),
@@ -189,43 +303,8 @@ void main() {
         pairing.confirmCode(code: '123456', displayName: 'Tablet'),
         throwsA(same(failure)),
       );
+      verifyNever(() => subscriptionService.restoreDesiredStateAreas());
     });
-  });
-
-  group('Method acknowledgeTrustedCredential behaves correctly', () {
-    test(
-      'Method acknowledgeTrustedCredential restores subscriptions after acknowledgement',
-      () async {
-        when(
-          () => pairingService.acknowledgeTrustedCredential(),
-        ).thenAnswer((_) async {});
-
-        await pairing.acknowledgeTrustedCredential();
-
-        verifyInOrder([
-          () => pairingService.acknowledgeTrustedCredential(),
-          () => subscriptionService.restoreDesiredStateAreas(),
-        ]);
-      },
-    );
-
-    test(
-      'Method acknowledgeTrustedCredential skips subscription restoration after failure',
-      () async {
-        const DovahLinkPairingException failure = DovahLinkPairingException(
-          PairingOutcome.pendingNotFound,
-        );
-        when(
-          () => pairingService.acknowledgeTrustedCredential(),
-        ).thenAnswer((_) async => throw failure);
-
-        await expectLater(
-          pairing.acknowledgeTrustedCredential(),
-          throwsA(same(failure)),
-        );
-        verifyNever(() => subscriptionService.restoreDesiredStateAreas());
-      },
-    );
   });
 
   group('Method recoverPendingPairing behaves correctly', () {

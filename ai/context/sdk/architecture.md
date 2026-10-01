@@ -249,7 +249,10 @@ The nine Services:
   `PendingOperationTransmitter`.
 - `IAuthenticationService`/`AuthenticationService` — candidate authentication, Known Host
   authentication by ID, Host-scoped credential recovery, and `hello`.
-- `IPairingService`/`PairingService` — pairing operations.
+- `IPairingService`/`PairingService` — pairing operations and their SDK-owned sequencing. It uses
+  the existing authentication and initial-retry services to admit a pairing session and recover
+  pending confirmation; code confirmation and trusted-credential acknowledgement remain one
+  operation for public consumers.
 - `IClientStateService`/`ClientStateService` — the sole owner of persisted client-state loads and
   serialized complete-state mutations, with save-before-publish Known Hosts projections.
 - `IReconnectService`/`ReconnectService` — SDK-owned initial connection retry after a failed
@@ -445,8 +448,10 @@ in maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustSer
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
 keeps it as a field. Every other consumer — `IRequestService`,
 `IAuthenticationService`, `IPairingService`, `IReconnectService` — depends on the appropriate Service
-contract, never on `SessionState` directly. Never mirror or cache a session-scoped mutable fact in
-another service merely because it's needed there; the one documented, accepted exception is
+contract, never on `SessionState` directly. `PairingService` composes authentication and initial
+retry through their existing contracts; this adds no second connection or session owner. Never
+mirror or cache a session-scoped mutable fact in another service merely because it's needed there;
+the one documented, accepted exception is
 `AuthenticationService`'s own cached `clientId`/`hostVersion`, which are read-caches of values
 whose durable source of truth is `IClientStorage`, refreshed every `hello()` — not a competing copy
 of anything `SessionState` owns.

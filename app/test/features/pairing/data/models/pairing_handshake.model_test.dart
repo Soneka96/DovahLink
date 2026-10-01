@@ -8,9 +8,9 @@ import '../../../../fixtures/fixtures.dart';
 
 /// Exercises SDK authentication result mapping for [PairingHandshakeModel].
 void main() {
-  group('Method fromHelloResult behaves correctly', () {
+  group('Method fromPairingHandshake behaves correctly', () {
     test(
-      'Method fromHelloResult maps the host version and resolved trust status',
+      'Method fromPairingHandshake maps the host version and resolved trust status',
       () {
         final HelloResult hello = Fixtures.buildSdkHelloResult(
           hostVersion: '1.2.3',
@@ -18,7 +18,12 @@ void main() {
         );
 
         final PairingHandshakeModel model =
-            PairingHandshakeModel.fromHelloResult(hello: hello, trusted: true);
+            PairingHandshakeModel.fromPairingHandshake(
+              DovahLinkPairingHandshake(
+                hello: hello,
+                trustState: DovahLinkTrustState.trusted,
+              ),
+            );
 
         expect(model, isA<PairingHandshake>());
         expect(model.hostVersion, '1.2.3');
@@ -28,7 +33,7 @@ void main() {
       },
     );
 
-    test('Method fromHelloResult maps each rejected credential reason', () {
+    test('Method fromPairingHandshake maps each rejected credential reason', () {
       final List<
         (CredentialRejectionReason, PairingCredentialRejectionReason, String)
       >
@@ -58,13 +63,15 @@ void main() {
           )
           in mappings) {
         final PairingHandshakeModel model =
-            PairingHandshakeModel.fromHelloResult(
-              hello: Fixtures.buildSdkHelloResult(
-                hostVersion: '2.0.0',
+            PairingHandshakeModel.fromPairingHandshake(
+              DovahLinkPairingHandshake(
+                hello: Fixtures.buildSdkHelloResult(
+                  hostVersion: '2.0.0',
+                  trustState: DovahLinkTrustState.unpaired,
+                  recoveredFromRejectedCredential: reason,
+                ),
                 trustState: DovahLinkTrustState.unpaired,
-                recoveredFromRejectedCredential: reason,
               ),
-              trusted: false,
             );
 
         expect(

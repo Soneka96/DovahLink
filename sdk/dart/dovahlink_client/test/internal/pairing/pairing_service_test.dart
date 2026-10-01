@@ -8,10 +8,14 @@ import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_pairing_handshake.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/hello_result.dart';
+import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
@@ -46,6 +50,11 @@ class MockClientStateService extends Mock implements IClientStateService {}
 /// Mocks the single owner of runtime Known Host availability.
 class MockHostAvailabilityService extends Mock
     implements IHostAvailabilityService {}
+
+class MockAuthenticationService extends Mock
+    implements IAuthenticationService {}
+
+class MockReconnectService extends Mock implements IReconnectService {}
 
 /// Holds a state update until a pairing test releases it to control lifecycle timing.
 class GatedClientStateService implements IClientStateService {
@@ -190,10 +199,15 @@ void main() {
   late MockSessionService sessionService;
   late MockClientStateService storage;
   late MockHostAvailabilityService hostAvailabilityService;
+  late MockAuthenticationService authenticationService;
+  late MockReconnectService reconnectService;
   late PersistedClientState? updatedState;
   late PairingService service;
+  late String currentSessionId;
+  late DovahLinkHost currentHost;
 
   setUpAll(() {
+    registerFallbackValue(Uri.parse('ws://127.0.0.1:58231/'));
     registerFallbackValue(ProtocolMessageType.pairingRequest);
     registerFallbackValue(
       Fixtures.buildRequestPolicy(
@@ -204,6 +218,7 @@ void main() {
     );
     registerFallbackValue(Fixtures.buildPersistedClientState());
     registerFallbackValue((PersistedClientState state) => state);
+    registerFallbackValue(() async => Fixtures.buildHelloResult());
     registerFallbackValue(
       DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
     );
@@ -216,9 +231,16 @@ void main() {
     sessionService = MockSessionService();
     storage = MockClientStateService();
     hostAvailabilityService = MockHostAvailabilityService();
+    authenticationService = MockAuthenticationService();
+    reconnectService = MockReconnectService();
     updatedState = null;
+    currentSessionId = 'session-1';
+    currentHost = _currentHost();
     when(() => sessionTrustService.markTrusted()).thenReturn(null);
-    when(() => sessionService.currentHost).thenReturn(_currentHost());
+    when(() => sessionService.currentHost).thenAnswer((_) => currentHost);
+    when(
+      () => sessionService.currentSessionId,
+    ).thenAnswer((_) => currentSessionId);
     when(() => storage.load()).thenAnswer(
       (_) async => _state(clientId: 'client-1', knownHost: _currentHost()),
     );
@@ -232,7 +254,25 @@ void main() {
       () => hostAvailabilityService.setAvailability(any(), any()),
     ).thenReturn(null);
     when(() => sessionService.associateKnownHost(any())).thenReturn(null);
+    when(() => authenticationService.authenticateCandidate(any())).thenAnswer(
+      (_) async =>
+          Fixtures.buildHelloResult(trustState: DovahLinkTrustState.trusted),
+    );
+    when(() => authenticationService.authenticateKnownHost(any())).thenAnswer(
+      (_) async =>
+          Fixtures.buildHelloResult(trustState: DovahLinkTrustState.trusted),
+    );
+    when(() => reconnectService.connectWithInitialRetry(any())).thenAnswer((
+      invocation,
+    ) {
+      final Future<HelloResult> Function() attempt =
+          invocation.positionalArguments.single
+              as Future<HelloResult> Function();
+      return attempt();
+    });
     service = PairingService(
+      authenticationService: authenticationService,
+      reconnectService: reconnectService,
       sessionService: sessionService,
       sessionTrustService: sessionTrustService,
       requestService: requestService,
@@ -240,6 +280,154 @@ void main() {
       hostAvailabilityService: hostAvailabilityService,
     );
   });
+
+  group('Method authenticateCandidate behaves correctly', () {
+    test(
+      'Method authenticateCandidate runs shared authentication and retry',
+      () async {
+        final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
+
+        final DovahLinkPairingHandshake result = await service
+            .authenticateCandidate(uri);
+
+        expect(result.hello.trustState, DovahLinkTrustState.trusted);
+        expect(result.trustState, DovahLinkTrustState.trusted);
+        verify(() => reconnectService.connectWithInitialRetry(any())).called(1);
+        verify(
+          () => authenticationService.authenticateCandidate(uri),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method authenticateCandidate recovers pending confirmation after an unpaired hello',
+      () async {
+        when(
+          () => authenticationService.authenticateCandidate(any()),
+        ).thenAnswer(
+          (_) async => Fixtures.buildHelloResult(
+            trustState: DovahLinkTrustState.unpaired,
+          ),
+        );
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
+        stubSendAndAwait(
+          requestService,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.trusted,
+            credential: 'credential-a',
+            shortId: 'abc123',
+            displayName: 'LOCAL-HOST',
+          ),
+        );
+
+        final DovahLinkPairingHandshake result = await service
+            .authenticateCandidate(Uri.parse('ws://127.0.0.1:58231/'));
+
+        expect(result.hello.trustState, DovahLinkTrustState.unpaired);
+        expect(result.trustState, DovahLinkTrustState.trusted);
+        verify(
+          () => authenticationService.authenticateCandidate(any()),
+        ).called(1);
+        verify(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.pairingAck,
+            payload: any(named: 'payload'),
+            expectedType: ProtocolMessageType.pairingOutcome,
+            policy: any(named: 'policy'),
+          ),
+        ).called(1);
+      },
+    );
+  });
+
+  group('Method authenticateKnownHost behaves correctly', () {
+    test(
+      'Method authenticateKnownHost preserves the requested relationship ID',
+      () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(_currentHost().hostId);
+
+        final DovahLinkPairingHandshake result = await service
+            .authenticateKnownHost(hostId);
+
+        expect(result.hello.trustState, DovahLinkTrustState.trusted);
+        expect(result.trustState, DovahLinkTrustState.trusted);
+        verify(() => reconnectService.connectWithInitialRetry(any())).called(1);
+        verify(
+          () => authenticationService.authenticateKnownHost(hostId),
+        ).called(1);
+      },
+    );
+  });
+
+  test(
+    'Method authenticateCandidate suppresses recovery results from a replaced session',
+    () async {
+      when(() => authenticationService.authenticateCandidate(any())).thenAnswer(
+        (_) async =>
+            Fixtures.buildHelloResult(trustState: DovahLinkTrustState.unpaired),
+      );
+      when(() => storage.load()).thenAnswer((_) async => _confirmingState());
+      when(
+        () => requestService.sendAndAwait(
+          messageType: any(named: 'messageType'),
+          payload: any(named: 'payload'),
+          expectedType: any(named: 'expectedType'),
+          policy: any(named: 'policy'),
+        ),
+      ).thenAnswer((_) async {
+        currentSessionId = 'session-replaced';
+        return buildPairingOutcomeEnvelope(
+          outcome: PairingOutcome.trusted,
+          credential: 'credential-a',
+          shortId: 'abc123',
+          displayName: 'LOCAL-HOST',
+        );
+      });
+
+      await expectLater(
+        service.authenticateCandidate(Uri.parse('ws://127.0.0.1:58231/')),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+      verifyNever(() => sessionTrustService.markTrusted());
+    },
+  );
+
+  test(
+    'Method authenticateCandidate suppresses recovery results after the active Host changes',
+    () async {
+      when(() => authenticationService.authenticateCandidate(any())).thenAnswer(
+        (_) async =>
+            Fixtures.buildHelloResult(trustState: DovahLinkTrustState.unpaired),
+      );
+      when(() => storage.load()).thenAnswer((_) async => _confirmingState());
+      when(
+        () => requestService.sendAndAwait(
+          messageType: any(named: 'messageType'),
+          payload: any(named: 'payload'),
+          expectedType: any(named: 'expectedType'),
+          policy: any(named: 'policy'),
+        ),
+      ).thenAnswer((_) async {
+        currentHost = DovahLinkHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          hostName: 'OTHER-HOST',
+          endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        return buildPairingOutcomeEnvelope(
+          outcome: PairingOutcome.trusted,
+          credential: 'credential-a',
+          shortId: 'abc123',
+          displayName: 'LOCAL-HOST',
+        );
+      });
+
+      await expectLater(
+        service.authenticateCandidate(Uri.parse('ws://127.0.0.1:58231/')),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+      verifyNever(() => sessionTrustService.markTrusted());
+    },
+  );
 
   group('Method requestPairing behaves correctly', () {
     test('Method requestPairing decodes the pairing_status reply', () async {
@@ -930,6 +1118,8 @@ void main() {
           updateGate: updateGate,
         );
         service = PairingService(
+          authenticationService: authenticationService,
+          reconnectService: reconnectService,
           sessionService: sessionService,
           sessionTrustService: sessionTrustService,
           requestService: requestService,
@@ -1197,6 +1387,58 @@ void main() {
         );
         verifyNoStorageCalls(storage);
         verifyNever(() => sessionTrustService.markTrusted());
+      },
+    );
+  });
+
+  group('Method confirmPairingCodeAndAcknowledge behaves correctly', () {
+    test(
+      'Method confirmPairingCodeAndAcknowledge keeps protocol sequencing in the SDK',
+      () async {
+        final List<ProtocolMessageType> sent = <ProtocolMessageType>[];
+        when(() => storage.load()).thenAnswer(
+          (_) async =>
+              updatedState ??
+              _state(clientId: 'client-1', knownHost: _currentHost()),
+        );
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((invocation) async {
+          final ProtocolMessageType messageType =
+              invocation.namedArguments[#messageType] as ProtocolMessageType;
+          sent.add(messageType);
+          return buildPairingOutcomeEnvelope(
+            outcome: messageType == ProtocolMessageType.pairingConfirm
+                ? PairingOutcome.credentialIssued
+                : PairingOutcome.trusted,
+            credential: 'issued-credential',
+            shortId: messageType == ProtocolMessageType.pairingConfirm
+                ? null
+                : 'abc123',
+            displayName: 'My PC',
+          );
+        });
+
+        await service.confirmPairingCodeAndAcknowledge(
+          code: '123456',
+          displayName: 'My PC',
+        );
+
+        expect(sent, <ProtocolMessageType>[
+          ProtocolMessageType.pairingConfirm,
+          ProtocolMessageType.pairingAck,
+        ]);
+        expect(updatedState?.pendingPairingRecovery, isNull);
+        expect(
+          updatedState?.knownHosts.values.single.credential,
+          'issued-credential',
+        );
+        verify(() => sessionTrustService.markTrusted()).called(1);
       },
     );
   });

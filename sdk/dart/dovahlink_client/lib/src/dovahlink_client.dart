@@ -327,13 +327,6 @@ class DovahLinkClient {
         );
       }
     };
-    _pairingService = PairingService(
-      sessionService: _sessionService,
-      sessionTrustService: sessionTrustService,
-      requestService: _requestService,
-      clientStateService: _clientStateService,
-      hostAvailabilityService: _hostAvailabilityService,
-    );
     _reconnectService = ReconnectService(
       sessionService: _sessionService,
       authenticationService: _authenticationService,
@@ -342,6 +335,15 @@ class DovahLinkClient {
       deadline: reconnectDeadline,
       now: reconnectNow,
       initialConnectionRetryDelay: initialConnectionRetryDelay,
+    );
+    _pairingService = PairingService(
+      authenticationService: _authenticationService,
+      reconnectService: _reconnectService,
+      sessionService: _sessionService,
+      sessionTrustService: sessionTrustService,
+      requestService: _requestService,
+      clientStateService: _clientStateService,
+      hostAvailabilityService: _hostAvailabilityService,
     );
     if (reconnectEnabled) {
       _sessionService.onOrdinaryTransportLoss =
@@ -727,9 +729,9 @@ class DovahLinkClient {
   /// credential. Valid only on an [DovahLinkTrustState.unpaired] session.
   Future<PairingCancelOutcome> cancelPairing() => pairing.cancel();
 
-  /// Submits the six-digit code the user read from Skyrim. The SDK durably stores the issued
-  /// credential with the current Host and its [PairingRecoveryState.confirming] recovery state
-  /// before returning; the credential stays inside the SDK.
+  /// Submits the six-digit code the user read from Skyrim and completes the credential
+  /// acknowledgement. The SDK durably stores the credential and its
+  /// [PairingRecoveryState.confirming] recovery state before sending that acknowledgement.
   /// @param code The six-digit code shown by Skyrim.
   /// @param displayName The optional Client display name for Host pairing metadata.
   /// @throws [DovahLinkPairingException] if the code was expired, invalid, paced too soon, or
@@ -739,21 +741,11 @@ class DovahLinkClient {
     String? displayName,
   }) => pairing.confirmCode(code: code, displayName: displayName);
 
-  /// Echoes the pending Host-scoped credential internally, completing pairing.
-  /// [DovahLinkClient.trustState] becomes
-  /// [DovahLinkTrustState.trusted] on success, and the persisted recovery state clears back to
-  /// `null` while keeping the credential. Starts best-effort restoration of
-  /// desired state-area subscriptions after pairing succeeds.
-  /// @throws [DovahLinkPairingException] if the Host has no matching pending confirmation or
-  ///     an administrative mutation invalidated the pending credential.
-  Future<void> acknowledgeTrustedCredential() =>
-      pairing.acknowledgeTrustedCredential();
-
   /// Resumes an interrupted pairing confirmation after a crash or relaunch. Call after
   /// [DovahLinkClient.hello] admits a [DovahLinkTrustState.unpaired] session.
   ///
   /// A no-op returning [DovahLinkTrustState.unpaired] when no confirmation is outstanding. When
-  /// one is, retries [DovahLinkClient.acknowledgeTrustedCredential] with the stored credential: a
+  /// one is, retries the Host acknowledgement with the stored credential: a
   /// `pending_not_found` outcome (the Host restarted and lost the pending credential) or
   /// `pairing_invalidated` outcome (an administrative mutation rejected the pending credential)
   /// discards that Host's credential and recovery record and returns

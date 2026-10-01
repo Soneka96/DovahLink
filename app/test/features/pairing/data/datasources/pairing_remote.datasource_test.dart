@@ -30,6 +30,9 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(Uri.parse('ws://127.0.0.1:58231/'));
+    registerFallbackValue(
+      DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+    );
   });
 
   setUp(() {
@@ -37,107 +40,64 @@ void main() {
     mockConnections = MockDovahLinkConnections();
     mockPairing = MockDovahLinkPairing();
     when(() => mockClient.connections).thenReturn(mockConnections);
+    when(
+      () => mockConnections.state,
+    ).thenReturn(DovahLinkConnectionState.disconnected);
     when(() => mockClient.pairing).thenReturn(mockPairing);
     dataSource = PairingRemoteDataSource(mockClient);
   });
 
   group('Method authenticate behaves correctly', () {
     test(
-      'Method authenticate returns a trusted handshake without recovering pending pairing',
+      'Method authenticate delegates candidate lifecycle to the SDK pairing API',
       () async {
-        when(() => mockConnections.connectCandidate(any())).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
+        final HelloResult hello = Fixtures.buildSdkHelloResult(
+          hostVersion: '1.2.3',
+          trustState: DovahLinkTrustState.unpaired,
+        );
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: hello,
             trustState: DovahLinkTrustState.trusted,
           ),
         );
 
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
+        final result = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
 
         expect(
           result,
           Right<Failure, PairingHandshakeModel>(
-            Fixtures.buildPairingHandshakeModel(),
+            Fixtures.buildPairingHandshakeModel(trusted: true),
           ),
         );
-        verify(() => mockConnections.connectCandidate(hostUri)).called(1);
-        verifyNever(() => mockPairing.recoverPendingPairing());
-      },
-    );
-
-    test(
-      'Method authenticate sends a Known Host ID through Known Host authentication',
-      () async {
-        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
-        when(
-          () => mockConnections.connectKnownHost(DovahLinkHostId(hostId)),
-        ).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
-            trustState: DovahLinkTrustState.trusted,
-          ),
-        );
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: const Right(hostId));
-
-        expect(
-          result,
-          Right<Failure, PairingHandshakeModel>(
-            Fixtures.buildPairingHandshakeModel(),
-          ),
-        );
-        verify(
-          () => mockConnections.connectKnownHost(DovahLinkHostId(hostId)),
-        ).called(1);
+        verify(() => mockPairing.authenticateCandidate(hostUri)).called(1);
         verifyNever(() => mockConnections.connectCandidate(any()));
         verifyNever(() => mockPairing.recoverPendingPairing());
       },
     );
 
     test(
-      'Method authenticate maps a Known Host connection failure to NetworkFailure',
+      'Method authenticate delegates Known Host authentication by identity to the SDK',
       () async {
         const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
-        when(
-          () => mockConnections.connectKnownHost(DovahLinkHostId(hostId)),
-        ).thenThrow(const DovahLinkConnectionException('Known Host offline'));
-        when(
-          () => mockConnections.state,
-        ).thenReturn(DovahLinkConnectionState.disconnected);
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: const Right(hostId));
-
-        expect(
-          result,
-          const Left<Failure, PairingHandshakeModel>(
-            NetworkFailure('Known Host offline'),
-          ),
-        );
-        verify(
-          () => mockConnections.connectKnownHost(DovahLinkHostId(hostId)),
-        ).called(1);
-        verifyNever(() => mockPairing.recoverPendingPairing());
-      },
-    );
-
-    test(
-      'Method authenticate recovers an interrupted pairing when hello admits unpaired',
-      () async {
-        when(() => mockConnections.connectCandidate(any())).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
-            trustState: DovahLinkTrustState.unpaired,
-          ),
+        final HelloResult hello = Fixtures.buildSdkHelloResult(
+          hostVersion: '1.2.3',
+          trustState: DovahLinkTrustState.trusted,
         );
         when(
-          () => mockPairing.recoverPendingPairing(),
-        ).thenAnswer((_) async => DovahLinkTrustState.trusted);
+          () => mockPairing.authenticateKnownHost(DovahLinkHostId(hostId)),
+        ).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: hello,
+            trustState: DovahLinkTrustState.trusted,
+          ),
+        );
 
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
+        final result = await dataSource.authenticate(
+          target: const Right(hostId),
+        );
 
         expect(
           result,
@@ -145,51 +105,31 @@ void main() {
             Fixtures.buildPairingHandshakeModel(),
           ),
         );
-        verify(() => mockPairing.recoverPendingPairing()).called(1);
+        verify(
+          () => mockPairing.authenticateKnownHost(DovahLinkHostId(hostId)),
+        ).called(1);
+        verifyNever(() => mockConnections.connectKnownHost(any()));
       },
     );
 
     test(
-      'Method authenticate reports still-unpaired when no pairing recovers',
+      'Method authenticate maps SDK-resolved unpaired state and rejected credential copy',
       () async {
-        when(() => mockConnections.connectCandidate(any())).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
+        final HelloResult hello = Fixtures.buildSdkHelloResult(
+          hostVersion: '1.2.3',
+          trustState: DovahLinkTrustState.unpaired,
+          recoveredFromRejectedCredential: CredentialRejectionReason.revoked,
+        );
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: hello,
             trustState: DovahLinkTrustState.unpaired,
           ),
         );
-        when(
-          () => mockPairing.recoverPendingPairing(),
-        ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
 
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
-
-        expect(
-          result,
-          Right<Failure, PairingHandshakeModel>(
-            Fixtures.buildPairingHandshakeModel(trusted: false),
-          ),
+        final result = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
         );
-      },
-    );
-
-    test(
-      'Method authenticate carries the revoked-credential explanation through when the SDK recovered',
-      () async {
-        when(() => mockConnections.connectCandidate(any())).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
-            trustState: DovahLinkTrustState.unpaired,
-            recoveredFromRejectedCredential: CredentialRejectionReason.revoked,
-          ),
-        );
-        when(
-          () => mockPairing.recoverPendingPairing(),
-        ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
 
         expect(
           result,
@@ -206,238 +146,73 @@ void main() {
     );
 
     test(
-      'Method authenticate carries the blocked-credential explanation through when the SDK recovered',
+      'Method authenticate maps administrative invalidation separately from network failure',
       () async {
-        when(() => mockConnections.connectCandidate(any())).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
-            trustState: DovahLinkTrustState.unpaired,
-            recoveredFromRejectedCredential: CredentialRejectionReason.blocked,
-          ),
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenThrow(
+          const DovahLinkConnectionException('Host invalidated session'),
         );
         when(
-          () => mockPairing.recoverPendingPairing(),
-        ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
+          () => mockConnections.state,
+        ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
 
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
+        final result = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
 
         expect(
           result,
-          Right<Failure, PairingHandshakeModel>(
-            Fixtures.buildPairingHandshakeModel(
-              trusted: false,
-              credentialRejectionReason:
-                  PairingCredentialRejectionReason.blocked,
-              credentialRejectedMessage:
-                  'This device is blocked by the host and cannot be paired again until an '
-                  'administrator unblocks it.',
-            ),
+          const Left<Failure, PairingHandshakeModel>(
+            SessionInvalidatedFailure.administrative,
           ),
         );
       },
     );
 
     test(
-      'Method authenticate carries the unrecognized-credential explanation through when the SDK recovered',
-      () async {
-        when(() => mockConnections.connectCandidate(any())).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
-            trustState: DovahLinkTrustState.unpaired,
-            recoveredFromRejectedCredential:
-                CredentialRejectionReason.unrecognized,
-          ),
-        );
-        when(
-          () => mockPairing.recoverPendingPairing(),
-        ).thenAnswer((_) async => DovahLinkTrustState.unpaired);
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
-
-        expect(
-          result,
-          Right<Failure, PairingHandshakeModel>(
-            Fixtures.buildPairingHandshakeModel(
-              trusted: false,
-              credentialRejectionReason:
-                  PairingCredentialRejectionReason.unrecognized,
-              credentialRejectedMessage:
-                  "This device isn't recognized by this host.",
-            ),
-          ),
-        );
-      },
-    );
-
-    test(
-      'Method authenticate maps a connection failure to NetworkFailure when the session is not '
-      'administratively invalidated',
+      'Method authenticate maps a connection failure to NetworkFailure',
       () async {
         when(
-          () => mockConnections.connectCandidate(any()),
-        ).thenThrow(const DovahLinkConnectionException('socket failed'));
+          () => mockPairing.authenticateCandidate(hostUri),
+        ).thenThrow(const DovahLinkConnectionException('unreachable'));
         when(
           () => mockConnections.state,
         ).thenReturn(DovahLinkConnectionState.disconnected);
 
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
+        final result = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
 
         expect(
           result,
           const Left<Failure, PairingHandshakeModel>(
-            NetworkFailure('socket failed'),
+            NetworkFailure('unreachable'),
           ),
         );
       },
     );
 
     test(
-      'Method authenticate maps a connection failure to SessionInvalidatedFailure when the '
-      'client is administratively invalidated',
+      'Method authenticate maps typed pairing failures to PairingFailure',
       () async {
-        when(
-          () => mockConnections.connectCandidate(any()),
-        ).thenThrow(const DovahLinkConnectionException('socket failed'));
-        when(
-          () => mockConnections.state,
-        ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenThrow(
+          const DovahLinkPairingException(PairingOutcome.pendingNotFound),
+        );
 
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
+        final result = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
 
         expect(
           result,
           const Left<Failure, PairingHandshakeModel>(
-            SessionInvalidatedFailure(
-              'This device was disconnected by the host. Try again.',
+            PairingFailure(
+              'This pairing attempt is no longer recognized. Request a new code.',
             ),
-          ),
-        );
-      },
-    );
-
-    test(
-      'Method authenticate maps a connection failure from recoverPendingPairing to '
-      'SessionInvalidatedFailure when the client is administratively '
-      'invalidated',
-      () async {
-        when(() => mockConnections.connectCandidate(any())).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
-            trustState: DovahLinkTrustState.unpaired,
-          ),
-        );
-        when(
-          () => mockPairing.recoverPendingPairing(),
-        ).thenThrow(const DovahLinkConnectionException('socket failed'));
-        when(
-          () => mockConnections.state,
-        ).thenReturn(DovahLinkConnectionState.administrativelyInvalidated);
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
-
-        expect(
-          result,
-          const Left<Failure, PairingHandshakeModel>(
-            SessionInvalidatedFailure(
-              'This device was disconnected by the host. Try again.',
-            ),
-          ),
-        );
-      },
-    );
-
-    test(
-      'Method authenticate maps a protocol failure to NetworkFailure',
-      () async {
-        when(() => mockConnections.connectCandidate(any())).thenThrow(
-          const DovahLinkProtocolException(
-            code: ProtocolErrorCode.malformedMessage,
-            message: 'bad reply',
-            retryable: false,
-          ),
-        );
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
-
-        expect(
-          result,
-          const Left<Failure, PairingHandshakeModel>(
-            NetworkFailure('bad reply'),
-          ),
-        );
-      },
-    );
-
-    test(
-      'Method authenticate maps a storage failure to DatabaseFailure',
-      () async {
-        when(
-          () => mockConnections.connectCandidate(any()),
-        ).thenThrow(const DovahLinkStorageException('corrupt store'));
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
-
-        expect(
-          result,
-          const Left<Failure, PairingHandshakeModel>(
-            DatabaseFailure('corrupt store'),
-          ),
-        );
-      },
-    );
-
-    test(
-      'Method authenticate maps a pairing failure from recovery to a user-safe PairingFailure',
-      () async {
-        when(() => mockConnections.connectCandidate(any())).thenAnswer(
-          (_) async => Fixtures.buildSdkHelloResult(
-            hostVersion: '1.2.3',
-            trustState: DovahLinkTrustState.unpaired,
-          ),
-        );
-        when(
-          () => mockPairing.recoverPendingPairing(),
-        ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
-
-        expect(
-          result,
-          const Left<Failure, PairingHandshakeModel>(
-            PairingFailure('That pairing code has expired. Request a new one.'),
-          ),
-        );
-      },
-    );
-
-    test(
-      'Method authenticate maps an unexpected exception to a user-safe PairingFailure',
-      () async {
-        when(
-          () => mockConnections.connectCandidate(any()),
-        ).thenThrow(StateError('boom'));
-
-        final Either<Failure, PairingHandshakeModel> result = await dataSource
-            .authenticate(target: Left<Uri, String>(hostUri));
-
-        expect(
-          result,
-          const Left<Failure, PairingHandshakeModel>(
-            PairingFailure('Pairing could not be completed. Please try again.'),
           ),
         );
       },
     );
   });
-
   group('Method requestPairingCode behaves correctly', () {
     test(
       'Method requestPairingCode returns Right with expiresInSeconds when a fresh code is shown',
@@ -591,7 +366,7 @@ void main() {
 
   group('Method confirmPairingCode behaves correctly', () {
     test(
-      'Method confirmPairingCode confirms and acknowledges the credential in order',
+      'Method confirmPairingCode delegates the complete operation to the SDK',
       () async {
         when(
           () => mockPairing.confirmCode(
@@ -599,18 +374,13 @@ void main() {
             displayName: any(named: 'displayName'),
           ),
         ).thenAnswer((_) async {});
-        when(
-          () => mockPairing.acknowledgeTrustedCredential(),
-        ).thenAnswer((_) async {});
-
         final Either<Failure, Unit> result = await dataSource
             .confirmPairingCode(code: '123456', displayName: 'Desktop');
 
         expect(result, const Right<Failure, Unit>(unit));
-        verifyInOrder([
+        verify(
           () => mockPairing.confirmCode(code: '123456', displayName: 'Desktop'),
-          () => mockPairing.acknowledgeTrustedCredential(),
-        ]);
+        ).called(1);
       },
     );
 
@@ -633,7 +403,6 @@ void main() {
             PairingFailure('That pairing code has expired. Request a new one.'),
           ),
         );
-        verifyNever(() => mockPairing.acknowledgeTrustedCredential());
       },
     );
 
@@ -716,15 +485,14 @@ void main() {
     );
 
     test(
-      'Method confirmPairingCode maps an unrecognized outcome from acknowledgement to a non-retriable PairingFailure',
+      'Method confirmPairingCode maps a pending-not-found result to a non-retriable PairingFailure',
       () async {
         when(
           () => mockPairing.confirmCode(
             code: any(named: 'code'),
             displayName: any(named: 'displayName'),
           ),
-        ).thenAnswer((_) async {});
-        when(() => mockPairing.acknowledgeTrustedCredential()).thenThrow(
+        ).thenThrow(
           const DovahLinkPairingException(PairingOutcome.pendingNotFound),
         );
 
@@ -824,7 +592,6 @@ void main() {
             PairingFailure('Pairing could not be completed. Please try again.'),
           ),
         );
-        verifyNever(() => mockPairing.acknowledgeTrustedCredential());
       },
     );
   });
