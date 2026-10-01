@@ -511,7 +511,7 @@ void main() {
     );
 
     test(
-      'PairingStartedAction dispatches PairingDisconnectedAction when authentication fails with a NetworkFailure',
+      'PairingStartedAction dispatches PairingFailedAction when authentication completes with a NetworkFailure',
       () async {
         const NetworkFailure failure = NetworkFailure('unreachable');
         when(
@@ -523,8 +523,9 @@ void main() {
 
         expect(actionLog, [
           isA<PairingStartedAction>(),
-          isA<PairingDisconnectedAction>(),
+          const PairingFailedAction('unreachable'),
         ]);
+        expect(actionLog.whereType<PairingDisconnectedAction>(), isEmpty);
       },
     );
 
@@ -666,16 +667,13 @@ void main() {
     );
 
     test(
-      'PairingStartedAction presents the SDK retrying state as disconnected while the original authentication completes',
+      'PairingStartedAction dispatches trusted after the original authentication succeeds on retry',
       () async {
         final Completer<Either<Failure, PairingHandshake>> authentication =
             Completer<Either<Failure, PairingHandshake>>();
         when(
           () => mockAuthenticate(any()),
         ).thenAnswer((_) => authentication.future);
-        when(
-          () => mockObserveConnectionStatus(any()),
-        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
         when(
           () => store.state,
         ).thenReturn(_stateWithPhase(PairingPhase.connecting));
@@ -694,7 +692,7 @@ void main() {
         expect(initialRetryStatusController.hasListener, isTrue);
 
         authentication.complete(
-          Right(Fixtures.buildPairingHandshake(trusted: false)),
+          Right(Fixtures.buildPairingHandshake(trusted: true)),
         );
         await Future<void>.delayed(Duration.zero);
 
@@ -702,7 +700,7 @@ void main() {
           const PairingStartedAction(),
           const PairingDisconnectedAction(),
           isA<PairingAuthenticatedAction>(),
-          const PairingCodeRequestedAction(),
+          const PairingSessionTrustedAction(),
         ]);
         expect(actionLog.whereType<PairingStartedAction>(), hasLength(1));
         expect(initialRetryStatusController.hasListener, isFalse);

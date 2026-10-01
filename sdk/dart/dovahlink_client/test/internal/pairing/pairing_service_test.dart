@@ -1181,12 +1181,6 @@ void main() {
       'Method confirmPairingCode preserves recovery without associating a replacement session for the same Host ID',
       () async {
         final DovahLinkHost hostA = _currentHost();
-        DovahLinkHost activeHost = hostA;
-        String activeSessionId = 'session-1';
-        when(() => sessionService.currentHost).thenAnswer((_) => activeHost);
-        when(
-          () => sessionService.currentSessionId,
-        ).thenAnswer((_) => activeSessionId);
         final Completer<void> updateGate = Completer<void>();
         final GatedClientStateService gatedStorage = GatedClientStateService(
           loadedState: _state(clientId: 'client-1'),
@@ -1213,7 +1207,7 @@ void main() {
           code: '123456',
         );
         await gatedStorage.updateStarted.future;
-        activeSessionId = 'session-2';
+        currentSessionId = 'session-2';
         updateGate.complete();
 
         await confirmation;

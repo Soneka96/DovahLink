@@ -168,11 +168,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        if (failure is NetworkFailure) {
-          store.dispatch(const PairingDisconnectedAction());
-        } else {
-          store.dispatch(PairingFailedAction(failure.message));
-        }
+        store.dispatch(PairingFailedAction(failure.message));
       },
       (PairingHandshake handshake) {
         store.dispatch(
