@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
-import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -70,7 +69,9 @@ class _DiscoverCandidateCardState extends State<DiscoverCandidateCard> {
           onTap: enabled ? widget.onTap : null,
           splashFactory: NoSplash.splashFactory,
           overlayColor: const WidgetStatePropertyAll(Colors.transparent),
-          mouseCursor: enabled
+          mouseCursor: widget.isChecking
+              ? SystemMouseCursors.wait
+              : enabled
               ? SystemMouseCursors.click
               : SystemMouseCursors.basic,
           child: Builder(
@@ -82,7 +83,7 @@ class _DiscoverCandidateCardState extends State<DiscoverCandidateCard> {
                 cornerRadius: cornerRadius,
                 child: Opacity(
                   opacity: widget.isChecking
-                      ? DovahControlMetrics.disabledControlOpacity
+                      ? DovahDialogMetrics.discoveryCandidateCheckingOpacity
                       : 1,
                   child: DovahSurface(
                     role: hovered

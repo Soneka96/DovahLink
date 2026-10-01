@@ -54,17 +54,18 @@ void main() {
         'DiscoverCandidateCard disables selection while checking under $preset',
         (WidgetTester tester) async {
           final SemanticsHandle semantics = tester.ensureSemantics();
+          int calls = 0;
           try {
             setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
             await tester.pumpWidget(
               MaterialApp(
                 theme: dovahThemeDataFor(preset),
-                home: const Scaffold(
+                home: Scaffold(
                   body: DiscoverCandidateCard(
                     title: 'Local Host',
                     subtitle: 'DovahLink · Ready to connect',
                     isChecking: true,
-                    onTap: ignoreCandidate,
+                    onTap: () => calls++,
                   ),
                 ),
               ),
@@ -90,12 +91,15 @@ void main() {
             );
             expect(
               tester.widget<Opacity>(find.byType(Opacity).first).opacity,
-              DovahControlMetrics.disabledControlOpacity,
+              0.82,
             );
             final InkWell candidate = tester.widget(find.byType(InkWell));
             expect(candidate.onTap, isNull);
-            expect(candidate.mouseCursor, SystemMouseCursors.basic);
+            expect(candidate.mouseCursor, SystemMouseCursors.wait);
             expect(find.text('›'), findsNothing);
+
+            await tester.tap(find.byType(DiscoverCandidateCard));
+            expect(calls, 0);
           } finally {
             semantics.dispose();
           }
