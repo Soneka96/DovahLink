@@ -24,7 +24,9 @@ class DiscoverDialog extends StatefulWidget {
   /// Creates the discovery dialog.
   const DiscoverDialog({super.key});
 
-  /// Shows discovery and, when needed, pairing within one continuous dialog route.
+  /// Shows discovery and, when needed, pairing within one continuous dialog route. Discover owns the
+  /// candidate pairing lifecycle it started, so it alone ends that lifecycle once the route pops;
+  /// the embedded [PairingSection.parentOwned] never disposes it again during route teardown.
   static Future<void> show(BuildContext context) async {
     final Store<AppState> store = StoreProvider.of<AppState>(context);
     await DovahDialog.showBuilder<void>(
@@ -72,7 +74,7 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
             builder: (BuildContext context, PairingDialogViewModel pairing) =>
                 DovahDialog(
                   title: pairing.title,
-                  child: const PairingSection(startOnInit: false),
+                  child: const PairingSection.parentOwned(),
                 ),
           );
         }
@@ -211,11 +213,11 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
                                         title: candidate.title,
                                         subtitle: candidate.subtitle,
                                         isChecking: isChecking,
-                                        onTap: isChecking
-                                            ? null
-                                            : () => viewModel.onSelectCandidate(
+                                        onTap: viewModel.canSelectCandidate
+                                            ? () => viewModel.onSelectCandidate(
                                                 candidate,
-                                              ),
+                                              )
+                                            : null,
                                       ),
                                     ),
                                 ],

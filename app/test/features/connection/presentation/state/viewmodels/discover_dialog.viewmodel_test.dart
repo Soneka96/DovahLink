@@ -169,6 +169,36 @@ void main() {
       expect(ConnectionSelectors.selectedHostSelector(store.state), isNull);
     });
 
+    test(
+      'canSelectCandidate matches the phase guard that admits a new pairing lifecycle',
+      () {
+        final Host candidate = Fixtures.buildHost();
+        for (final PairingPhase phase in PairingPhase.values) {
+          final Store<AppState> store = const CreateStore()(
+            initialState: AppState(
+              connection: ConnectionState(hosts: [candidate]),
+              pairing: PairingState.initial().copyWith(phase: phase),
+            ),
+          );
+          final DiscoverDialogViewModel viewModel =
+              DiscoverDialogViewModel.fromStore(store);
+
+          viewModel.onSelectCandidate(viewModel.candidates.single);
+
+          expect(
+            viewModel.canSelectCandidate,
+            phase == PairingPhase.none,
+            reason: '$phase',
+          );
+          expect(
+            ConnectionSelectors.selectedHostSelector(store.state) != null,
+            viewModel.canSelectCandidate,
+            reason: '$phase',
+          );
+        }
+      },
+    );
+
     test('shouldContinueToPairing waits through connection and retries', () {
       final Host candidate = Fixtures.buildHost();
       for (final PairingPhase phase in [

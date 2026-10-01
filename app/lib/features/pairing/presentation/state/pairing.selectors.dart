@@ -10,6 +10,10 @@ abstract final class PairingSelectors {
   static String statusLabelSelector(AppState state) =>
       phaseSelector(state).label;
 
+  /// Returns whether a new pairing lifecycle may start: only when no lifecycle is active.
+  static bool canStartPairingSelector(AppState state) =>
+      phaseSelector(state) == PairingPhase.none;
+
   /// Returns whether the pairing flow may be dismissed. It may not while a submitted code is
   /// being confirmed, because leaving then would disconnect mid-way through committing trust.
   static bool canDismissSelector(AppState state) =>

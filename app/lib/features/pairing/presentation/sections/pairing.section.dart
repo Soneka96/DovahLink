@@ -15,19 +15,30 @@ import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
-/// The content of the pairing dialog: starts pairing when it appears unless the caller already
-/// started authentication, ends pairing when it goes away, and shows the state matching the
-/// current [PairingPhase]. An unpaired session waits for the user only when a trusted credential was
-/// rejected for repair; a blocked credential can only be closed, and otherwise the code is already
-/// being requested. Leaving while a code is being confirmed is blocked; every other exit -- the
-/// close button, Escape, the barrier -- ends pairing, keeping any trust already established.
+/// Standalone pairing content that starts a lifecycle unless authentication already started and
+/// ends it when removed. [PairingSection.parentOwned] lets an enclosing flow own both actions. This
+/// section shows the state matching the current [PairingPhase]. An unpaired session waits for the
+/// user only when a trusted credential was rejected for repair; a blocked credential can only be
+/// closed, and otherwise the code is already being requested. Leaving while a code is being
+/// confirmed is blocked; every other standalone exit keeps any trust already established.
 class PairingSection extends StatelessWidget {
   /// Whether this section starts a new authentication when it is mounted.
   final bool startOnInit;
 
-  /// Creates the pairing section.
+  /// Whether this section ends pairing through [PairingSectionViewModel.onDispose] when it is
+  /// removed. `false` only for [PairingSection.parentOwned], whose parent ends the lifecycle itself.
+  final bool disposeOnRemove;
+
+  /// Creates a standalone pairing section that owns the end of the pairing lifecycle.
   /// @param startOnInit Whether to start authentication when the section appears.
-  const PairingSection({this.startOnInit = true, super.key});
+  const PairingSection({this.startOnInit = true, super.key})
+    : disposeOnRemove = true;
+
+  /// Creates a pairing section embedded in a parent that owns the whole pairing lifecycle: the
+  /// section neither starts authentication when mounted nor disposes pairing when removed.
+  const PairingSection.parentOwned({super.key})
+    : startOnInit = false,
+      disposeOnRemove = false;
 
   /// See [StatelessWidget.build].
   @override
@@ -39,8 +50,11 @@ class PairingSection extends StatelessWidget {
           sl<PairingSectionViewModel>(param1: store).onStart();
         }
       },
-      onDispose: (Store<AppState> store) =>
-          sl<PairingSectionViewModel>(param1: store).onDispose(),
+      onDispose: (Store<AppState> store) {
+        if (disposeOnRemove) {
+          sl<PairingSectionViewModel>(param1: store).onDispose();
+        }
+      },
       converter: (Store<AppState> store) =>
           sl<PairingSectionViewModel>(param1: store),
       builder: (BuildContext context, PairingSectionViewModel viewModel) {

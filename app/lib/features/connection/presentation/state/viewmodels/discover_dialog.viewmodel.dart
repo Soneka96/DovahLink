@@ -33,6 +33,9 @@ class DiscoverDialogViewModel extends Equatable {
   /// Whether secure storage supports the selected pairing flow.
   final PairingSupport pairingSupport;
 
+  /// Whether selecting a candidate can start a new pairing lifecycle right now.
+  final bool canSelectCandidate;
+
   /// Called when the dialog opens or the user requests another search.
   final void Function() onDiscover;
 
@@ -51,6 +54,7 @@ class DiscoverDialogViewModel extends Equatable {
     required this.selectedCandidate,
     required this.pairingPhase,
     required this.pairingSupport,
+    required this.canSelectCandidate,
     required this.onDiscover,
     required this.onSelectCandidate,
     required this.onDispose,
@@ -96,10 +100,11 @@ class DiscoverDialogViewModel extends Equatable {
           : null,
       pairingPhase: PairingSelectors.phaseSelector(state),
       pairingSupport: state.pairing.support,
+      canSelectCandidate: PairingSelectors.canStartPairingSelector(state),
       onDiscover: () =>
           store.dispatch(const ConnectionDiscoveryRequestedAction()),
       onSelectCandidate: (HostCardViewData candidate) {
-        if (PairingSelectors.phaseSelector(store.state) != PairingPhase.none) {
+        if (!PairingSelectors.canStartPairingSelector(store.state)) {
           return;
         }
         store.dispatch(
@@ -153,5 +158,6 @@ class DiscoverDialogViewModel extends Equatable {
     selectedCandidate,
     pairingPhase,
     pairingSupport,
+    canSelectCandidate,
   ];
 }

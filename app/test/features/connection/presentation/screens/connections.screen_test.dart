@@ -119,6 +119,7 @@ void main() {
     when(
       () => discoverViewModel.pairingSupport,
     ).thenReturn(PairingSupport.available);
+    when(() => discoverViewModel.canSelectCandidate).thenReturn(true);
     when(() => discoverViewModel.shouldContinueToPairing).thenReturn(false);
     when(() => discoverViewModel.hasTrustedCandidate).thenReturn(false);
     when(

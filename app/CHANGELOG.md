@@ -43,6 +43,9 @@ Repository releases share root `VERSION`. When an app change is included in a re
   into the existing pairing flow after the SDK outcome.
 - Discover candidate cards use the nearby-card shape, primary hover accent, compact icon metrics, and
   disabled checking treatment.
+- Discover candidate cards are disabled while another pairing lifecycle is active.
+- Closing Discover during embedded pairing dispatches one cleanup, while Done preserves the trusted
+  session.
 - Discovery completion updates operation status without replacing the SDK's candidate collection.
 - Pairing keeps discovery candidates ephemeral and authenticates a selected Known Host by ID.
 - Pairing selection rebinds from the SDK's Known Host projection after successful confirmation.

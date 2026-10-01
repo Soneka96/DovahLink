@@ -3,6 +3,7 @@ import 'package:flutter/semantics.dart';
 
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
@@ -11,8 +12,10 @@ import 'package:dovahlink_client/features/connection/presentation/state/viewmode
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_candidate_card.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_dialog.widget.dart';
+import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
@@ -25,6 +28,7 @@ import 'package:dovahlink_client/shared/state/create_store.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
+import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
@@ -37,6 +41,9 @@ class MockDiscoverDialogViewModel extends Mock
 
 /// Mock Store supplied to the dialog's [StoreConnector].
 class MockStore extends Mock implements Store<AppState> {}
+
+/// Mock disconnect resolved by the real [PairingMiddleware] when pairing is disposed.
+class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
 
 /// Exercises [DiscoverDialog]'s live discovery states and selection result.
 void main() {
@@ -72,6 +79,7 @@ void main() {
     when(() => viewModel.selectedCandidate).thenReturn(null);
     when(() => viewModel.pairingPhase).thenReturn(PairingPhase.none);
     when(() => viewModel.pairingSupport).thenReturn(PairingSupport.available);
+    when(() => viewModel.canSelectCandidate).thenReturn(true);
     when(() => viewModel.shouldContinueToPairing).thenReturn(false);
     when(() => viewModel.hasTrustedCandidate).thenReturn(false);
     when(
@@ -180,6 +188,57 @@ void main() {
         );
       },
     );
+
+    for (final bool canSelectCandidate in [true, false]) {
+      testWidgets(
+        'DiscoverDialog presents the candidate as enabled only when it can start pairing ($canSelectCandidate)',
+        (WidgetTester tester) async {
+          when(
+            () => viewModel.status,
+          ).thenReturn(ConnectionDiscoveryStatus.available);
+          when(() => viewModel.candidates).thenReturn([candidate]);
+          when(
+            () => viewModel.canSelectCandidate,
+          ).thenReturn(canSelectCandidate);
+          final SemanticsHandle semantics = tester.ensureSemantics();
+          try {
+            setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
+            await tester.pumpWidget(buildDialog());
+            final Finder card = find.byKey(
+              Key('discover-candidate-${candidate.host.hostId}'),
+            );
+
+            expect(
+              tester.widget<DiscoverCandidateCard>(card).onTap != null,
+              canSelectCandidate,
+            );
+            expect(
+              tester.getSemantics(
+                find.bySemanticsLabel(
+                  'Local Host, DovahLink · Ready to connect',
+                ),
+              ),
+              isSemantics(
+                label: 'Local Host, DovahLink · Ready to connect',
+                isButton: true,
+                hasEnabledState: true,
+                isEnabled: canSelectCandidate,
+                hasTapAction: canSelectCandidate,
+              ),
+            );
+            await tester.tap(card);
+            await tester.pump();
+
+            expect(
+              selectedCandidates,
+              canSelectCandidate ? [candidate] : isEmpty,
+            );
+          } finally {
+            semantics.dispose();
+          }
+        },
+      );
+    }
 
     testWidgets(
       'DiscoverDialog handles available status before its candidate snapshot',
@@ -523,6 +582,136 @@ void main() {
         await tester.tap(find.byTooltip('Close'));
         await tester.pumpAndSettle();
         await flow;
+      },
+    );
+  });
+
+  group('DiscoverDialog owns the embedded pairing lifecycle', () {
+    late MockDisconnectUseCase mockDisconnect;
+    late List<Object?> actions;
+    late Host candidateHost;
+    late Store<AppState> realStore;
+    late Future<void> flow;
+
+    setUpAll(() => registerFallbackValue(NoParams()));
+
+    setUp(() {
+      mockDisconnect = MockDisconnectUseCase();
+      when(
+        () => mockDisconnect(any()),
+      ).thenAnswer((_) async => const Right(unit));
+      sl.registerLazySingleton<DisconnectUseCase>(() => mockDisconnect);
+      actions = [];
+      candidateHost = Fixtures.buildHost(
+        uri: Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      final PairingMiddleware pairingMiddleware = PairingMiddleware();
+      addTearDown(pairingMiddleware.shutdown);
+
+      /// Records Redux actions before the real pairing middleware handles them.
+      void recordActions(
+        Store<AppState> store,
+        dynamic action,
+        NextDispatcher next,
+      ) {
+        actions.add(action);
+        next(action);
+      }
+
+      realStore = const CreateStore()(
+        initialState: AppState(
+          connection: connection.ConnectionState(
+            hosts: [candidateHost],
+            selectedHost: candidateHost,
+            selectedHostSource: ConnectionHostSelectionSource.candidate,
+            discoveryStatus: ConnectionDiscoveryStatus.available,
+          ),
+          pairing: PairingState.initial().copyWith(
+            phase: PairingPhase.connecting,
+          ),
+        ),
+        middleware: [recordActions, pairingMiddleware.call],
+      );
+      sl.unregister<DiscoverDialogViewModel>();
+      sl.registerFactoryParam<DiscoverDialogViewModel, Store<AppState>, void>(
+        (Store<AppState> store, void _) =>
+            DiscoverDialogViewModel.fromStore(store),
+      );
+      registerRealPairingViewModels();
+    });
+
+    /// Opens Discover through its real dialog route during candidate authentication and moves it
+    /// into the embedded pairing flow with an unpaired outcome, keeping the route future in [flow].
+    Future<void> openEmbeddedPairing(WidgetTester tester) async {
+      setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
+      await tester.pumpWidget(
+        StoreProvider<AppState>(
+          store: realStore,
+          child: MaterialApp(
+            theme: dovahThemeDataFor(DovahThemePreset.dovah),
+            home: Builder(
+              builder: (BuildContext context) => Scaffold(
+                body: TextButton(
+                  onPressed: () => flow = DiscoverDialog.show(context),
+                  child: const Text('Open Discover'),
+                ),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open Discover'));
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 1));
+      expect(find.text('Checking trusted connection…'), findsOneWidget);
+      realStore.dispatch(
+        const PairingAuthenticatedAction(hostVersion: '0.5.0', trusted: false),
+      );
+      await tester.pump();
+      await tester.pump();
+      expect(find.byType(PairingSection), findsOneWidget);
+    }
+
+    testWidgets(
+      'DiscoverDialog dispatches one PairingDisposedAction and disconnects once when closed during embedded pairing',
+      (WidgetTester tester) async {
+        await openEmbeddedPairing(tester);
+
+        await tester.tap(find.byTooltip('Close'));
+        await tester.pumpAndSettle();
+        await flow;
+        await tester.pump();
+
+        expect(find.byType(DovahDialog), findsNothing);
+        expect(find.byType(PairingSection), findsNothing);
+        expect(
+          actions.whereType<PairingDisposedAction>().single.wasTrusted,
+          isFalse,
+        );
+        verify(() => mockDisconnect(any())).called(1);
+        expect(realStore.state.pairing.phase, PairingPhase.none);
+      },
+    );
+
+    testWidgets(
+      'DiscoverDialog keeps the session when Done closes a successful embedded pairing',
+      (WidgetTester tester) async {
+        await openEmbeddedPairing(tester);
+        realStore.dispatch(const PairingConfirmedAction());
+        await tester.pump();
+
+        await tester.tap(find.text('Done'));
+        await tester.pumpAndSettle();
+        await flow;
+        await tester.pump();
+
+        expect(find.byType(DovahDialog), findsNothing);
+        expect(find.byType(PairingSection), findsNothing);
+        expect(
+          actions.whereType<PairingDisposedAction>().single.wasTrusted,
+          isTrue,
+        );
+        verifyNever(() => mockDisconnect(any()));
       },
     );
   });
