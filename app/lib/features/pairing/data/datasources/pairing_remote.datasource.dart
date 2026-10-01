@@ -83,8 +83,8 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
         return const Left(SessionInvalidatedFailure.administrative);
       }
       return Left(NetworkFailure(error.message));
-    } on DovahLinkProtocolException catch (error) {
-      return Left(NetworkFailure(error.message));
+    } on DovahLinkProtocolException {
+      return const Left(_unexpectedPairingFailure);
     } on DovahLinkPairingException catch (error) {
       return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
     } on DovahLinkStorageException catch (error) {

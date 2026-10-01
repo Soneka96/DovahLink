@@ -620,6 +620,29 @@ void main() {
     );
 
     test(
+      'PairingStartedAction keeps a terminal protocol authentication failure out of the Offline path',
+      () async {
+        const PairingFailure failure = PairingFailure(
+          'Pairing could not be completed. Please try again.',
+        );
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) async => const Left(failure));
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          const PairingStartedAction(),
+          const PairingFailedAction(
+            'Pairing could not be completed. Please try again.',
+          ),
+        ]);
+        expect(actionLog.whereType<PairingDisconnectedAction>(), isEmpty);
+      },
+    );
+
+    test(
       'PairingStartedAction dispatches PairingFailedAction for a SessionInvalidatedFailure',
       () async {
         const SessionInvalidatedFailure failure = SessionInvalidatedFailure(

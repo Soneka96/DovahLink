@@ -192,6 +192,56 @@ void main() {
     );
 
     test(
+      'Method authenticate maps a terminal protocol failure to a safe PairingFailure',
+      () async {
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message: 'raw protocol diagnostic',
+            retryable: false,
+          ),
+        );
+
+        final result = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
+
+        expect(
+          result,
+          const Left<Failure, PairingHandshakeModel>(
+            PairingFailure('Pairing could not be completed. Please try again.'),
+          ),
+        );
+        expect(result.toString(), isNot(contains('raw protocol diagnostic')));
+      },
+    );
+
+    test(
+      'Method authenticate maps an escaping retryable protocol failure to the same safe PairingFailure',
+      () async {
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.rateLimited,
+            message: 'retry diagnostic',
+            retryable: true,
+          ),
+        );
+
+        final result = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
+
+        expect(
+          result,
+          const Left<Failure, PairingHandshakeModel>(
+            PairingFailure('Pairing could not be completed. Please try again.'),
+          ),
+        );
+        expect(result.toString(), isNot(contains('retry diagnostic')));
+      },
+    );
+
+    test(
       'Method authenticate maps typed pairing failures to PairingFailure',
       () async {
         when(() => mockPairing.authenticateCandidate(hostUri)).thenThrow(
