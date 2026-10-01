@@ -29,8 +29,8 @@ abstract interface class IDovahLinkConnections {
   AdministrativeInvalidationReason? get invalidationReason;
 
   /// Connects and authenticates a discovered candidate without using Known Host credentials.
-  /// An initial connection or protocol failure is retried by the SDK every three seconds until
-  /// success, cancellation, or administrative invalidation.
+  /// An initial connection or retryable protocol failure is retried by the SDK every three seconds
+  /// until success, cancellation, or administrative invalidation.
   /// @param uri The candidate endpoint.
   /// @return The admitted Host handshake and trust result.
   /// @throws [DovahLinkConnectionException] if connection or authentication fails.
@@ -41,8 +41,8 @@ abstract interface class IDovahLinkConnections {
   Future<HelloResult> connectCandidate(Uri uri);
 
   /// Connects and authenticates the Known Host selected by stable identity.
-  /// An initial connection or protocol failure is retried by the SDK every three seconds until
-  /// success, cancellation, or administrative invalidation.
+  /// An initial connection or retryable protocol failure is retried by the SDK every three seconds
+  /// until success, cancellation, or administrative invalidation.
   /// @param hostId The Known Host relationship whose endpoint and credential are used.
   /// @return The admitted Host handshake and trust result.
   /// @throws [DovahLinkKnownHostNotFoundException] if [hostId] is not known.

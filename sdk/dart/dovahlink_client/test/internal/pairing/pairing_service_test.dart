@@ -1145,6 +1145,7 @@ void main() {
           ),
         );
         currentHost = hostB;
+        currentSessionId = 'session-2';
         updateGate.complete();
 
         await confirmation;
@@ -1172,6 +1173,68 @@ void main() {
         verifyNever(
           () =>
               sessionService.associateKnownHost(DovahLinkHostId(hostA.hostId)),
+        );
+      },
+    );
+
+    test(
+      'Method confirmPairingCode preserves recovery without associating a replacement session for the same Host ID',
+      () async {
+        final DovahLinkHost hostA = _currentHost();
+        DovahLinkHost activeHost = hostA;
+        String activeSessionId = 'session-1';
+        when(() => sessionService.currentHost).thenAnswer((_) => activeHost);
+        when(
+          () => sessionService.currentSessionId,
+        ).thenAnswer((_) => activeSessionId);
+        final Completer<void> updateGate = Completer<void>();
+        final GatedClientStateService gatedStorage = GatedClientStateService(
+          loadedState: _state(clientId: 'client-1'),
+          updateGate: updateGate,
+        );
+        service = PairingService(
+          authenticationService: authenticationService,
+          reconnectService: reconnectService,
+          sessionService: sessionService,
+          sessionTrustService: sessionTrustService,
+          requestService: requestService,
+          clientStateService: gatedStorage,
+          hostAvailabilityService: hostAvailabilityService,
+        );
+        stubSendAndAwait(
+          requestService,
+          buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
+            credential: 'new-cred',
+          ),
+        );
+
+        final Future<void> confirmation = service.confirmPairingCode(
+          code: '123456',
+        );
+        await gatedStorage.updateStarted.future;
+        activeSessionId = 'session-2';
+        updateGate.complete();
+
+        await confirmation;
+        expect(
+          await gatedStorage.load(),
+          _state(
+            clientId: 'client-1',
+            credential: 'new-cred',
+            recoveryState: PairingRecoveryState.confirming,
+            knownHost: hostA,
+          ),
+        );
+        verifyNever(
+          () =>
+              sessionService.associateKnownHost(DovahLinkHostId(hostA.hostId)),
+        );
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(
+            DovahLinkHostId(hostA.hostId),
+            DovahLinkHostAvailability.online,
+          ),
         );
       },
     );
@@ -1444,6 +1507,121 @@ void main() {
   });
 
   group('Method acknowledgeTrustedCredential behaves correctly', () {
+    test(
+      'Method acknowledgeTrustedCredential does not send Host A credential after the Host changes during storage load',
+      () async {
+        final Completer<PersistedClientState> loadGate =
+            Completer<PersistedClientState>();
+        final Completer<void> loadStarted = Completer<void>();
+        when(() => storage.load()).thenAnswer((_) {
+          loadStarted.complete();
+          return loadGate.future;
+        });
+
+        final Future<void> acknowledgement = service
+            .acknowledgeTrustedCredential();
+        await loadStarted.future;
+        currentHost = DovahLinkHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          hostName: 'HOST-B',
+          endpoint: Uri.parse('ws://127.0.0.1:58232/'),
+        );
+        currentSessionId = 'session-2';
+        loadGate.complete(_confirmingState());
+
+        await expectLater(
+          acknowledgement,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        expect(await loadGate.future, _confirmingState());
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNever(() => storage.updateState(any()));
+        verifyNever(() => sessionTrustService.markTrusted());
+        verifyNever(() => sessionService.associateKnownHost(any()));
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+      },
+    );
+
+    test(
+      'Method acknowledgeTrustedCredential rejects a changed session with the same Host ID before sending the credential',
+      () async {
+        final Completer<PersistedClientState> loadGate =
+            Completer<PersistedClientState>();
+        final Completer<void> loadStarted = Completer<void>();
+        when(() => storage.load()).thenAnswer((_) {
+          loadStarted.complete();
+          return loadGate.future;
+        });
+
+        final Future<void> acknowledgement = service
+            .acknowledgeTrustedCredential();
+        await loadStarted.future;
+        currentSessionId = 'session-2';
+        loadGate.complete(_confirmingState());
+
+        await expectLater(
+          acknowledgement,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        expect(await loadGate.future, _confirmingState());
+        verifyNever(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        );
+        verifyNever(() => storage.updateState(any()));
+        verifyNever(() => sessionTrustService.markTrusted());
+        verifyNever(() => sessionService.associateKnownHost(any()));
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+      },
+    );
+
+    test(
+      'Method acknowledgeTrustedCredential does not trust a replacement session after the acknowledgement reply',
+      () async {
+        when(() => storage.load()).thenAnswer((_) async => _confirmingState());
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((_) async {
+          currentSessionId = 'session-2';
+          return buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.trusted,
+            credential: 'credential-a',
+            shortId: '12345',
+          );
+        });
+
+        await service.acknowledgeTrustedCredential();
+
+        verify(() => storage.updateState(any())).called(1);
+        expect(updatedState?.pendingPairingRecovery, isNull);
+        verifyNever(() => sessionTrustService.markTrusted());
+        verifyNever(() => sessionService.associateKnownHost(any()));
+        verifyNever(
+          () => hostAvailabilityService.setAvailability(any(), any()),
+        );
+      },
+    );
+
     test(
       'Method acknowledgeTrustedCredential does not send a credential for another Host recovery',
       () async {

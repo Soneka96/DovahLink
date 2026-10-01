@@ -271,6 +271,18 @@ class PairingService implements IPairingService {
     required String code,
     String? displayName,
   }) async {
+    final DovahLinkHost? currentHost = _sessionService.currentHost;
+    if (currentHost == null) {
+      throw const DovahLinkConnectionException(
+        'The current Host context is unavailable.',
+      );
+    }
+    final String? confirmationSessionId = _sessionService.currentSessionId;
+    if (confirmationSessionId == null) {
+      throw const DovahLinkConnectionException(
+        'The current session is unavailable.',
+      );
+    }
     final PairingConfirmPayload payload = PairingConfirmPayload(
       code: code,
       displayName: displayName,
@@ -321,12 +333,6 @@ class PairingService implements IPairingService {
       );
     }
 
-    final DovahLinkHost? currentHost = _sessionService.currentHost;
-    if (currentHost == null) {
-      throw const DovahLinkConnectionException(
-        'The current Host context is unavailable.',
-      );
-    }
     await _clientStateService.updateState((PersistedClientState state) {
       final PendingPairingRecovery? pending = state.pendingPairingRecovery;
       if (pending != null && pending.hostId != currentHost.hostId) {
@@ -349,7 +355,8 @@ class PairingService implements IPairingService {
         ),
       );
     });
-    if (_sessionService.currentHost?.hostId == currentHost.hostId) {
+    if (_sessionService.currentSessionId == confirmationSessionId &&
+        _sessionService.currentHost?.hostId == currentHost.hostId) {
       _sessionService.associateKnownHost(DovahLinkHostId(currentHost.hostId));
       _hostAvailabilityService.setAvailability(
         DovahLinkHostId(currentHost.hostId),
@@ -397,6 +404,12 @@ class PairingService implements IPairingService {
     final String? credential = state.knownHosts[currentHost.hostId]?.credential;
     if (credential == null) {
       throw const DovahLinkPairingException(PairingOutcome.pendingNotFound);
+    }
+    if (_sessionService.currentSessionId != acknowledgementSessionId ||
+        _sessionService.currentHost?.hostId != currentHost.hostId) {
+      throw const DovahLinkConnectionException(
+        'The active session changed while pairing acknowledgement was prepared.',
+      );
     }
     final PairingAckPayload payload = PairingAckPayload(credential: credential);
     final Envelope response = await _requestService.sendAndAwait(
