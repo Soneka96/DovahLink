@@ -34,6 +34,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Known Host cards use the prototype's text chevron glyph for their entry affordance.
+- Offline Known Host cards open the prototype's status dialog without starting authentication.
 - Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,
   and Unknown states remain visible without an entry affordance.
 - Connections lists durable Known Hosts separately from ephemeral discovery candidates.

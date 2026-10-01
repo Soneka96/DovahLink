@@ -143,8 +143,10 @@ race.
 
 Connections presents durable Known Hosts separately from ephemeral discovery candidates. An Online
 Known Host is selectable and starts SDK authentication. Offline, Connected, Reconnecting, Checking,
-and Unknown cards remain visible and nonselectable; Unknown is neutral reachability evidence, not
-Offline or “Not connected.” Reconnecting is session recovery, not ordinary availability.
+and Unknown cards do not start authentication; Unknown is neutral reachability evidence, not Offline
+or “Not connected.” Reconnecting is session recovery, not ordinary availability. An Offline card
+may open the prototype's informational “Skyrim isn’t running” dialog; that action explains the real
+offline state without selecting the Host or starting authentication.
 
 Redux discovery status drives searching, available, empty, and failed feedback. A real candidate
 result shows “Local Host found.” followed by AVAILABLE and the candidate card. Selecting it starts

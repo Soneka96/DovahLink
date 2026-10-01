@@ -461,30 +461,53 @@ void main() {
       expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
     });
 
-    testWidgets('ConnectionsScreen does not select an Offline Known Host', (
-      WidgetTester tester,
-    ) async {
-      final Host host = Fixtures.buildHost();
-      when(() => viewModel.hostCards).thenReturn([
-        Fixtures.buildHostCardViewData(
-          host: host,
-          source: ConnectionHostSelectionSource.knownHost,
-          subtitle: 'Known Host',
-          state: DovahConnectionCardState.offline,
-        ),
-      ]);
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      for (final Size size in [const Size(720, 480), const Size(1280, 720)]) {
+        testWidgets(
+          'ConnectionsScreen shows Offline information without selecting or authenticating under $preset at $size',
+          (WidgetTester tester) async {
+            final Host host = Fixtures.buildHost(displayName: 'Living Room PC');
+            when(() => viewModel.hostCards).thenReturn([
+              Fixtures.buildHostCardViewData(
+                host: host,
+                source: ConnectionHostSelectionSource.knownHost,
+                title: 'Living Room PC',
+                subtitle: 'Known Host',
+                state: DovahConnectionCardState.offline,
+              ),
+            ]);
+            await useSurface(tester, size);
+            await tester.pumpWidget(buildWidget(preset: preset));
 
-      await tester.pumpWidget(buildWidget());
-      await tester.tap(
-        find.byKey(const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea')),
-        warnIfMissed: false,
-      );
-      await tester.pump();
+            await tester.tap(
+              find.byKey(
+                const Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea'),
+              ),
+            );
+            await tester.pumpAndSettle();
 
-      expect(find.byType(DovahDialog), findsNothing);
-      expect(selectedHosts, isEmpty);
-      expect(selectedSources, isEmpty);
-    });
+            expect(tester.takeException(), isNull);
+            expect(find.text('Skyrim isn’t running'), findsOneWidget);
+            expect(find.text('Living Room PC is offline'), findsOneWidget);
+            expect(
+              find.text(
+                'Start Skyrim and DovahLink will reconnect automatically when the game becomes available.',
+              ),
+              findsOneWidget,
+            );
+            expect(find.text('Close'), findsOneWidget);
+            expect(find.byType(PairingDialog), findsNothing);
+            expect(selectedHosts, isEmpty);
+            expect(selectedSources, isEmpty);
+            expect(pairingCalls, isEmpty);
+
+            await tester.tap(find.text('Close'));
+            await tester.pumpAndSettle();
+            expect(find.byType(DovahDialog), findsNothing);
+          },
+        );
+      }
+    }
 
     testWidgets(
       'ConnectionsScreen passes the second Host, not the first, when the second card is tapped',

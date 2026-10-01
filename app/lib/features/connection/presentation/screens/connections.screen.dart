@@ -14,10 +14,14 @@ import 'package:dovahlink_client/features/connection/presentation/widgets/connec
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_dialog.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_mark.widget.dart';
+import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 
@@ -86,6 +90,30 @@ class ConnectionsScreen extends StatelessWidget {
                                 // removal semantics are defined.
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
+                                  onShowOfflineHost: (HostCardViewData card) {
+                                    DovahDialog.show<void>(
+                                      context,
+                                      title: 'Skyrim isn’t running',
+                                      child: PairingStateLayout(
+                                        mark: const PairingMark(
+                                          icon: Icons.radio_button_unchecked,
+                                        ),
+                                        heading: '${card.title} is offline',
+                                        body:
+                                            'Start Skyrim and DovahLink will reconnect automatically when the game becomes available.',
+                                        children: [
+                                          DovahButton(
+                                            label: 'Close',
+                                            variant:
+                                                DovahButtonVariant.secondary,
+                                            onPressed: () => Navigator.of(
+                                              context,
+                                            ).maybePop(),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                  },
                                   onSelectHost: (HostCardViewData card) {
                                     viewModel.onSelectHost(card);
                                     PairingDialog.show(context);

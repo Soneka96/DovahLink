@@ -35,6 +35,9 @@ active deviations.
    were needed for the supported states in this slice. Historical slice 03.6 remains paused and
    unmarked.
 
+   Tapping an Offline Known Host opens an informational “Skyrim isn’t running” dialog from the real
+   offline projection; it does not select the Host or start authentication.
+
    The maintainer has approved the minimal Session Shell handoff in this convergence pass. Route
    only after a real trusted-session transition; Back returns to Connections without disconnecting.
    Until implementation lands, Connected may remain on the Connections root. Pairing attempts
