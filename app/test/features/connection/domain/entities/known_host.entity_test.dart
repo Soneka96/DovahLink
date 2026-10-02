@@ -35,6 +35,17 @@ void main() {
     });
   });
 
+  group('Property pairingRequired behaves correctly', () {
+    test('KnownHost.pairingRequired stores the SDK recovery hint', () {
+      final KnownHost knownHost = Fixtures.buildKnownHost(
+        pairingRequired: true,
+      );
+
+      expect(knownHost.pairingRequired, isA<bool>());
+      expect(knownHost.pairingRequired, isTrue);
+    });
+  });
+
   group('Behavior equality behaves correctly', () {
     test('KnownHost equality includes Host metadata and availability', () {
       final KnownHost unknown = Fixtures.buildKnownHost();
@@ -47,10 +58,14 @@ void main() {
       final KnownHost connected = Fixtures.buildKnownHost(
         sessionState: KnownHostSessionState.connected,
       );
+      final KnownHost pairingRequired = Fixtures.buildKnownHost(
+        pairingRequired: true,
+      );
 
       expect(unknown, isNot(online));
       expect(unknown, isNot(otherHost));
       expect(unknown, isNot(connected));
+      expect(unknown, isNot(pairingRequired));
 
       final KnownHost equal = Fixtures.buildKnownHost();
       expect(unknown, equal);

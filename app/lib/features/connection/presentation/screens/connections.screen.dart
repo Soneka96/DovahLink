@@ -99,8 +99,9 @@ class ConnectionsScreen extends StatelessWidget {
                                           icon: Icons.radio_button_unchecked,
                                         ),
                                         heading: '${card.title} is offline',
-                                        body:
-                                            'Start Skyrim and DovahLink will reconnect automatically when the game becomes available.',
+                                        body: card.pairingRequired
+                                            ? 'Start Skyrim, then choose Pair again when ${card.title} is Online.'
+                                            : 'Start Skyrim and DovahLink will reconnect automatically when the game becomes available.',
                                         children: [
                                           DovahButton(
                                             label: 'Close',

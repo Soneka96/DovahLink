@@ -50,10 +50,14 @@ abstract final class Fixtures {
 
     /// The session lifecycle for this Known Host.
     KnownHostSessionState sessionState = KnownHostSessionState.disconnected,
+
+    /// Whether the last-known Host response requires pairing again.
+    bool pairingRequired = false,
   }) => KnownHost(
     host: host ?? buildHost(),
     availability: availability,
     sessionState: sessionState,
+    pairingRequired: pairingRequired,
   );
 
   /// Builds a Host card's display data for the representative local Host.
@@ -76,6 +80,9 @@ abstract final class Fixtures {
 
     /// The card's visual state.
     DovahConnectionCardState state = DovahConnectionCardState.unknown,
+
+    /// Whether the Known Host's saved SDK hint says pairing is required.
+    bool pairingRequired = false,
   }) => HostCardViewData(
     host: host ?? buildHost(),
     source: source,
@@ -83,6 +90,7 @@ abstract final class Fixtures {
     subtitle: subtitle,
     detail: detail,
     state: state,
+    pairingRequired: pairingRequired,
   );
 
   /// Builds an SDK Known Host state around [host].
@@ -96,10 +104,14 @@ abstract final class Fixtures {
     /// The SDK-reported session lifecycle for this exact relationship.
     DovahLinkKnownHostSessionState sessionState =
         DovahLinkKnownHostSessionState.disconnected,
+
+    /// Whether the SDK's last-known Host response requires pairing again.
+    bool pairingRequired = false,
   }) => DovahLinkKnownHostState(
     host: host,
     availability: availability,
     sessionState: sessionState,
+    pairingRequired: pairingRequired,
   );
 
   // ---- Pairing ----

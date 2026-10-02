@@ -138,6 +138,8 @@ void main() {
       expect(card.detail, isA<String>());
       expect(card.detail, '127.0.0.1:58231');
       expect(card.state, DovahConnectionCardState.unknown);
+      expect(card.pairingRequired, isA<bool>());
+      expect(card.pairingRequired, isFalse);
     });
 
     test('Method buildHostCardViewData preserves named overrides', () {
@@ -148,6 +150,7 @@ void main() {
         subtitle: 'Sub',
         detail: 'Detail',
         state: DovahConnectionCardState.repair,
+        pairingRequired: true,
       );
 
       expect(card.host, host);
@@ -159,6 +162,7 @@ void main() {
       expect(card.detail, isA<String>());
       expect(card.detail, 'Detail');
       expect(card.state, DovahConnectionCardState.repair);
+      expect(card.pairingRequired, isTrue);
     });
 
     test('Method buildHostCardViewData returns a fresh value per call', () {

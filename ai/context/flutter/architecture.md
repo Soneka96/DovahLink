@@ -85,9 +85,10 @@ and application shutdown disconnect through the SDK, which cancels that retry in
 
 For the connection feature, `ConnectionState.knownHosts` is the latest complete app-mapped projection
 of durable Known Hosts. Each app-owned `KnownHost` combines a `Host` value with independent
-`HostAvailability`, `KnownHostSessionState`, and, after the approved SDK projection lands, its
-`pairingRequired` hint. The hint is last-known recovery guidance, never current trust; only an Online
-Known Host with that hint renders Pair again. An admitted session renders `Connected`;
+`HostAvailability`, `KnownHostSessionState`, and the SDK's last-known `pairingRequired` hint. The
+hint is last-known recovery guidance, never current trust; only an Online Known Host with that hint
+renders Pair again. If that Host is Offline, its information dialog directs the user to start Skyrim
+and choose Pair again after the Host returns Online. An admitted session renders `Connected`;
 bounded recovery renders `Reconnecting`, and explicit attempts render `Connecting`. During automatic
 retries, a transient `connecting` phase follows reachability while pairing remains disconnected, so
 an offline Known Host card stays `Offline`. A disconnected Known Host also falls back to reachability

@@ -461,6 +461,32 @@ void main() {
       expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
     });
 
+    testWidgets(
+      'ConnectionsScreen starts the existing Known Host pairing flow when Pair again is tapped',
+      (WidgetTester tester) async {
+        final Host host = Fixtures.buildHost(displayName: 'Living Room PC');
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewData(
+            host: host,
+            source: ConnectionHostSelectionSource.knownHost,
+            title: 'Living Room PC',
+            subtitle: 'Known Host',
+            state: DovahConnectionCardState.repair,
+          ),
+        ]);
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.byKey(Key('host-card-${host.hostId}')));
+        await tester.pump();
+
+        expect(selectedHosts, [host]);
+        expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
+        expect(pairingCalls, ['start']);
+        expect(find.byType(PairingDialog), findsOneWidget);
+      },
+    );
+
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final Size size in [const Size(720, 480), const Size(1280, 720)]) {
         testWidgets(
@@ -508,6 +534,46 @@ void main() {
         );
       }
     }
+
+    testWidgets(
+      'ConnectionsScreen explains that an Offline Known Host requiring repair needs Pair again after it returns Online',
+      (WidgetTester tester) async {
+        final Host host = Fixtures.buildHost(displayName: 'Living Room PC');
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewData(
+            host: host,
+            source: ConnectionHostSelectionSource.knownHost,
+            title: 'Living Room PC',
+            subtitle: 'Known Host',
+            state: DovahConnectionCardState.offline,
+            pairingRequired: true,
+          ),
+        ]);
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.byKey(Key('host-card-${host.hostId}')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Living Room PC is offline'), findsOneWidget);
+        expect(
+          find.text(
+            'Start Skyrim, then choose Pair again when Living Room PC is Online.',
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.text(
+            'Start Skyrim and DovahLink will reconnect automatically when the game becomes available.',
+          ),
+          findsNothing,
+        );
+        expect(find.byType(PairingDialog), findsNothing);
+        expect(selectedHosts, isEmpty);
+        expect(selectedSources, isEmpty);
+        expect(pairingCalls, isEmpty);
+      },
+    );
 
     testWidgets(
       'ConnectionsScreen passes the second Host, not the first, when the second card is tapped',

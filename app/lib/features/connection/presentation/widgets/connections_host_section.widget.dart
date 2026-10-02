@@ -79,7 +79,8 @@ class ConnectionsHostSection extends StatelessWidget {
           itemBuilder: (BuildContext context, int index) {
             final HostCardViewData card = cards[index];
             final VoidCallback? onTap = switch (card.state) {
-              DovahConnectionCardState.available => () => onSelectHost(card),
+              DovahConnectionCardState.available ||
+              DovahConnectionCardState.repair => () => onSelectHost(card),
               DovahConnectionCardState.offline when onShowOfflineHost != null =>
                 () => onShowOfflineHost!(card),
               _ => null,

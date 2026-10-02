@@ -553,6 +553,50 @@ void main() {
         expect(selected, isEmpty);
       },
     );
+
+    testWidgets(
+      'ConnectionsHostSection selects a repair card to start Pair again',
+      (WidgetTester tester) async {
+        final HostCardViewData repairCard = Fixtures.buildHostCardViewData(
+          source: ConnectionHostSelectionSource.knownHost,
+          subtitle: 'Known Host',
+          state: DovahConnectionCardState.repair,
+        );
+        final List<HostCardViewData> selected = [];
+        final List<HostCardViewData> offlineInfoRequests = [];
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        try {
+          await pumpDovahThemedWidget(
+            tester,
+            ConnectionsHostSection(
+              cards: [repairCard],
+              onSelectHost: selected.add,
+              onShowOfflineHost: offlineInfoRequests.add,
+            ),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
+
+          final SemanticsData semanticsData = tester
+              .getSemantics(
+                find.bySemanticsLabel(
+                  'Local Host, Known Host, 127.0.0.1:58231, Pair again',
+                ),
+              )
+              .getSemanticsData();
+          expect(semanticsData.flagsCollection.isEnabled, Tristate.isTrue);
+          expect(semanticsData.hasAction(SemanticsAction.tap), isTrue);
+          await tester.tap(
+            find.byKey(Key('host-card-${repairCard.host.hostId}')),
+          );
+
+          expect(selected, [repairCard]);
+          expect(offlineInfoRequests, isEmpty);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
   });
 
   group('ConnectionsHostSection exposes sensible semantics', () {
