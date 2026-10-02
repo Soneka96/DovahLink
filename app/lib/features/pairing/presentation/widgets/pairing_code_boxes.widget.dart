@@ -67,6 +67,9 @@ class PairingCodeBoxes extends StatelessWidget {
                   child: DovahSurface(
                     role: DovahMaterialRole.control,
                     cornerRadius: metrics.codeBoxCornerRadius,
+                    borderColor: isFocused && index == activeIndex
+                        ? tokens.accentPrimary
+                        : null,
                     child: Center(
                       child: Text(
                         index < code.length ? code[index] : '',

@@ -39,6 +39,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Connections uses the approved prototype tagline and Discover details, and the Session Shell now matches its header chrome without exposing endpoint metadata or adding game content.
 - Pair again cards show the prototype confirmation before starting the existing pairing flow.
 - Pairing matches the prototype’s code redisplay row, countdown emphasis, confirmation copy, and expired or attempt-limit actions.
+- Pairing matches the prototype's code spacing, focus border, retry reset, success marks, loading ring, and single repair confirmation while keeping expiry and cooldown Host-driven.
 - Trusted Hosts enter a minimal Session Shell only after the SDK reports an admitted connection; Back returns to Connections while keeping that session active.
 - Pairing preserves Host-reported wrong-code attempts, terminal outcomes, and code-redisplay
   status through app state.

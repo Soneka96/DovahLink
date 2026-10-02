@@ -20,6 +20,7 @@ const Key confirmButtonKey = Key('pairing-confirm-button');
 Widget buildForm({
   List<String>? submissions,
   String? errorMessage,
+  bool clearCodeOnError = false,
   List<Widget> secondaryActions = const <Widget>[],
   Widget? renotifyAction,
 }) => MaterialApp(
@@ -29,6 +30,7 @@ Widget buildForm({
       child: PairingCodeForm(
         onSubmit: (String code) => submissions?.add(code),
         errorMessage: errorMessage,
+        clearCodeOnError: clearCodeOnError,
         secondaryActions: secondaryActions,
         renotifyAction: renotifyAction,
       ),
@@ -410,6 +412,32 @@ void main() {
 
         expect(find.text('That code is not correct.'), findsNothing);
         expect(find.text('That code has expired.'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'PairingCodeForm clears a rejected code and restores focus while preserving its error',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(buildForm(clearCodeOnError: true));
+        await tester.enterText(find.byKey(codeFieldKey), '123456');
+        await tester.pump();
+
+        await tester.pumpWidget(
+          buildForm(
+            errorMessage: 'That code isn’t correct. 4 attempts remaining.',
+            clearCodeOnError: true,
+          ),
+        );
+        await tester.pump();
+
+        final TextField field = tester.widget(find.byKey(codeFieldKey));
+        expect(field.controller!.text, isEmpty);
+        expect(field.focusNode!.hasFocus, isTrue);
+        expect(
+          find.text('That code isn’t correct. 4 attempts remaining.'),
+          findsOneWidget,
+        );
+        expect(isPairEnabled(tester), isFalse);
       },
     );
 

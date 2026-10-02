@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_code_boxes.widget.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_materials.dart';
@@ -103,6 +104,21 @@ void main() {
       },
     );
 
+    testWidgets('PairingCodeBoxes uses the prototype digit typography', (
+      WidgetTester tester,
+    ) async {
+      await pumpBoxes(tester, code: '4', isFocused: false);
+
+      final Text digit = tester.widget(
+        find.descendant(
+          of: find.byKey(const Key('pairing-code-box-0')),
+          matching: find.text('4'),
+        ),
+      );
+      expect(digit.style?.fontSize, DovahDialogMetrics.codeBoxFontSize);
+      expect(digit.style?.fontWeight, FontWeight.w800);
+    });
+
     for (final Size size in dovahResponsiveTestSizes) {
       final bool isCompact = size.height <= 620;
       final double boxWidth = isCompact ? 45 : 49;
@@ -179,17 +195,17 @@ void main() {
       },
     );
 
-    testWidgets('PairingCodeBoxes keeps every box border when one is focused', (
+    testWidgets('PairingCodeBoxes accents only the focused box border', (
       WidgetTester tester,
     ) async {
       await pumpBoxes(tester, code: '12', isFocused: true);
+      final DovahThemeTokens tokens = dovahThemeDataFor(
+        DovahThemePreset.dovah,
+      ).extension<DovahThemeTokens>()!;
 
+      expect(boxPainter(tester, 2).material.borderColor, tokens.accentPrimary);
       expect(
-        boxPainter(tester, 2).material.borderColor,
         boxPainter(tester, 3).material.borderColor,
-      );
-      expect(
-        boxPainter(tester, 2).material.borderColor,
         dovahMaterials.control.borderColor,
       );
     });
@@ -256,10 +272,18 @@ void main() {
             final DovahThemeMaterials materials = dovahThemeDataFor(
               preset,
             ).extension<DovahThemeMaterials>()!;
+            final Color focusColor = dovahThemeDataFor(
+              preset,
+            ).extension<DovahThemeTokens>()!.accentPrimary;
 
             for (int index = 0; index < pairingCodeLength; index++) {
               final DovahMaterialPainter painter = boxPainter(tester, index);
-              expect(painter.material, materials.control);
+              expect(
+                painter.material,
+                index == 2
+                    ? materials.control.withBorderColor(focusColor)
+                    : materials.control,
+              );
               expect(painter.cornerStyle, DovahPanelCornerStyle.rounded);
               expect(painter.cornerRadius, radius);
             }

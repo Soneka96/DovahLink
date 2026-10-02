@@ -1,4 +1,4 @@
-import 'package:flutter/painting.dart' show Size;
+import 'package:flutter/painting.dart' show Color, Size;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -138,7 +138,7 @@ void main() {
       expect(metrics.bodyBottomGap, 20);
       expect(metrics.codeBoxWidth, 49);
       expect(metrics.codeBoxHeight, 56);
-      expect(metrics.codeRowTopGap, 6);
+      expect(metrics.codeRowTopGap, 10);
       expect(metrics.codeRowBottomGap, 12);
       expect(metrics.renotifyTopGap, 5);
       expect(metrics.messageMinHeight, 18);
@@ -165,7 +165,7 @@ void main() {
       expect(metrics.bodyBottomGap, 10);
       expect(metrics.codeBoxWidth, 45);
       expect(metrics.codeBoxHeight, 48);
-      expect(metrics.codeRowTopGap, 3);
+      expect(metrics.codeRowTopGap, 10);
       expect(metrics.codeRowBottomGap, 6);
       expect(metrics.renotifyTopGap, 5);
       expect(metrics.messageMinHeight, 14);
@@ -215,10 +215,18 @@ void main() {
       () {
         expect(DovahDialogMetrics.successMarkSize, isA<double>());
         expect(DovahDialogMetrics.successMarkSize, 62);
+        expect(DovahDialogMetrics.successMarkTopGap, isA<double>());
+        expect(DovahDialogMetrics.successMarkTopGap, 2);
         expect(DovahDialogMetrics.successMarkBottomGap, isA<double>());
         expect(DovahDialogMetrics.successMarkBottomGap, 17);
+        expect(DovahDialogMetrics.successMarkTopGap, isA<double>());
+        expect(DovahDialogMetrics.successMarkTopGap, 2);
         expect(DovahDialogMetrics.successGlyphSize, isA<double>());
         expect(DovahDialogMetrics.successGlyphSize, 29);
+        expect(
+          DovahDialogMetrics.successMarkBaseColor,
+          const Color(0xFF6BD7A1),
+        );
         expect(DovahDialogMetrics.statusMarkFillOpacity, isA<double>());
         expect(DovahDialogMetrics.statusMarkFillOpacity, 0.1);
         expect(DovahDialogMetrics.statusMarkBorderOpacity, isA<double>());
@@ -227,6 +235,14 @@ void main() {
         expect(DovahDialogMetrics.progressIndicatorSize, 15);
         expect(DovahDialogMetrics.progressIndicatorStrokeWidth, isA<double>());
         expect(DovahDialogMetrics.progressIndicatorStrokeWidth, 2);
+        expect(
+          DovahDialogMetrics.progressIndicatorTrackColor,
+          const Color(0xFF2C3A45),
+        );
+        expect(
+          DovahDialogMetrics.progressIndicatorRotationDuration,
+          const Duration(seconds: 1),
+        );
         expect(DovahDialogMetrics.progressStatusGap, isA<double>());
         expect(DovahDialogMetrics.progressStatusGap, 10);
         expect(DovahDialogMetrics.discoveryStatusDotSize, isA<double>());

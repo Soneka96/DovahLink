@@ -51,7 +51,11 @@ class PairingFailure extends StatelessWidget {
         renotifyOutcome?.message() ??
         message;
     return PairingStateLayout(
-      mark: const PairingMark(icon: Icons.refresh),
+      mark: PairingMark(
+        icon: isExpired || reachedAttemptLimit
+            ? Icons.desktop_windows_outlined
+            : Icons.refresh,
+      ),
       heading: isExpired
           ? 'Code expired'
           : reachedAttemptLimit

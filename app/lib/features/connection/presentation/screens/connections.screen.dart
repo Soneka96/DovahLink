@@ -146,7 +146,11 @@ class ConnectionsScreen extends StatelessWidget {
                                                   context,
                                                 ).maybePop();
                                                 viewModel.onSelectHost(card);
-                                                PairingDialog.show(context);
+                                                PairingDialog.show(
+                                                  context,
+                                                  requestCodeAfterConfirmedRepair:
+                                                      true,
+                                                );
                                               },
                                             ),
                                           ],

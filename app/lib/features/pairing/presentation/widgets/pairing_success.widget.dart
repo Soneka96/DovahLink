@@ -30,26 +30,31 @@ class PairingSuccess extends StatelessWidget {
     final DovahThemeTokens tokens = context.dovahTokens;
 
     return PairingStateLayout(
-      mark: ExcludeSemantics(
-        child: Container(
-          key: const Key('pairing-success-mark'),
-          width: DovahDialogMetrics.successMarkSize,
-          height: DovahDialogMetrics.successMarkSize,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            color: tokens.success.withValues(
-              alpha: DovahDialogMetrics.statusMarkFillOpacity,
-            ),
-            border: Border.all(
-              color: tokens.success.withValues(
-                alpha: DovahDialogMetrics.statusMarkBorderOpacity,
+      mark: Padding(
+        padding: const EdgeInsets.only(
+          top: DovahDialogMetrics.successMarkTopGap,
+        ),
+        child: ExcludeSemantics(
+          child: Container(
+            key: const Key('pairing-success-mark'),
+            width: DovahDialogMetrics.successMarkSize,
+            height: DovahDialogMetrics.successMarkSize,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: DovahDialogMetrics.successMarkBaseColor.withValues(
+                alpha: DovahDialogMetrics.statusMarkFillOpacity,
+              ),
+              border: Border.all(
+                color: DovahDialogMetrics.successMarkBaseColor.withValues(
+                  alpha: DovahDialogMetrics.statusMarkBorderOpacity,
+                ),
               ),
             ),
-          ),
-          child: Icon(
-            Icons.check,
-            size: DovahDialogMetrics.successGlyphSize,
-            color: tokens.success,
+            child: Icon(
+              Icons.check,
+              size: DovahDialogMetrics.successGlyphSize,
+              color: tokens.success,
+            ),
           ),
         ),
       ),

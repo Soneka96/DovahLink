@@ -554,6 +554,18 @@ void main() {
         expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
         expect(pairingCalls, ['start']);
         expect(find.byType(PairingDialog), findsOneWidget);
+        expect(
+          tester
+              .widget<PairingDialog>(find.byType(PairingDialog))
+              .requestCodeAfterConfirmedRepair,
+          isTrue,
+        );
+        expect(
+          tester
+              .widget<PairingSection>(find.byType(PairingSection))
+              .requestCodeAfterConfirmedRepair,
+          isTrue,
+        );
       },
     );
 

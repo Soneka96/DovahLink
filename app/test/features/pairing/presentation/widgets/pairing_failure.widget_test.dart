@@ -45,6 +45,9 @@ void main() {
               .toPlainText(),
           'Pairing cancelled.',
         );
+        expect(find.text('Close'), findsOneWidget);
+        expect(find.text('Try Again'), findsOneWidget);
+        expect(find.byIcon(Icons.refresh), findsOneWidget);
       },
     );
 
@@ -75,6 +78,7 @@ void main() {
       expect(find.text('Too many incorrect attempts'), findsOneWidget);
       expect(find.text('Cancel'), findsOneWidget);
       expect(find.text('Get a new code'), findsOneWidget);
+      expect(find.byIcon(Icons.desktop_windows_outlined), findsOneWidget);
     });
 
     testWidgets('PairingFailure displays the expired-code prototype state', (
@@ -91,6 +95,7 @@ void main() {
       );
       expect(find.text('Cancel'), findsOneWidget);
       expect(find.text('Get a new code'), findsOneWidget);
+      expect(find.byIcon(Icons.desktop_windows_outlined), findsOneWidget);
     });
 
     testWidgets(
