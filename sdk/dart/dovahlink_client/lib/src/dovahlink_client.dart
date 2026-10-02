@@ -8,6 +8,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_discovery_service.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_hosts.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing.dart';
 import 'package:dovahlink_client_sdk/src/host_presence_probe.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
@@ -126,7 +127,7 @@ class DovahLinkClient {
       clientStateService: _clientStateService,
       hostAvailabilityService: _hostAvailabilityService,
     );
-    final SessionState state = SessionState();
+    final SessionState state = _sessionState = SessionState();
     final LifecycleOperationQueue lifecycleQueue = LifecycleOperationQueue();
     // The callback closes over the session service before it is assigned; it is only invoked by
     // a real teardown after construction has completed. The request service supplies teardown's
@@ -149,32 +150,13 @@ class DovahLinkClient {
       lifecycleQueue: lifecycleQueue,
       teardownCoordinator: teardownCoordinator,
     );
-    _knownHostSessionSubscription = _sessionService.knownHostSessionChanges.listen((
-      KnownHostSessionSnapshot snapshot,
-    ) {
-      _hostAvailabilityService.setSessionState(snapshot.hostId, snapshot.state);
-      final AdministrativeInvalidationReason? invalidationReason =
-          _sessionService.invalidationReason;
-      if (snapshot.hostId != null &&
-          snapshot.state == DovahLinkKnownHostSessionState.disconnected &&
-          invalidationReason != null) {
-        unawaited(
-          _authenticationService
-              .forgetCredential(
-                snapshot.hostId!,
-                pairingRequired: switch (invalidationReason) {
-                  AdministrativeInvalidationReason.revoked ||
-                  AdministrativeInvalidationReason.trustReset ||
-                  AdministrativeInvalidationReason.factoryReset => true,
-                  AdministrativeInvalidationReason.blocked => false,
-                },
-              )
-              .catchError((Object _, StackTrace __) {
-                // Invalidation is terminal; a later authentication can retry cleanup.
-              }),
-        );
-      }
-    });
+    _knownHostSessionSubscription = _sessionService.knownHostSessionChanges
+        .listen((KnownHostSessionSnapshot snapshot) {
+          _hostAvailabilityService.setSessionState(
+            snapshot.hostId,
+            snapshot.state,
+          );
+        });
 
     final CurrentValueStream<StateSynchronization<CharacterXpState>>
     characterXpStream =
@@ -322,6 +304,9 @@ class DovahLinkClient {
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
     );
+    _knownHostInvalidationSubscription = state.knownHostInvalidations.listen(
+      _handleKnownHostInvalidation,
+    );
     _sessionService.onTeardown =
         (Exception reason, {required bool orphanRetrySafeOperations}) {
           _requestService.failAll(
@@ -392,6 +377,9 @@ class DovahLinkClient {
   /// session's late-bound callbacks.
   late final SessionService _sessionService;
 
+  /// Owns session state and immutable Known Host invalidation events.
+  late final SessionState _sessionState;
+
   /// Owns the runtime availability map and complete Known Host projection.
   late final IHostAvailabilityService _hostAvailabilityService;
 
@@ -410,6 +398,10 @@ class DovahLinkClient {
   /// Mirrors the session owner's exact Known Host projection into complete Known Host snapshots.
   late final StreamSubscription<KnownHostSessionSnapshot>
   _knownHostSessionSubscription;
+
+  /// Applies credential cleanup from the exact invalidated Host event.
+  late final StreamSubscription<DovahLinkKnownHostInvalidation>
+  _knownHostInvalidationSubscription;
 
   /// Tracks authoritative Known Host changes so newly known Hosts leave candidates immediately.
   StreamSubscription<List<PersistedKnownHost>>? _knownHostCandidateSubscription;
@@ -523,6 +515,26 @@ class DovahLinkClient {
         sink.onCancel = subscription.cancel;
       }, isBroadcast: true);
 
+  /// Removes the credential using the Host ID and reason captured by the invalidation event.
+  /// @param event The exact invalidated Host and Host-reported reason.
+  void _handleKnownHostInvalidation(DovahLinkKnownHostInvalidation event) {
+    unawaited(
+      _authenticationService
+          .forgetCredential(
+            event.hostId,
+            pairingRequired: switch (event.reason) {
+              AdministrativeInvalidationReason.revoked ||
+              AdministrativeInvalidationReason.trustReset ||
+              AdministrativeInvalidationReason.factoryReset => true,
+              AdministrativeInvalidationReason.blocked => false,
+            },
+          )
+          .catchError((Object _, StackTrace __) {
+            // Invalidation is terminal; a later authentication can retry cleanup.
+          }),
+    );
+  }
+
   /// Starts observing committed Known Hosts once their initial state has loaded.
   void _observeCandidateKnownHosts() {
     if (_isClosed || _knownHostCandidateSubscription != null) {
@@ -599,6 +611,9 @@ class DovahLinkClient {
     await _knownHostSessionSubscription.cancel().catchError(
       (Object _, StackTrace __) {},
     );
+    await _knownHostInvalidationSubscription.cancel().catchError(
+      (Object _, StackTrace __) {},
+    );
     await _hostAvailabilityService.close().catchError(
       (Object _, StackTrace __) {},
     );
@@ -608,6 +623,7 @@ class DovahLinkClient {
     await _candidateHostsController.close().catchError(
       (Object _, StackTrace __) {},
     );
+    await _sessionState.close().catchError((Object _, StackTrace __) {});
   })();
 
   /// Removes one Known Host's credential while preserving its metadata and the local client ID.

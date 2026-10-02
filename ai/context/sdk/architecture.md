@@ -243,8 +243,9 @@ The nine Services:
 
 - `ISessionService`/`SessionService` — owns transport lifecycle, connection state, and stream
   ownership: `connect`, `disconnect`, reads (`connectionState`, `currentSessionId`,
-  `currentTrustState`, `currentHost`, `currentEndpoint`, `invalidationReason`), and the reactive
-  signals `onUnhealthy`, `onProtocolViolation`, `onSessionInvalidated`, and `onUnsolicitedError`.
+  `currentTrustState`, `currentHost`, `currentEndpoint`, `invalidationReason`, and immutable
+  `knownHostInvalidations` events), and the reactive signals `onUnhealthy`,
+  `onProtocolViolation`, `onSessionInvalidated`, and `onUnsolicitedError`.
   Privately owns `ConnectionTeardownCoordinator` and `LifecycleOperationQueue`.
 - `ISessionAdmissionService`/`SessionAdmissionService` — `admitSession`, a privileged capability
   injected only into `AuthenticationService`. Also triggers `RequestService`'s
