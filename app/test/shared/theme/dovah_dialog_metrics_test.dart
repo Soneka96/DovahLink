@@ -222,6 +222,10 @@ void main() {
         expect(DovahDialogMetrics.progressIndicatorStrokeWidth, 2);
         expect(DovahDialogMetrics.progressStatusGap, isA<double>());
         expect(DovahDialogMetrics.progressStatusGap, 10);
+        expect(DovahDialogMetrics.discoveryStatusDotSize, isA<double>());
+        expect(DovahDialogMetrics.discoveryStatusDotSize, 8);
+        expect(DovahDialogMetrics.discoveryFoundToAvailableGap, isA<double>());
+        expect(DovahDialogMetrics.discoveryFoundToAvailableGap, 18);
       },
     );
   });

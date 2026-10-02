@@ -85,6 +85,13 @@ class DovahDialogMetrics extends Equatable {
   /// `gap:10px`).
   static const double progressStatusGap = 10;
 
+  /// Width and height of the discovered-Host status marker (the prototype's `.dot` `8px`).
+  static const double discoveryStatusDotSize = 8;
+
+  /// Gap between the search result and the Available label (the prototype's `.searching`
+  /// `margin-bottom:18px`).
+  static const double discoveryFoundToAvailableGap = 18;
+
   /// Inner padding of a discovery candidate card (the prototype's `.nearby-card`).
   static const double discoveryCandidateCardPadding = 15;
 

@@ -38,6 +38,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 - Pairing preserves Host-reported wrong-code attempts, terminal outcomes, and code-redisplay
   status through app state.
+- Discover marks a found Host with the prototype's success dot and uses concise,
+  user-facing empty-state copy (“No other Skyrim PCs found.”).
 - Known Host cards use the prototype's text chevron glyph for their entry affordance.
 - Offline Known Host cards open the prototype's status dialog without starting authentication.
 - Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,

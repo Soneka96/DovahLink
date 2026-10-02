@@ -155,6 +155,10 @@ connecting. An already trusted outcome closes Discover without reopening Pairing
 failed outcome transitions to the existing pairing section within the same modal route. No fake
 delay or Flutter-owned pairing policy is used. Discovery alone does not add a Known Host.
 
+The available state pairs “Local Host found.” with the prototype's green status dot. The empty state
+says “No other Skyrim PCs found.” without referring to SDK candidate reconciliation or asserting
+that a filtered Known Host is unreachable.
+
 ### Session Shell handoff — approved, implementation pending
 
 The maintainer approved a minimal Session Shell in this convergence pass. Navigate there only after
