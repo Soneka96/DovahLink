@@ -3,9 +3,8 @@
 **Status:** Partial — the approved Connections → Discover → Pairing → Session Shell journey is
 implemented and its documented SDK/app truth is projected into the UI. Pixel-level visual parity
 remains unverified because Flutter screenshots were not available for comparison with the external
-approved prototype. The historical automated-check results below are not a claim that the current
-PR branch passes every repository check. Broader historical connection/pairing slices remain paused
-for re-planning.
+approved prototype. The final audit records current PR #110 local verification separately from its
+historical results. Broader historical connection/pairing slices remain paused for re-planning.
 
 ## Why this deviation exists
 
@@ -153,7 +152,7 @@ authority while using SDK/Redux state for connection and pairing truth.
 | Connections | Implemented for durable Known Hosts, checking/online/offline/connected/reconnecting/repair states, and the offline dialog. | Online selects; Offline and transient states do not start authentication; Pair again is gated by the saved SDK hint and Online availability. | Prototype metrics, card treatments, and copy are implemented. Screenshot comparison is unverified. |
 | Discover | Implemented for searching, available, empty, failed, candidate checking, and embedded pairing. | Real search/auth outcomes drive transitions; dismissing cleans up the owned lifecycle; trusted candidates enter the Session Shell only after SDK admission. | Prototype modal, candidate, status, and empty-state treatments are implemented. Screenshot comparison is unverified. |
 | Pairing | Implemented for code entry, redisplay, cooldown, confirming, success, failure, blocked, and repair states exposed by current typed app state. | Host-reported attempts, expiry, terminal outcomes, redisplay result, and retry timing drive the controls and copy. | Prototype spacing, copy, countdown emphasis, redisplay placement, and responsive metrics are implemented. Screenshot comparison is unverified. |
-| Session Shell | Implemented as real Host identity/status chrome and an empty body. | Entry requires a trusted lifecycle event and the selected Host's SDK session state `connected`; Back returns to Connections without disconnecting or removing trust. | Theme-aware shell header and compact/regular metrics are implemented. Screenshot comparison is unverified. |
+| Session Shell | Implemented as real Host identity/status chrome and an empty body. | Entry requires the exact Known Host to be connected, including direct route navigation. The shell stays open during reconnecting/reauthenticating and returns to Connections only when that Host is administratively invalidated; Back preserves the admitted connection. | Theme-aware shell header and compact/regular metrics are implemented. Notifications remains a prototype-only control with a future-feature TODO. Screenshot comparison is unverified. |
 
 ### Typed projection coverage
 
@@ -193,14 +192,18 @@ that a filtered Known Host is unreachable.
 The maintainer approved a minimal Session Shell in this convergence pass. It opens after a real
 trusted-session event and the selected Known Host's SDK session projection reports `connected`.
 Online availability, candidate discovery, opening Pairing, and trust without admitted connection are
-not sufficient. The shell receives the Host ID from the route, resolves the real Host context, and
-contains only theme-aware session header chrome and an empty body; it adds no game tabs, gameplay
-data, or pairing policy.
+not sufficient. The router also rejects direct entry unless that exact route Host is connected. The
+shell receives the Host ID from the route, resolves the real Host context, and contains only
+theme-aware session header chrome and an empty body; it adds no game tabs, gameplay data, or pairing
+policy.
 
 Back returns to Connections without disconnecting or removing trust. This follows the existing
 trusted-flow disposal contract: `PairingDisposedAction(wasTrusted: true)` preserves the admitted
-connection. The new Back action changes navigation only. No SDK or protocol change is part of this
-handoff.
+connection. The new Back action changes navigation only. The SDK's typed Known Host invalidation
+event returns the shell to Connections only when its Host ID matches the current route; reconnecting
+and reauthenticating leave it open. The Notifications control remains visible for prototype parity
+but has no functionality; its implementation belongs to a future feature phase and is marked TODO
+in the screen.
 
 ### Known Host “Pair again” / repair projection — implemented
 

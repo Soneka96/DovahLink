@@ -40,6 +40,8 @@ class SessionShellMiddleware extends MiddlewareClass<AppState>
         _pairingSessionTrusted(store);
       case ConnectionKnownHostsChangedAction _:
         _connectionKnownHostsChanged(store);
+      case final ConnectionKnownHostInvalidatedAction invalidation:
+        _knownHostInvalidated(invalidation);
       case PairingFailedAction _:
         _pairingFailed();
       case PairingDisposedAction(wasTrusted: false):
@@ -70,6 +72,14 @@ class SessionShellMiddleware extends MiddlewareClass<AppState>
   /// @param store The application store containing the latest SDK projection.
   void _connectionKnownHostsChanged(Store<AppState> store) =>
       _enterWhenConnected(store);
+
+  /// Returns to Connections only when the invalidated Host owns the open shell.
+  /// @param action The Host identity and administrative reason captured by the SDK.
+  void _knownHostInvalidated(ConnectionKnownHostInvalidatedAction action) {
+    if (_navigator.currentLocation == AppRoutes.sessionFor(action.hostId)) {
+      _navigator.go(AppRoutes.home);
+    }
+  }
 
   /// Cancels pending shell navigation when pairing fails.
   void _pairingFailed() => _pendingHostId = null;

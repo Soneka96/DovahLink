@@ -2405,20 +2405,19 @@ class RepositoryConsistencyTests(unittest.TestCase):
             sdk_changelog,
         )
         self.assertIn(
-            "historical automated-check results below are not a claim that the current PR branch "
-            "passes every repository check",
+            "The final audit records current PR #110 local verification separately from its "
+            "historical results",
             convergence,
         )
         self.assertIn(
-            "prior automated verification is recorded below; current PR-wide verification must "
-            "be assessed separately",
+            "latest PR #110 local code, test, and Windows checks passed",
             final_audit,
         )
         self.assertIn(
-            "do not establish the current PR branch's complete verification status",
+            "Historical convergence verification is retained below and describes its own run only.",
             final_audit,
         )
-        self.assertIn("Visual screenshot comparison is unverified.", final_audit)
+        self.assertIn("visual screenshot comparison is unverified", final_audit)
 
     def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(
         self,

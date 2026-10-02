@@ -151,6 +151,8 @@ class SessionShellScreen extends StatelessWidget {
                                 mainAxisSize: MainAxisSize.min,
                                 children: [
                                   if (metrics.showFirstAction) ...[
+                                    // TODO: Notifications is prototype-only; implement its
+                                    // surface and behavior in a future feature phase.
                                     DovahIconButton(
                                       icon: Icons.notifications_none_outlined,
                                       label: 'Notifications',

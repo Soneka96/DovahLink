@@ -1,7 +1,7 @@
 # 04 — Final Canonical Audit
 
-**Status:** Partial — prior automated verification is recorded below; current PR-wide verification
-must be assessed separately. Visual screenshot comparison is unverified.
+**Status:** Partial — the latest PR #110 local code, test, and Windows checks passed; visual
+screenshot comparison is unverified.
 
 ## Outcome
 
@@ -51,10 +51,24 @@ pixel comparison remains unverified.
 
 Partial. Structural and interaction parity are implemented for the scoped journey. The surface-level
 status and typed projection table in the [parent convergence record](README.md) is authoritative.
+Latest local verification for PR #110 ran on 2026-10-02:
+
+| Capability | Command | Result |
+| --- | --- | --- |
+| SDK analysis and tests | `dart analyze`; `dart test` from `sdk/dart/dovahlink_client` | Passed; no analyzer issues, 1,076 tests. |
+| Flutter analysis and tests | `flutter analyze`; `flutter test` from `app` | Passed; no analyzer issues, 2,682 tests. |
+| Repository checks | `python -m unittest discover -s tooling -p "test_*.py"` from the repository root | Passed; 193 tests and 60 protocol fixtures. |
+| Host tests | `dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-build` | Passed; 2,124 tests. An earlier run had one timeout in a public WebSocket listener test; the later full rerun and isolated test both passed. No Host production files changed. |
+| Windows client build | `flutter build windows --debug` from `app` | Passed. |
+| Windows lifecycle policy | `cmake --build build/windows/x64 --config Debug --target window_lifecycle_tests`; `ctest --test-dir build/windows/x64 -C Debug --output-on-failure` from `app` | Passed; one CTest target. |
+
+The 30 focused `LiveStateSchedulerTests` passed on each of two runs. Historical convergence
+verification is retained below and describes its own run only. Visual prototype comparison remains
+unverified.
+
 A previously recorded full-app run passed 2,627 Flutter tests, 1,069 Dart SDK tests, both analyzers,
-the Windows debug build, and the Windows lifecycle policy test. These historical results describe
-that run only and do not establish the current PR branch's complete verification status. Its exact
-local commands and outcomes were:
+the Windows debug build, and the Windows lifecycle policy test. Its exact local commands and outcomes
+were:
 
 | Capability | Command | Result |
 | --- | --- | --- |

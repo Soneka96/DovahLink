@@ -12,6 +12,9 @@ import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 import '../../../../fixtures/fixtures.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show AdministrativeInvalidationReason;
+
 /// Mocks the application's navigation boundary.
 class MockNavigatorService extends Mock implements NavigatorService {}
 
@@ -272,6 +275,74 @@ void main() {
       );
     },
   );
+
+  group('SessionShellMiddleware handles Known Host invalidation', () {
+    test('returns to Connections when the open shell Host is invalidated', () {
+      when(
+        () => navigator.currentLocation,
+      ).thenReturn(AppRoutes.sessionFor('selected-host'));
+      final store = const CreateStore()(middleware: [middleware.call]);
+
+      store.dispatch(
+        const ConnectionKnownHostInvalidatedAction(
+          hostId: 'selected-host',
+          reason: AdministrativeInvalidationReason.revoked,
+        ),
+      );
+
+      verify(() => navigator.go(AppRoutes.home)).called(1);
+    });
+
+    test('does not return another Host shell on invalidation', () {
+      when(
+        () => navigator.currentLocation,
+      ).thenReturn(AppRoutes.sessionFor('active-host'));
+      final store = const CreateStore()(middleware: [middleware.call]);
+
+      store.dispatch(
+        const ConnectionKnownHostInvalidatedAction(
+          hostId: 'invalidated-host',
+          reason: AdministrativeInvalidationReason.factoryReset,
+        ),
+      );
+
+      verifyNever(() => navigator.go(AppRoutes.home));
+    });
+
+    test('keeps the shell open while the Host is reconnecting', () {
+      when(
+        () => navigator.currentLocation,
+      ).thenReturn(AppRoutes.sessionFor('selected-host'));
+      final store = const CreateStore()(middleware: [middleware.call]);
+      store.dispatch(
+        ConnectionKnownHostsChangedAction([
+          Fixtures.buildKnownHost(
+            host: Fixtures.buildHost(hostId: 'selected-host'),
+            sessionState: KnownHostSessionState.reconnecting,
+          ),
+        ]),
+      );
+
+      verifyNever(() => navigator.go(AppRoutes.home));
+    });
+
+    test('keeps the shell open while the Host is reauthenticating', () {
+      when(
+        () => navigator.currentLocation,
+      ).thenReturn(AppRoutes.sessionFor('selected-host'));
+      final store = const CreateStore()(middleware: [middleware.call]);
+      store.dispatch(
+        ConnectionKnownHostsChangedAction([
+          Fixtures.buildKnownHost(
+            host: Fixtures.buildHost(hostId: 'selected-host'),
+            sessionState: KnownHostSessionState.reauthenticating,
+          ),
+        ]),
+      );
+
+      verifyNever(() => navigator.go(AppRoutes.home));
+    });
+  });
 
   group(
     'SessionShellMiddleware processes SessionShellBackRequestedAction correctly',

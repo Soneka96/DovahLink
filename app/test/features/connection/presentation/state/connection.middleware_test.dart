@@ -25,9 +25,13 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         DovahLinkCompatibilityException,
         DovahLinkConnectionException,
         DovahLinkClient,
+        AdministrativeInvalidationReason,
         DovahLinkHost,
+        DovahLinkHostId,
         DovahLinkHostAvailability,
+        DovahLinkKnownHostInvalidation,
         DovahLinkKnownHostState,
+        IDovahLinkConnections,
         IDovahLinkHosts,
         IDovahLinkPairing,
         DovahLinkProtocolException,
@@ -45,6 +49,9 @@ class MockDovahLinkHosts extends Mock implements IDovahLinkHosts {}
 /// Mocks grouped discovery and pairing APIs.
 class MockDovahLinkPairing extends Mock implements IDovahLinkPairing {}
 
+/// Mocks the SDK's admitted-session connection lifecycle.
+class MockDovahLinkConnections extends Mock implements IDovahLinkConnections {}
+
 /// Mocks Redux dispatch for [ConnectionMiddleware] tests.
 class MockStore extends Mock implements Store<AppState> {}
 
@@ -53,15 +60,20 @@ void main() {
   late MockDovahLinkClient mockClient;
   late MockDovahLinkHosts mockHosts;
   late MockDovahLinkPairing mockPairing;
+  late MockDovahLinkConnections mockConnections;
   late StreamController<List<DovahLinkKnownHostState>>
   knownHostStatesController;
   late Stream<List<DovahLinkKnownHostState>> knownHostStatesChanges;
   late StreamController<List<DovahLinkHost>> candidateHostsController;
   late Stream<List<DovahLinkHost>> candidateHostsChanges;
+  late StreamController<DovahLinkKnownHostInvalidation> invalidationsController;
+  late Stream<DovahLinkKnownHostInvalidation> invalidationsChanges;
   late int knownHostListenerCount;
   late int knownHostCancellationCount;
   late int candidateListenerCount;
   late int candidateCancellationCount;
+  late int invalidationListenerCount;
+  late int invalidationCancellationCount;
   late MockStore store;
   late ConnectionMiddleware middleware;
 
@@ -70,12 +82,15 @@ void main() {
     mockClient = MockDovahLinkClient();
     mockHosts = MockDovahLinkHosts();
     mockPairing = MockDovahLinkPairing();
+    mockConnections = MockDovahLinkConnections();
     knownHostStatesController =
         StreamController<List<DovahLinkKnownHostState>>.broadcast();
     knownHostListenerCount = 0;
     knownHostCancellationCount = 0;
     candidateListenerCount = 0;
     candidateCancellationCount = 0;
+    invalidationListenerCount = 0;
+    invalidationCancellationCount = 0;
     knownHostStatesChanges = Stream<List<DovahLinkKnownHostState>>.multi((
       sink,
     ) {
@@ -104,12 +119,30 @@ void main() {
         await subscription.cancel();
       };
     }, isBroadcast: true);
+    invalidationsController =
+        StreamController<DovahLinkKnownHostInvalidation>.broadcast();
+    invalidationsChanges = Stream<DovahLinkKnownHostInvalidation>.multi((sink) {
+      invalidationListenerCount++;
+      final StreamSubscription<DovahLinkKnownHostInvalidation> subscription =
+          invalidationsController.stream.listen(
+            sink.add,
+            onError: sink.addError,
+          );
+      sink.onCancel = () async {
+        invalidationCancellationCount++;
+        await subscription.cancel();
+      };
+    }, isBroadcast: true);
     when(() => mockClient.hosts).thenReturn(mockHosts);
     when(() => mockClient.pairing).thenReturn(mockPairing);
+    when(() => mockClient.connections).thenReturn(mockConnections);
     when(
       () => mockHosts.knownHostStatesChanges,
     ).thenAnswer((_) => knownHostStatesChanges);
     when(() => mockPairing.candidates).thenAnswer((_) => candidateHostsChanges);
+    when(
+      () => mockConnections.knownHostInvalidations,
+    ).thenAnswer((_) => invalidationsChanges);
     store = MockStore();
     when(() => store.state).thenReturn(AppState.initial());
     middleware = ConnectionMiddleware();
@@ -120,6 +153,7 @@ void main() {
     await middleware.shutdown();
     await knownHostStatesController.close();
     await candidateHostsController.close();
+    await invalidationsController.close();
     await sl.reset();
   });
 
@@ -154,6 +188,40 @@ void main() {
         KnownHostsObservationStatus.ready,
       );
     });
+
+    test(
+      'initialize forwards the SDK invalidation Host and reason together',
+      () async {
+        final List<Object?> actions = <Object?>[];
+        final Store<AppState> integrationStore = const CreateStore()(
+          middleware: [
+            (Store<AppState> _, dynamic action, NextDispatcher next) {
+              actions.add(action);
+              next(action);
+            },
+            middleware.call,
+          ],
+        );
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+
+        middleware.initialize(integrationStore);
+        invalidationsController.add(
+          DovahLinkKnownHostInvalidation(
+            hostId: DovahLinkHostId(hostId),
+            reason: AdministrativeInvalidationReason.trustReset,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(invalidationListenerCount, 1);
+        expect(actions.whereType<ConnectionKnownHostInvalidatedAction>(), [
+          const ConnectionKnownHostInvalidatedAction(
+            hostId: hostId,
+            reason: AdministrativeInvalidationReason.trustReset,
+          ),
+        ]);
+      },
+    );
 
     test(
       'initialize maps SDK Known Host states and replaces the Redux projection',
@@ -244,6 +312,7 @@ void main() {
 
         expect(knownHostListenerCount, 2);
         expect(candidateListenerCount, 2);
+        expect(invalidationListenerCount, 2);
         expect(firstStore.state.connection.knownHosts, <KnownHost>[
           HostMapper.fromSdkKnownHostState(firstState),
         ]);
@@ -259,6 +328,7 @@ void main() {
 
         expect(knownHostCancellationCount, 2);
         expect(candidateCancellationCount, 2);
+        expect(invalidationCancellationCount, 2);
         expect(firstStore.state.connection.knownHosts, <KnownHost>[
           HostMapper.fromSdkKnownHostState(firstState),
         ]);
@@ -316,6 +386,7 @@ void main() {
 
       expect(knownHostCancellationCount, 1);
       expect(candidateCancellationCount, 1);
+      expect(invalidationCancellationCount, 1);
       expect(integrationStore.state.connection.knownHosts, <KnownHost>[
         HostMapper.fromSdkKnownHostState(firstState),
       ]);
@@ -335,6 +406,7 @@ void main() {
 
       expect(knownHostListenerCount, 0);
       expect(candidateListenerCount, 0);
+      expect(invalidationListenerCount, 0);
     });
 
     test(
@@ -348,6 +420,7 @@ void main() {
 
         expect(knownHostListenerCount, 1);
         expect(candidateListenerCount, 1);
+        expect(invalidationListenerCount, 1);
       },
     );
 

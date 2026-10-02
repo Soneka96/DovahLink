@@ -1,3 +1,5 @@
+import 'package:flutter/widgets.dart';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
@@ -27,6 +29,27 @@ void main() {
       service.go('/pairing', extra: 'payload');
 
       verify(() => router.go('/pairing', extra: 'payload')).called(1);
+    });
+  });
+
+  group('currentLocation', () {
+    test('reports the active route path', () {
+      final GoRouter actualRouter = GoRouter(
+        initialLocation: '/',
+        routes: [
+          GoRoute(path: '/', builder: (_, _) => const SizedBox()),
+          GoRoute(
+            path: '/session/:hostId',
+            builder: (_, _) => const SizedBox(),
+          ),
+        ],
+      );
+      addTearDown(actualRouter.dispose);
+      final NavigatorService actualService = NavigatorService(actualRouter);
+
+      actualRouter.go('/session/host-a');
+
+      expect(actualService.currentLocation, '/session/host-a');
     });
   });
 

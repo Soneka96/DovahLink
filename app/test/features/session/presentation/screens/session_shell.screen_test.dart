@@ -206,6 +206,20 @@ void main() {
 
       expect(find.text('Appearance'), findsOneWidget);
     });
+
+    testWidgets('SessionShellScreen keeps Notifications prototype-only', (
+      WidgetTester tester,
+    ) async {
+      setDovahTestWindow(tester, const Size(1280, 720));
+      await tester.pumpWidget(buildWidget());
+      await tester.tap(find.byTooltip('Notifications'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Notifications'), findsOneWidget);
+      expect(find.byType(SessionShellScreen), findsOneWidget);
+      expect(find.text('Appearance'), findsNothing);
+      expect(backCalls, 0);
+    });
   });
 
   group('SessionShellScreen meets accessibility recommended guidelines', () {

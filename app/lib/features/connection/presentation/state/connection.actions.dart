@@ -4,6 +4,9 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show AdministrativeInvalidationReason;
+
 /// Records the Host the user selected to pair or connect with.
 class ConnectionHostSelectedAction extends Equatable {
   /// The Host the user selected.
@@ -64,6 +67,27 @@ class ConnectionKnownHostsChangedAction extends Equatable {
   /// See [Equatable.props].
   @override
   List<Object?> get props => [knownHosts];
+}
+
+/// Carries a terminal SDK invalidation tied to its exact Known Host relationship.
+class ConnectionKnownHostInvalidatedAction extends Equatable {
+  /// The Known Host relationship whose admitted session was invalidated.
+  final String hostId;
+
+  /// The administrative reason reported by the Host.
+  final AdministrativeInvalidationReason reason;
+
+  /// Creates an invalidation action with the Host and reason kept together.
+  /// @param hostId The exact Known Host identity reported by the SDK.
+  /// @param reason The Host-reported terminal administrative reason.
+  const ConnectionKnownHostInvalidatedAction({
+    required this.hostId,
+    required this.reason,
+  });
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hostId, reason];
 }
 
 /// Reports that the SDK Known Hosts stream failed to provide its latest observation.
