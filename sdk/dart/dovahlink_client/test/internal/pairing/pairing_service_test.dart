@@ -1456,6 +1456,62 @@ void main() {
 
   group('Method confirmPairingCodeAndAcknowledge behaves correctly', () {
     test(
+      'Method confirmPairingCodeAndAcknowledge clears the repair hint when acknowledgement fails',
+      () async {
+        final PersistedClientState initialState = PersistedClientState(
+          clientId: 'client-1',
+          knownHosts: <String, PersistedKnownHost>{
+            _currentHost().hostId: PersistedKnownHost(
+              host: _currentHost(),
+              pairingRequired: true,
+            ),
+          },
+        );
+        when(
+          () => storage.load(),
+        ).thenAnswer((_) async => updatedState ?? initialState);
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer((invocation) async {
+          final ProtocolMessageType messageType =
+              invocation.namedArguments[#messageType] as ProtocolMessageType;
+          if (messageType == ProtocolMessageType.pairingAck) {
+            throw const DovahLinkConnectionException('lost');
+          }
+          return buildPairingOutcomeEnvelope(
+            outcome: PairingOutcome.credentialIssued,
+            credential: 'issued-credential',
+          );
+        });
+
+        await expectLater(
+          service.confirmPairingCodeAndAcknowledge(code: '123456'),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(
+          updatedState?.knownHosts[_currentHost().hostId]?.credential,
+          'issued-credential',
+        );
+        expect(
+          updatedState?.knownHosts[_currentHost().hostId]?.pairingRequired,
+          isFalse,
+        );
+        expect(
+          updatedState?.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
+        verify(() => storage.updateState(any())).called(1);
+        verifyNever(() => sessionTrustService.markTrusted());
+      },
+    );
+
+    test(
       'Method confirmPairingCodeAndAcknowledge keeps protocol sequencing in the SDK',
       () async {
         final List<ProtocolMessageType> sent = <ProtocolMessageType>[];

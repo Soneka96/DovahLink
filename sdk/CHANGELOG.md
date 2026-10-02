@@ -46,6 +46,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- Successful code confirmation clears the Known Host repair hint even if credential
+  acknowledgement is interrupted.
 - Combined pairing confirmation rejects a changed Host session before acknowledgement while
   preserving its durable recovery state.
 - Initial connection retry stops immediately for terminal or non-retryable protocol failures.
