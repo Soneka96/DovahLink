@@ -12,6 +12,10 @@ class NavigatorService {
   /// The wrapped router.
   final GoRouter _router;
 
+  /// The current URL path.
+  /// @return The path component of the active router URL.
+  String get currentLocation => _router.routeInformationProvider.value.uri.path;
+
   /// Replaces the current location with [location].
   void go(String location, {Object? extra}) =>
       _router.go(location, extra: extra);

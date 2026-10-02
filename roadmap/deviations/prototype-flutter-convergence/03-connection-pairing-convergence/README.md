@@ -48,6 +48,12 @@ Selecting a candidate starts the SDK-backed authentication lifecycle and shows i
 before handing off to the existing pairing UI. Discovery claims remain untrusted routing data, and
 discovery alone never creates or changes a Known Host.
 
+A separate maintainer-approved current-journey pass subsequently implemented the Connections /
+Discover / supported Pairing interactions / Session Shell handoff. Its current surface status,
+typed-state coverage, and remaining screenshot limitation are tracked in the parent
+[convergence record](../README.md). This does not complete the historical 03.4–03.10 slices or claim
+pixel-level visual parity.
+
 This separately scheduled UI convergence does not complete historical slice 03.6, which remains
 paused with 03.4–03.10 for re-planning against the current architecture and security boundaries.
 

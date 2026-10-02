@@ -27,10 +27,10 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_backgrou
 
 /// The root screen: DovahLink's branded header, the "Connections" title with its Discover Skyrim
 /// action, and durable Known Hosts over the theme's atmosphere. Online and Pair again cards open
-/// authentication; Pair again asks for confirmation first, and Connected cards request re-entry to
-/// their admitted session. Discovery candidates are presented separately by the Discover flow. The
-/// header's appearance action opens the theme picker. Content is capped at a comfortable reading
-/// width and scrolls both ways below its minimum width.
+/// authentication; Pair again asks for confirmation first, and Connected cards re-enter their
+/// admitted Session Shell directly. Discovery candidates are presented separately by the Discover
+/// flow. The header's appearance action opens the theme picker. Content is capped at a comfortable
+/// reading width and scrolls both ways below its minimum width.
 class ConnectionsScreen extends StatelessWidget {
   /// Creates the connections screen.
   const ConnectionsScreen({super.key});

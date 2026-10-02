@@ -36,10 +36,11 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
-- Connections uses the approved prototype tagline and Discover details.
+- Connections uses the approved prototype tagline and Discover details, and the Session Shell now matches its header chrome without exposing endpoint metadata or adding game content.
 - Pair again cards show the prototype confirmation before starting the existing pairing flow.
 - Pairing matches the prototype’s code redisplay row, countdown emphasis, confirmation copy, and expired or attempt-limit actions.
 - Pairing matches the prototype's code spacing, focus border, retry reset, success marks, loading ring, and single repair confirmation while keeping expiry and cooldown Host-driven.
+- Trusted Hosts enter a minimal Session Shell only after the SDK reports an admitted connection; Back returns to Connections while keeping that session active.
 - Pairing preserves Host-reported wrong-code attempts, terminal outcomes, and code-redisplay
   status through app state.
 - Discover marks a found Host with the prototype's success dot and uses concise,
@@ -47,7 +48,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Known Host cards use the prototype's text chevron glyph for their entry affordance.
 - Offline Known Host cards open the prototype's status dialog without starting authentication.
 - Connections routes Online and Pair again cards through authentication, while Connected cards
-  send a session re-entry request for their Host.
+  re-enter the matching admitted Session Shell directly.
 - Connections lists durable Known Hosts separately from ephemeral discovery candidates.
 - Discover shows “Local Host found.” after real candidates arrive and keeps authentication and any
   required pairing inside the same modal flow.

@@ -2374,6 +2374,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._read("ai/context/sdk/persistence.md")
         )
         sdk_changelog = self._normalize_whitespace(self._read("sdk/CHANGELOG.md"))
+        convergence = self._normalize_whitespace(
+            self._read("roadmap/deviations/prototype-flutter-convergence/README.md")
+        )
+        final_audit = self._normalize_whitespace(
+            self._read(
+                "roadmap/deviations/prototype-flutter-convergence/04-final-canonical-audit.md"
+            )
+        )
 
         self.assertIn(
             "`PersistedClientState.currentFormatVersion` is 4, the current SDK client-state format.",
@@ -2396,6 +2404,20 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "SDK client state v4 migrates v3 Known Hosts and defaults their new repair hint to false.",
             sdk_changelog,
         )
+        self.assertIn(
+            "The final audit records split-stack local verification separately from historical "
+            "results",
+            convergence,
+        )
+        self.assertIn(
+            "Latest verification ran against the split PR-ready stack on 2026-10-03",
+            final_audit,
+        )
+        self.assertIn(
+            "Historical convergence verification is retained below and describes its own run only.",
+            final_audit,
+        )
+        self.assertIn("visual screenshot comparison remains unverified", final_audit)
 
     def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(
         self,

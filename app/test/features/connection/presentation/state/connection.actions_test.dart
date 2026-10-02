@@ -6,6 +6,9 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show AdministrativeInvalidationReason;
+
 /// Exercises the values carried by connection discovery actions.
 void main() {
   group(
@@ -43,6 +46,29 @@ void main() {
           expect(action.hashCode, sameAction.hashCode);
         },
       );
+    },
+  );
+
+  group(
+    'Behavior equality in ConnectionKnownHostInvalidatedAction behaves correctly',
+    () {
+      test('ConnectionKnownHostInvalidatedAction carries Host and reason', () {
+        const ConnectionKnownHostInvalidatedAction action =
+            ConnectionKnownHostInvalidatedAction(
+              hostId: 'host-a',
+              reason: AdministrativeInvalidationReason.trustReset,
+            );
+        const ConnectionKnownHostInvalidatedAction sameAction =
+            ConnectionKnownHostInvalidatedAction(
+              hostId: 'host-a',
+              reason: AdministrativeInvalidationReason.trustReset,
+            );
+
+        expect(action.hostId, 'host-a');
+        expect(action.reason, AdministrativeInvalidationReason.trustReset);
+        expect(action, sameAction);
+        expect(action.hashCode, sameAction.hashCode);
+      });
     },
   );
 

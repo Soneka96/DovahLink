@@ -128,7 +128,7 @@ void main() {
     });
 
     test(
-      'onReenterConnectedHost dispatches only a session re-entry request',
+      'onReenterConnectedHost dispatches only a Session Shell entry request',
       () {
         final List<Object?> actions = [];
         final Store<AppState> store = const CreateStore()(
