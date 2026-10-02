@@ -93,6 +93,7 @@ void main() {
         expect(find.text('Appearance'), findsOneWidget);
         expect(find.text('Pick a theme'), findsOneWidget);
         expect(find.byType(BackdropFilter), findsOneWidget);
+        expect(find.text('×'), findsOneWidget);
       },
     );
 

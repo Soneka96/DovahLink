@@ -41,7 +41,7 @@ void main() {
               ).headerHeight,
             );
             expect(find.text('DOVAHLINK'), findsOneWidget);
-            expect(find.text('SKYRIM COMPANION'), findsOneWidget);
+            expect(find.text('LIVING LINK · SKYRIM COMPANION'), findsOneWidget);
             expect(find.byType(DovahBrandMark), findsOneWidget);
             expect(find.byType(DovahSigil), findsOneWidget);
           },
@@ -197,7 +197,9 @@ void main() {
           ).extension<DovahThemeTokens>()!;
           final Text wordmark = tester.widget(find.text('DOVAHLINK'));
           final TextSpan span = wordmark.textSpan! as TextSpan;
-          final Text tagline = tester.widget(find.text('SKYRIM COMPANION'));
+          final Text tagline = tester.widget(
+            find.text('LIVING LINK · SKYRIM COMPANION'),
+          );
 
           expect(span.text, 'DOVAH');
           expect((span.children!.single as TextSpan).text, 'LINK');
@@ -206,7 +208,12 @@ void main() {
             tokens.brandAccent,
           );
           expect(wordmark.style?.color, tokens.textPrimary);
+          expect(wordmark.style?.fontFamily, DovahThemeTokens.bodyFontFamily);
           expect(tagline.style?.color, tokens.brandTagline);
+          expect(
+            tagline.style?.height,
+            DovahRootMetrics.brandTaglineLineHeight,
+          );
           expect(
             tagline.style?.letterSpacing,
             DovahRootMetrics.forWindow(

@@ -8,8 +8,8 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 
 /// The connections screen's Known Hosts section: a labelled gradient rule followed by one
-/// [DovahConnectionCard] per durable Host relationship. It reports the selected card and does not
-/// read state.
+/// [DovahConnectionCard] per durable Host relationship. It reports card selection or connected
+/// session re-entry and does not read state.
 class ConnectionsHostSection extends StatelessWidget {
   /// The Known Host cards to show, in order.
   final List<HostCardViewData> cards;
@@ -20,11 +20,16 @@ class ConnectionsHostSection extends StatelessWidget {
   /// Called when the user taps an Offline card to open its informational dialog.
   final void Function(HostCardViewData card)? onShowOfflineHost;
 
+  /// Called when the user re-enters a Connected Host's admitted session; if absent, the card is
+  /// inert.
+  final void Function(HostCardViewData card)? onReenterConnectedHost;
+
   /// Creates the Host section.
   const ConnectionsHostSection({
     required this.cards,
     required this.onSelectHost,
     this.onShowOfflineHost,
+    this.onReenterConnectedHost,
     super.key,
   });
 
@@ -81,6 +86,9 @@ class ConnectionsHostSection extends StatelessWidget {
             final VoidCallback? onTap = switch (card.state) {
               DovahConnectionCardState.available ||
               DovahConnectionCardState.repair => () => onSelectHost(card),
+              DovahConnectionCardState.connected
+                  when onReenterConnectedHost != null =>
+                () => onReenterConnectedHost!(card),
               DovahConnectionCardState.offline when onShowOfflineHost != null =>
                 () => onShowOfflineHost!(card),
               _ => null,

@@ -65,6 +65,7 @@ void main() {
       expect(DovahRootMetrics.brandNameLetterSpacingEm, 0.15);
       expect(DovahRootMetrics.brandTaglineFontSize, isA<double>());
       expect(DovahRootMetrics.brandTaglineFontSize, 9);
+      expect(DovahRootMetrics.brandTaglineLineHeight, 1.35);
       expect(DovahRootMetrics.brandTaglineTopGap, isA<double>());
       expect(DovahRootMetrics.brandTaglineTopGap, 3);
     });

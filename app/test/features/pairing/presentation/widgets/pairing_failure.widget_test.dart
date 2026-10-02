@@ -45,6 +45,9 @@ void main() {
               .toPlainText(),
           'Pairing cancelled.',
         );
+        expect(find.text('Close'), findsOneWidget);
+        expect(find.text('Try Again'), findsOneWidget);
+        expect(find.byIcon(Icons.refresh), findsOneWidget);
       },
     );
 
@@ -70,8 +73,29 @@ void main() {
         (tester.widget<Text>(find.byKey(const Key('pairing-body'))).textSpan!
                 as TextSpan)
             .toPlainText(),
-        'Too many wrong attempts. Request a new pairing code.',
+        'This pairing code can no longer be used. Request a new code from Skyrim to try again.',
       );
+      expect(find.text('Too many incorrect attempts'), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Get a new code'), findsOneWidget);
+      expect(find.byIcon(Icons.desktop_windows_outlined), findsOneWidget);
+    });
+
+    testWidgets('PairingFailure displays the expired-code prototype state', (
+      WidgetTester tester,
+    ) async {
+      await pumpFailure(tester, outcome: PairingFailureOutcome.expired);
+
+      expect(find.text('Code expired'), findsOneWidget);
+      expect(
+        find.text(
+          'The code is no longer valid. Ask Skyrim for a new one to continue.',
+        ),
+        findsOneWidget,
+      );
+      expect(find.text('Cancel'), findsOneWidget);
+      expect(find.text('Get a new code'), findsOneWidget);
+      expect(find.byIcon(Icons.desktop_windows_outlined), findsOneWidget);
     });
 
     testWidgets(

@@ -17,6 +17,11 @@ void main() {
       expect(metrics.compactMarkCornerRadius, 0);
       expect(metrics.codeBoxCornerRadius, isA<double>());
       expect(metrics.codeBoxCornerRadius, 0);
+      expect(
+        metrics.discoveryCandidateCornerStyle,
+        DovahPanelCornerStyle.singleBevel,
+      );
+      expect(metrics.discoveryCandidateCornerCutSize, 9);
     });
 
     test('Property dovah keeps square marks and code boxes', () {
@@ -25,6 +30,11 @@ void main() {
       expect(metrics.regularMarkCornerRadius, 0);
       expect(metrics.compactMarkCornerRadius, 0);
       expect(metrics.codeBoxCornerRadius, 0);
+      expect(
+        metrics.discoveryCandidateCornerStyle,
+        DovahPanelCornerStyle.rounded,
+      );
+      expect(metrics.discoveryCandidateCornerRadius, 3);
     });
 
     test('Property hearth keeps a circular mark and 9px code boxes', () {
@@ -33,6 +43,11 @@ void main() {
       expect(metrics.regularMarkCornerRadius, 27);
       expect(metrics.compactMarkCornerRadius, 21);
       expect(metrics.codeBoxCornerRadius, 9);
+      expect(
+        metrics.discoveryCandidateCornerStyle,
+        DovahPanelCornerStyle.rounded,
+      );
+      expect(metrics.discoveryCandidateCornerRadius, 14);
     });
 
     test('Property hearth mark radius is half its tile size', () {
@@ -79,6 +94,7 @@ void main() {
       expect(mid.regularMarkCornerRadius, 13.5);
       expect(mid.compactMarkCornerRadius, 10.5);
       expect(mid.codeBoxCornerRadius, 4.5);
+      expect(mid.discoveryCandidateCornerRadius, 8.5);
     });
 
     test('Method lerp returns the receiver when the target is null', () {
@@ -96,11 +112,20 @@ void main() {
             regularMarkCornerRadius: 1,
             compactMarkCornerRadius: 2,
             codeBoxCornerRadius: 3,
+            discoveryCandidateCornerStyle: DovahPanelCornerStyle.singleBevel,
+            discoveryCandidateCornerRadius: 7,
+            discoveryCandidateCornerCutSize: 5,
           );
 
       expect(copy.regularMarkCornerRadius, 1);
       expect(copy.compactMarkCornerRadius, 2);
       expect(copy.codeBoxCornerRadius, 3);
+      expect(
+        copy.discoveryCandidateCornerStyle,
+        DovahPanelCornerStyle.singleBevel,
+      );
+      expect(copy.discoveryCandidateCornerRadius, 7);
+      expect(copy.discoveryCandidateCornerCutSize, 5);
     });
 
     test('Method copyWith without arguments keeps every value', () {
@@ -127,6 +152,11 @@ void main() {
         base.copyWith(regularMarkCornerRadius: 1),
         base.copyWith(compactMarkCornerRadius: 1),
         base.copyWith(codeBoxCornerRadius: 1),
+        base.copyWith(
+          discoveryCandidateCornerStyle: DovahPanelCornerStyle.singleBevel,
+        ),
+        base.copyWith(discoveryCandidateCornerRadius: 1),
+        base.copyWith(discoveryCandidateCornerCutSize: 1),
       ]) {
         expect(changed, isNot(base));
       }

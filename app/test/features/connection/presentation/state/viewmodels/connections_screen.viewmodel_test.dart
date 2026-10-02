@@ -3,6 +3,7 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
+import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
@@ -126,6 +127,34 @@ void main() {
       );
     });
 
+    test(
+      'onReenterConnectedHost dispatches only a session re-entry request',
+      () {
+        final List<Object?> actions = [];
+        final Store<AppState> store = const CreateStore()(
+          middleware: [
+            (Store<AppState> store, dynamic action, NextDispatcher next) {
+              actions.add(action);
+              next(action);
+            },
+          ],
+        );
+        final HostCardViewData card = Fixtures.buildHostCardViewData(
+          source: ConnectionHostSelectionSource.knownHost,
+          state: DovahConnectionCardState.connected,
+        );
+
+        ConnectionsScreenViewModel.fromStore(
+          store,
+        ).onReenterConnectedHost(card);
+
+        expect(actions, [
+          ConnectionHostReentryRequestedAction(card.host.hostId),
+        ]);
+        expect(ConnectionSelectors.selectedHostSelector(store.state), isNull);
+      },
+    );
+
     test('onSelectHost leaves no Host selected before it is called', () {
       final Store<AppState> store = const CreateStore()();
       ConnectionsScreenViewModel.fromStore(store);
@@ -184,11 +213,13 @@ void main() {
         hostCards: [Fixtures.buildHostCardViewData()],
         canDiscover: true,
         onSelectHost: (HostCardViewData card) {},
+        onReenterConnectedHost: (HostCardViewData card) {},
       );
       final ConnectionsScreenViewModel second = ConnectionsScreenViewModel(
         hostCards: [Fixtures.buildHostCardViewData(title: 'Other')],
         canDiscover: true,
         onSelectHost: (HostCardViewData card) {},
+        onReenterConnectedHost: (HostCardViewData card) {},
       );
 
       expect(first, isNot(second));
@@ -199,11 +230,13 @@ void main() {
         hostCards: [Fixtures.buildHostCardViewData()],
         canDiscover: true,
         onSelectHost: (HostCardViewData card) {},
+        onReenterConnectedHost: (HostCardViewData card) {},
       );
       final ConnectionsScreenViewModel second = ConnectionsScreenViewModel(
         hostCards: [Fixtures.buildHostCardViewData()],
         canDiscover: false,
         onSelectHost: (HostCardViewData card) {},
+        onReenterConnectedHost: (HostCardViewData card) {},
       );
 
       expect(first, isNot(second));

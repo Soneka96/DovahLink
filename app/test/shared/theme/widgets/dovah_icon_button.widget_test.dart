@@ -8,6 +8,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
@@ -92,6 +93,31 @@ void main() {
         );
       }
     }
+
+    testWidgets('DovahIconButton can use the prototype session action size', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahIconButton(
+          icon: Icons.notifications_none_outlined,
+          label: 'Notifications',
+          size: DovahSessionMetrics.actionButtonSize,
+          onPressed: () {},
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        tester.getSize(find.byType(DovahSurface)).width,
+        DovahSessionMetrics.actionButtonSize,
+      );
+      expect(
+        tester.getSize(find.byType(DovahIconButton)).width,
+        greaterThanOrEqualTo(DovahControlMetrics.minimumTapTargetSize),
+      );
+    });
   });
 
   group('DovahIconButton has no Material press overlay', () {

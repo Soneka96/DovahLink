@@ -28,6 +28,7 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/usecase/no_params.dart';
@@ -206,6 +207,42 @@ void main() {
 
   group('DiscoverDialog displays available candidates', () {
     testWidgets(
+      'DiscoverDialog announces the Local Host result with a success marker',
+      (WidgetTester tester) async {
+        when(
+          () => viewModel.status,
+        ).thenReturn(ConnectionDiscoveryStatus.available);
+        when(() => viewModel.candidates).thenReturn([candidate]);
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        try {
+          await tester.pumpWidget(buildDialog());
+
+          expect(
+            tester.getSemantics(find.bySemanticsLabel('Local Host found.')),
+            isSemantics(label: 'Local Host found.', isLiveRegion: true),
+          );
+          expect(
+            find.byWidgetPredicate(
+              (Widget widget) => widget is Icon && widget.icon == Icons.circle,
+            ),
+            findsOneWidget,
+          );
+          final Finder markerFinder = find.byWidgetPredicate(
+            (Widget widget) => widget is Icon && widget.icon == Icons.circle,
+          );
+          final Icon marker = tester.widget<Icon>(markerFinder);
+          expect(marker.size, DovahDialogMetrics.discoveryStatusDotSize);
+          expect(
+            marker.color,
+            tester.element(markerFinder).dovahTokens.success,
+          );
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+
+    testWidgets(
       'DiscoverDialog shows the prototype Local Host card with routing data',
       (WidgetTester tester) async {
         when(
@@ -219,6 +256,17 @@ void main() {
         expect(find.text('AVAILABLE'), findsOneWidget);
         expect(find.text('Local Host'), findsOneWidget);
         expect(find.text('DovahLink · Ready to connect'), findsOneWidget);
+        final DecoratedBox rule = tester.widget(
+          find.byKey(const Key('discover-available-rule')),
+        );
+        final BoxDecoration decoration = rule.decoration as BoxDecoration;
+        final LinearGradient gradient = decoration.gradient! as LinearGradient;
+        final tokens = tester.element(find.text('AVAILABLE')).dovahTokens;
+        expect(gradient.colors, [
+          tokens.ember,
+          tokens.signal,
+          tokens.signal.withValues(alpha: 0),
+        ]);
         expect(
           find.byKey(Key('discover-candidate-${candidate.host.hostId}')),
           findsOneWidget,
@@ -313,7 +361,7 @@ void main() {
         setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
         await tester.pumpWidget(buildDialog());
 
-        expect(find.text('No new local Hosts found.'), findsOneWidget);
+        expect(find.text('No other Skyrim PCs found.'), findsOneWidget);
         expect(find.byKey(const Key('discover-retry-button')), findsOneWidget);
       },
     );
@@ -827,7 +875,7 @@ void main() {
       setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
       await tester.pumpWidget(buildDialog());
 
-      expect(find.text('No new local Hosts found.'), findsOneWidget);
+      expect(find.text('No other Skyrim PCs found.'), findsOneWidget);
       await tester.tap(find.byKey(const Key('discover-retry-button')));
       await tester.pump();
 
@@ -853,6 +901,27 @@ void main() {
       expect(find.byKey(const Key('discover-retry-button')), findsOneWidget);
     });
 
+    testWidgets(
+      'DiscoverDialog keeps an incompatible Host error distinct from empty and offline states',
+      (WidgetTester tester) async {
+        when(
+          () => viewModel.status,
+        ).thenReturn(ConnectionDiscoveryStatus.failed);
+        when(
+          () => viewModel.failure,
+        ).thenReturn(ConnectionFailureReason.incompatibleHost);
+        setDovahTestWindow(tester, dovahResponsiveTestSizes.last);
+        await tester.pumpWidget(buildDialog());
+
+        expect(
+          find.text('This local Host version is not compatible with the app.'),
+          findsOneWidget,
+        );
+        expect(find.text('No other Skyrim PCs found.'), findsNothing);
+        expect(find.text('Skyrim isn’t running'), findsNothing);
+      },
+    );
+
     for (final ConnectionDiscoveryStatus status in [
       ConnectionDiscoveryStatus.empty,
       ConnectionDiscoveryStatus.failed,
@@ -870,7 +939,7 @@ void main() {
           await tester.pumpWidget(buildDialog());
 
           final String message = status == ConnectionDiscoveryStatus.empty
-              ? 'No new local Hosts found.'
+              ? 'No other Skyrim PCs found.'
               : 'Could not reach the local Host. Check that it is running and try again.';
           expect(
             tester.getSemantics(find.bySemanticsLabel(message)),

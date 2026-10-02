@@ -59,9 +59,9 @@ class PairingProgress extends StatelessWidget {
         'Requesting code…',
       ),
       PairingPhase.confirming => (
-        'Confirming',
-        'Checking the code with Skyrim.',
-        'Confirming…',
+        'Finishing setup…',
+        'Saving this trusted connection securely.',
+        '',
       ),
       PairingPhase.connecting => (
         'Connecting',
@@ -95,13 +95,14 @@ class PairingProgress extends StatelessWidget {
                 const ExcludeSemantics(child: PairingLoadingIndicator()),
                 const SizedBox(width: DovahDialogMetrics.progressStatusGap),
               ],
-              Text(
-                status,
-                style: TextStyle(
-                  color: tokens.textMuted,
-                  fontSize: DovahThemeTokens.compactFontSize,
+              if (status.isNotEmpty)
+                Text(
+                  status,
+                  style: TextStyle(
+                    color: tokens.textMuted,
+                    fontSize: DovahThemeTokens.compactFontSize,
+                  ),
                 ),
-              ),
             ],
           ),
         ),

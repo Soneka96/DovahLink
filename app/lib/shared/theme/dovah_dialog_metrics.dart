@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/painting.dart' show Size;
+import 'package:flutter/painting.dart' show Color, Size;
 
 import 'package:equatable/equatable.dart';
 
@@ -64,8 +64,14 @@ class DovahDialogMetrics extends Equatable {
   /// Gap below a pairing success mark (the prototype's `.success-icon` bottom margin).
   static const double successMarkBottomGap = 17;
 
+  /// Gap above a pairing success mark (the prototype's `.success-icon` top margin).
+  static const double successMarkTopGap = 2;
+
   /// Size of the check glyph inside a pairing success mark (the prototype's `.success-icon`).
   static const double successGlyphSize = 29;
+
+  /// Base tone of the prototype's success-mark fill and border.
+  static const Color successMarkBaseColor = Color(0xFF6BD7A1);
 
   /// Opacity of the status tone filling a pairing success mark (the prototype's `.success-icon`
   /// `rgba(...,.1)` fill).
@@ -81,15 +87,27 @@ class DovahDialogMetrics extends Equatable {
   /// Stroke width of an inline progress spinner (the prototype's `.spinner` border).
   static const double progressIndicatorStrokeWidth = 2;
 
+  /// Track color of an inline progress spinner (the prototype's `.spinner` border color).
+  static const Color progressIndicatorTrackColor = Color(0xFF2C3A45);
+
+  /// Rotation period of an inline progress spinner (the prototype's `spin` animation).
+  static const Duration progressIndicatorRotationDuration = Duration(
+    seconds: 1,
+  );
+
   /// Gap between an inline progress spinner and its status text (the prototype's `.searching`
   /// `gap:10px`).
   static const double progressStatusGap = 10;
 
+  /// Width and height of the discovered-Host status marker (the prototype's `.dot` `8px`).
+  static const double discoveryStatusDotSize = 8;
+
+  /// Gap between the search result and the Available label (the prototype's `.searching`
+  /// `margin-bottom:18px`).
+  static const double discoveryFoundToAvailableGap = 18;
+
   /// Inner padding of a discovery candidate card (the prototype's `.nearby-card`).
   static const double discoveryCandidateCardPadding = 15;
-
-  /// Corner radius of the small rounded candidate card (the prototype's `.nearby-card`).
-  static const double discoveryCandidateCardCornerRadius = 8;
 
   /// Opacity of a discovery candidate while checking its trusted connection.
   static const double discoveryCandidateCheckingOpacity = 0.82;
@@ -123,8 +141,9 @@ class DovahDialogMetrics extends Equatable {
     bodyBottomGap: 20,
     codeBoxWidth: 49,
     codeBoxHeight: 56,
-    codeRowTopGap: 6,
+    codeRowTopGap: 10,
     codeRowBottomGap: 12,
+    renotifyTopGap: 5,
     messageMinHeight: 18,
     actionsTopGap: 18,
     noteTopGap: 17,
@@ -149,8 +168,9 @@ class DovahDialogMetrics extends Equatable {
     bodyBottomGap: 10,
     codeBoxWidth: 45,
     codeBoxHeight: 48,
-    codeRowTopGap: 3,
+    codeRowTopGap: 10,
     codeRowBottomGap: 6,
+    renotifyTopGap: 5,
     messageMinHeight: 14,
     actionsTopGap: 7,
     noteTopGap: 8,
@@ -200,11 +220,15 @@ class DovahDialogMetrics extends Equatable {
   /// Height of one pairing-code digit box.
   final double codeBoxHeight;
 
-  /// Gap above the row of pairing-code digit boxes.
+  /// Effective countdown-to-code gap after the prototype's `.pair-timer` and `.otp` margins
+  /// collapse to 10px in both window modes.
   final double codeRowTopGap;
 
   /// Gap below the row of pairing-code digit boxes.
   final double codeRowBottomGap;
+
+  /// Gap between the code message slot and the code-redisplay action.
+  final double renotifyTopGap;
 
   /// Height reserved for an inline message, so showing one does not shift the layout.
   final double messageMinHeight;
@@ -240,6 +264,7 @@ class DovahDialogMetrics extends Equatable {
     required this.codeBoxHeight,
     required this.codeRowTopGap,
     required this.codeRowBottomGap,
+    required this.renotifyTopGap,
     required this.messageMinHeight,
     required this.actionsTopGap,
     required this.noteTopGap,
@@ -289,6 +314,7 @@ class DovahDialogMetrics extends Equatable {
     codeBoxHeight: codeBoxHeight,
     codeRowTopGap: codeRowTopGap,
     codeRowBottomGap: codeRowBottomGap,
+    renotifyTopGap: renotifyTopGap,
     messageMinHeight: messageMinHeight,
     actionsTopGap: actionsTopGap,
     noteTopGap: noteTopGap,
@@ -315,6 +341,7 @@ class DovahDialogMetrics extends Equatable {
     codeBoxHeight,
     codeRowTopGap,
     codeRowBottomGap,
+    renotifyTopGap,
     messageMinHeight,
     actionsTopGap,
     noteTopGap,

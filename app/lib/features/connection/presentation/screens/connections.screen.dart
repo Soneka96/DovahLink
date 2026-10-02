@@ -26,11 +26,11 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 
 /// The root screen: DovahLink's branded header, the "Connections" title with its Discover Skyrim
-/// action, and durable Known Hosts available to select, over the theme's atmosphere. Selecting a
-/// Known Host records the relationship and opens the pairing dialog; discovery candidates are
-/// presented separately by the Discover flow. The header's appearance action opens the theme
-/// picker. Content is capped at a comfortable reading width and scrolls both ways below its minimum
-/// width.
+/// action, and durable Known Hosts over the theme's atmosphere. Online and Pair again cards open
+/// authentication; Pair again asks for confirmation first, and Connected cards request re-entry to
+/// their admitted session. Discovery candidates are presented separately by the Discover flow. The
+/// header's appearance action opens the theme picker. Content is capped at a comfortable reading
+/// width and scrolls both ways below its minimum width.
 class ConnectionsScreen extends StatelessWidget {
   /// Creates the connections screen.
   const ConnectionsScreen({super.key});
@@ -90,6 +90,8 @@ class ConnectionsScreen extends StatelessWidget {
                                 // removal semantics are defined.
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
+                                  onReenterConnectedHost:
+                                      viewModel.onReenterConnectedHost,
                                   onShowOfflineHost: (HostCardViewData card) {
                                     DovahDialog.show<void>(
                                       context,
@@ -116,8 +118,48 @@ class ConnectionsScreen extends StatelessWidget {
                                     );
                                   },
                                   onSelectHost: (HostCardViewData card) {
-                                    viewModel.onSelectHost(card);
-                                    PairingDialog.show(context);
+                                    if (card.state ==
+                                        DovahConnectionCardState.repair) {
+                                      DovahDialog.show<void>(
+                                        context,
+                                        title: 'Pairing required',
+                                        child: PairingStateLayout(
+                                          mark: const PairingMark(
+                                            icon: Icons.autorenew,
+                                          ),
+                                          heading: 'Pair ${card.title} again',
+                                          body:
+                                              'Your connection changed in Skyrim. Pair again to restore automatic connections.',
+                                          children: [
+                                            DovahButton(
+                                              label: 'Cancel',
+                                              variant:
+                                                  DovahButtonVariant.secondary,
+                                              onPressed: () => Navigator.of(
+                                                context,
+                                              ).maybePop(),
+                                            ),
+                                            DovahButton(
+                                              label: 'Pair again',
+                                              onPressed: () {
+                                                Navigator.of(
+                                                  context,
+                                                ).maybePop();
+                                                viewModel.onSelectHost(card);
+                                                PairingDialog.show(
+                                                  context,
+                                                  requestCodeAfterConfirmedRepair:
+                                                      true,
+                                                );
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    } else {
+                                      viewModel.onSelectHost(card);
+                                      PairingDialog.show(context);
+                                    }
                                   },
                                 ),
                                 const ConnectionsFooter(),

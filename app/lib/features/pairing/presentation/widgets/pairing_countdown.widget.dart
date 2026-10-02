@@ -15,6 +15,9 @@ class PairingCountdown extends StatefulWidget {
   /// Optional text style for the countdown display.
   final TextStyle? textStyle;
 
+  /// Optional style for the remaining time, separate from the label.
+  final TextStyle? remainingStyle;
+
   /// Function to format remaining seconds for display.
   final String Function(int) formatSeconds;
 
@@ -22,6 +25,7 @@ class PairingCountdown extends StatefulWidget {
   final String label;
   const PairingCountdown({
     this.textStyle,
+    this.remainingStyle,
     this.label = '',
     this.formatSeconds = _defaultFormatSeconds,
     super.key,
@@ -71,9 +75,17 @@ class _PairingCountdownState extends State<PairingCountdown> {
         if (remainingSeconds == null) {
           return const SizedBox.shrink();
         }
-        return Text(
-          '${widget.label}${widget.formatSeconds(remainingSeconds)}',
-          style: widget.textStyle,
+        return Text.rich(
+          TextSpan(
+            style: widget.textStyle,
+            children: [
+              TextSpan(text: widget.label),
+              TextSpan(
+                text: widget.formatSeconds(remainingSeconds),
+                style: widget.remainingStyle,
+              ),
+            ],
+          ),
         );
       },
     );

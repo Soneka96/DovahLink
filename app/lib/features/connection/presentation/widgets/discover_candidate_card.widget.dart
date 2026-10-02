@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -46,10 +47,10 @@ class _DiscoverCandidateCardState extends State<DiscoverCandidateCard> {
   @override
   Widget build(BuildContext context) {
     final tokens = context.dovahTokens;
+    final dialogThemeMetrics = context.dovahDialogThemeMetrics;
+    final materials = context.dovahMaterials;
     final DovahConnectionCardMetrics cardMetrics =
         context.dovahConnectionCardMetrics;
-    const double cornerRadius =
-        DovahDialogMetrics.discoveryCandidateCardCornerRadius;
     final String visibleSubtitle = widget.isChecking
         ? 'Checking trusted connection…'
         : widget.subtitle;
@@ -80,7 +81,7 @@ class _DiscoverCandidateCardState extends State<DiscoverCandidateCard> {
 
               return DovahFocusRing(
                 focused: focused,
-                cornerRadius: cornerRadius,
+                cornerRadius: dialogThemeMetrics.discoveryCandidateCornerRadius,
                 child: Opacity(
                   opacity: widget.isChecking
                       ? DovahDialogMetrics.discoveryCandidateCheckingOpacity
@@ -89,9 +90,17 @@ class _DiscoverCandidateCardState extends State<DiscoverCandidateCard> {
                     role: hovered
                         ? DovahMaterialRole.raised
                         : DovahMaterialRole.surface,
-                    borderColor: hovered ? tokens.accentPrimary : null,
-                    cornerStyle: DovahPanelCornerStyle.rounded,
-                    cornerRadius: cornerRadius,
+                    borderColor: hovered
+                        ? materials.raised.borderColor ?? tokens.accentPrimary
+                        : materials.surface.borderColor ?? tokens.lineSubtle,
+                    borderTransitionDuration:
+                        DovahControlMetrics.materialHoverDuration,
+                    cornerStyle:
+                        dialogThemeMetrics.discoveryCandidateCornerStyle,
+                    cornerRadius:
+                        dialogThemeMetrics.discoveryCandidateCornerRadius,
+                    cornerCutSize:
+                        dialogThemeMetrics.discoveryCandidateCornerCutSize,
                     padding: const EdgeInsets.all(
                       DovahDialogMetrics.discoveryCandidateCardPadding,
                     ),

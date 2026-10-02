@@ -53,6 +53,10 @@ class DovahSurface extends StatelessWidget {
   /// the role's own does not, or `null` to keep the material's.
   final Color? borderColor;
 
+  /// How long to animate changes to [borderColor]. Other material and layout changes remain
+  /// immediate.
+  final Duration borderTransitionDuration;
+
   /// Whether the material's drop shadow is painted; `false` for a component whose prototype rule
   /// sets `box-shadow:none` (a disabled primary button).
   final bool castsShadow;
@@ -69,6 +73,7 @@ class DovahSurface extends StatelessWidget {
     this.underlay,
     this.overlay,
     this.borderColor,
+    this.borderTransitionDuration = Duration.zero,
     this.material,
     super.key,
   });
@@ -100,23 +105,38 @@ class DovahSurface extends StatelessWidget {
       );
     }
 
-    return CustomPaint(
-      painter: DovahMaterialPainter(
+    CustomPaint paintSurface(Color? animatedBorder, Widget? child) =>
+        CustomPaint(
+          painter: DovahMaterialPainter(
+            cornerStyle: style,
+            cornerRadius: radius,
+            cutSize: cut,
+            material: animatedBorder == null
+                ? baseMaterial
+                : baseMaterial.withBorderColor(animatedBorder),
+          ),
+          child: child,
+        );
+    final Widget clipped = ClipPath(
+      clipper: DovahPanelClipper(
         cornerStyle: style,
         cornerRadius: radius,
         cutSize: cut,
-        material: pinnedBorder == null
-            ? baseMaterial
-            : baseMaterial.withBorderColor(pinnedBorder),
       ),
-      child: ClipPath(
-        clipper: DovahPanelClipper(
-          cornerStyle: style,
-          cornerRadius: radius,
-          cutSize: cut,
-        ),
-        child: content,
-      ),
+      child: content,
+    );
+    if (pinnedBorder == null) {
+      return paintSurface(null, clipped);
+    }
+
+    return TweenAnimationBuilder<Color?>(
+      tween: ColorTween(end: pinnedBorder),
+      duration: MediaQuery.disableAnimationsOf(context)
+          ? Duration.zero
+          : borderTransitionDuration,
+      builder: (BuildContext context, Color? animatedBorder, Widget? child) =>
+          paintSurface(animatedBorder, child),
+      child: clipped,
     );
   }
 }

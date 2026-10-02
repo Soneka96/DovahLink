@@ -59,20 +59,26 @@ class PairingCodeEntry extends StatelessWidget {
       bodyEnd: '.',
       children: [
         PairingCountdown(
+          key: const Key('pairing-code-countdown'),
           label: 'Code expires in ',
           textStyle: TextStyle(
             color: tokens.textMuted,
             fontSize: DovahThemeTokens.compactFontSize,
+          ),
+          remainingStyle: TextStyle(
+            color: tokens.textPrimary,
+            fontWeight: FontWeight.w700,
           ),
         ),
         SizedBox(height: metrics.codeRowTopGap),
         PairingCodeForm(
           onSubmit: onSubmit,
           errorMessage: errorMessage,
-          secondaryActions: const [
-            PairingCancelButton(),
-            PairingRenotifyButton(),
-          ],
+          clearCodeOnError:
+              failureOutcome == PairingFailureOutcome.invalid ||
+              failureOutcome == PairingFailureOutcome.pacingLimited,
+          secondaryActions: const [PairingCancelButton()],
+          renotifyAction: const PairingRenotifyButton(),
         ),
         SizedBox(height: metrics.noteTopGap),
         Text(

@@ -137,3 +137,17 @@ class ConnectionDiscoveryFailedAction extends Equatable {
   @override
   List<Object?> get props => [failure];
 }
+
+/// Requests re-entry to a Known Host's already-admitted session.
+class ConnectionHostReentryRequestedAction extends Equatable {
+  /// The stable identity of the Host whose connected session should open.
+  final String hostId;
+
+  /// Creates a re-entry request for [hostId].
+  /// @param hostId The stable Host ID shown by the Connected card.
+  const ConnectionHostReentryRequestedAction(this.hostId);
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [hostId];
+}
