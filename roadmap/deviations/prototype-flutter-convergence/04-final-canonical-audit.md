@@ -1,6 +1,7 @@
 # 04 — Final Canonical Audit
 
-**Status:** Partial — automated verification is complete; visual screenshot comparison is unverified.
+**Status:** Partial — prior automated verification is recorded below; current PR-wide verification
+must be assessed separately. Visual screenshot comparison is unverified.
 
 ## Outcome
 
@@ -50,8 +51,10 @@ pixel comparison remains unverified.
 
 Partial. Structural and interaction parity are implemented for the scoped journey. The surface-level
 status and typed projection table in the [parent convergence record](README.md) is authoritative.
-The final full-app run passed all 2,627 Flutter tests, all 1,069 Dart SDK tests, both analyzers, the
-Windows debug build, and the Windows lifecycle policy test. Exact local commands and outcomes:
+A previously recorded full-app run passed 2,627 Flutter tests, 1,069 Dart SDK tests, both analyzers,
+the Windows debug build, and the Windows lifecycle policy test. These historical results describe
+that run only and do not establish the current PR branch's complete verification status. Its exact
+local commands and outcomes were:
 
 | Capability | Command | Result |
 | --- | --- | --- |

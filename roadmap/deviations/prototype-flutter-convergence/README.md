@@ -1,10 +1,11 @@
 # Prototype → Flutter Convergence
 
 **Status:** Partial — the approved Connections → Discover → Pairing → Session Shell journey is
-implemented and its documented SDK/app truth is projected into the UI. Automated checks pass, but
-pixel-level visual parity remains unverified because Flutter screenshots were not available for
-comparison with the external approved prototype. Broader historical connection/pairing slices remain
-paused for re-planning.
+implemented and its documented SDK/app truth is projected into the UI. Pixel-level visual parity
+remains unverified because Flutter screenshots were not available for comparison with the external
+approved prototype. The historical automated-check results below are not a claim that the current
+PR branch passes every repository check. Broader historical connection/pairing slices remain paused
+for re-planning.
 
 ## Why this deviation exists
 

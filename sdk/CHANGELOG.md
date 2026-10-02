@@ -35,7 +35,6 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - Initial candidate and Known Host connection failures now retry in the SDK every three seconds, independently from bounded established-session recovery; the previous Offline presentation is preserved.
 - Discovery reconciles claims with committed Known Hosts by normalized Host ID; candidates are never persisted.
 - Pairing credentials no longer leave the SDK API, and candidate authentication never selects a Known Host credential.
-- Persisted client state moves to format 3; unreleased singleton bearer state requires pairing again.
 - The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
 - Windows DPAPI storage is available through a Windows-specific entry point, while the shared SDK entry point stays platform-neutral.
 

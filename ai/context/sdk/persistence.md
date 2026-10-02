@@ -22,8 +22,8 @@ can make it stale. Selecting the action must run normal SDK authentication and p
 Host's current response remains authoritative. Clear the hint after trusted Known Host
 authentication, successful pairing, or forgetting the Host. An administrative invalidation ending a
 developer-token session must not set a Known Host hint or delete the configured developer token.
-Because the hint changes SDK-owned storage, implementation requires a format version bump and
-migration that preserves `clientId`, credentials, endpoint metadata, and pending pairing recovery.
+The v4 format stores the hint and migrates v3 Known Hosts while preserving `clientId`, credentials,
+endpoint metadata, and pending pairing recovery.
 
 Each Known Host relationship currently stores `hostId`, last-known `hostName`, last-known `endpoint`,
 the current bearer credential issued by that Host, and its `pairingRequired` hint. `hostId` is
@@ -85,14 +85,16 @@ operation throws `UnsupportedError`. No plaintext or in-memory credential fallba
 Persisted SDK formats are versioned. The SDK that owns a persistent format owns its migrations; the
 official application must never need to understand or migrate the SDK's private persistence schema.
 
-`PersistedClientState.currentFormatVersion` is the concrete version field this section describes for
-SDK client state. Version 3 stores Host relationships by Host ID and an optional Host-owned pending
-pairing recovery record. Versions 1 and 2 contain a global bearer credential whose Host owner cannot
-be established as a cryptographic identity; because these are unreleased development formats, the
-SDK preserves the stable `clientId` and invalidates their Host metadata, credentials, and recovery
-state. The user must pair again. The SDK does not fabricate a Host from an endpoint, computer name,
-or discovery result. Unknown future versions and malformed v3 Host objects throw
-`DovahLinkStorageException`.
+`PersistedClientState.currentFormatVersion` is 4, the current SDK client-state format. Version 4
+stores Host relationships by Host ID, an optional Host-owned pending pairing recovery record, and
+the `pairingRequired` hint. Version 3 is migration input to version 4: migration preserves the
+stable `clientId`, every Known Host and its metadata, credentials, and pending pairing recovery;
+the new `pairingRequired` hint defaults to `false`. Versions 1 and 2 contain a global bearer
+credential whose Host owner cannot be established as a cryptographic identity; because these are
+unreleased development formats, the SDK preserves the stable `clientId` and invalidates their Host
+metadata, credentials, and recovery state. The user must pair again. The SDK does not fabricate a
+Host from an endpoint, computer name, or discovery result. Unknown future versions and malformed v3
+or v4 Host objects throw `DovahLinkStorageException`.
 
 ## Cache ownership
 

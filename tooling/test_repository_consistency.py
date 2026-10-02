@@ -2346,7 +2346,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertIn("reusable Known Host information", sdk_persistence)
         self.assertIn("preferred Host selection", sdk_persistence)
-        self.assertIn("must be re-established from the Host after", sdk_persistence)
+        self.assertIn("Host's current response remains authoritative", sdk_persistence)
 
         self.assertIn("not the Host harness -- is required only when", sdk_testing)
         self.assertIn("do not depend on the Host\nharness", sdk_testing)
@@ -2367,6 +2367,58 @@ class RepositoryConsistencyTests(unittest.TestCase):
             integration_testing,
         )
         self.assertNotIn("kMaxConnectedClients", integration_testing)
+
+    def test_sdk_persistence_docs_describe_v4_and_v3_migration(self) -> None:
+        """Guard the current persisted format and its Known Host-preserving migration."""
+        sdk_persistence = self._normalize_whitespace(
+            self._read("ai/context/sdk/persistence.md")
+        )
+        sdk_changelog = self._normalize_whitespace(self._read("sdk/CHANGELOG.md"))
+        convergence = self._normalize_whitespace(
+            self._read("roadmap/deviations/prototype-flutter-convergence/README.md")
+        )
+        final_audit = self._normalize_whitespace(
+            self._read(
+                "roadmap/deviations/prototype-flutter-convergence/04-final-canonical-audit.md"
+            )
+        )
+
+        self.assertIn(
+            "`PersistedClientState.currentFormatVersion` is 4, the current SDK client-state format.",
+            sdk_persistence,
+        )
+        self.assertIn("Version 3 is migration input to version 4", sdk_persistence)
+        self.assertIn(
+            "migration preserves the stable `clientId`, every Known Host and its metadata, "
+            "credentials, and pending pairing recovery",
+            sdk_persistence,
+        )
+        self.assertIn(
+            "the new `pairingRequired` hint defaults to `false`", sdk_persistence
+        )
+        self.assertIn(
+            "Unknown future versions and malformed v3 or v4 Host objects throw",
+            sdk_persistence,
+        )
+        self.assertIn(
+            "SDK client state v4 migrates v3 Known Hosts and defaults their new repair hint to false.",
+            sdk_changelog,
+        )
+        self.assertIn(
+            "historical automated-check results below are not a claim that the current PR branch "
+            "passes every repository check",
+            convergence,
+        )
+        self.assertIn(
+            "prior automated verification is recorded below; current PR-wide verification must "
+            "be assessed separately",
+            final_audit,
+        )
+        self.assertIn(
+            "do not establish the current PR branch's complete verification status",
+            final_audit,
+        )
+        self.assertIn("Visual screenshot comparison is unverified.", final_audit)
 
     def test_agents_and_common_point_at_the_new_dart_and_sdk_convention_areas(
         self,
