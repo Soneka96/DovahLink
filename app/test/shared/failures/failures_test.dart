@@ -1,10 +1,35 @@
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
 /// Runs [SessionInvalidatedFailure] behavior tests -- the only [Failure]
 /// subclass in this file without existing coverage before this addition.
 void main() {
+  group('PairingFailure typed data behaves correctly', () {
+    test('PairingFailure compares outcome and remaining attempts', () {
+      const PairingFailure first = PairingFailure(
+        'Wrong code.',
+        outcome: PairingFailureOutcome.invalid,
+        attemptsRemaining: 2,
+      );
+      const PairingFailure equal = PairingFailure(
+        'Wrong code.',
+        outcome: PairingFailureOutcome.invalid,
+        attemptsRemaining: 2,
+      );
+      const PairingFailure differentCount = PairingFailure(
+        'Wrong code.',
+        outcome: PairingFailureOutcome.invalid,
+        attemptsRemaining: 1,
+      );
+
+      expect(first, equal);
+      expect(first.hashCode, equal.hashCode);
+      expect(first, isNot(differentCount));
+    });
+  });
+
   group('Property message behaves correctly', () {
     test('Property message carries the given value', () {
       const SessionInvalidatedFailure failure = SessionInvalidatedFailure(

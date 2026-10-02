@@ -47,6 +47,18 @@ abstract final class PairingSelectors {
   /// Returns the user-safe pairing error, or `null` when absent.
   static String? errorSelector(AppState state) => state.pairing.error;
 
+  /// Returns the last typed pairing outcome, or `null` when none has been reported.
+  static PairingFailureOutcome? pairingOutcomeSelector(AppState state) =>
+      state.pairing.pairingOutcome;
+
+  /// Returns the Host-reported remaining wrong-code attempts, or `null` when absent.
+  static int? attemptsRemainingSelector(AppState state) =>
+      state.pairing.attemptsRemaining;
+
+  /// Returns the last typed Host response to a code-redisplay request.
+  static PairingRenotifyOutcome? renotifyOutcomeSelector(AppState state) =>
+      state.pairing.renotifyOutcome;
+
   /// Returns remaining seconds until code expires, or null if no active code.
   /// Clamps to 0 if the expiry time is in the past (non-negative duration).
   static int? codeCountdownSecondsSelector(AppState state) {

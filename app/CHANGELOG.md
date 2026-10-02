@@ -16,6 +16,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Known Host cards show Checking during startup and endpoint checks while retaining stable availability
   during periodic refresh.
 - Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions.
+- Online Known Hosts with a saved pairing-recovery hint offer Pair again through the existing
+  pairing flow; their Offline dialog directs users to pair after Skyrim returns.
 - The app distinguishes loading, ready, and failed Known Hosts observations while retaining the last successful collection on stream errors.
 - The connection state mirrors the SDK-owned Known Hosts and reconciled candidate collections without filtering either list.
 - Discover Skyrim opens a separate modal with searching, available, empty, and failure states.
@@ -34,6 +36,10 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Pairing preserves Host-reported wrong-code attempts, terminal outcomes, and code-redisplay
+  status through app state.
+- Known Host cards use the prototype's text chevron glyph for their entry affordance.
+- Offline Known Host cards open the prototype's status dialog without starting authentication.
 - Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,
   and Unknown states remain visible without an entry affordance.
 - Connections lists durable Known Hosts separately from ephemeral discovery candidates.

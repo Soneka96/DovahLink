@@ -20,6 +20,9 @@ AppState buildState({
   PairingPhase phase = PairingPhase.none,
   String? error,
   PairingCredentialRejectionReason? rejectionReason,
+  PairingFailureOutcome? pairingOutcome,
+  int? attemptsRemaining,
+  PairingRenotifyOutcome? renotifyOutcome,
   Host? host,
   List<KnownHost> knownHosts = const <KnownHost>[],
   ConnectionHostSelectionSource hostSource =
@@ -35,6 +38,9 @@ AppState buildState({
     hostVersion: null,
     error: error,
     credentialRejectionReason: rejectionReason,
+    pairingOutcome: pairingOutcome,
+    attemptsRemaining: attemptsRemaining,
+    renotifyOutcome: renotifyOutcome,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
   ),
@@ -64,6 +70,24 @@ void main() {
 
       expect(viewModel.phase, PairingPhase.failed);
       expect(viewModel.error, 'Code expired.');
+    });
+
+    test('Method fromStore projects typed pairing outcomes and attempts', () {
+      when(() => store.state).thenReturn(
+        buildState(
+          phase: PairingPhase.awaitingCode,
+          pairingOutcome: PairingFailureOutcome.invalid,
+          attemptsRemaining: 2,
+          renotifyOutcome: PairingRenotifyOutcome.renotified,
+        ),
+      );
+
+      final PairingSectionViewModel viewModel =
+          PairingSectionViewModel.fromStore(store);
+
+      expect(viewModel.pairingOutcome, PairingFailureOutcome.invalid);
+      expect(viewModel.attemptsRemaining, 2);
+      expect(viewModel.renotifyOutcome, PairingRenotifyOutcome.renotified);
     });
 
     test(

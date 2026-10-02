@@ -17,10 +17,14 @@ class ConnectionsHostSection extends StatelessWidget {
   /// Called with the card the user taps, including its selection source.
   final void Function(HostCardViewData card) onSelectHost;
 
+  /// Called when the user taps an Offline card to open its informational dialog.
+  final void Function(HostCardViewData card)? onShowOfflineHost;
+
   /// Creates the Host section.
   const ConnectionsHostSection({
     required this.cards,
     required this.onSelectHost,
+    this.onShowOfflineHost,
     super.key,
   });
 
@@ -74,15 +78,20 @@ class ConnectionsHostSection extends StatelessWidget {
               const SizedBox(height: DovahRootMetrics.listGap),
           itemBuilder: (BuildContext context, int index) {
             final HostCardViewData card = cards[index];
+            final VoidCallback? onTap = switch (card.state) {
+              DovahConnectionCardState.available ||
+              DovahConnectionCardState.repair => () => onSelectHost(card),
+              DovahConnectionCardState.offline when onShowOfflineHost != null =>
+                () => onShowOfflineHost!(card),
+              _ => null,
+            };
             return DovahConnectionCard(
               key: Key('host-card-${card.host.hostId}'),
               title: card.title,
               subtitle: card.subtitle,
               detail: card.detail,
               state: card.state,
-              onTap: card.state == DovahConnectionCardState.available
-                  ? () => onSelectHost(card)
-                  : null,
+              onTap: onTap,
             );
           },
         ),

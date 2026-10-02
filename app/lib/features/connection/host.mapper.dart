@@ -45,5 +45,6 @@ final class HostMapper {
       DovahLinkKnownHostSessionState.reauthenticating =>
         KnownHostSessionState.reauthenticating,
     },
+    pairingRequired: knownHostState.pairingRequired,
   );
 }

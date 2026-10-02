@@ -25,6 +25,15 @@ class PairingSectionViewModel extends Equatable {
   /// User-safe pairing error, or `null`.
   final String? error;
 
+  /// The typed Host outcome that ended pairing, or `null` when none was reported.
+  final PairingFailureOutcome? pairingOutcome;
+
+  /// Host-reported wrong-code attempts remaining, or `null` when absent.
+  final int? attemptsRemaining;
+
+  /// The Host's last typed code-redisplay response, or `null` before one.
+  final PairingRenotifyOutcome? renotifyOutcome;
+
   /// Whether pairing has to be confirmed again because a trusted credential was rejected.
   final bool isRepair;
 
@@ -56,6 +65,9 @@ class PairingSectionViewModel extends Equatable {
     required this.support,
     required this.hostName,
     required this.error,
+    this.pairingOutcome,
+    this.attemptsRemaining,
+    this.renotifyOutcome,
     required this.isRepair,
 
     /// Whether pairing is blocked and cannot be repaired from this dialog.
@@ -78,6 +90,9 @@ class PairingSectionViewModel extends Equatable {
           ConnectionSelectors.selectedHostNameSelector(state) ??
           unknownHostName,
       error: PairingSelectors.errorSelector(state),
+      pairingOutcome: PairingSelectors.pairingOutcomeSelector(state),
+      attemptsRemaining: PairingSelectors.attemptsRemainingSelector(state),
+      renotifyOutcome: PairingSelectors.renotifyOutcomeSelector(state),
       isRepair: PairingSelectors.isRepairSelector(state),
       isBlocked: PairingSelectors.isBlockedSelector(state),
       isReconnecting: ConnectionSelectors.selectedHostIsRecoveringSelector(
@@ -105,6 +120,9 @@ class PairingSectionViewModel extends Equatable {
     support,
     hostName,
     error,
+    pairingOutcome,
+    attemptsRemaining,
+    renotifyOutcome,
     isRepair,
     isBlocked,
     isReconnecting,

@@ -7,6 +7,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
@@ -69,33 +70,21 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   @override
   void call(Store<AppState> store, dynamic action, NextDispatcher next) {
     next(action);
-    if (_isShuttingDown) {
-      return;
-    }
-
-    if (store.state.pairing.support ==
-        PairingSupport.secureStorageUnavailable) {
-      return;
-    }
-
     switch (action) {
-      case final PairingStartedAction pairingAction:
-        unawaited(_initialConnectionRetrySubscription?.cancel());
-        _initialConnectionRetrySubscription = null;
-        _pairingFlowGeneration++;
-        _pairingStarted(store, pairingAction, _pairingFlowGeneration);
+      case PairingStartedAction _:
+        _pairingStarted(store);
       case PairingCodeRequestedAction _:
-        _pairingCodeRequested(store, action);
-      case PairingCodeSubmittedAction _:
-        _pairingCodeSubmitted(store, action);
+        _pairingCodeRequested(store);
+      case final PairingCodeSubmittedAction codeSubmission:
+        _pairingCodeSubmitted(store, codeSubmission);
       case PairingRenotifyRequestedAction _:
-        _pairingRenotifyRequested(store, action);
+        _pairingRenotifyRequested(store);
       case PairingCancelRequestedAction _:
-        _pairingCancelRequested(store, action);
-      case PairingDisposedAction _:
-        _pairingDisposed(store, action);
+        _pairingCancelRequested(store);
+      case final PairingDisposedAction disposedAction:
+        _pairingDisposed(store, disposedAction);
       case PairingSessionTrustedAction _:
-        _pairingSessionTrusted(store, action);
+        _pairingSessionTrusted(store);
     }
   }
 
@@ -114,7 +103,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     await subscription?.cancel();
   }
 
-  /// Handles [PairingStartedAction] by authenticating with the Host the user selected through
+  /// Starts the selected Host authentication through
   /// [AuthenticateUseCase]. With no Host selected there is nothing to connect to, so it
   /// dispatches [PairingFailedAction] rather than falling back to some default Host. The SDK's
   /// retry status changes the presentation to Offline while its original authentication operation
@@ -124,14 +113,14 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   /// authentication. A session that recovered from a rejected credential does not automatically
   /// request one; repairable rejections wait for explicit confirmation and blocked credentials
   /// cannot be repaired.
-  /// @param store The application store receiving authentication results.
-  /// @param action The explicit or automatic pairing attempt.
-  /// @param generation The pairing flow authorized to publish this result.
-  Future<void> _pairingStarted(
-    Store<AppState> store,
-    PairingStartedAction action,
-    int generation,
-  ) async {
+  /// @param store The application store receiving pairing-state actions.
+  Future<void> _pairingStarted(Store<AppState> store) async {
+    if (!_canHandlePairingAction(store)) {
+      return;
+    }
+    unawaited(_initialConnectionRetrySubscription?.cancel());
+    _initialConnectionRetrySubscription = null;
+    final int generation = ++_pairingFlowGeneration;
     final Host? host = ConnectionSelectors.selectedHostSelector(store.state);
     if (host == null) {
       store.dispatch(const PairingFailedAction('Select a Host to pair with.'));
@@ -168,7 +157,15 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        store.dispatch(
+          PairingFailedAction(
+            failure.message,
+            pairingOutcome: failure is PairingFailure ? failure.outcome : null,
+            attemptsRemaining: failure is PairingFailure
+                ? failure.attemptsRemaining
+                : null,
+          ),
+        );
       },
       (PairingHandshake handshake) {
         store.dispatch(
@@ -188,13 +185,12 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     );
   }
 
-  /// Handles [PairingRenotifyRequestedAction] by requesting redisplay through
-  /// [RequestPairingRenotifyUseCase]. Dispatches success, cooldown with
-  /// remaining seconds, or failure accordingly.
-  Future<void> _pairingRenotifyRequested(
-    Store<AppState> store,
-    PairingRenotifyRequestedAction action,
-  ) async {
+  /// Requests challenge redisplay and dispatches its typed outcome.
+  /// @param store The application store receiving the outcome.
+  Future<void> _pairingRenotifyRequested(Store<AppState> store) async {
+    if (!_canHandlePairingAction(store)) {
+      return;
+    }
     final int generation = _pairingFlowGeneration;
     final result = await sl<RequestPairingRenotifyUseCase>()(NoParams());
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
@@ -202,26 +198,43 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        store.dispatch(
+          PairingFailedAction(
+            failure.message,
+            pairingOutcome: failure is PairingFailure ? failure.outcome : null,
+            attemptsRemaining: failure is PairingFailure
+                ? failure.attemptsRemaining
+                : null,
+          ),
+        );
       },
-      (int? cooldownSeconds) {
-        if (cooldownSeconds == null) {
-          store.dispatch(const PairingRenotifySucceededAction());
-        } else {
-          store.dispatch(
-            PairingRenotifyCooldownAction(retryAfterSeconds: cooldownSeconds),
-          );
+      (PairingRenotifyResult result) {
+        switch (result.outcome) {
+          case PairingRenotifyOutcome.renotified:
+            store.dispatch(
+              PairingRenotifySucceededAction(
+                retryAfterSeconds: result.retryAfterSeconds,
+              ),
+            );
+          case PairingRenotifyOutcome.cooldown:
+            store.dispatch(
+              PairingRenotifyCooldownAction(
+                retryAfterSeconds: result.retryAfterSeconds,
+              ),
+            );
+          case PairingRenotifyOutcome.alreadyIdle:
+            store.dispatch(const PairingRenotifyAlreadyIdleAction());
         }
       },
     );
   }
 
-  /// Handles [PairingCancelRequestedAction] by cancelling the active challenge
-  /// through [CancelPairingUseCase]. Dispatches success or failure.
-  Future<void> _pairingCancelRequested(
-    Store<AppState> store,
-    PairingCancelRequestedAction action,
-  ) async {
+  /// Cancels the active challenge and dispatches success or failure.
+  /// @param store The application store receiving the cancellation result.
+  Future<void> _pairingCancelRequested(Store<AppState> store) async {
+    if (!_canHandlePairingAction(store)) {
+      return;
+    }
     final int generation = _pairingFlowGeneration;
     final String? pendingPairingHostId =
         ConnectionSelectors.pendingPairingHostIdSelector(store.state);
@@ -231,7 +244,15 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        store.dispatch(
+          PairingFailedAction(
+            failure.message,
+            pairingOutcome: failure is PairingFailure ? failure.outcome : null,
+            attemptsRemaining: failure is PairingFailure
+                ? failure.attemptsRemaining
+                : null,
+          ),
+        );
       },
       (_) {
         if (pendingPairingHostId != null) {
@@ -244,17 +265,18 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     );
   }
 
-  /// Handles [PairingCodeRequestedAction] by requesting a pairing challenge
+  /// Requests a pairing challenge
   /// through [RequestPairingUseCase]. Deliberately does not distinguish
   /// [NetworkFailure] here or in [_pairingCodeSubmitted] the way
   /// [_pairingStarted] does: silently discarding a code the user is
   /// mid-entering to retry the initial connect would lose their progress, so
   /// a network hiccup mid-flow surfaces as an ordinary [PairingFailedAction]
   /// instead.
-  Future<void> _pairingCodeRequested(
-    Store<AppState> store,
-    PairingCodeRequestedAction action,
-  ) async {
+  /// @param store The application store receiving the challenge result.
+  Future<void> _pairingCodeRequested(Store<AppState> store) async {
+    if (!_canHandlePairingAction(store)) {
+      return;
+    }
     final int generation = _pairingFlowGeneration;
     final result = await sl<RequestPairingUseCase>()(NoParams());
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
@@ -262,7 +284,15 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        store.dispatch(
+          PairingFailedAction(
+            failure.message,
+            pairingOutcome: failure is PairingFailure ? failure.outcome : null,
+            attemptsRemaining: failure is PairingFailure
+                ? failure.attemptsRemaining
+                : null,
+          ),
+        );
       },
       (int? expiresInSeconds) {
         store.dispatch(
@@ -272,12 +302,16 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     );
   }
 
-  /// Handles [PairingCodeSubmittedAction] by confirming the code through
-  /// [ConfirmPairingCodeUseCase].
+  /// Confirms the submitted code through [ConfirmPairingCodeUseCase].
+  /// @param store The application store receiving the confirmation result.
+  /// @param action The submitted pairing code and display name.
   Future<void> _pairingCodeSubmitted(
     Store<AppState> store,
     PairingCodeSubmittedAction action,
   ) async {
+    if (!_canHandlePairingAction(store)) {
+      return;
+    }
     final int generation = _pairingFlowGeneration;
     // The SDK candidate stream can remove this selection before confirmation completes.
     final Host? selectedHost = ConnectionSelectors.selectedHostSelector(
@@ -316,10 +350,22 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           store.dispatch(
             PairingConfirmFailedWithAttemptsRemainingAction(
               message: failure.message,
+              pairingOutcome: failure.outcome!,
+              attemptsRemaining: failure.attemptsRemaining,
             ),
           );
         } else {
-          store.dispatch(PairingFailedAction(failure.message));
+          store.dispatch(
+            PairingFailedAction(
+              failure.message,
+              pairingOutcome: failure is PairingFailure
+                  ? failure.outcome
+                  : null,
+              attemptsRemaining: failure is PairingFailure
+                  ? failure.attemptsRemaining
+                  : null,
+            ),
+          );
         }
       },
       (_) {
@@ -329,17 +375,22 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     );
   }
 
-  /// Handles [PairingDisposedAction] by disconnecting through
+  /// Disposes pairing state and disconnects through
   /// [DisconnectUseCase], unless [PairingDisposedAction.wasTrusted] -- pairing
   /// had already succeeded, so the established trust and connection are kept
   /// rather than torn down on the way out. Always cancels a pending initial
   /// connection retry and invalidates pending authentication results. Otherwise, best-effort cleanup:
   /// the reducer has already reset [AppState.pairing] by the time this runs,
   /// and there is no surviving screen to report a disconnect failure to.
+  /// @param store The application store whose pairing lifecycle was reset.
+  /// @param action The disposal request and whether trust was already established.
   Future<void> _pairingDisposed(
     Store<AppState> store,
     PairingDisposedAction action,
   ) async {
+    if (!_canHandlePairingAction(store)) {
+      return;
+    }
     final String? pendingPairingHostId =
         ConnectionSelectors.pendingPairingHostIdSelector(store.state);
     _pairingFlowGeneration++;
@@ -358,7 +409,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     await sl<DisconnectUseCase>()(NoParams());
   }
 
-  /// Handles [PairingSessionTrustedAction] by starting [_connectionStatusSubscription] through
+  /// Starts [_connectionStatusSubscription] for the admitted trusted session through
   /// [ObserveConnectionStatusUseCase], unless one is already running -- a later reconnect or
   /// re-pair dispatching this action again must not stack a second subscription onto the same
   /// underlying SDK stream. Dispatches by status: [PairingConnectionStatus.lost] as ordinary
@@ -371,13 +422,10 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   /// subscription would keep delivering [PairingConnectionStatus.lost]/`restored` events raised by
   /// an unrelated later pairing attempt's own connect/reconnect cycle, and a stray `restored` would
   /// have the reducer falsely report the new attempt as trusted.
-  /// @param store The application store receiving pairing-state actions.
-  /// @param action The trusted-session action that starts observation.
-  void _pairingSessionTrusted(
-    Store<AppState> store,
-    PairingSessionTrustedAction action,
-  ) {
-    if (_isShuttingDown || _connectionStatusSubscription != null) {
+  /// @param store The application store receiving session lifecycle actions.
+  void _pairingSessionTrusted(Store<AppState> store) {
+    if (!_canHandlePairingAction(store) ||
+        _connectionStatusSubscription != null) {
       return;
     }
     _connectionStatusSubscription =
@@ -403,4 +451,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           }
         });
   }
+
+  /// Returns whether pairing middleware may start or continue app-owned work.
+  /// @param store The application store containing pairing capability state.
+  /// @return Whether shutdown has not started and pairing storage is available.
+  bool _canHandlePairingAction(Store<AppState> store) =>
+      !_isShuttingDown &&
+      store.state.pairing.support != PairingSupport.secureStorageUnavailable;
 }

@@ -10,6 +10,9 @@ import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 Future<void> pumpFailure(
   WidgetTester tester, {
   String message = 'That code has expired.',
+  PairingFailureOutcome? outcome,
+  int? attemptsRemaining,
+  PairingRenotifyOutcome? renotifyOutcome,
   List<String>? log,
   DovahThemePreset preset = DovahThemePreset.dovah,
   Size size = const Size(900, 560),
@@ -17,6 +20,9 @@ Future<void> pumpFailure(
   tester,
   PairingFailure(
     message: message,
+    outcome: outcome,
+    attemptsRemaining: attemptsRemaining,
+    renotifyOutcome: renotifyOutcome,
     onClose: () => log?.add('close'),
     onRetry: () => log?.add('retry'),
   ),
@@ -50,6 +56,41 @@ void main() {
       expect(find.byKey(const Key('pairing-close-button')), findsOneWidget);
       expect(find.byKey(const Key('pairing-retry-button')), findsOneWidget);
     });
+
+    testWidgets('PairingFailure renders copy from the typed terminal outcome', (
+      WidgetTester tester,
+    ) async {
+      await pumpFailure(
+        tester,
+        message: 'unused generic message',
+        outcome: PairingFailureOutcome.hardLimitReached,
+      );
+
+      expect(
+        (tester.widget<Text>(find.byKey(const Key('pairing-body'))).textSpan!
+                as TextSpan)
+            .toPlainText(),
+        'Too many wrong attempts. Request a new pairing code.',
+      );
+    });
+
+    testWidgets(
+      'PairingFailure renders copy from the typed idle redisplay result',
+      (WidgetTester tester) async {
+        await pumpFailure(
+          tester,
+          message: 'unused generic message',
+          renotifyOutcome: PairingRenotifyOutcome.alreadyIdle,
+        );
+
+        expect(
+          (tester.widget<Text>(find.byKey(const Key('pairing-body'))).textSpan!
+                  as TextSpan)
+              .toPlainText(),
+          'No pairing is currently active.',
+        );
+      },
+    );
   });
 
   group('PairingFailure calls callbacks', () {

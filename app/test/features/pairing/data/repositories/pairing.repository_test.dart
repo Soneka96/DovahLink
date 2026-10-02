@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remot
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/data/repositories/pairing.repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
@@ -232,12 +233,17 @@ void main() {
       () async {
         when(
           () => mockDataSource.requestPairingRenotify(),
-        ).thenAnswer((_) async => const Right(5));
+        ).thenAnswer((_) async => Right(Fixtures.buildPairingRenotifyResult()));
 
-        final Either<Failure, int?> result = await repository
+        final Either<Failure, PairingRenotifyResult> result = await repository
             .requestPairingRenotify();
 
-        expect(result, const Right<Failure, int?>(5));
+        expect(
+          result,
+          Right<Failure, PairingRenotifyResult>(
+            Fixtures.buildPairingRenotifyResult(),
+          ),
+        );
         verify(() => mockDataSource.requestPairingRenotify()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
@@ -246,14 +252,27 @@ void main() {
     test(
       'Method requestPairingRenotify returns Right with cooldown seconds when in cooldown',
       () async {
-        when(
-          () => mockDataSource.requestPairingRenotify(),
-        ).thenAnswer((_) async => const Right(3));
+        when(() => mockDataSource.requestPairingRenotify()).thenAnswer(
+          (_) async => Right(
+            Fixtures.buildPairingRenotifyResult(
+              outcome: PairingRenotifyOutcome.cooldown,
+              retryAfterSeconds: 3,
+            ),
+          ),
+        );
 
-        final Either<Failure, int?> result = await repository
+        final Either<Failure, PairingRenotifyResult> result = await repository
             .requestPairingRenotify();
 
-        expect(result, const Right<Failure, int?>(3));
+        expect(
+          result,
+          Right<Failure, PairingRenotifyResult>(
+            Fixtures.buildPairingRenotifyResult(
+              outcome: PairingRenotifyOutcome.cooldown,
+              retryAfterSeconds: 3,
+            ),
+          ),
+        );
         verify(() => mockDataSource.requestPairingRenotify()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },
@@ -267,10 +286,10 @@ void main() {
           () => mockDataSource.requestPairingRenotify(),
         ).thenAnswer((_) async => const Left(failure));
 
-        final Either<Failure, int?> result = await repository
+        final Either<Failure, PairingRenotifyResult> result = await repository
             .requestPairingRenotify();
 
-        expect(result, const Left<Failure, int?>(failure));
+        expect(result, const Left<Failure, PairingRenotifyResult>(failure));
         verify(() => mockDataSource.requestPairingRenotify()).called(1);
         verifyNoMoreInteractions(mockDataSource);
       },

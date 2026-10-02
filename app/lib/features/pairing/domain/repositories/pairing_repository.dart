@@ -1,6 +1,7 @@
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
@@ -30,9 +31,8 @@ abstract interface class IPairingRepository {
   Future<Either<Failure, Unit>> disconnect();
 
   /// Requests redisplay of the active pairing code in Skyrim, or reports
-  /// idle status. Returns Host-reported retry seconds after successful redisplay or
-  /// during cooldown.
-  Future<Either<Failure, int?>> requestPairingRenotify();
+  /// idle status, preserving the typed outcome and Host-reported retry interval.
+  Future<Either<Failure, PairingRenotifyResult>> requestPairingRenotify();
 
   /// Cancels the owned active pairing challenge or pending credential, or
   /// reports idle status.

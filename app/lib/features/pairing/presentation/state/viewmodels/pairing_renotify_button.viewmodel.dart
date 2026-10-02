@@ -5,6 +5,7 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Redux-backed presentation values for requesting pairing code redisplay.
@@ -18,6 +19,9 @@ class PairingRenotifyButtonViewModel extends Equatable {
   /// Remaining cooldown seconds, or null when the host did not report a cooldown.
   final int? cooldownSeconds;
 
+  /// The last typed Host response to a redisplay request, or `null` before one.
+  final PairingRenotifyOutcome? outcome;
+
   /// Dispatches a redisplay request, or is null during cooldown or while one is pending.
   final VoidCallback? onPressed;
 
@@ -26,6 +30,7 @@ class PairingRenotifyButtonViewModel extends Equatable {
     required this.isAvailable,
     required this.isPending,
     required this.cooldownSeconds,
+    this.outcome,
     required this.onPressed,
   });
 
@@ -42,6 +47,7 @@ class PairingRenotifyButtonViewModel extends Equatable {
       isAvailable: isAvailable,
       isPending: isPending,
       cooldownSeconds: cooldownSeconds,
+      outcome: PairingSelectors.renotifyOutcomeSelector(store.state),
       onPressed: isAvailable
           ? () {
               final AppState currentState = store.state;
@@ -59,24 +65,7 @@ class PairingRenotifyButtonViewModel extends Equatable {
     );
   }
 
-  /// Builds the button label from its pending, cooldown, and available state.
-  ///
-  /// [label] is shown when redisplay is available.
-  /// [cooldownLabel] overrides the generated label during cooldown.
-  String displayLabel({required String label, String? cooldownLabel}) {
-    if (isPending) {
-      return 'Sending to Skyrim…';
-    }
-    if (isAvailable) {
-      return label;
-    }
-    if (cooldownLabel != null) {
-      return cooldownLabel;
-    }
-    return '$label (${cooldownSeconds}s)';
-  }
-
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [isAvailable, isPending, cooldownSeconds];
+  List<Object?> get props => [isAvailable, isPending, cooldownSeconds, outcome];
 }

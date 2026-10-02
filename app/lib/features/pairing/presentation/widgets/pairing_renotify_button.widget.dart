@@ -58,12 +58,17 @@ class _PairingRenotifyButtonState extends State<PairingRenotifyButton> {
       converter: (Store<AppState> store) =>
           sl<PairingRenotifyButtonViewModel>(param1: store),
       builder: (context, viewModel) {
+        final String label = PairingRenotifyOutcome.buttonLabel(
+          outcome: viewModel.outcome,
+          isPending: viewModel.isPending,
+          isAvailable: viewModel.isAvailable,
+          cooldownSeconds: viewModel.cooldownSeconds,
+          label: widget.label,
+          cooldownLabel: widget.cooldownLabel,
+        );
         return DovahButton(
           key: const Key('pairing-renotify-button'),
-          label: viewModel.displayLabel(
-            label: widget.label,
-            cooldownLabel: widget.cooldownLabel,
-          ),
+          label: label,
           variant: DovahButtonVariant.quiet,
           onPressed: viewModel.onPressed,
         );

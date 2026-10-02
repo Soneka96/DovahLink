@@ -282,6 +282,7 @@ void main() {
           size: dovahTestSizes.first,
         );
 
+        expect(find.text('›'), findsNWidgets(2));
         await tester.tap(
           find.byKey(
             const Key('host-card-81f6cc90-3a88-40c7-8351-104d4a36c971'),
@@ -451,6 +452,7 @@ void main() {
       'ConnectionsHostSection keeps non-online Known Hosts visible but not selectable',
       (WidgetTester tester) async {
         final List<HostCardViewData> selected = [];
+        final List<HostCardViewData> offlineInfoRequests = [];
         final SemanticsHandle semantics = tester.ensureSemantics();
         try {
           for (final DovahConnectionCardState state in [
@@ -471,6 +473,7 @@ void main() {
                   ),
                 ],
                 onSelectHost: selected.add,
+                onShowOfflineHost: offlineInfoRequests.add,
               ),
               preset: DovahThemePreset.dovah,
               size: dovahTestSizes.first,
@@ -486,24 +489,109 @@ void main() {
                   ),
                 )
                 .getSemanticsData();
-            expect(card.onTap, isNull, reason: state.name);
+            final bool isOffline = state == DovahConnectionCardState.offline;
+            expect(
+              card.onTap,
+              isOffline ? isNotNull : isNull,
+              reason: state.name,
+            );
             expect(
               semanticsData.flagsCollection.isEnabled,
-              Tristate.isFalse,
+              isOffline ? Tristate.isTrue : Tristate.isFalse,
               reason: state.name,
             );
             expect(
               semanticsData.hasAction(SemanticsAction.tap),
-              isFalse,
+              isOffline,
               reason: state.name,
             );
-            expect(find.byIcon(Icons.chevron_right), findsNothing);
+            expect(find.text('›'), findsNothing);
             await tester.tap(
               find.byType(DovahConnectionCard),
               warnIfMissed: false,
             );
             expect(selected, isEmpty, reason: state.name);
+            expect(
+              offlineInfoRequests.length,
+              isOffline ? 1 : 0,
+              reason: state.name,
+            );
+            offlineInfoRequests.clear();
           }
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+
+    testWidgets(
+      'ConnectionsHostSection leaves an Offline card inert without an information callback',
+      (WidgetTester tester) async {
+        final List<HostCardViewData> selected = [];
+        await pumpDovahThemedWidget(
+          tester,
+          ConnectionsHostSection(
+            cards: [
+              Fixtures.buildHostCardViewData(
+                source: ConnectionHostSelectionSource.knownHost,
+                subtitle: 'Known Host',
+                state: DovahConnectionCardState.offline,
+              ),
+            ],
+            onSelectHost: selected.add,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final DovahConnectionCard card = tester.widget(
+          find.byType(DovahConnectionCard),
+        );
+        expect(card.onTap, isNull);
+        expect(find.text('›'), findsNothing);
+        await tester.tap(find.byType(DovahConnectionCard), warnIfMissed: false);
+        expect(selected, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsHostSection selects a repair card to start Pair again',
+      (WidgetTester tester) async {
+        final HostCardViewData repairCard = Fixtures.buildHostCardViewData(
+          source: ConnectionHostSelectionSource.knownHost,
+          subtitle: 'Known Host',
+          state: DovahConnectionCardState.repair,
+        );
+        final List<HostCardViewData> selected = [];
+        final List<HostCardViewData> offlineInfoRequests = [];
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        try {
+          await pumpDovahThemedWidget(
+            tester,
+            ConnectionsHostSection(
+              cards: [repairCard],
+              onSelectHost: selected.add,
+              onShowOfflineHost: offlineInfoRequests.add,
+            ),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
+
+          final SemanticsData semanticsData = tester
+              .getSemantics(
+                find.bySemanticsLabel(
+                  'Local Host, Known Host, 127.0.0.1:58231, Pair again',
+                ),
+              )
+              .getSemanticsData();
+          expect(semanticsData.flagsCollection.isEnabled, Tristate.isTrue);
+          expect(semanticsData.hasAction(SemanticsAction.tap), isTrue);
+          await tester.tap(
+            find.byKey(Key('host-card-${repairCard.host.hostId}')),
+          );
+
+          expect(selected, [repairCard]);
+          expect(offlineInfoRequests, isEmpty);
         } finally {
           semantics.dispose();
         }

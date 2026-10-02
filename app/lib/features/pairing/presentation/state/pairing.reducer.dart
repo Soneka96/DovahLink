@@ -51,6 +51,10 @@ Reducer<PairingState> pairingReducer = combineReducers<PairingState>([
     pairingRenotifyCooldownReducer,
   ).call,
 
+  TypedReducer<PairingState, PairingRenotifyAlreadyIdleAction>(
+    pairingRenotifyAlreadyIdleReducer,
+  ).call,
+
   TypedReducer<PairingState, PairingCancelSucceededAction>(
     pairingCancelSucceededReducer,
   ).call,
@@ -73,6 +77,9 @@ PairingState pairingStartedReducer(
   error: const None(),
   isRenotifyPending: false,
   credentialRejectionReason: const None(),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
+  renotifyOutcome: const None(),
 );
 
 /// Handles [PairingAuthenticatedAction].
@@ -103,6 +110,8 @@ PairingState pairingCodeRequestedReducer(
   phase: PairingPhase.requestingCode,
   error: const None(),
   credentialRejectionReason: const None(),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
 );
 
 /// Handles [PairingCodeAvailableAction].
@@ -120,6 +129,9 @@ PairingState pairingCodeAvailableReducer(
       ? const None()
       : Some(DateTime.now().add(Duration(seconds: action.expiresInSeconds!))),
   renotifyAvailableAt: const None(),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
+  renotifyOutcome: const None(),
 );
 
 /// Handles [PairingCodeSubmittedAction].
@@ -127,7 +139,13 @@ PairingState pairingCodeAvailableReducer(
 PairingState pairingCodeSubmittedReducer(
   PairingState state,
   PairingCodeSubmittedAction action,
-) => state.copyWith(phase: PairingPhase.confirming, error: const None());
+) => state.copyWith(
+  phase: PairingPhase.confirming,
+  error: const None(),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
+  renotifyOutcome: const None(),
+);
 
 /// Handles [PairingConfirmedAction].
 /// Updates [PairingState.phase], [PairingState.error].
@@ -138,6 +156,8 @@ PairingState pairingConfirmedReducer(
   phase: PairingPhase.trusted,
   error: const None(),
   credentialRejectionReason: const None(),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
 );
 
 /// Handles [PairingDisconnectedAction].
@@ -155,11 +175,17 @@ PairingState pairingFailedReducer(
   PairingFailedAction action,
 ) => state.copyWith(
   phase: PairingPhase.failed,
-  error: Some(action.message),
+  error: action.pairingOutcome == null ? Some(action.message) : const None(),
   codeExpiresAt: const None(),
   renotifyAvailableAt: const None(),
   isRenotifyPending: false,
   credentialRejectionReason: const None(),
+  pairingOutcome: action.pairingOutcome == null
+      ? const None()
+      : Some(action.pairingOutcome!),
+  attemptsRemaining: action.attemptsRemaining == null
+      ? const None()
+      : Some(action.attemptsRemaining!),
 );
 
 /// Handles [PairingDisposedAction].
@@ -170,30 +196,64 @@ PairingState pairingDisposedReducer(
 ) => PairingState.initial(support: state.support);
 
 /// Handles [PairingRenotifyRequestedAction].
-/// Stays in [PairingPhase.awaitingCode], clears error, and marks redisplay pending.
+/// Stays in [PairingPhase.awaitingCode], clears prior redisplay status, and marks the request pending.
 PairingState pairingRenotifyRequestedReducer(
   PairingState state,
   PairingRenotifyRequestedAction action,
-) => state.copyWith(error: const None(), isRenotifyPending: true);
+) => state.copyWith(
+  error: const None(),
+  isRenotifyPending: true,
+  renotifyOutcome: const None(),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
+);
 
 /// Handles [PairingRenotifySucceededAction].
-/// Stays in [PairingPhase.awaitingCode], clears error and the pending redisplay state.
+/// Stays in [PairingPhase.awaitingCode] and stores successful redisplay plus its retry interval.
 PairingState pairingRenotifySucceededReducer(
   PairingState state,
   PairingRenotifySucceededAction action,
-) => state.copyWith(error: const None(), isRenotifyPending: false);
+) => state.copyWith(
+  error: const None(),
+  isRenotifyPending: false,
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
+  renotifyOutcome: const Some(PairingRenotifyOutcome.renotified),
+  renotifyAvailableAt: action.retryAfterSeconds == null
+      ? const None()
+      : Some(DateTime.now().add(Duration(seconds: action.retryAfterSeconds!))),
+);
 
 /// Handles [PairingRenotifyCooldownAction].
-/// Clears the pending redisplay state and sets [PairingState.renotifyAvailableAt] to the retry time.
+/// Stores the cooldown response and its retry time.
 /// Stays in [PairingPhase.awaitingCode].
 PairingState pairingRenotifyCooldownReducer(
   PairingState state,
   PairingRenotifyCooldownAction action,
 ) => state.copyWith(
   isRenotifyPending: false,
-  renotifyAvailableAt: Some(
-    DateTime.now().add(Duration(seconds: action.retryAfterSeconds)),
-  ),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
+  renotifyOutcome: const Some(PairingRenotifyOutcome.cooldown),
+  renotifyAvailableAt: action.retryAfterSeconds == null
+      ? const None()
+      : Some(DateTime.now().add(Duration(seconds: action.retryAfterSeconds!))),
+);
+
+/// Handles [PairingRenotifyAlreadyIdleAction].
+/// Ends code entry because the Host no longer owns a challenge.
+PairingState pairingRenotifyAlreadyIdleReducer(
+  PairingState state,
+  PairingRenotifyAlreadyIdleAction action,
+) => state.copyWith(
+  phase: PairingPhase.failed,
+  error: const None(),
+  codeExpiresAt: const None(),
+  renotifyAvailableAt: const None(),
+  isRenotifyPending: false,
+  renotifyOutcome: const Some(PairingRenotifyOutcome.alreadyIdle),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
 );
 
 /// Handles [PairingCancelSucceededAction].
@@ -208,6 +268,9 @@ PairingState pairingCancelSucceededReducer(
   renotifyAvailableAt: const None(),
   isRenotifyPending: false,
   credentialRejectionReason: const None(),
+  pairingOutcome: const None(),
+  attemptsRemaining: const None(),
+  renotifyOutcome: const None(),
 );
 
 /// Handles [PairingConfirmFailedWithAttemptsRemainingAction].
@@ -220,7 +283,11 @@ PairingState pairingConfirmFailedWithAttemptsRemainingReducer(
   PairingConfirmFailedWithAttemptsRemainingAction action,
 ) => state.copyWith(
   phase: PairingPhase.awaitingCode,
-  error: Some(action.message),
+  error: const None(),
+  pairingOutcome: Some(action.pairingOutcome),
+  attemptsRemaining: action.attemptsRemaining == null
+      ? const None()
+      : Some(action.attemptsRemaining!),
 );
 
 /// Handles [PairingConnectionRestoredAction].

@@ -329,6 +329,19 @@ void main() {
       expect(result.error, "That code isn't correct.");
     });
 
+    test('PairingFailedAction preserves the terminal Host outcome', () {
+      final PairingState result = pairingReducer(
+        PairingState.initial(),
+        const PairingFailedAction(
+          'Too many wrong attempts.',
+          pairingOutcome: PairingFailureOutcome.hardLimitReached,
+        ),
+      );
+
+      expect(result.pairingOutcome, PairingFailureOutcome.hardLimitReached);
+      expect(result.error, isNull);
+    });
+
     test('PairingFailedAction presents an administrative session invalidation the same as any '
         'other failure', () {
       // The reducer has no reason-specific branch: an administrative invalidation's real
@@ -500,6 +513,7 @@ void main() {
         expect(result.error, isNull);
         expect(result.hostVersion, '1.2.3');
         expect(result.isRenotifyPending, isFalse);
+        expect(result.renotifyOutcome, PairingRenotifyOutcome.renotified);
       },
     );
 
@@ -519,6 +533,7 @@ void main() {
       );
 
       expect(result.codeExpiresAt, expiresAt);
+      expect(result.renotifyOutcome, PairingRenotifyOutcome.renotified);
     });
   });
 
@@ -542,6 +557,7 @@ void main() {
       expect(result.renotifyAvailableAt, isNotNull);
       expect(result.renotifyAvailableAt!.isAfter(DateTime.now()), isTrue);
       expect(result.isRenotifyPending, isFalse);
+      expect(result.renotifyOutcome, PairingRenotifyOutcome.cooldown);
     });
 
     test('PairingRenotifyCooldownAction preserves codeExpiresAt and error', () {
@@ -561,6 +577,31 @@ void main() {
 
       expect(result.codeExpiresAt, expiresAt);
       expect(result.error, 'wrong code');
+    });
+  });
+
+  group('Action PairingRenotifyAlreadyIdleAction behaves correctly', () {
+    test('PairingRenotifyAlreadyIdleAction ends the inactive challenge', () {
+      final PairingState state = PairingState(
+        phase: PairingPhase.awaitingCode,
+        hostVersion: '1.2.3',
+        error: null,
+        codeExpiresAt: DateTime.now(),
+        renotifyAvailableAt: DateTime.now(),
+        isRenotifyPending: true,
+      );
+
+      final PairingState result = pairingReducer(
+        state,
+        const PairingRenotifyAlreadyIdleAction(),
+      );
+
+      expect(result.phase, PairingPhase.failed);
+      expect(result.error, isNull);
+      expect(result.codeExpiresAt, isNull);
+      expect(result.renotifyAvailableAt, isNull);
+      expect(result.isRenotifyPending, isFalse);
+      expect(result.renotifyOutcome, PairingRenotifyOutcome.alreadyIdle);
     });
   });
 
@@ -597,7 +638,7 @@ void main() {
     'Action PairingConfirmFailedWithAttemptsRemainingAction behaves correctly',
     () {
       test(
-        'PairingConfirmFailedWithAttemptsRemainingAction keeps awaitingCode with error',
+        'PairingConfirmFailedWithAttemptsRemainingAction keeps typed failure details without a Redux error string',
         () {
           const PairingState state = PairingState(
             phase: PairingPhase.awaitingCode,
@@ -611,11 +652,15 @@ void main() {
             state,
             const PairingConfirmFailedWithAttemptsRemainingAction(
               message: "That code isn't correct.",
+              pairingOutcome: PairingFailureOutcome.invalid,
+              attemptsRemaining: 2,
             ),
           );
 
           expect(result.phase, PairingPhase.awaitingCode);
-          expect(result.error, "That code isn't correct.");
+          expect(result.error, isNull);
+          expect(result.pairingOutcome, PairingFailureOutcome.invalid);
+          expect(result.attemptsRemaining, 2);
           expect(result.hostVersion, '1.2.3');
         },
       );
@@ -639,6 +684,8 @@ void main() {
             state,
             const PairingConfirmFailedWithAttemptsRemainingAction(
               message: 'invalid',
+              pairingOutcome: PairingFailureOutcome.invalid,
+              attemptsRemaining: 2,
             ),
           );
 
@@ -663,11 +710,12 @@ void main() {
             state,
             const PairingConfirmFailedWithAttemptsRemainingAction(
               message: "That code isn't correct.",
+              pairingOutcome: PairingFailureOutcome.invalid,
             ),
           );
 
           expect(result.phase, PairingPhase.awaitingCode);
-          expect(result.error, "That code isn't correct.");
+          expect(result.error, isNull);
         },
       );
     },

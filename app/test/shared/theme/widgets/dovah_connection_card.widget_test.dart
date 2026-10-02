@@ -210,7 +210,7 @@ void main() {
 
         expect(marker.color, tokens.textMuted);
         expect(label.style?.color, tokens.textMuted);
-        expect(find.byIcon(Icons.chevron_right), findsNothing);
+        expect(find.text('›'), findsNothing);
       },
     );
 
@@ -293,24 +293,34 @@ void main() {
       );
     }
 
-    testWidgets('DovahConnectionCard contains a chevron when available', (
-      WidgetTester tester,
-    ) async {
-      await pumpDovahThemedWidget(
-        tester,
-        DovahConnectionCard(
-          title: 'Gaming PC',
-          subtitle: 'Skyrim Special Edition',
-          detail: 'Level 43 · Whiterun',
-          state: DovahConnectionCardState.available,
-          onTap: () {},
-        ),
-        preset: DovahThemePreset.dovah,
-        size: dovahTestSizes.first,
-      );
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahConnectionCard uses the prototype chevron under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            DovahConnectionCard(
+              title: 'Gaming PC',
+              subtitle: 'Skyrim Special Edition',
+              detail: 'Level 43 · Whiterun',
+              state: DovahConnectionCardState.available,
+              onTap: () {},
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
 
-      expect(find.byIcon(Icons.chevron_right), findsOneWidget);
-    });
+          final Text arrow = tester.widget(find.text('›'));
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+
+          expect(arrow.data, '›');
+          expect(arrow.style?.fontSize, DovahConnectionCardMetrics.arrowSize);
+          expect(arrow.style?.color, tokens.accentPrimary);
+        },
+      );
+    }
 
     testWidgets('DovahConnectionCard keeps Connected distinct from Online', (
       WidgetTester tester,
@@ -329,7 +339,7 @@ void main() {
 
       expect(find.text('Connected'), findsOneWidget);
       expect(find.text('Online'), findsNothing);
-      expect(find.byIcon(Icons.chevron_right), findsNothing);
+      expect(find.text('›'), findsNothing);
     });
 
     testWidgets('DovahConnectionCard contains a chevron when it needs repair', (
@@ -348,7 +358,7 @@ void main() {
         size: dovahTestSizes.first,
       );
 
-      expect(find.byIcon(Icons.chevron_right), findsOneWidget);
+      expect(find.text('›'), findsOneWidget);
     });
 
     testWidgets('DovahConnectionCard does not contain a chevron when offline', (
@@ -366,7 +376,7 @@ void main() {
         size: dovahTestSizes.first,
       );
 
-      expect(find.byIcon(Icons.chevron_right), findsNothing);
+      expect(find.text('›'), findsNothing);
     });
   });
 
@@ -769,7 +779,7 @@ void main() {
           size: const Size(1280, 720),
         );
 
-        expect(find.byIcon(Icons.chevron_right), findsNothing);
+        expect(find.text('›'), findsNothing);
         expect(
           tester
               .getSize(

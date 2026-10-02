@@ -95,6 +95,30 @@ void main() {
           expect(action1.hashCode, action2.hashCode);
         },
       );
+
+      test('Behavior equality includes the Host retry interval', () {
+        const PairingRenotifySucceededAction immediate =
+            PairingRenotifySucceededAction();
+        const PairingRenotifySucceededAction cooldown =
+            PairingRenotifySucceededAction(retryAfterSeconds: 5);
+
+        expect(immediate, isNot(cooldown));
+      });
+    },
+  );
+
+  group(
+    'Behavior equality in PairingRenotifyAlreadyIdleAction behaves correctly',
+    () {
+      test('Behavior equality treats two already-idle actions as equal', () {
+        const PairingRenotifyAlreadyIdleAction first =
+            PairingRenotifyAlreadyIdleAction();
+        const PairingRenotifyAlreadyIdleAction second =
+            PairingRenotifyAlreadyIdleAction();
+
+        expect(first, second);
+        expect(first.hashCode, second.hashCode);
+      });
     },
   );
 
@@ -216,9 +240,13 @@ void main() {
         () {
           const action1 = PairingConfirmFailedWithAttemptsRemainingAction(
             message: 'invalid',
+            pairingOutcome: PairingFailureOutcome.invalid,
+            attemptsRemaining: 2,
           );
           const action2 = PairingConfirmFailedWithAttemptsRemainingAction(
             message: 'invalid',
+            pairingOutcome: PairingFailureOutcome.invalid,
+            attemptsRemaining: 2,
           );
 
           expect(action1, action2);
@@ -232,9 +260,11 @@ void main() {
         () {
           const action1 = PairingConfirmFailedWithAttemptsRemainingAction(
             message: 'invalid',
+            pairingOutcome: PairingFailureOutcome.invalid,
           );
           const action2 = PairingConfirmFailedWithAttemptsRemainingAction(
             message: 'expired',
+            pairingOutcome: PairingFailureOutcome.expired,
           );
 
           expect(action1, isNot(action2));
@@ -247,9 +277,11 @@ void main() {
         () {
           const action1 = PairingConfirmFailedWithAttemptsRemainingAction(
             message: '',
+            pairingOutcome: PairingFailureOutcome.invalid,
           );
           const action2 = PairingConfirmFailedWithAttemptsRemainingAction(
             message: '',
+            pairingOutcome: PairingFailureOutcome.invalid,
           );
 
           expect(action1, action2);
@@ -258,6 +290,27 @@ void main() {
       );
     },
   );
+
+  group('Behavior equality in PairingFailedAction behaves correctly', () {
+    test('Behavior equality includes terminal pairing metadata', () {
+      const PairingFailedAction first = PairingFailedAction(
+        'Pairing ended.',
+        pairingOutcome: PairingFailureOutcome.expired,
+      );
+      const PairingFailedAction equal = PairingFailedAction(
+        'Pairing ended.',
+        pairingOutcome: PairingFailureOutcome.expired,
+      );
+      const PairingFailedAction different = PairingFailedAction(
+        'Pairing ended.',
+        pairingOutcome: PairingFailureOutcome.hardLimitReached,
+      );
+
+      expect(first, equal);
+      expect(first.hashCode, equal.hashCode);
+      expect(first, isNot(different));
+    });
+  });
 
   group('Behavior equality in PairingSessionTrustedAction behaves correctly', () {
     test(

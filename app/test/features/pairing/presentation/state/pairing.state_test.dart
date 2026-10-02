@@ -16,6 +16,9 @@ void main() {
         expect(state.hostVersion, isNull);
         expect(state.error, isNull);
         expect(state.credentialRejectionReason, isNull);
+        expect(state.pairingOutcome, isNull);
+        expect(state.attemptsRemaining, isNull);
+        expect(state.renotifyOutcome, isNull);
         expect(state.codeExpiresAt, isNull);
         expect(state.renotifyAvailableAt, isNull);
         expect(state.isRenotifyPending, isFalse);
@@ -236,6 +239,29 @@ void main() {
         expect(idle, isNot(pending));
       },
     );
+  });
+
+  group('PairingState typed pairing results behave correctly', () {
+    test('PairingState stores and clears typed outcome metadata', () {
+      final PairingState state = PairingState.initial().copyWith(
+        pairingOutcome: const Some(PairingFailureOutcome.invalid),
+        attemptsRemaining: const Some(2),
+        renotifyOutcome: const Some(PairingRenotifyOutcome.renotified),
+      );
+
+      expect(state.pairingOutcome, PairingFailureOutcome.invalid);
+      expect(state.attemptsRemaining, 2);
+      expect(state.renotifyOutcome, PairingRenotifyOutcome.renotified);
+
+      final PairingState cleared = state.copyWith(
+        pairingOutcome: const None(),
+        attemptsRemaining: const None(),
+        renotifyOutcome: const None(),
+      );
+      expect(cleared.pairingOutcome, isNull);
+      expect(cleared.attemptsRemaining, isNull);
+      expect(cleared.renotifyOutcome, isNull);
+    });
   });
 
   group('Property credentialRejectionReason in PairingState behaves correctly', () {

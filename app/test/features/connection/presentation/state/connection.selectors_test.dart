@@ -350,6 +350,66 @@ void main() {
     });
 
     test(
+      'Selector hostCardsSelector presents Pair again only for an Online Known Host requiring repair',
+      () {
+        for (final (
+              HostAvailability availability,
+              DovahConnectionCardState cardState,
+            )
+            in const [
+              (HostAvailability.checking, DovahConnectionCardState.checking),
+              (HostAvailability.unknown, DovahConnectionCardState.unknown),
+              (HostAvailability.online, DovahConnectionCardState.repair),
+              (HostAvailability.offline, DovahConnectionCardState.offline),
+            ]) {
+          final KnownHost knownHost = Fixtures.buildKnownHost(
+            availability: availability,
+            pairingRequired: true,
+          );
+
+          final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+            stateWith([], knownHosts: [knownHost]),
+          ).single;
+
+          expect(card.state, cardState);
+          expect(card.source, ConnectionHostSelectionSource.knownHost);
+          expect(card.pairingRequired, isTrue);
+        }
+      },
+    );
+
+    test(
+      'Selector hostCardsSelector keeps an active session state ahead of a stale repair hint',
+      () {
+        for (final (
+              KnownHostSessionState sessionState,
+              DovahConnectionCardState cardState,
+            )
+            in const [
+              (
+                KnownHostSessionState.connected,
+                DovahConnectionCardState.connected,
+              ),
+              (
+                KnownHostSessionState.reconnecting,
+                DovahConnectionCardState.reconnecting,
+              ),
+            ]) {
+          final KnownHost knownHost = Fixtures.buildKnownHost(
+            sessionState: sessionState,
+            pairingRequired: true,
+          );
+
+          final HostCardViewData card = ConnectionSelectors.hostCardsSelector(
+            stateWith([], knownHosts: [knownHost]),
+          ).single;
+
+          expect(card.state, cardState);
+        }
+      },
+    );
+
+    test(
       'Selector hostCardsSelector gives the exact Known Host session phase priority over availability',
       () {
         for (final (
