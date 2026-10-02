@@ -38,13 +38,13 @@ class DovahSessionMetrics extends Equatable {
   /// `gap:11px`).
   static const double identityGap = 11;
 
-  /// Width and height of the session glyph (the prototype's `.session-glyph` sigil).
+  /// Width and height of the themed sigil (the prototype's themed `.session-glyph`).
   static const double glyphSize = 30;
 
   /// Font size of the session name (the prototype's `.session-name`).
   static const double nameFontSize = 14;
 
-  /// Font size of the session detail line (the prototype's `.session-meta` as themed).
+  /// Font size of the session detail line (the prototype's themed `.session-meta`).
   static const double metaFontSize = 12;
 
   /// Gap between the session name and its detail line (the prototype's `.session-meta`
@@ -57,6 +57,9 @@ class DovahSessionMetrics extends Equatable {
 
   /// Font size of the connection label (the prototype's `.session-status`).
   static const double statusFontSize = 12;
+
+  /// Size of the connection status dot (the prototype's shared `.dot`).
+  static const double statusDotSize = 8;
 
   /// Gap before the action buttons (the prototype's `.session-actions` `margin-left:8px`).
   static const double actionsLeadingGap = 8;

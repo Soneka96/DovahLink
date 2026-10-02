@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/appearance/presentation/state/appearan
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
+import 'package:dovahlink_client/features/session/presentation/state/session_shell.middleware.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -44,6 +45,7 @@ class AppCompositionRoot {
       middleware: [
         connectionMiddleware.call,
         sl<IPairingMiddleware>().call,
+        sl<ISessionShellMiddleware>().call,
         AppearanceMiddleware().call,
       ],
       initialState: AppState.initial(

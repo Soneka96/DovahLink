@@ -55,6 +55,8 @@ void main() {
         expect(DovahSessionMetrics.statusGap, 8);
         expect(DovahSessionMetrics.statusFontSize, isA<double>());
         expect(DovahSessionMetrics.statusFontSize, 12);
+        expect(DovahSessionMetrics.statusDotSize, isA<double>());
+        expect(DovahSessionMetrics.statusDotSize, 8);
         expect(DovahSessionMetrics.actionsLeadingGap, isA<double>());
         expect(DovahSessionMetrics.actionsLeadingGap, 8);
         expect(DovahSessionMetrics.actionsGap, isA<double>());

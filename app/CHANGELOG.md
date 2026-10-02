@@ -37,6 +37,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 ### Changed
 
 - Pairing matches the prototype’s code redisplay row, countdown emphasis, confirmation copy, and expired or attempt-limit actions.
+- Trusted Hosts enter a minimal Session Shell only after the SDK reports an admitted connection; Back returns to Connections while keeping that session active.
 - Pairing preserves Host-reported wrong-code attempts, terminal outcomes, and code-redisplay
   status through app state.
 - Discover marks a found Host with the prototype's success dot and uses concise,

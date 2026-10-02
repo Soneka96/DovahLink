@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/services.dart' show PlatformException;
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,9 +12,12 @@ import 'package:dovahlink_client/app/composition_root.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
+import 'package:dovahlink_client/features/session/presentation/state/session_shell.actions.dart';
+import 'package:dovahlink_client/features/session/presentation/state/session_shell.middleware.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/navigation/app_routes.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import '../fixtures/fixtures.dart';
 
@@ -79,6 +83,25 @@ void main() {
   });
 
   group('Method createStore behaves correctly', () {
+    test('createStore dependencies register Session Shell navigation', () {
+      expect(sl<ISessionShellMiddleware>(), isA<SessionShellMiddleware>());
+    });
+
+    test(
+      'createStore routes Session Shell Back through registered middleware',
+      () async {
+        final GoRouter router = sl<GoRouter>();
+        router.go(AppRoutes.sessionFor('selected-host'));
+        final Store<AppState> store = await const AppCompositionRoot()
+            .createStore();
+
+        store.dispatch(const SessionShellBackRequestedAction());
+        await pumpEventQueue();
+
+        expect(router.routeInformationProvider.value.uri.path, AppRoutes.home);
+      },
+    );
+
     test(
       'createStore and Pairing resolve the same SDK client registration',
       () async {
