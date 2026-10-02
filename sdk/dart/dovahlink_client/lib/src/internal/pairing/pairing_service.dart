@@ -353,8 +353,7 @@ class PairingService implements IPairingService {
           currentHost.hostId: PersistedKnownHost(
             host: currentHost,
             credential: credential,
-            pairingRequired:
-                state.knownHosts[currentHost.hostId]?.pairingRequired ?? false,
+            pairingRequired: false,
           ),
         },
         pendingPairingRecovery: PendingPairingRecovery(
