@@ -23,6 +23,9 @@ class HostCardViewData extends Equatable {
   /// The card's visual state.
   final DovahConnectionCardState state;
 
+  /// Whether the Known Host's saved SDK hint says pairing is required.
+  final bool pairingRequired;
+
   /// Creates Host card view data.
   const HostCardViewData({
     /// The Host this card represents and selects.
@@ -42,9 +45,20 @@ class HostCardViewData extends Equatable {
 
     /// The card's visual state.
     required this.state,
+
+    /// Whether the Known Host's saved SDK hint says pairing is required.
+    this.pairingRequired = false,
   });
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [host, source, title, subtitle, detail, state];
+  List<Object?> get props => [
+    host,
+    source,
+    title,
+    subtitle,
+    detail,
+    state,
+    pairingRequired,
+  ];
 }

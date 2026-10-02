@@ -38,6 +38,27 @@ void main() {
       verifyNever(() => store.dispatch(any()));
     });
 
+    test('Method fromStore projects the typed redisplay outcome', () {
+      when(() => store.state).thenReturn(
+        AppState(
+          connection: ConnectionState.initial(),
+          pairing: PairingState(
+            phase: PairingPhase.awaitingCode,
+            hostVersion: null,
+            error: null,
+            codeExpiresAt: null,
+            renotifyAvailableAt: DateTime.now().add(const Duration(seconds: 5)),
+            renotifyOutcome: PairingRenotifyOutcome.renotified,
+          ),
+        ),
+      );
+
+      final PairingRenotifyButtonViewModel viewModel =
+          PairingRenotifyButtonViewModel.fromStore(store);
+
+      expect(viewModel.outcome, PairingRenotifyOutcome.renotified);
+    });
+
     test('Method fromStore disables redisplay while a request is pending', () {
       when(() => store.state).thenReturn(
         AppState(
@@ -182,89 +203,6 @@ void main() {
     );
   });
 
-  group('Method displayLabel behaves correctly', () {
-    test('Method displayLabel uses the supplied label when available', () {
-      const PairingRenotifyButtonViewModel viewModel =
-          PairingRenotifyButtonViewModel(
-            isAvailable: true,
-            isPending: false,
-            cooldownSeconds: null,
-            onPressed: null,
-          );
-
-      expect(viewModel.displayLabel(label: 'Send Again'), 'Send Again');
-    });
-
-    test('Method displayLabel includes cooldown seconds by default', () {
-      const PairingRenotifyButtonViewModel viewModel =
-          PairingRenotifyButtonViewModel(
-            isAvailable: false,
-            isPending: false,
-            cooldownSeconds: 3,
-            onPressed: null,
-          );
-
-      expect(viewModel.displayLabel(label: 'Send Again'), 'Send Again (3s)');
-    });
-
-    test('Method displayLabel uses the custom cooldown label', () {
-      const PairingRenotifyButtonViewModel viewModel =
-          PairingRenotifyButtonViewModel(
-            isAvailable: false,
-            isPending: false,
-            cooldownSeconds: 3,
-            onPressed: null,
-          );
-
-      expect(
-        viewModel.displayLabel(
-          label: 'Send Again',
-          cooldownLabel: 'Please wait',
-        ),
-        'Please wait',
-      );
-    });
-
-    test(
-      'Method displayLabel shows when redisplay is being sent to Skyrim',
-      () {
-        const PairingRenotifyButtonViewModel viewModel =
-            PairingRenotifyButtonViewModel(
-              isAvailable: false,
-              isPending: true,
-              cooldownSeconds: null,
-              onPressed: null,
-            );
-
-        expect(
-          viewModel.displayLabel(label: 'Send Again'),
-          'Sending to Skyrim…',
-        );
-      },
-    );
-
-    test(
-      'Method displayLabel prioritizes pending state over a cooldown label',
-      () {
-        const PairingRenotifyButtonViewModel viewModel =
-            PairingRenotifyButtonViewModel(
-              isAvailable: false,
-              isPending: true,
-              cooldownSeconds: 3,
-              onPressed: null,
-            );
-
-        expect(
-          viewModel.displayLabel(
-            label: 'Send Again',
-            cooldownLabel: 'Please wait',
-          ),
-          'Sending to Skyrim…',
-        );
-      },
-    );
-  });
-
   group('Behavior equality behaves correctly', () {
     test(
       'Behavior equality ignores callback identity when presentation values match',
@@ -327,6 +265,27 @@ void main() {
           );
 
       expect(idle, isNot(pending));
+    });
+
+    test('Behavior equality differs when the Host response changes', () {
+      const PairingRenotifyButtonViewModel sent =
+          PairingRenotifyButtonViewModel(
+            isAvailable: false,
+            isPending: false,
+            cooldownSeconds: 3,
+            outcome: PairingRenotifyOutcome.renotified,
+            onPressed: null,
+          );
+      const PairingRenotifyButtonViewModel cooledDown =
+          PairingRenotifyButtonViewModel(
+            isAvailable: false,
+            isPending: false,
+            cooldownSeconds: 3,
+            outcome: PairingRenotifyOutcome.cooldown,
+            onPressed: null,
+          );
+
+      expect(sent, isNot(cooledDown));
     });
   });
 }

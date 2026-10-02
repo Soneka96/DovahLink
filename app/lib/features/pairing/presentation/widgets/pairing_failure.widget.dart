@@ -14,6 +14,15 @@ class PairingFailure extends StatelessWidget {
   /// The user-safe reason pairing ended.
   final String message;
 
+  /// The typed Host outcome, when pairing ended with a known pairing result.
+  final PairingFailureOutcome? outcome;
+
+  /// The Host-reported attempts remaining, when the outcome was a wrong code.
+  final int? attemptsRemaining;
+
+  /// A typed code-redisplay result that ended the active challenge, when present.
+  final PairingRenotifyOutcome? renotifyOutcome;
+
   /// Called when the user closes the dialog.
   final VoidCallback onClose;
 
@@ -23,6 +32,9 @@ class PairingFailure extends StatelessWidget {
   /// Creates a failure state explaining [message].
   const PairingFailure({
     required this.message,
+    this.outcome,
+    this.attemptsRemaining,
+    this.renotifyOutcome,
     required this.onClose,
     required this.onRetry,
     super.key,
@@ -31,10 +43,14 @@ class PairingFailure extends StatelessWidget {
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
+    final String displayMessage =
+        outcome?.message(attemptsRemaining: attemptsRemaining) ??
+        renotifyOutcome?.message() ??
+        message;
     return PairingStateLayout(
       mark: const PairingMark(icon: Icons.refresh),
       heading: 'Pairing didn’t finish',
-      body: message,
+      body: displayMessage,
       children: [
         Wrap(
           alignment: WrapAlignment.center,

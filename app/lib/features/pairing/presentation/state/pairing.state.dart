@@ -15,6 +15,9 @@ class PairingState extends Equatable {
 
     /// Typed Host reason for rejecting a previously stored credential, or `null` when absent.
     this.credentialRejectionReason,
+    this.pairingOutcome,
+    this.attemptsRemaining,
+    this.renotifyOutcome,
     required this.codeExpiresAt,
     required this.renotifyAvailableAt,
     this.isRenotifyPending = false,
@@ -29,6 +32,9 @@ class PairingState extends Equatable {
     hostVersion: null,
     error: null,
     credentialRejectionReason: null,
+    pairingOutcome: null,
+    attemptsRemaining: null,
+    renotifyOutcome: null,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
     isRenotifyPending: false,
@@ -51,6 +57,15 @@ class PairingState extends Equatable {
   /// The typed Host reason for rejecting a stored credential, or `null` when none was rejected.
   final PairingCredentialRejectionReason? credentialRejectionReason;
 
+  /// The latest typed Host outcome that ended code confirmation, or `null`.
+  final PairingFailureOutcome? pairingOutcome;
+
+  /// Host-reported wrong-code attempts remaining, or `null` when not supplied.
+  final int? attemptsRemaining;
+
+  /// The latest typed Host response to code redisplay, or `null` before a response.
+  final PairingRenotifyOutcome? renotifyOutcome;
+
   /// The absolute time when the active pairing code expires, or `null` when
   /// no challenge is active.
   final DateTime? codeExpiresAt;
@@ -70,6 +85,9 @@ class PairingState extends Equatable {
 
     /// Replaces the rejection reason; pass `None()` to clear it.
     Option<PairingCredentialRejectionReason>? credentialRejectionReason,
+    Option<PairingFailureOutcome>? pairingOutcome,
+    Option<int>? attemptsRemaining,
+    Option<PairingRenotifyOutcome>? renotifyOutcome,
     Option<DateTime>? codeExpiresAt,
     Option<DateTime>? renotifyAvailableAt,
     bool? isRenotifyPending,
@@ -84,6 +102,15 @@ class PairingState extends Equatable {
     credentialRejectionReason: credentialRejectionReason == null
         ? this.credentialRejectionReason
         : credentialRejectionReason.toNullable(),
+    pairingOutcome: pairingOutcome == null
+        ? this.pairingOutcome
+        : pairingOutcome.toNullable(),
+    attemptsRemaining: attemptsRemaining == null
+        ? this.attemptsRemaining
+        : attemptsRemaining.toNullable(),
+    renotifyOutcome: renotifyOutcome == null
+        ? this.renotifyOutcome
+        : renotifyOutcome.toNullable(),
     codeExpiresAt: codeExpiresAt == null
         ? this.codeExpiresAt
         : codeExpiresAt.toNullable(),
@@ -101,6 +128,9 @@ class PairingState extends Equatable {
     hostVersion,
     error,
     credentialRejectionReason,
+    pairingOutcome,
+    attemptsRemaining,
+    renotifyOutcome,
     codeExpiresAt,
     renotifyAvailableAt,
     isRenotifyPending,

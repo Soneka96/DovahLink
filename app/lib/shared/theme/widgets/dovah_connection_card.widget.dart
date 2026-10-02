@@ -236,14 +236,18 @@ class DovahConnectionCard extends StatelessWidget {
                             ],
                           ),
                         ),
-                        if (enabled) ...[
+                        if (enabled &&
+                            state != DovahConnectionCardState.offline) ...[
                           const SizedBox(
                             width: DovahConnectionCardMetrics.statusArrowGap,
                           ),
-                          Icon(
-                            Icons.chevron_right,
-                            size: DovahConnectionCardMetrics.arrowSize,
-                            color: tokens.accentPrimary,
+                          Text(
+                            '›',
+                            style: TextStyle(
+                              color: tokens.accentPrimary,
+                              fontSize: DovahConnectionCardMetrics.arrowSize,
+                              height: 1,
+                            ),
                           ),
                         ],
                       ],

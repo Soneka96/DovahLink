@@ -2,6 +2,7 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
@@ -41,7 +42,7 @@ class PairingRepository implements IPairingRepository {
 
   /// See [IPairingRepository.requestPairingRenotify].
   @override
-  Future<Either<Failure, int?>> requestPairingRenotify() =>
+  Future<Either<Failure, PairingRenotifyResult>> requestPairingRenotify() =>
       _remoteDataSource.requestPairingRenotify();
 
   /// See [IPairingRepository.cancelPairing].

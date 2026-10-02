@@ -62,6 +62,9 @@ void main() {
     when(() => viewModel.support).thenReturn(PairingSupport.available);
     when(() => viewModel.hostName).thenReturn('Bedroom PC');
     when(() => viewModel.error).thenReturn(null);
+    when(() => viewModel.pairingOutcome).thenReturn(null);
+    when(() => viewModel.attemptsRemaining).thenReturn(null);
+    when(() => viewModel.renotifyOutcome).thenReturn(null);
     when(() => viewModel.isRepair).thenReturn(false);
     when(() => viewModel.isBlocked).thenReturn(false);
     when(() => viewModel.isReconnecting).thenReturn(false);
@@ -84,14 +87,10 @@ void main() {
     when(() => cancel.onPressed).thenReturn(() {});
     when(() => countdown.remainingSeconds).thenReturn(60);
     when(() => renotify.isAvailable).thenReturn(true);
+    when(() => renotify.isPending).thenReturn(false);
     when(() => renotify.cooldownSeconds).thenReturn(null);
+    when(() => renotify.outcome).thenReturn(null);
     when(() => renotify.onPressed).thenReturn(() {});
-    when(
-      () => renotify.displayLabel(
-        label: any(named: 'label'),
-        cooldownLabel: any(named: 'cooldownLabel'),
-      ),
-    ).thenReturn('Send Code Again');
     sl.registerFactoryParam<PairingSectionViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => viewModel,
     );
@@ -203,6 +202,57 @@ void main() {
 
       expect(find.text('That code has expired.'), findsOneWidget);
     });
+
+    testWidgets(
+      'PairingSection renders remaining attempts from the typed code outcome',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.awaitingCode);
+        when(
+          () => viewModel.pairingOutcome,
+        ).thenReturn(PairingFailureOutcome.invalid);
+        when(() => viewModel.attemptsRemaining).thenReturn(2);
+
+        await pumpSection(tester);
+
+        expect(
+          find.text(
+            "That code isn't correct. Check Skyrim and try again. 2 attempts remaining.",
+          ),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'PairingSection renders terminal copy from the typed Host outcome',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.failed);
+        when(
+          () => viewModel.pairingOutcome,
+        ).thenReturn(PairingFailureOutcome.expired);
+
+        await pumpSection(tester);
+
+        expect(
+          find.text('That pairing code has expired. Request a new one.'),
+          findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'PairingSection renders already-idle redisplay copy from its typed outcome',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.failed);
+        when(
+          () => viewModel.renotifyOutcome,
+        ).thenReturn(PairingRenotifyOutcome.alreadyIdle);
+
+        await pumpSection(tester);
+
+        expect(find.text('No pairing is currently active.'), findsOneWidget);
+      },
+    );
 
     testWidgets(
       'PairingSection shows a generic failure reason when the error is missing',

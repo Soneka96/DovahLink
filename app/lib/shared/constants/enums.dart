@@ -76,6 +76,95 @@ enum PairingCredentialRejectionReason {
   blocked,
 }
 
+/// The typed Host outcome that ended a pairing operation.
+enum PairingFailureOutcome {
+  /// The active pairing code expired.
+  expired,
+
+  /// The submitted code did not match; more counted attempts may remain.
+  invalid,
+
+  /// The Host rejected an attempt made too soon.
+  pacingLimited,
+
+  /// The Host ended the challenge after too many wrong attempts.
+  hardLimitReached,
+
+  /// The Host no longer has the pending credential for acknowledgement.
+  pendingNotFound,
+
+  /// An administrative mutation invalidated the pending credential.
+  pairingInvalidated;
+
+  /// Returns app-owned copy for this outcome and its optional remaining attempt count.
+  String message({int? attemptsRemaining}) => switch (this) {
+    PairingFailureOutcome.expired =>
+      'That pairing code has expired. Request a new one.',
+    PairingFailureOutcome.invalid =>
+      attemptsRemaining == null
+          ? "That code isn't correct. Check Skyrim and try again."
+          : "That code isn't correct. Check Skyrim and try again. "
+                '$attemptsRemaining ${attemptsRemaining == 1 ? 'attempt' : 'attempts'} remaining.',
+    PairingFailureOutcome.pacingLimited =>
+      'Slow down a little, then try again.',
+    PairingFailureOutcome.hardLimitReached =>
+      'Too many wrong attempts. Request a new pairing code.',
+    PairingFailureOutcome.pendingNotFound =>
+      'This pairing attempt is no longer recognized. Request a new code.',
+    PairingFailureOutcome.pairingInvalidated =>
+      'Pairing could not be completed. Please try again.',
+  };
+}
+
+/// The Host's response to a pairing-code redisplay request.
+enum PairingRenotifyOutcome {
+  /// The code was redisplayed in Skyrim.
+  renotified,
+
+  /// Redisplay was rejected because its cooldown has not elapsed.
+  cooldown,
+
+  /// No pairing challenge or pending credential was owned.
+  alreadyIdle;
+
+  /// Returns user-facing copy for the Host result and optional retry interval.
+  String message({int? retryAfterSeconds}) => switch (this) {
+    PairingRenotifyOutcome.renotified =>
+      retryAfterSeconds == null
+          ? 'Code sent to Skyrim.'
+          : 'Sent · try again in ${retryAfterSeconds}s',
+    PairingRenotifyOutcome.cooldown =>
+      'Send Code Again (${retryAfterSeconds ?? 0}s)',
+    PairingRenotifyOutcome.alreadyIdle => 'No pairing is currently active.',
+  };
+
+  /// Returns the redisplay button's label from its current operation state.
+  static String buttonLabel({
+    required PairingRenotifyOutcome? outcome,
+    required bool isPending,
+    required bool isAvailable,
+    required int? cooldownSeconds,
+    required String label,
+    String? cooldownLabel,
+  }) {
+    if (isPending) {
+      return 'Sending to Skyrim…';
+    }
+    if (outcome == PairingRenotifyOutcome.renotified) {
+      return isAvailable
+          ? '$label · code sent'
+          : outcome!.message(retryAfterSeconds: cooldownSeconds);
+    }
+    if (isAvailable) {
+      return label;
+    }
+    if (cooldownLabel != null) {
+      return cooldownLabel;
+    }
+    return '$label (${cooldownSeconds}s)';
+  }
+}
+
 /// The host connection's status while a trusted pairing session is active, observed from the
 /// SDK's full `connectionStateChanges` feed rather than a narrower administrative-only slice.
 enum PairingConnectionStatus {

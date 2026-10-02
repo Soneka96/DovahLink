@@ -76,6 +76,7 @@ abstract final class ConnectionSelectors {
           detail: knownHost.host.uri.authority.isEmpty
               ? knownHost.host.uri.toString()
               : knownHost.host.uri.authority,
+          pairingRequired: knownHost.pairingRequired,
           state: switch (knownHost.sessionState) {
             KnownHostSessionState.connecting
                 when state.pairing.phase != PairingPhase.disconnected =>
@@ -85,6 +86,10 @@ abstract final class ConnectionSelectors {
             KnownHostSessionState.reconnecting ||
             KnownHostSessionState.reauthenticating =>
               DovahConnectionCardState.reconnecting,
+            KnownHostSessionState.disconnected
+                when knownHost.pairingRequired &&
+                    knownHost.availability == HostAvailability.online =>
+              DovahConnectionCardState.repair,
             KnownHostSessionState.connecting ||
             KnownHostSessionState.disconnected =>
               switch (knownHost.availability) {

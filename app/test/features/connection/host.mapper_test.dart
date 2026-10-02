@@ -10,6 +10,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/host.mapper.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import '../../fixtures/fixtures.dart';
 
 /// Exercises the single SDK-to-app Host mapping boundary.
 void main() {
@@ -92,5 +93,21 @@ void main() {
         expect(mappedSessionStates, KnownHostSessionState.values);
       },
     );
+
+    test('HostMapper.fromSdkKnownHostState maps the repair hint', () {
+      final KnownHost knownHost = HostMapper.fromSdkKnownHostState(
+        Fixtures.buildSdkKnownHostState(
+          host: DovahLinkHost(
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            hostName: 'SKYRIM-PC',
+            endpoint: Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+          pairingRequired: true,
+        ),
+      );
+
+      expect(knownHost.pairingRequired, isA<bool>());
+      expect(knownHost.pairingRequired, isTrue);
+    });
   });
 }

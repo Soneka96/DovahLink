@@ -5,6 +5,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/known_host.
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -50,10 +51,14 @@ abstract final class Fixtures {
 
     /// The session lifecycle for this Known Host.
     KnownHostSessionState sessionState = KnownHostSessionState.disconnected,
+
+    /// Whether the last-known Host response requires pairing again.
+    bool pairingRequired = false,
   }) => KnownHost(
     host: host ?? buildHost(),
     availability: availability,
     sessionState: sessionState,
+    pairingRequired: pairingRequired,
   );
 
   /// Builds a Host card's display data for the representative local Host.
@@ -76,6 +81,9 @@ abstract final class Fixtures {
 
     /// The card's visual state.
     DovahConnectionCardState state = DovahConnectionCardState.unknown,
+
+    /// Whether the Known Host's saved SDK hint says pairing is required.
+    bool pairingRequired = false,
   }) => HostCardViewData(
     host: host ?? buildHost(),
     source: source,
@@ -83,6 +91,7 @@ abstract final class Fixtures {
     subtitle: subtitle,
     detail: detail,
     state: state,
+    pairingRequired: pairingRequired,
   );
 
   /// Builds an SDK Known Host state around [host].
@@ -96,10 +105,14 @@ abstract final class Fixtures {
     /// The SDK-reported session lifecycle for this exact relationship.
     DovahLinkKnownHostSessionState sessionState =
         DovahLinkKnownHostSessionState.disconnected,
+
+    /// Whether the SDK's last-known Host response requires pairing again.
+    bool pairingRequired = false,
   }) => DovahLinkKnownHostState(
     host: host,
     availability: availability,
     sessionState: sessionState,
+    pairingRequired: pairingRequired,
   );
 
   // ---- Pairing ----
@@ -153,6 +166,18 @@ abstract final class Fixtures {
     trusted: trusted,
     credentialRejectionReason: credentialRejectionReason,
     credentialRejectedMessage: credentialRejectedMessage,
+  );
+
+  /// Builds a typed pairing-code redisplay result.
+  static PairingRenotifyResult buildPairingRenotifyResult({
+    /// The Host response to the redisplay request.
+    PairingRenotifyOutcome outcome = PairingRenotifyOutcome.renotified,
+
+    /// Host-reported retry interval, or `null` when absent.
+    int? retryAfterSeconds = 5,
+  }) => PairingRenotifyResult(
+    outcome: outcome,
+    retryAfterSeconds: retryAfterSeconds,
   );
 
   /// Builds a data-layer pairing handshake with representative trusted-session defaults.

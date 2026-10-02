@@ -249,6 +249,7 @@ void main() {
           pending,
           const PairingConfirmFailedWithAttemptsRemainingAction(
             message: 'Try the code again.',
+            pairingOutcome: PairingFailureOutcome.invalid,
           ),
         );
 
@@ -357,6 +358,7 @@ void main() {
           pending,
           const PairingConfirmFailedWithAttemptsRemainingAction(
             message: 'Try the code again.',
+            pairingOutcome: PairingFailureOutcome.invalid,
           ),
         );
         final ConnectionState removed = connectionReducer(
