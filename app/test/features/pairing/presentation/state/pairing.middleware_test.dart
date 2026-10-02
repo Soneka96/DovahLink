@@ -216,9 +216,10 @@ void main() {
         final PairingHandshake handshake = Fixtures.buildPairingHandshake(
           trusted: false,
         );
-        when(
-          () => mockAuthenticate(any()),
-        ).thenAnswer((_) async => Right(handshake));
+        when(() => mockAuthenticate(any())).thenAnswer((_) async {
+          expect(actionLog, [isA<PairingStartedAction>()]);
+          return Right(handshake);
+        });
 
         middleware.call(store, const PairingStartedAction(), next);
         await Future<void>.delayed(Duration.zero);
@@ -1771,6 +1772,23 @@ void main() {
   });
 
   group('PairingMiddleware processes PairingSessionTrustedAction correctly', () {
+    test(
+      'PairingSessionTrustedAction does not observe connection status when secure storage is unavailable',
+      () {
+        when(() => store.state).thenReturn(
+          _stateWithPhase(
+            PairingPhase.none,
+            support: PairingSupport.secureStorageUnavailable,
+          ),
+        );
+
+        middleware.call(store, const PairingSessionTrustedAction(), next);
+
+        expect(actionLog, [isA<PairingSessionTrustedAction>()]);
+        verifyNever(() => mockObserveConnectionStatus(any()));
+      },
+    );
+
     test(
       'PairingSessionTrustedAction dispatches PairingDisconnectedAction when the observation '
       'stream emits lost',

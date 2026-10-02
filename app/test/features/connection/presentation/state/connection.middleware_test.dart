@@ -541,16 +541,19 @@ void main() {
           final HelloResult reportedHello = Fixtures.buildSdkHelloResult(
             trustState: DovahLinkTrustState.unpaired,
           );
-          when(() => mockPairing.discoverHosts()).thenAnswer(
-            (_) async => <DovahLinkHost>[
+          final List<Object?> actions = [];
+          const ConnectionDiscoveryRequestedAction action =
+              ConnectionDiscoveryRequestedAction();
+          when(() => mockPairing.discoverHosts()).thenAnswer((_) async {
+            expect(actions, [action, const ConnectionDiscoveryStartedAction()]);
+            return <DovahLinkHost>[
               DovahLinkHost(
                 hostId: reportedHello.hostId,
                 hostName: reportedHello.hostName,
                 endpoint: defaultHostUri,
               ),
-            ],
-          );
-          final List<Object?> actions = [];
+            ];
+          });
           final Completer<void> resultDispatched = Completer<void>();
           when(() => store.dispatch(any())).thenAnswer((invocation) {
             final Object? dispatched = invocation.positionalArguments.single;
@@ -560,9 +563,6 @@ void main() {
               resultDispatched.complete();
             }
           });
-          const ConnectionDiscoveryRequestedAction action =
-              ConnectionDiscoveryRequestedAction();
-
           middleware.call(store, action, actions.add);
           await resultDispatched.future.timeout(const Duration(seconds: 1));
 

@@ -212,6 +212,30 @@ void main() {
     );
   });
 
+  group(
+    'SessionShellMiddleware processes SessionShellBackRequestedAction correctly',
+    () {
+      test(
+        'SessionShellBackRequestedAction reaches the navigator after forwarding',
+        () {
+          final List<String> events = [];
+          when(() => navigator.go(any())).thenAnswer((invocation) {
+            events.add(invocation.positionalArguments.single as String);
+          });
+          final store = const CreateStore()();
+
+          middleware.call(
+            store,
+            const SessionShellBackRequestedAction(),
+            (_) => events.add('forwarded'),
+          );
+
+          expect(events, ['forwarded', AppRoutes.home]);
+        },
+      );
+    },
+  );
+
   group('SessionShellMiddleware returns to Connections', () {
     test(
       'Back returns to Connections while leaving the SDK session connected',

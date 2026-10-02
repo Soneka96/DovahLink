@@ -33,26 +33,56 @@ class SessionShellMiddleware extends MiddlewareClass<AppState>
     next(action);
     switch (action) {
       case ConnectionHostSelectedAction _:
+        _connectionHostSelected();
       case PairingStartedAction _:
-        _pendingHostId = null;
+        _pairingStarted();
       case PairingSessionTrustedAction _:
-        _pendingHostId = ConnectionSelectors.selectedHostSelector(
-          store.state,
-        )?.hostId;
-        _enterWhenConnected(store);
+        _pairingSessionTrusted(store);
       case ConnectionKnownHostsChangedAction _:
-        _enterWhenConnected(store);
+        _connectionKnownHostsChanged(store);
       case PairingFailedAction _:
-        _pendingHostId = null;
+        _pairingFailed();
       case PairingDisposedAction(wasTrusted: false):
-        _pendingHostId = null;
+        _pairingDisposed();
       case SessionShellBackRequestedAction _:
-        _pendingHostId = null;
-        _navigator.go(AppRoutes.home);
+        _sessionShellBackRequested();
     }
   }
 
+  /// Clears a pending shell handoff when the user selects a Host.
+  void _connectionHostSelected() => _pendingHostId = null;
+
+  /// Clears a pending handoff when a new pairing flow begins.
+  void _pairingStarted() => _pendingHostId = null;
+
+  /// Records the trusted Host and waits for SDK admission before navigation.
+  /// @param store The application store containing the selected Host.
+  void _pairingSessionTrusted(Store<AppState> store) {
+    _pendingHostId = ConnectionSelectors.selectedHostSelector(
+      store.state,
+    )?.hostId;
+    _enterWhenConnected(store);
+  }
+
+  /// Rechecks pending navigation after the SDK publishes Known Host state.
+  /// @param store The application store containing the latest SDK projection.
+  void _connectionKnownHostsChanged(Store<AppState> store) =>
+      _enterWhenConnected(store);
+
+  /// Cancels pending shell navigation when pairing fails.
+  void _pairingFailed() => _pendingHostId = null;
+
+  /// Cancels pending shell navigation when pairing is disposed before trust.
+  void _pairingDisposed() => _pendingHostId = null;
+
+  /// Returns to Connections without disconnecting an admitted session.
+  void _sessionShellBackRequested() {
+    _pendingHostId = null;
+    _navigator.go(AppRoutes.home);
+  }
+
   /// Replaces Connections with the shell only when SDK state admits the exact trusted Host.
+  /// @param store The application store containing Known Host session state.
   void _enterWhenConnected(Store<AppState> store) {
     final String? hostId = _pendingHostId;
     if (hostId == null) {

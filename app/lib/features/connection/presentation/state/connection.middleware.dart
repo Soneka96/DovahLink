@@ -56,7 +56,7 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     next(action);
     switch (action) {
       case ConnectionDiscoveryRequestedAction _:
-        _connectionDiscoveryRequested(store, action);
+        _connectionDiscoveryRequested(store);
     }
   }
 
@@ -147,11 +147,9 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     ]).then((_) => _subscriptions.clear());
   }
 
-  /// Handles [ConnectionDiscoveryRequestedAction] through the SDK boundary.
-  Future<void> _connectionDiscoveryRequested(
-    Store<AppState> store,
-    ConnectionDiscoveryRequestedAction action,
-  ) async {
+  /// Requests local Host discovery through the SDK and maps its result to Redux actions.
+  /// @param store The application store receiving discovery state transitions.
+  Future<void> _connectionDiscoveryRequested(Store<AppState> store) async {
     if (_isShuttingDown ||
         !ConnectionSelectors.canDiscoverSelector(store.state)) {
       return;
