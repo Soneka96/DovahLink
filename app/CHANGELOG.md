@@ -90,6 +90,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Disposing pairing while secure storage is unavailable still cancels retry observation and ignores
+  pending authentication results.
 - Discover now disposes a candidate pairing lifecycle after the selected Host becomes a Known Host.
 - Terminal authentication protocol failures now show a safe pairing error instead of Offline.
 - Connections now shows restored Known Hosts alongside candidates and preserves the selected entry's authentication source.

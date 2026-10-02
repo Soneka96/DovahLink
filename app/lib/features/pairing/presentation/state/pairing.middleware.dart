@@ -388,9 +388,6 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     Store<AppState> store,
     PairingDisposedAction action,
   ) async {
-    if (!_canHandlePairingAction(store)) {
-      return;
-    }
     final String? pendingPairingHostId =
         ConnectionSelectors.pendingPairingHostIdSelector(store.state);
     _pairingFlowGeneration++;
@@ -398,6 +395,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     initialRetrySubscription = _initialConnectionRetrySubscription;
     _initialConnectionRetrySubscription = null;
     await initialRetrySubscription?.cancel();
+    if (!_canHandlePairingAction(store)) {
+      return;
+    }
     if (action.wasTrusted) {
       return;
     }
