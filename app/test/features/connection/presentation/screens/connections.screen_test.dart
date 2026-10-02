@@ -245,7 +245,7 @@ void main() {
             expect(tester.takeException(), isNull);
             expect(find.byType(DovahEnvironmentBackground), findsOneWidget);
             expect(find.text('DOVAHLINK'), findsOneWidget);
-            expect(find.text('SKYRIM COMPANION'), findsOneWidget);
+            expect(find.text('LIVING LINK · SKYRIM COMPANION'), findsOneWidget);
             expect(find.text('YOUR SKYRIM'), findsOneWidget);
             expect(
               find.text(tokens.uppercaseLabels ? 'CONNECTIONS' : 'Connections'),
@@ -489,7 +489,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen starts the existing Known Host pairing flow when Pair again is tapped',
+      'ConnectionsScreen asks before starting pairing from a Pair again card',
       (WidgetTester tester) async {
         final Host host = Fixtures.buildHost(displayName: 'Living Room PC');
         when(() => viewModel.hostCards).thenReturn([
@@ -505,6 +505,49 @@ void main() {
         await tester.pumpWidget(buildWidget());
 
         await tester.tap(find.byKey(Key('host-card-${host.hostId}')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pairing required'), findsOneWidget);
+        expect(find.text('Pair Living Room PC again'), findsOneWidget);
+        expect(
+          find.text(
+            'Your connection changed in Skyrim. Pair again to restore automatic connections.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Cancel'), findsOneWidget);
+        expect(selectedHosts, isEmpty);
+        expect(pairingCalls, isEmpty);
+        expect(find.byType(PairingDialog), findsNothing);
+
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        expect(selectedHosts, isEmpty);
+        expect(pairingCalls, isEmpty);
+        expect(find.byType(PairingDialog), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen starts the existing Known Host pairing flow after confirmation',
+      (WidgetTester tester) async {
+        final Host host = Fixtures.buildHost(displayName: 'Living Room PC');
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewData(
+            host: host,
+            source: ConnectionHostSelectionSource.knownHost,
+            title: 'Living Room PC',
+            subtitle: 'Known Host',
+            state: DovahConnectionCardState.repair,
+          ),
+        ]);
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.byKey(Key('host-card-${host.hostId}')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(DovahButton, 'Pair again'));
         await tester.pump();
 
         expect(selectedHosts, [host]);

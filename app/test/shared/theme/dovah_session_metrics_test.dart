@@ -47,10 +47,6 @@ void main() {
         expect(DovahSessionMetrics.glyphSize, 30);
         expect(DovahSessionMetrics.nameFontSize, isA<double>());
         expect(DovahSessionMetrics.nameFontSize, 14);
-        expect(DovahSessionMetrics.metaFontSize, isA<double>());
-        expect(DovahSessionMetrics.metaFontSize, 12);
-        expect(DovahSessionMetrics.metaTopGap, isA<double>());
-        expect(DovahSessionMetrics.metaTopGap, 2);
         expect(DovahSessionMetrics.statusGap, isA<double>());
         expect(DovahSessionMetrics.statusGap, 8);
         expect(DovahSessionMetrics.statusFontSize, isA<double>());

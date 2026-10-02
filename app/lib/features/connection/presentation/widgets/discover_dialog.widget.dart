@@ -190,11 +190,13 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
                           ),
                           Expanded(
                             child: DecoratedBox(
+                              key: const Key('discover-available-rule'),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
-                                    tokens.lineSubtle,
-                                    tokens.lineSubtle.withValues(alpha: 0),
+                                    tokens.ember,
+                                    tokens.signal,
+                                    tokens.signal.withValues(alpha: 0),
                                   ],
                                 ),
                               ),

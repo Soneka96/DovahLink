@@ -44,13 +44,6 @@ class DovahSessionMetrics extends Equatable {
   /// Font size of the session name (the prototype's `.session-name`).
   static const double nameFontSize = 14;
 
-  /// Font size of the session detail line (the prototype's themed `.session-meta`).
-  static const double metaFontSize = 12;
-
-  /// Gap between the session name and its detail line (the prototype's `.session-meta`
-  /// `margin-top:2px`).
-  static const double metaTopGap = 2;
-
   /// Gap between the connection dot and its label (the prototype's `.session-status`
   /// `gap:8px`).
   static const double statusGap = 8;

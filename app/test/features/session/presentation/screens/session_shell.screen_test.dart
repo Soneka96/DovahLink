@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
 import 'package:dovahlink_client/features/session/presentation/screens/session_shell.screen.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_shell.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -12,25 +13,43 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Mocks the Session Shell's Redux store subscription.
 class MockStore extends Mock implements Store<AppState> {}
 
+/// Mocks the existing Appearance dialog's ViewModel.
+class MockAppearanceSectionViewModel extends Mock
+    implements AppearanceSectionViewModel {}
+
 /// Exercises the minimal Session Shell using its ViewModel contract.
 void main() {
   late MockStore store;
+  late MockAppearanceSectionViewModel appearanceViewModel;
   late SessionShellViewModel viewModel;
   int backCalls = 0;
 
   setUp(() async {
     await sl.reset();
     store = MockStore();
+    appearanceViewModel = MockAppearanceSectionViewModel();
     backCalls = 0;
     when(
       () => store.onChange,
     ).thenAnswer((_) => const Stream<AppState>.empty());
+    when(() => store.state).thenReturn(AppState.initial());
+    when(
+      () => appearanceViewModel.activePreset,
+    ).thenReturn(DovahThemePreset.dovah);
+    when(
+      () => appearanceViewModel.onSelectPreset,
+    ).thenReturn((DovahThemePreset _) {});
+    sl.registerFactoryParam<AppearanceSectionViewModel, Store<AppState>, void>(
+      (Store<AppState> _, void _) => appearanceViewModel,
+    );
     viewModel = SessionShellViewModel(
       host: Fixtures.buildHostCardViewData(
         host: Fixtures.buildHost(
@@ -56,11 +75,11 @@ void main() {
   });
 
   Widget buildWidget({DovahThemePreset preset = DovahThemePreset.dovah}) =>
-      MaterialApp(
-        theme: dovahThemeDataFor(preset),
-        home: StoreProvider<AppState>(
-          store: store,
-          child: const SessionShellScreen(hostId: 'selected-host'),
+      StoreProvider<AppState>(
+        store: store,
+        child: MaterialApp(
+          theme: dovahThemeDataFor(preset),
+          home: const SessionShellScreen(hostId: 'selected-host'),
         ),
       );
 
@@ -68,11 +87,15 @@ void main() {
     testWidgets('SessionShellScreen shows the real Host and connected state', (
       WidgetTester tester,
     ) async {
+      setDovahTestWindow(tester, const Size(1280, 720));
       await tester.pumpWidget(buildWidget());
 
       expect(find.text('Living Room PC'), findsOneWidget);
-      expect(find.text('living-room.local:58231'), findsOneWidget);
+      expect(find.text('living-room.local:58231'), findsNothing);
       expect(find.text('Connected'), findsOneWidget);
+      expect(find.byType(DovahSigil), findsOneWidget);
+      expect(find.byTooltip('Notifications'), findsOneWidget);
+      expect(find.byTooltip('Appearance settings'), findsOneWidget);
       expect(
         find.byKey(const Key('session-shell-empty-content')),
         findsOneWidget,
@@ -106,6 +129,62 @@ void main() {
       expect(find.text('Host unavailable'), findsOneWidget);
       expect(find.text('Unknown'), findsOneWidget);
     });
+
+    for (final DovahConnectionCardState state
+        in DovahConnectionCardState.values) {
+      testWidgets('SessionShellScreen colors ${state.label} status correctly', (
+        WidgetTester tester,
+      ) async {
+        viewModel = SessionShellViewModel(
+          host: Fixtures.buildHostCardViewData(state: state),
+          onBack: () => backCalls++,
+        );
+        await tester.pumpWidget(buildWidget());
+
+        final DovahThemeTokens tokens = dovahThemeDataFor(
+          DovahThemePreset.dovah,
+        ).extension<DovahThemeTokens>()!;
+        final Color expected = switch (state) {
+          DovahConnectionCardState.connected ||
+          DovahConnectionCardState.available => tokens.success,
+          DovahConnectionCardState.reconnecting ||
+          DovahConnectionCardState.connecting ||
+          DovahConnectionCardState.repair => tokens.warning,
+          DovahConnectionCardState.offline => tokens.statusOffline,
+          DovahConnectionCardState.checking ||
+          DovahConnectionCardState.unknown => tokens.textMuted,
+        };
+        final Text status = tester.widget(
+          find.byKey(const Key('session-shell-status')),
+        );
+        final Container dot = tester.widget(
+          find.byKey(const Key('session-shell-status-dot')),
+        );
+
+        expect(status.style?.color, expected);
+        expect((dot.decoration! as BoxDecoration).color, expected);
+      });
+    }
+  });
+
+  group('SessionShellScreen matches the prototype action breakpoint', () {
+    for (final (Size size, bool showsNotifications) in [
+      (const Size(900, 720), false),
+      (const Size(901, 720), true),
+    ]) {
+      testWidgets(
+        'SessionShellScreen notifications at width ${size.width} are $showsNotifications',
+        (WidgetTester tester) async {
+          setDovahTestWindow(tester, size);
+          await tester.pumpWidget(buildWidget());
+
+          expect(
+            find.byTooltip('Notifications'),
+            showsNotifications ? findsOneWidget : findsNothing,
+          );
+        },
+      );
+    }
   });
 
   group('SessionShellScreen calls callbacks', () {
@@ -116,6 +195,16 @@ void main() {
       await tester.tap(find.byKey(const Key('session-shell-back-button')));
 
       expect(backCalls, 1);
+    });
+
+    testWidgets('SessionShellScreen opens the existing appearance dialog', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildWidget());
+      await tester.tap(find.byTooltip('Appearance settings'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Appearance'), findsOneWidget);
     });
   });
 

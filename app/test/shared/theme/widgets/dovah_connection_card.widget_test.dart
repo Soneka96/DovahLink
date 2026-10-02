@@ -16,6 +16,7 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/materials/frostbound_materials.dart';
+import 'package:dovahlink_client/shared/theme/materials/hearth_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_accent_painter.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_connection_card.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_focus_ring.widget.dart';
@@ -932,6 +933,7 @@ void main() {
           await pointer.moveTo(tester.getCenter(outerSurface()));
           await tester.pump();
           await tester.pump(DovahControlMetrics.liftDuration);
+          await tester.pump(DovahControlMetrics.materialHoverDuration);
 
           final DovahMaterialPainter painter =
               tester
@@ -975,6 +977,7 @@ void main() {
           await pointer.moveTo(const Offset(1200, 700));
           await tester.pump();
           await tester.pump(DovahControlMetrics.liftDuration);
+          await tester.pump(DovahControlMetrics.materialHoverDuration);
 
           expect(
             tester.widget<DovahSurface>(outerSurface()).role,
@@ -1069,7 +1072,7 @@ void main() {
         expect(over.aboveContent, isTrue);
         expect(under.accent, frostboundMaterials.connectionAccent);
         expect(under.available, isTrue);
-        expect(surface.borderColor, isNull);
+        expect(surface.borderColor, frostboundMaterials.surface.borderColor);
       },
     );
 
@@ -1169,6 +1172,7 @@ void main() {
         );
         await tester.pump();
         await tester.pump(DovahControlMetrics.liftDuration);
+        await tester.pump(DovahControlMetrics.materialHoverDuration);
 
         final DovahSurface surface = tester.widget(
           find.byWidgetPredicate(
@@ -1177,7 +1181,7 @@ void main() {
           ),
         );
         expect(surface.role, DovahMaterialRole.raised);
-        expect(surface.borderColor, isNull);
+        expect(surface.borderColor, hearthMaterials.raised.borderColor);
         await pointer.removePointer();
       },
     );

@@ -36,6 +36,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Connections uses the approved prototype tagline and Discover details, and the Session Shell now matches its header chrome without exposing endpoint metadata or adding game content.
+- Pair again cards show the prototype confirmation before starting the existing pairing flow.
 - Pairing matches the prototype’s code redisplay row, countdown emphasis, confirmation copy, and expired or attempt-limit actions.
 - Trusted Hosts enter a minimal Session Shell only after the SDK reports an admitted connection; Back returns to Connections while keeping that session active.
 - Pairing preserves Host-reported wrong-code attempts, terminal outcomes, and code-redisplay
@@ -51,8 +53,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
   required pairing inside the same modal flow.
 - Already trusted candidates close Discover without reopening Pairing; unpaired candidates continue
   into the existing pairing flow after the SDK outcome.
-- Discover candidate cards use the nearby-card shape, primary hover accent, compact icon metrics, and
-  disabled checking treatment.
+- Discover candidate cards use theme-specific prototype geometry and hover transitions, compact icon
+  metrics, and the disabled checking treatment.
 - Discover candidate cards are disabled while another pairing lifecycle is active.
 - Closing Discover during embedded pairing dispatches one cleanup, while Done preserves the trusted
   session.

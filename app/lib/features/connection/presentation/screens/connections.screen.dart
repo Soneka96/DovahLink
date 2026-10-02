@@ -27,10 +27,10 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_backgrou
 
 /// The root screen: DovahLink's branded header, the "Connections" title with its Discover Skyrim
 /// action, and durable Known Hosts over the theme's atmosphere. Online and Pair again cards open
-/// the pairing dialog; Connected cards re-enter their admitted Session Shell directly. Discovery
-/// candidates are presented separately by the Discover flow. The header's appearance action opens
-/// the theme picker. Content is capped at a comfortable reading width and scrolls both ways below
-/// its minimum width.
+/// authentication; Pair again asks for confirmation first, and Connected cards re-enter their
+/// admitted Session Shell directly. Discovery candidates are presented separately by the Discover
+/// flow. The header's appearance action opens the theme picker. Content is capped at a comfortable
+/// reading width and scrolls both ways below its minimum width.
 class ConnectionsScreen extends StatelessWidget {
   /// Creates the connections screen.
   const ConnectionsScreen({super.key});
@@ -118,8 +118,44 @@ class ConnectionsScreen extends StatelessWidget {
                                     );
                                   },
                                   onSelectHost: (HostCardViewData card) {
-                                    viewModel.onSelectHost(card);
-                                    PairingDialog.show(context);
+                                    if (card.state ==
+                                        DovahConnectionCardState.repair) {
+                                      DovahDialog.show<void>(
+                                        context,
+                                        title: 'Pairing required',
+                                        child: PairingStateLayout(
+                                          mark: const PairingMark(
+                                            icon: Icons.autorenew,
+                                          ),
+                                          heading: 'Pair ${card.title} again',
+                                          body:
+                                              'Your connection changed in Skyrim. Pair again to restore automatic connections.',
+                                          children: [
+                                            DovahButton(
+                                              label: 'Cancel',
+                                              variant:
+                                                  DovahButtonVariant.secondary,
+                                              onPressed: () => Navigator.of(
+                                                context,
+                                              ).maybePop(),
+                                            ),
+                                            DovahButton(
+                                              label: 'Pair again',
+                                              onPressed: () {
+                                                Navigator.of(
+                                                  context,
+                                                ).maybePop();
+                                                viewModel.onSelectHost(card);
+                                                PairingDialog.show(context);
+                                              },
+                                            ),
+                                          ],
+                                        ),
+                                      );
+                                    } else {
+                                      viewModel.onSelectHost(card);
+                                      PairingDialog.show(context);
+                                    }
                                   },
                                 ),
                                 const ConnectionsFooter(),

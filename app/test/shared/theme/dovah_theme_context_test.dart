@@ -7,6 +7,7 @@ import 'package:dovahlink_client/shared/theme/dovah_appearance_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
@@ -23,6 +24,25 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.da
 /// Exercises [DovahThemeContext.dovahTokens] and the metrics accessors that resolve from the active
 /// theme and window.
 void main() {
+  testWidgets('Property dovahDialogThemeMetrics returns the active theme set', (
+    WidgetTester tester,
+  ) async {
+    late DovahDialogThemeMetrics resolved;
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: dovahThemeDataFor(DovahThemePreset.frostbound),
+        home: Builder(
+          builder: (BuildContext context) {
+            resolved = context.dovahDialogThemeMetrics;
+            return const SizedBox.shrink();
+          },
+        ),
+      ),
+    );
+
+    expect(resolved, DovahDialogThemeMetrics.frostbound);
+  });
+
   group('Property dovahTokens behaves correctly', () {
     testWidgets(
       'Property dovahTokens returns the active theme\'s DovahThemeTokens',

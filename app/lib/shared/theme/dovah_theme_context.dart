@@ -29,6 +29,10 @@ extension DovahThemeContext on BuildContext {
   DovahThemeMaterials get dovahMaterials =>
       Theme.of(this).extension<DovahThemeMaterials>()!;
 
+  /// The active theme's dialog and candidate-card shape metrics.
+  DovahDialogThemeMetrics get dovahDialogThemeMetrics =>
+      Theme.of(this).extension<DovahDialogThemeMetrics>()!;
+
   /// The [DovahDialogMetrics] for the active theme and the size of the window this context is
   /// shown in.
   DovahDialogMetrics get dovahDialogMetrics => DovahDialogMetrics.forWindow(

@@ -58,6 +58,9 @@ class DovahRootMetrics extends Equatable {
   /// Font size of the wordmark's tagline (the prototype's `.brand-sub` 9px).
   static const double brandTaglineFontSize = 9;
 
+  /// Line height of the wordmark's tagline (the prototype's `.brand-sub` `line-height:1.35`).
+  static const double brandTaglineLineHeight = 1.35;
+
   /// Gap between the wordmark and its tagline (the prototype's `.brand-sub` `margin-top:3px`).
   static const double brandTaglineTopGap = 3;
 

@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/appearance/presentation/sections/appearance.section.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_shell.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -12,9 +13,11 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
-import 'package:dovahlink_client/shared/theme/widgets/dovah_brand_mark.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
 
 /// The minimal shell shown while the SDK reports an admitted Known Host session.
 class SessionShellScreen extends StatelessWidget {
@@ -36,7 +39,6 @@ class SessionShellScreen extends StatelessWidget {
       final DovahThemeTokens tokens = context.dovahTokens;
       final DovahSessionMetrics metrics = context.dovahSessionMetrics;
       final String hostName = viewModel.host?.title ?? 'Host unavailable';
-      final String hostDetail = viewModel.host?.detail ?? '';
       final DovahConnectionCardState status =
           viewModel.host?.state ?? DovahConnectionCardState.unknown;
       final Color statusColor = switch (status) {
@@ -93,7 +95,7 @@ class SessionShellScreen extends StatelessWidget {
                                 color: tokens.lineSubtle,
                               ),
                               const SizedBox(width: DovahSessionMetrics.barGap),
-                              const DovahBrandMark(
+                              const DovahSigil(
                                 key: Key('session-shell-glyph'),
                                 size: DovahSessionMetrics.glyphSize,
                               ),
@@ -117,26 +119,12 @@ class SessionShellScreen extends StatelessWidget {
                                             DovahSessionMetrics.nameFontSize,
                                       ),
                                     ),
-                                    if (hostDetail.isNotEmpty) ...[
-                                      const SizedBox(
-                                        height: DovahSessionMetrics.metaTopGap,
-                                      ),
-                                      Text(
-                                        hostDetail,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: TextStyle(
-                                          color: tokens.textMuted,
-                                          fontSize:
-                                              DovahSessionMetrics.metaFontSize,
-                                        ),
-                                      ),
-                                    ],
                                   ],
                                 ),
                               ),
                               const SizedBox(width: DovahSessionMetrics.barGap),
                               Container(
+                                key: const Key('session-shell-status-dot'),
                                 width: DovahSessionMetrics.statusDotSize,
                                 height: DovahSessionMetrics.statusDotSize,
                                 decoration: BoxDecoration(
@@ -155,6 +143,36 @@ class SessionShellScreen extends StatelessWidget {
                                   fontSize: DovahSessionMetrics.statusFontSize,
                                   fontWeight: FontWeight.w700,
                                 ),
+                              ),
+                              const SizedBox(
+                                width: DovahSessionMetrics.actionsLeadingGap,
+                              ),
+                              Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  if (metrics.showFirstAction) ...[
+                                    DovahIconButton(
+                                      icon: Icons.notifications_none_outlined,
+                                      label: 'Notifications',
+                                      size:
+                                          DovahSessionMetrics.actionButtonSize,
+                                      onPressed: () {},
+                                    ),
+                                    const SizedBox(
+                                      width: DovahSessionMetrics.actionsGap,
+                                    ),
+                                  ],
+                                  DovahIconButton(
+                                    icon: Icons.settings_outlined,
+                                    label: 'Appearance settings',
+                                    size: DovahSessionMetrics.actionButtonSize,
+                                    onPressed: () => DovahDialog.show<void>(
+                                      context,
+                                      title: 'Appearance',
+                                      child: const AppearanceSection(),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ],
                           ),

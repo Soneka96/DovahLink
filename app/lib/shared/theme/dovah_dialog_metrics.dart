@@ -95,9 +95,6 @@ class DovahDialogMetrics extends Equatable {
   /// Inner padding of a discovery candidate card (the prototype's `.nearby-card`).
   static const double discoveryCandidateCardPadding = 15;
 
-  /// Corner radius of the small rounded candidate card (the prototype's `.nearby-card`).
-  static const double discoveryCandidateCardCornerRadius = 8;
-
   /// Opacity of a discovery candidate while checking its trusted connection.
   static const double discoveryCandidateCheckingOpacity = 0.82;
 

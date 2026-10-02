@@ -11,8 +11,10 @@ import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_dialog_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_tile.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
@@ -212,18 +214,26 @@ void main() {
           );
           await pointer.addPointer(location: tester.getCenter(surfaceFinder));
           await tester.pump();
+          await tester.pump(DovahControlMetrics.materialHoverDuration);
           final DovahSurface surface = tester.widget(surfaceFinder);
           final DovahThemeTokens tokens = dovahThemeDataFor(
             preset,
           ).extension<DovahThemeTokens>()!;
+          final DovahThemeMaterials materials = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeMaterials>()!;
 
           expect(surface.role, DovahMaterialRole.raised);
           expect(surface.borderColor, tokens.accentPrimary);
           await pointer.removePointer();
           await tester.pump();
+          await tester.pump(DovahControlMetrics.materialHoverDuration);
           final DovahSurface restingSurface = tester.widget(surfaceFinder);
           expect(restingSurface.role, DovahMaterialRole.surface);
-          expect(restingSurface.borderColor, isNull);
+          expect(
+            restingSurface.borderColor,
+            materials.surface.borderColor ?? tokens.lineSubtle,
+          );
         },
       );
     }
@@ -267,12 +277,14 @@ void main() {
               DovahDialogMetrics.discoveryCandidateCardPadding,
             ),
           );
-          expect(surface.cornerStyle, DovahPanelCornerStyle.rounded);
-          expect(
-            surface.cornerRadius,
-            DovahDialogMetrics.discoveryCandidateCardCornerRadius,
-          );
-          expect(surface.cornerCutSize, isNull);
+          final DovahDialogThemeMetrics shape = switch (preset) {
+            DovahThemePreset.frostbound => DovahDialogThemeMetrics.frostbound,
+            DovahThemePreset.dovah => DovahDialogThemeMetrics.dovah,
+            DovahThemePreset.hearth => DovahDialogThemeMetrics.hearth,
+          };
+          expect(surface.cornerStyle, shape.discoveryCandidateCornerStyle);
+          expect(surface.cornerRadius, shape.discoveryCandidateCornerRadius);
+          expect(surface.cornerCutSize, shape.discoveryCandidateCornerCutSize);
           expect(find.text('›'), findsOneWidget);
         },
       );

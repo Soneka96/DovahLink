@@ -256,6 +256,17 @@ void main() {
         expect(find.text('AVAILABLE'), findsOneWidget);
         expect(find.text('Local Host'), findsOneWidget);
         expect(find.text('DovahLink · Ready to connect'), findsOneWidget);
+        final DecoratedBox rule = tester.widget(
+          find.byKey(const Key('discover-available-rule')),
+        );
+        final BoxDecoration decoration = rule.decoration as BoxDecoration;
+        final LinearGradient gradient = decoration.gradient! as LinearGradient;
+        final tokens = tester.element(find.text('AVAILABLE')).dovahTokens;
+        expect(gradient.colors, [
+          tokens.ember,
+          tokens.signal,
+          tokens.signal.withValues(alpha: 0),
+        ]);
         expect(
           find.byKey(Key('discover-candidate-${candidate.host.hostId}')),
           findsOneWidget,
