@@ -1,23 +1,25 @@
 # 04 — Final Canonical Audit
 
-**Status:** Paused
+**Status:** Partial — automated verification is complete; visual screenshot comparison is unverified.
 
 ## Outcome
 
-This is the final verification of convergence against the approved landscape prototype. The audit is
-not implementation and has not been completed.
+This is the final verification of convergence against the approved landscape prototype. The approved
+current journey is implemented, but the audit remains partial until the running Flutter surfaces can
+be compared with the approved prototype screenshots. No exact visual-parity claim is made.
 
 ## Why it exists
 
-After the design/material and connection/pairing work is complete, one focused audit is needed to
-confirm that the real app remained faithful to its visual and interaction authority while consuming
-truthful SDK/domain state.
+After the design/material and connection/pairing work is implemented, one focused audit confirms
+that the real app consumes truthful SDK/domain state and records what has and has not been compared
+visually.
 
 ## Scope
 
-The planned audit covers visual and interaction parity, navigation and responsive behavior,
-connection and pairing presentation, Settings, post-pair handoff, accessibility, and integration with
-authoritative domain state.
+The audit covers visual and interaction parity, navigation and responsive behavior, connection and
+pairing presentation, post-pair handoff, accessibility, and integration with authoritative domain
+state. This approved pass covers Connections, Discover, real Pairing states, and the minimal Session
+Shell. It does not implement full game tabs, gameplay content, or notification surfaces.
 
 ## Non-goals
 
@@ -40,14 +42,41 @@ current approved source named in
 
 ## History
 
-This was the planned closing audit after connection/pairing convergence; the paused steps mean it
-cannot yet be performed as a final audit.
+The approved journey's code-level state mapping, responsive widget checks, and CI verification have
+been completed. Flutter screenshots were not captured in this workspace, so the prototype-to-Flutter
+pixel comparison remains unverified.
 
 ## Current disposition
 
-Paused. No completion claim is made.
+Partial. Structural and interaction parity are implemented for the scoped journey. The surface-level
+status and typed projection table in the [parent convergence record](README.md) is authoritative.
+The final full-app run passed all 2,627 Flutter tests, all 1,069 Dart SDK tests, both analyzers, the
+Windows debug build, and the Windows lifecycle policy test. Exact local commands and outcomes:
+
+| Capability | Command | Result |
+| --- | --- | --- |
+| SDK generation | `dart run build_runner build` from `sdk/dart/dovahlink_client` | Passed; 18 outputs written. |
+| SDK analysis and tests | `dart analyze`; `dart test` from `sdk/dart/dovahlink_client` | Passed; no analyzer issues, 1,069 tests. |
+| Flutter generation | `dart run build_runner build` from `app` | Passed; zero outputs changed. |
+| Flutter analysis and tests | `flutter analyze`; `flutter test` from `app` | Passed; no analyzer issues, 2,627 tests. |
+| Windows client build | `flutter build windows --debug` from `app` | Passed. |
+| Windows lifecycle policy | `cmake --build build/windows/x64 --config Debug --target window_lifecycle_tests`; `ctest --test-dir build/windows/x64 -C Debug --output-on-failure` from `app` | Passed; one CTest target. |
+
+| Surface | Structural / interaction status | Screenshot visual comparison |
+| --- | --- | --- |
+| Connections and Offline dialog | Implemented; Online, Offline, Connected, Reconnecting, Checking, Unknown, and Pair again remain semantically distinct. | Unverified — no Flutter screenshot captured. |
+| Discover | Implemented for searching, available, checking, empty, failure, and embedded pairing. | Unverified — no Flutter screenshot captured. |
+| Pairing | Implemented for the currently typed code, redisplay, cooldown, confirming, success, failure, blocked, and repair states. | Unverified — no Flutter screenshot captured. |
+| Session Shell | Implemented with real Host context, SDK-connected entry, theme-aware header, empty body, and Back that preserves the admitted session. | Unverified — no Flutter screenshot captured. |
+
+The workspace's UI automation cannot capture the running Windows Flutter client, and the local
+prototype source is outside the repository. Its markup and theme CSS were inspected for source-level
+values; that does not substitute for pixel comparison. Historical 03.4–03.10 convergence slices
+remain paused for re-planning and are not marked complete here.
 
 ## Next action
 
-Resume only after the preceding convergence steps have been implemented or explicitly re-scoped and
-verified.
+Keep the convergence deviation partial until a maintainer can capture the listed Flutter screens and
+compare them with the approved reference, then record any remaining visual differences. Re-plan the
+historical 03.4–03.10 slices independently; this pass does not reopen their security or product
+decisions.

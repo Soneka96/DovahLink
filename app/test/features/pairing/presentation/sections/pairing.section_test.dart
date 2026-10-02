@@ -215,9 +215,7 @@ void main() {
         await pumpSection(tester);
 
         expect(
-          find.text(
-            "That code isn't correct. Check Skyrim and try again. 2 attempts remaining.",
-          ),
+          find.text('That code isn’t correct. 2 attempts remaining.'),
           findsOneWidget,
         );
       },
@@ -234,9 +232,12 @@ void main() {
         await pumpSection(tester);
 
         expect(
-          find.text('That pairing code has expired. Request a new one.'),
+          find.text(
+            'The code is no longer valid. Ask Skyrim for a new one to continue.',
+          ),
           findsOneWidget,
         );
+        expect(find.text('Code expired'), findsOneWidget);
       },
     );
 
