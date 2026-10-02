@@ -98,14 +98,22 @@ class GatedClientStateService implements IClientStateService {
 }
 
 /// Builds a persisted relationship for pairing tests through the central fixture catalog.
+/// @param clientId The stable local Client ID.
+/// @param credential The current Host-scoped credential, if any.
+/// @param pairingRequired Whether the Host's last-known recovery hint is set.
+/// @param recoveryState The Host-owned pending pairing recovery phase.
+/// @param knownHost The explicit Host relationship, or the fixture Host by default.
+/// @return A persisted state containing the requested pairing lifecycle.
 PersistedClientState _state({
   String? clientId = 'client-1',
   String? credential,
+  bool pairingRequired = false,
   PairingRecoveryState recoveryState = PairingRecoveryState.none,
   DovahLinkHost? knownHost,
 }) => Fixtures.buildPersistedClientState(
   clientId: clientId,
   credential: credential,
+  pairingRequired: pairingRequired,
   recoveryState: recoveryState,
   host: knownHost,
 );
@@ -1451,11 +1459,28 @@ void main() {
       'Method confirmPairingCodeAndAcknowledge keeps protocol sequencing in the SDK',
       () async {
         final List<ProtocolMessageType> sent = <ProtocolMessageType>[];
-        when(() => storage.load()).thenAnswer(
-          (_) async =>
-              updatedState ??
-              _state(clientId: 'client-1', knownHost: _currentHost()),
+        final DovahLinkHost otherHost = DovahLinkHost(
+          hostId: '81f6cc90-3a88-40c7-8351-104d4a36c971',
+          hostName: 'OTHER-HOST',
+          endpoint: Uri.parse('ws://127.0.0.1:58232/'),
         );
+        final PersistedClientState initialState = PersistedClientState(
+          clientId: 'client-1',
+          knownHosts: <String, PersistedKnownHost>{
+            _currentHost().hostId: PersistedKnownHost(
+              host: _currentHost(),
+              pairingRequired: true,
+            ),
+            otherHost.hostId: PersistedKnownHost(
+              host: otherHost,
+              credential: 'other-credential',
+              pairingRequired: true,
+            ),
+          },
+        );
+        when(
+          () => storage.load(),
+        ).thenAnswer((_) async => updatedState ?? initialState);
         when(
           () => requestService.sendAndAwait(
             messageType: any(named: 'messageType'),
@@ -1490,8 +1515,20 @@ void main() {
         ]);
         expect(updatedState?.pendingPairingRecovery, isNull);
         expect(
-          updatedState?.knownHosts.values.single.credential,
+          updatedState?.knownHosts[_currentHost().hostId]?.credential,
           'issued-credential',
+        );
+        expect(
+          updatedState?.knownHosts[_currentHost().hostId]?.pairingRequired,
+          isFalse,
+        );
+        expect(
+          updatedState?.knownHosts[otherHost.hostId]?.credential,
+          'other-credential',
+        );
+        expect(
+          updatedState?.knownHosts[otherHost.hostId]?.pairingRequired,
+          isTrue,
         );
         verify(() => sessionTrustService.markTrusted()).called(1);
       },
