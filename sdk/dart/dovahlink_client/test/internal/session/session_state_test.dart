@@ -4,6 +4,7 @@ import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -887,5 +888,79 @@ void main() {
         await expectation;
       },
     );
+  });
+
+  group('Property knownHostInvalidations behaves correctly', () {
+    test(
+      'Property knownHostInvalidations preserves each Host and reason',
+      () async {
+        final DovahLinkHostId firstHostId = DovahLinkHostId(
+          '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
+        final DovahLinkHostId secondHostId = DovahLinkHostId(
+          '91869993-955c-4ba3-a7d0-d35ca86078ea',
+        );
+        final Future<void> events = expectLater(
+          state.knownHostInvalidations,
+          emitsInOrder(<Object>[
+            isA<DovahLinkKnownHostInvalidation>()
+                .having((event) => event.hostId, 'hostId', firstHostId)
+                .having(
+                  (event) => event.reason,
+                  'reason',
+                  AdministrativeInvalidationReason.revoked,
+                ),
+            isA<DovahLinkKnownHostInvalidation>()
+                .having((event) => event.hostId, 'hostId', secondHostId)
+                .having(
+                  (event) => event.reason,
+                  'reason',
+                  AdministrativeInvalidationReason.blocked,
+                ),
+          ]),
+        );
+
+        for (final (
+              DovahLinkHostId hostId,
+              AdministrativeInvalidationReason reason,
+            )
+            in <(DovahLinkHostId, AdministrativeInvalidationReason)>[
+              (firstHostId, AdministrativeInvalidationReason.revoked),
+              (secondHostId, AdministrativeInvalidationReason.blocked),
+            ]) {
+          state.beginConnectAttempt(
+            Uri.parse('ws://127.0.0.1:58231/'),
+            knownHostId: hostId,
+          );
+          state.markConnected();
+          state.admit(
+            sessionId: 'session-${hostId.value}',
+            trustState: DovahLinkTrustState.trusted,
+            currentHost: _currentHost(),
+          );
+          state.invalidate(reason);
+        }
+
+        await events;
+      },
+    );
+
+    test('Property knownHostInvalidations omits candidate sessions', () async {
+      final List<DovahLinkKnownHostInvalidation> events =
+          <DovahLinkKnownHostInvalidation>[];
+      final StreamSubscription<DovahLinkKnownHostInvalidation> subscription =
+          state.knownHostInvalidations.listen(events.add);
+      addTearDown(subscription.cancel);
+
+      state.admit(
+        sessionId: 'candidate-session',
+        trustState: DovahLinkTrustState.unpaired,
+        currentHost: _currentHost(),
+      );
+      state.invalidate(AdministrativeInvalidationReason.factoryReset);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(events, isEmpty);
+    });
   });
 }

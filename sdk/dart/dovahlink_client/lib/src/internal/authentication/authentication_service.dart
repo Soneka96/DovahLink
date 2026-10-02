@@ -84,10 +84,11 @@ abstract interface class IAuthenticationService {
   /// Discards the named Host's credential and its owned recovery state, preserving Host metadata
   /// and [IAuthenticationService.clientId].
   /// @param hostId The stable identifier of the Known Host to update.
-  Future<void> forgetCredential(DovahLinkHostId hostId);
-
-  /// Clears the credential for the Host most recently authenticated by this client.
-  Future<void> forgetLastKnownCredential();
+  /// @param pairingRequired Whether the SDK has last-known Host evidence that requires pairing.
+  Future<void> forgetCredential(
+    DovahLinkHostId hostId, {
+    bool pairingRequired = false,
+  });
 }
 
 /// Implements [IAuthenticationService] by coordinating credential loading, Host hello requests,
@@ -437,7 +438,11 @@ class AuthenticationService implements IAuthenticationService {
       if (reason == null || knownHostId == null) {
         rethrow;
       }
-      await _forgetCredential(knownHostId, generation);
+      await _forgetCredential(
+        knownHostId,
+        generation,
+        pairingRequired: reason != CredentialRejectionReason.blocked,
+      );
       _ensureAuthenticationCurrent(generation);
       await _connect(uri, knownHostId, generation);
       _ensureAuthenticationCurrent(generation);
@@ -495,22 +500,19 @@ class AuthenticationService implements IAuthenticationService {
 
   /// Implements [IAuthenticationService.forgetCredential].
   @override
-  Future<void> forgetCredential(DovahLinkHostId hostId) =>
-      _forgetCredential(hostId.value, null);
-
-  /// Implements [IAuthenticationService.forgetLastKnownCredential].
-  @override
-  Future<void> forgetLastKnownCredential() async {
-    final String? hostId = _lastHelloResult?.hostId;
-    if (hostId != null) {
-      await _forgetCredential(hostId, null);
-    }
-  }
+  Future<void> forgetCredential(
+    DovahLinkHostId hostId, {
+    bool pairingRequired = false,
+  }) => _forgetCredential(hostId.value, null, pairingRequired: pairingRequired);
 
   /// Clears persisted trust only while [generation] remains current.
   /// @param hostId The relationship whose credential is being cleared.
   /// @param generation The owning authentication generation, or `null` for explicit cleanup.
-  Future<void> _forgetCredential(String hostId, int? generation) async {
+  Future<void> _forgetCredential(
+    String hostId,
+    int? generation, {
+    bool? pairingRequired,
+  }) async {
     await _clientStateService.updateState((PersistedClientState current) {
       if (generation != null) {
         _ensureAuthenticationCurrent(generation);
@@ -524,7 +526,10 @@ class AuthenticationService implements IAuthenticationService {
       return current.copyWith(
         knownHosts: <String, PersistedKnownHost>{
           ...current.knownHosts,
-          normalizedHostId: PersistedKnownHost(host: relationship.host),
+          normalizedHostId: PersistedKnownHost(
+            host: relationship.host,
+            pairingRequired: pairingRequired ?? relationship.pairingRequired,
+          ),
         },
         clearPendingPairingRecovery:
             current.pendingPairingRecovery?.hostId == normalizedHostId,

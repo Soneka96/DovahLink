@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Owns runtime availability values and complete Known Host session projections.
@@ -59,7 +59,7 @@ class HostAvailabilityService implements IHostAvailabilityService {
   StackTrace? _lastErrorStackTrace;
 
   /// The durable-state subscription, started when state is first observed or updated.
-  StreamSubscription<List<DovahLinkHost>>? _knownHostsSubscription;
+  StreamSubscription<List<PersistedKnownHost>>? _knownHostsSubscription;
 
   /// The terminal stream cleanup operation shared by repeated calls.
   Future<void>? _closeFuture;
@@ -138,7 +138,7 @@ class HostAvailabilityService implements IHostAvailabilityService {
       return closing;
     }
     _isClosed = true;
-    final StreamSubscription<List<DovahLinkHost>>? subscription =
+    final StreamSubscription<List<PersistedKnownHost>>? subscription =
         _knownHostsSubscription;
     _knownHostsSubscription = null;
     final Future<void> closeChanges = subscription == null
@@ -161,13 +161,13 @@ class HostAvailabilityService implements IHostAvailabilityService {
 
   /// Reconciles runtime values with the latest durable Known Host collection.
   /// @param hosts The latest metadata snapshot from client state.
-  void _updateKnownHosts(List<DovahLinkHost> hosts) {
+  void _updateKnownHosts(List<PersistedKnownHost> hosts) {
     if (_isClosed) {
       return;
     }
     final bool recoveredFromError = _lastError != null;
     final Set<String> hostIds = hosts
-        .map((DovahLinkHost host) => host.hostId)
+        .map((PersistedKnownHost relationship) => relationship.host.hostId)
         .toSet();
     _availability.removeWhere(
       (String hostId, DovahLinkHostAvailability _) => !hostIds.contains(hostId),
@@ -205,6 +205,7 @@ class HostAvailabilityService implements IHostAvailabilityService {
           sessionState: state.host.hostId == _sessionHostId?.value
               ? _sessionState
               : DovahLinkKnownHostSessionState.disconnected,
+          pairingRequired: state.pairingRequired,
         ),
       ),
     );
@@ -213,16 +214,18 @@ class HostAvailabilityService implements IHostAvailabilityService {
   /// Projects durable Host metadata with current runtime availability values.
   /// @param hosts The latest complete metadata snapshot.
   /// @param force Whether to emit this complete snapshot to signal stream recovery.
-  void _publishHosts(List<DovahLinkHost> hosts, {bool force = false}) =>
+  void _publishHosts(List<PersistedKnownHost> hosts, {bool force = false}) =>
       _publishStates(
         hosts.map(
-          (DovahLinkHost host) => DovahLinkKnownHostState(
-            host: host,
+          (PersistedKnownHost relationship) => DovahLinkKnownHostState(
+            host: relationship.host,
             availability:
-                _availability[host.hostId] ?? DovahLinkHostAvailability.unknown,
-            sessionState: host.hostId == _sessionHostId?.value
+                _availability[relationship.host.hostId] ??
+                DovahLinkHostAvailability.unknown,
+            sessionState: relationship.host.hostId == _sessionHostId?.value
                 ? _sessionState
                 : DovahLinkKnownHostSessionState.disconnected,
+            pairingRequired: relationship.pairingRequired,
           ),
         ),
         force: force,

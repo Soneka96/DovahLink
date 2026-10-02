@@ -524,6 +524,7 @@ void main() {
                 endpoint: Uri.parse('ws://127.0.0.1:58230/'),
               ),
               credential: credential,
+              pairingRequired: true,
             ),
           },
         );
@@ -564,6 +565,7 @@ void main() {
                   endpoint: Uri.parse('ws://127.0.0.1:58231/'),
                 ),
                 credential: credential,
+                pairingRequired: false,
               ),
             },
           ),
@@ -2124,6 +2126,7 @@ void main() {
         PersistedClientState persisted = Fixtures.buildPersistedClientState(
           clientId: 'client-1',
           credential: 'stale-cred',
+          pairingRequired: true,
         );
         when(() => storage.load()).thenAnswer((_) async => persisted);
         when(() => storage.updateState(any())).thenAnswer((invocation) async {
@@ -2175,6 +2178,7 @@ void main() {
         ).called(1);
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
+        expect(updatedState?.knownHosts.values.single.pairingRequired, isTrue);
         expect(updatedState?.pendingPairingRecovery, isNull);
         verify(
           () => sessionService.connect(
@@ -2210,6 +2214,7 @@ void main() {
           (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
+            pairingRequired: true,
           ),
         );
         int callCount = 0;
@@ -2247,6 +2252,7 @@ void main() {
         expect(result.trustState, DovahLinkTrustState.unpaired);
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
+        expect(updatedState?.knownHosts.values.single.pairingRequired, isTrue);
         expect(updatedState?.pendingPairingRecovery, isNull);
         verify(
           () => sessionService.connect(
@@ -2264,6 +2270,7 @@ void main() {
           (_) async => Fixtures.buildPersistedClientState(
             clientId: 'client-1',
             credential: 'stale-cred',
+            pairingRequired: true,
           ),
         );
         int callCount = 0;
@@ -2301,6 +2308,7 @@ void main() {
         expect(result.trustState, DovahLinkTrustState.unpaired);
         verify(() => storage.updateState(any())).called(1);
         expect(updatedState?.knownHosts.values.single.credential, isNull);
+        expect(updatedState?.knownHosts.values.single.pairingRequired, isFalse);
         expect(updatedState?.pendingPairingRecovery, isNull);
         verify(
           () => sessionService.connect(
@@ -2360,7 +2368,7 @@ void main() {
 
   group('Method forgetCredential behaves correctly', () {
     test(
-      'Method forgetCredential removes only the named Host credential',
+      'Method forgetCredential removes only the named Host credential and preserves another Host recovery',
       () async {
         const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
         const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
@@ -2371,19 +2379,34 @@ void main() {
               hostAId: PersistedKnownHost(
                 host: Fixtures.buildDovahLinkHost(hostId: hostAId),
                 credential: 'credential-a',
+                pairingRequired: true,
               ),
               hostBId: PersistedKnownHost(
                 host: Fixtures.buildDovahLinkHost(hostId: hostBId),
                 credential: 'credential-b',
+                pairingRequired: true,
               ),
             },
+            pendingPairingRecovery: const PendingPairingRecovery(
+              hostId: hostBId,
+              state: PairingRecoveryState.confirming,
+            ),
           ),
         );
 
         await service.forgetCredential(DovahLinkHostId(hostAId));
 
         expect(updatedState?.knownHosts[hostAId]?.credential, isNull);
+        expect(updatedState?.knownHosts[hostAId]?.pairingRequired, isFalse);
         expect(updatedState?.knownHosts[hostBId]?.credential, 'credential-b');
+        expect(updatedState?.knownHosts[hostBId]?.pairingRequired, isTrue);
+        expect(
+          updatedState?.pendingPairingRecovery,
+          const PendingPairingRecovery(
+            hostId: hostBId,
+            state: PairingRecoveryState.confirming,
+          ),
+        );
         expect(updatedState?.knownHosts.length, 2);
       },
     );
@@ -2403,6 +2426,7 @@ void main() {
               knownHost.hostId: PersistedKnownHost(
                 host: knownHost,
                 credential: 'cred',
+                pairingRequired: true,
               ),
             },
             pendingPairingRecovery: PendingPairingRecovery(

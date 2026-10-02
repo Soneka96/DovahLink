@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
@@ -32,6 +33,9 @@ abstract interface class ISessionService {
 
   /// The selected Known Host relationship and its admitted session phase.
   Stream<KnownHostSessionSnapshot> get knownHostSessionChanges;
+
+  /// Emits each administrative invalidation with its exact Known Host and reason.
+  Stream<DovahLinkKnownHostInvalidation> get knownHostInvalidations;
 
   /// The server-issued session identifier of the current session, or `null` before one is
   /// admitted.
@@ -197,6 +201,11 @@ class SessionService implements ISessionService {
   @override
   Stream<KnownHostSessionSnapshot> get knownHostSessionChanges =>
       _state.knownHostSessionChanges;
+
+  /// Implements [ISessionService.knownHostInvalidations].
+  @override
+  Stream<DovahLinkKnownHostInvalidation> get knownHostInvalidations =>
+      _state.knownHostInvalidations;
 
   /// Implements [ISessionService.currentSessionId].
   @override

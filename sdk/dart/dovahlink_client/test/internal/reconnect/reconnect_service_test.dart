@@ -39,6 +39,9 @@ const List<Duration> _shortDelays = <Duration>[
 ];
 
 final Uri _uri = Uri.parse('ws://127.0.0.1:58231/');
+final DovahLinkHostId _knownHostId = DovahLinkHostId(
+  '81869993-955c-4ba3-a7d0-d35ca86078ea',
+);
 
 /// Runs reconnect-service behavior tests.
 void main() {
@@ -73,7 +76,10 @@ void main() {
       ),
     ).thenAnswer((_) async {});
     when(
-      () => authenticationService.forgetLastKnownCredential(),
+      () => authenticationService.forgetCredential(
+        any(),
+        pairingRequired: any(named: 'pairingRequired'),
+      ),
     ).thenAnswer((_) async {});
     when(
       () => hostAvailabilityService.setAvailability(any(), any()),
@@ -697,7 +703,12 @@ void main() {
 
         verify(() => sessionService.connect(_uri)).called(1);
         verify(() => authenticationService.helloLastKnownHost()).called(1);
-        verifyNever(() => authenticationService.forgetLastKnownCredential());
+        verifyNever(
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: true,
+          ),
+        );
         verifyNever(
           () => sessionService.disconnect(
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
@@ -875,7 +886,12 @@ void main() {
 
         verify(() => sessionService.connect(_uri)).called(1);
         verify(() => authenticationService.helloLastKnownHost()).called(1);
-        verifyNever(() => authenticationService.forgetLastKnownCredential());
+        verifyNever(
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: true,
+          ),
+        );
         final Exception reason =
             verify(
                   () => sessionService.disconnect(
@@ -971,11 +987,14 @@ void main() {
         );
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, _knownHostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(
-          () => authenticationService.forgetLastKnownCredential(),
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: true,
+          ),
         ).called(1);
       },
     );
@@ -993,11 +1012,14 @@ void main() {
         );
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, _knownHostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(
-          () => authenticationService.forgetLastKnownCredential(),
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: false,
+          ),
         ).called(1);
       },
     );
@@ -1015,11 +1037,14 @@ void main() {
         );
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, _knownHostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verify(
-          () => authenticationService.forgetLastKnownCredential(),
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: true,
+          ),
         ).called(1);
       },
     );
@@ -1037,10 +1062,15 @@ void main() {
         );
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, _knownHostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
-        verifyNever(() => authenticationService.forgetLastKnownCredential());
+        verifyNever(
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: true,
+          ),
+        );
       },
     );
 
@@ -1057,11 +1087,14 @@ void main() {
         );
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, _knownHostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verifyInOrder([
-          () => authenticationService.forgetLastKnownCredential(),
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: true,
+          ),
           () => sessionService.disconnect(
             orphanRetrySafeOperations: false,
             reason: any(named: 'reason'),
@@ -1081,15 +1114,21 @@ void main() {
           ),
         );
         when(
-          () => authenticationService.forgetLastKnownCredential(),
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: true,
+          ),
         ).thenThrow(const DovahLinkStorageException('storage unavailable'));
         final ReconnectService service = buildService();
 
-        service.onOrdinaryTransportLoss(_uri);
+        service.onOrdinaryTransportLoss(_uri, _knownHostId);
         await Future<void>.delayed(const Duration(milliseconds: 50));
 
         verifyInOrder([
-          () => authenticationService.forgetLastKnownCredential(),
+          () => authenticationService.forgetCredential(
+            _knownHostId,
+            pairingRequired: true,
+          ),
           () => sessionService.disconnect(
             orphanRetrySafeOperations: false,
             reason: any(named: 'reason'),

@@ -12,20 +12,27 @@ resource/cache metadata, cache-format version, and SDK persistence-format versio
 App-owned persistence includes product/UI preferences such as preferred Host selection, dashboard
 layout, map zoom, selected marker, and UI filters.
 
-Administrative invalidation reasons are not persisted as authoritative trust state: `blocked`,
-`revoked`, `trustReset`, and `factoryReset` may be exposed in the current SDK lifecycle state but
-must be re-established from the Host after an application restart. When an authoritative device
-credential invalidation is received, the SDK removes that Host's obsolete local credential while
-preserving the stable local `clientId` and Known Host metadata; a Factory Reset ending a developer-token session
-does not delete the configured developer token.
+Administrative invalidation reasons are not persisted as authoritative trust state. Known Host
+recovery presentation uses only a per-Host `pairingRequired` hint after a Host-reported
+`revoked`/`unrecognized` credential rejection or an administrative
+`revoked`/`trust_reset`/`factory_reset` event for an admitted Known Host session. The implementation
+does not persist the reason, set the hint for `blocked`, or retain an existing hint when the Host
+reports `blocked`. This is last-known UI guidance, not a statement of current trust; an offline Host
+can make it stale. Selecting the action must run normal SDK authentication and pairing, and the
+Host's current response remains authoritative. Clear the hint after trusted Known Host
+authentication, successful pairing, or forgetting the Host. An administrative invalidation ending a
+developer-token session must not set a Known Host hint or delete the configured developer token.
+The v4 format stores the hint and migrates v3 Known Hosts while preserving `clientId`, credentials,
+endpoint metadata, and pending pairing recovery.
 
-Each Known Host relationship stores `hostId`, last-known `hostName`, last-known `endpoint`, and the
-current bearer credential issued by that Host. `hostId` is identity; name and endpoint are mutable
-metadata. This record is not authoritative trust state: the Host establishes current trust on every
-session, and no trusted/connected/offline/blocked/revoked status is persisted. A discovery claim or
-unpaired `hello_ack` alone never writes Known Host metadata. Successful code confirmation atomically
-adds or updates only the issuing Host's relationship and records `confirming` recovery with that
-Host ID. A second Host's pairing preserves earlier relationships and credentials. If final
+Each Known Host relationship currently stores `hostId`, last-known `hostName`, last-known `endpoint`,
+the current bearer credential issued by that Host, and its `pairingRequired` hint. `hostId` is
+identity; name and endpoint are mutable metadata. The hint is not authoritative trust state: the Host
+establishes current trust on every session, and no trusted/connected/offline/blocked/revoked status
+is persisted. A discovery claim or unpaired `hello_ack` alone never writes Known Host metadata or
+sets the hint. Successful code confirmation atomically adds or updates only the issuing Host's
+relationship, clears the hint, and records `confirming` recovery with that Host ID. A second Host's
+pairing preserves earlier relationships and credentials. If final
 `pairing_ack` reports `pending_not_found` or `pairing_invalidated`, the SDK removes that Host's
 incomplete credential and recovery state but keeps its Known Host metadata. A trusted Known Host
 session refreshes only the matching record's name and endpoint. During pending recovery, another
@@ -78,14 +85,16 @@ operation throws `UnsupportedError`. No plaintext or in-memory credential fallba
 Persisted SDK formats are versioned. The SDK that owns a persistent format owns its migrations; the
 official application must never need to understand or migrate the SDK's private persistence schema.
 
-`PersistedClientState.currentFormatVersion` is the concrete version field this section describes for
-SDK client state. Version 3 stores Host relationships by Host ID and an optional Host-owned pending
-pairing recovery record. Versions 1 and 2 contain a global bearer credential whose Host owner cannot
-be established as a cryptographic identity; because these are unreleased development formats, the
-SDK preserves the stable `clientId` and invalidates their Host metadata, credentials, and recovery
-state. The user must pair again. The SDK does not fabricate a Host from an endpoint, computer name,
-or discovery result. Unknown future versions and malformed v3 Host objects throw
-`DovahLinkStorageException`.
+`PersistedClientState.currentFormatVersion` is 4, the current SDK client-state format. Version 4
+stores Host relationships by Host ID, an optional Host-owned pending pairing recovery record, and
+the `pairingRequired` hint. Version 3 is migration input to version 4: migration preserves the
+stable `clientId`, every Known Host and its metadata, credentials, and pending pairing recovery;
+the new `pairingRequired` hint defaults to `false`. Versions 1 and 2 contain a global bearer
+credential whose Host owner cannot be established as a cryptographic identity; because these are
+unreleased development formats, the SDK preserves the stable `clientId` and invalidates their Host
+metadata, credentials, and recovery state. The user must pair again. The SDK does not fabricate a
+Host from an endpoint, computer name, or discovery result. Unknown future versions and malformed v3
+or v4 Host objects throw `DovahLinkStorageException`.
 
 ## Cache ownership
 

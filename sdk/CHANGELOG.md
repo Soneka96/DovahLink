@@ -22,18 +22,21 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The SDK exposes the shared Host presence probe for local discovery and Known Host reachability.
 - `client.pairing.discoverHosts()` and `client.pairing.candidates` expose SDK-reconciled, runtime-only candidates.
 - `DovahLinkKnownHostState` exposes the exact Known Host session lifecycle separately from reachability.
+- `DovahLinkKnownHostState.pairingRequired` projects the persisted last-known recovery hint without granting trust.
 - `DovahLinkClient.close()` stops background presence monitoring and releases SDK-owned subscriptions.
 - DovahLinkConnectionException preserves an HTTP status when a peer rejects the metadata probe.
 
 ### Changed
 
+- SDK client state v4 migrates v3 Known Hosts and defaults their new repair hint to false.
+- Known Host invalidation events carry the exact Host ID and administrative reason together for
+  credential cleanup and SDK consumers.
 - `DovahLinkClient.close()` permanently closes the session lifecycle, so later connection or pairing authentication cannot reconnect.
 - The grouped pairing API now authenticates with the selected target, recovers pending confirmation,
   and completes code confirmation plus credential acknowledgement as SDK-owned operations.
 - Initial candidate and Known Host connection failures now retry in the SDK every three seconds, independently from bounded established-session recovery; the previous Offline presentation is preserved.
 - Discovery reconciles claims with committed Known Hosts by normalized Host ID; candidates are never persisted.
 - Pairing credentials no longer leave the SDK API, and candidate authentication never selects a Known Host credential.
-- Persisted client state moves to format 3; unreleased singleton bearer state requires pairing again.
 - The Dart SDK exposes Host-reported pairing cooldowns and remaining wrong-code attempts as typed metadata.
 - Windows DPAPI storage is available through a Windows-specific entry point, while the shared SDK entry point stays platform-neutral.
 

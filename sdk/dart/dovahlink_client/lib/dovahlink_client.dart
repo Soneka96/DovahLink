@@ -16,6 +16,8 @@ export 'src/dovahlink_host.dart' show DovahLinkHost;
 export 'src/dovahlink_host_id.dart' show DovahLinkHostId;
 export 'src/dovahlink_hosts.dart' show IDovahLinkHosts;
 export 'src/dovahlink_known_host_state.dart' show DovahLinkKnownHostState;
+export 'src/dovahlink_known_host_invalidation.dart'
+    show DovahLinkKnownHostInvalidation;
 export 'src/dovahlink_known_host_not_found_exception.dart'
     show DovahLinkKnownHostNotFoundException;
 export 'src/dovahlink_host_identity_mismatch_exception.dart'

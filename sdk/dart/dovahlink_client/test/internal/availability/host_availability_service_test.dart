@@ -22,12 +22,25 @@ void main() {
   const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
   const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
   late MockClientStateService clientStateService;
-  late StreamController<List<DovahLinkHost>> knownHostsController;
+  late StreamController<List<PersistedKnownHost>> knownHostsController;
   late HostAvailabilityService service;
+
+  void emitKnownHosts(
+    List<DovahLinkHost> hosts, {
+    bool pairingRequired = false,
+  }) => knownHostsController.add(
+    hosts
+        .map(
+          (DovahLinkHost host) =>
+              PersistedKnownHost(host: host, pairingRequired: pairingRequired),
+        )
+        .toList(growable: false),
+  );
 
   setUp(() {
     clientStateService = MockClientStateService();
-    knownHostsController = StreamController<List<DovahLinkHost>>.broadcast();
+    knownHostsController =
+        StreamController<List<PersistedKnownHost>>.broadcast();
     when(
       () => clientStateService.knownHostsChanges,
     ).thenAnswer((_) => knownHostsController.stream);
@@ -41,6 +54,31 @@ void main() {
 
   group('Property knownHostStatesChanges behaves correctly', () {
     test(
+      'Property knownHostStatesChanges projects persisted repair hints',
+      () async {
+        final DovahLinkHost host = Fixtures.buildDovahLinkHost(hostId: hostAId);
+        final List<List<DovahLinkKnownHostState>> snapshots = [];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            service.knownHostStatesChanges.listen(snapshots.add);
+        emitKnownHosts(<DovahLinkHost>[host], pairingRequired: true);
+        await Future<void>.delayed(Duration.zero);
+
+        service.setAvailability(
+          DovahLinkHostId(hostAId),
+          DovahLinkHostAvailability.offline,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(snapshots.last.single.pairingRequired, isTrue);
+        expect(
+          snapshots.last.single.availability,
+          DovahLinkHostAvailability.offline,
+        );
+        await subscription.cancel();
+      },
+    );
+
+    test(
       'Property knownHostStatesChanges projects session state only onto its exact Known Host',
       () async {
         final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
@@ -52,7 +90,7 @@ void main() {
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
             service.knownHostStatesChanges.listen(snapshots.add);
-        knownHostsController.add(<DovahLinkHost>[hostA, hostB]);
+        emitKnownHosts(<DovahLinkHost>[hostA, hostB]);
         await Future<void>.delayed(Duration.zero);
 
         service.setSessionState(
@@ -98,7 +136,7 @@ void main() {
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
             service.knownHostStatesChanges.listen(snapshots.add);
-        knownHostsController.add(<DovahLinkHost>[hostA, hostB]);
+        emitKnownHosts(<DovahLinkHost>[hostA, hostB]);
         await Future<void>.delayed(Duration.zero);
 
         expect(snapshots, <List<DovahLinkKnownHostState>>[
@@ -128,7 +166,7 @@ void main() {
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
             service.knownHostStatesChanges.listen(snapshots.add);
-        knownHostsController.add(<DovahLinkHost>[hostA, hostB]);
+        emitKnownHosts(<DovahLinkHost>[hostA, hostB]);
         await Future<void>.delayed(Duration.zero);
 
         service.setAvailability(
@@ -207,7 +245,7 @@ void main() {
 
         expect(snapshots, isEmpty);
         expect(errors, <Object>[failure]);
-        knownHostsController.add(<DovahLinkHost>[
+        emitKnownHosts(<DovahLinkHost>[
           Fixtures.buildDovahLinkHost(hostId: hostAId),
         ]);
         await Future<void>.delayed(Duration.zero);
@@ -254,7 +292,7 @@ void main() {
         final StreamSubscription<List<DovahLinkKnownHostState>> second = service
             .knownHostStatesChanges
             .listen(secondSnapshots.add);
-        knownHostsController.add(<DovahLinkHost>[hostA]);
+        emitKnownHosts(<DovahLinkHost>[hostA]);
         await Future<void>.delayed(Duration.zero);
 
         service.setAvailability(
@@ -294,7 +332,7 @@ void main() {
         final List<List<DovahLinkKnownHostState>> snapshots = [];
         final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
             service.knownHostStatesChanges.listen(snapshots.add);
-        knownHostsController.add(<DovahLinkHost>[hostA]);
+        emitKnownHosts(<DovahLinkHost>[hostA]);
         await Future<void>.delayed(Duration.zero);
         service.setAvailability(
           DovahLinkHostId(hostAId),
@@ -302,11 +340,11 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
 
-        knownHostsController.add(<DovahLinkHost>[renamedHostA]);
+        emitKnownHosts(<DovahLinkHost>[renamedHostA]);
         await Future<void>.delayed(Duration.zero);
-        knownHostsController.add(const <DovahLinkHost>[]);
+        emitKnownHosts(const <DovahLinkHost>[]);
         await Future<void>.delayed(Duration.zero);
-        knownHostsController.add(<DovahLinkHost>[renamedHostA]);
+        emitKnownHosts(<DovahLinkHost>[renamedHostA]);
         await Future<void>.delayed(Duration.zero);
 
         expect(snapshots, <List<DovahLinkKnownHostState>>[
@@ -347,7 +385,7 @@ void main() {
               snapshots.add,
               onError: (Object error) => errors.add(error),
             );
-        knownHostsController.add(<DovahLinkHost>[hostA]);
+        emitKnownHosts(<DovahLinkHost>[hostA]);
         await Future<void>.delayed(Duration.zero);
         final StateError failure = StateError('storage read failed');
         knownHostsController.addError(failure, StackTrace.current);
@@ -359,7 +397,7 @@ void main() {
             Fixtures.buildDovahLinkKnownHostState(host: hostA),
           ],
         ]);
-        knownHostsController.add(<DovahLinkHost>[hostA]);
+        emitKnownHosts(<DovahLinkHost>[hostA]);
         await Future<void>.delayed(Duration.zero);
 
         expect(snapshots, <List<DovahLinkKnownHostState>>[

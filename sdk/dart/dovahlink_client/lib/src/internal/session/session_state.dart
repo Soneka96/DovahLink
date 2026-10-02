@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -45,6 +46,11 @@ class SessionState {
         state: DovahLinkKnownHostSessionState.disconnected,
       ));
 
+  /// Broadcasts each immutable administrative invalidation for a Known Host session.
+  final StreamController<DovahLinkKnownHostInvalidation>
+  _knownHostInvalidationsController =
+      StreamController<DovahLinkKnownHostInvalidation>.broadcast();
+
   /// The server-issued session identifier, or `null` before [admit] is called.
   String? _sessionId;
 
@@ -86,6 +92,10 @@ class SessionState {
   /// whenever either changes.
   Stream<KnownHostSessionSnapshot> get knownHostSessionChanges =>
       _knownHostSessionChanges.stream;
+
+  /// Emits each Known Host's invalidation with its reason captured in one value.
+  Stream<DovahLinkKnownHostInvalidation> get knownHostInvalidations =>
+      _knownHostInvalidationsController.stream;
 
   /// The server-issued session identifier of the current session, or `null` before one is
   /// admitted.
@@ -267,12 +277,24 @@ class SessionState {
     _currentHost = null;
     _knownHostId = null;
     _connectionGeneration++;
+    if (invalidatedHostId != null) {
+      _knownHostInvalidationsController.add(
+        DovahLinkKnownHostInvalidation(
+          hostId: invalidatedHostId,
+          reason: reason,
+        ),
+      );
+    }
     _connectionStateStream.update(_connectionState);
     _knownHostSessionChanges.update((
       hostId: invalidatedHostId,
       state: DovahLinkKnownHostSessionState.disconnected,
     ));
   }
+
+  /// Closes the discrete invalidation event stream when its owning client shuts down.
+  /// @return A future completing after the event stream closes.
+  Future<void> close() => _knownHostInvalidationsController.close();
 
   /// Advances the connection generation so callbacks from an older connection become stale.
   void bumpGeneration() {

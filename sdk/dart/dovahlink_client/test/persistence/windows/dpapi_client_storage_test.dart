@@ -64,6 +64,7 @@ void main() {
                 endpoint: Uri.parse('ws://127.0.0.1:58231/'),
               ),
               credential: 'credential-a',
+              pairingRequired: true,
             ),
             '81f6cc90-3a88-40c7-8351-104d4a36c971': PersistedKnownHost(
               host: DovahLinkHost(
@@ -89,17 +90,19 @@ void main() {
             jsonDecode(utf8.decode(decrypted)) as Map<String, dynamic>;
 
         expect(loaded, saved);
-        expect(json['formatVersion'], 3);
+        expect(json['formatVersion'], 4);
         expect(json['knownHosts'], <String, dynamic>{
           '81869993-955c-4ba3-a7d0-d35ca86078ea': <String, dynamic>{
             'hostName': 'GONCALO-DESKTOP',
             'endpoint': 'ws://127.0.0.1:58231/',
             'credential': 'credential-a',
+            'pairingRequired': true,
           },
           '81f6cc90-3a88-40c7-8351-104d4a36c971': <String, dynamic>{
             'hostName': 'HOST-B',
             'endpoint': 'ws://127.0.0.1:58232/',
             'credential': 'credential-b',
+            'pairingRequired': false,
           },
         });
         expect(json['pendingPairingRecovery'], <String, dynamic>{
@@ -110,7 +113,7 @@ void main() {
     );
 
     test(
-      'Method load invalidates v1 singleton credentials and writes v3 on save',
+      'Method load invalidates v1 singleton credentials and writes v4 on save',
       () async {
         final Uint8List encrypted = Dpapi.protect(
           Uint8List.fromList(
@@ -138,12 +141,94 @@ void main() {
         final Map<String, dynamic> json =
             jsonDecode(utf8.decode(migrated)) as Map<String, dynamic>;
 
-        expect(json['formatVersion'], 3);
+        expect(json['formatVersion'], 4);
         expect(json['clientId'], 'client-1');
         expect(json['knownHosts'], isEmpty);
         expect(json['pendingPairingRecovery'], isNull);
       },
     );
+
+    test('Method load migrates v3 state to v4 on the next save', () async {
+      final Uint8List encrypted = Dpapi.protect(
+        Uint8List.fromList(
+          utf8.encode(
+            jsonEncode(<String, dynamic>{
+              'formatVersion': 3,
+              'clientId': 'client-1',
+              'knownHosts': <String, dynamic>{
+                '81869993-955c-4ba3-a7d0-d35ca86078ea': <String, dynamic>{
+                  'hostName': 'HOST-A',
+                  'endpoint': 'ws://127.0.0.1:58231/',
+                  'credential': 'credential-a',
+                  'pairingRequired': true,
+                },
+              },
+              'pendingPairingRecovery': <String, dynamic>{
+                'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+                'state': 'confirming',
+              },
+            }),
+          ),
+        ),
+      );
+      await File(filePath).writeAsBytes(encrypted);
+
+      final PersistedClientState loaded = await storage.load();
+      expect(loaded.clientId, 'client-1');
+      expect(
+        loaded
+            .knownHosts['81869993-955c-4ba3-a7d0-d35ca86078ea']
+            ?.host
+            .hostName,
+        'HOST-A',
+      );
+      expect(
+        loaded
+            .knownHosts['81869993-955c-4ba3-a7d0-d35ca86078ea']
+            ?.host
+            .endpoint,
+        Uri.parse('ws://127.0.0.1:58231/'),
+      );
+      expect(
+        loaded.knownHosts['81869993-955c-4ba3-a7d0-d35ca86078ea']?.credential,
+        'credential-a',
+      );
+      expect(
+        loaded
+            .knownHosts['81869993-955c-4ba3-a7d0-d35ca86078ea']
+            ?.pairingRequired,
+        isFalse,
+      );
+      expect(
+        loaded.pendingPairingRecovery?.hostId,
+        '81869993-955c-4ba3-a7d0-d35ca86078ea',
+      );
+
+      await storage.save(loaded);
+      final Uint8List migrated = Dpapi.unprotect(
+        await File(filePath).readAsBytes(),
+      );
+      final Map<String, dynamic> json =
+          jsonDecode(utf8.decode(migrated)) as Map<String, dynamic>;
+      final Map<String, dynamic> knownHosts =
+          json['knownHosts'] as Map<String, dynamic>;
+
+      expect(json['formatVersion'], 4);
+      expect(
+        (knownHosts['81869993-955c-4ba3-a7d0-d35ca86078ea']
+            as Map<String, dynamic>)['endpoint'],
+        'ws://127.0.0.1:58231/',
+      );
+      expect(
+        (knownHosts['81869993-955c-4ba3-a7d0-d35ca86078ea']
+            as Map<String, dynamic>)['pairingRequired'],
+        isFalse,
+      );
+      expect(json['pendingPairingRecovery'], <String, dynamic>{
+        'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+        'state': 'confirming',
+      });
+    });
 
     test('Method load rejects corrupt v3 Known Host data', () async {
       final Uint8List encrypted = Dpapi.protect(

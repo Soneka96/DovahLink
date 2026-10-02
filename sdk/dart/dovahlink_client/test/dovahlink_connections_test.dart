@@ -167,6 +167,22 @@ void main() {
     );
   });
 
+  group('Property knownHostInvalidations behaves correctly', () {
+    test(
+      'Property knownHostInvalidations exposes session invalidation events',
+      () {
+        const Stream<DovahLinkKnownHostInvalidation> changes =
+            Stream<DovahLinkKnownHostInvalidation>.empty();
+        when(
+          () => sessionService.knownHostInvalidations,
+        ).thenAnswer((_) => changes);
+
+        expect(identical(connections.knownHostInvalidations, changes), isTrue);
+        verify(() => sessionService.knownHostInvalidations).called(1);
+      },
+    );
+  });
+
   group('Property stateChanges behaves correctly', () {
     test('Property stateChanges exposes the session lifecycle stream', () {
       const Stream<DovahLinkConnectionState> changes =

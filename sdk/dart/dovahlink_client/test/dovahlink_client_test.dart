@@ -3856,6 +3856,87 @@ void main() {
       },
     );
 
+    test(
+      'Behavior session_invalidated handling emits its Known Host and reason together',
+      () async {
+        final List<DovahLinkKnownHostInvalidation> invalidations =
+            <DovahLinkKnownHostInvalidation>[];
+        final StreamSubscription<DovahLinkKnownHostInvalidation> subscription =
+            client.connections.knownHostInvalidations.listen(invalidations.add);
+        addTearDown(subscription.cancel);
+
+        await _connectAndTrustedHello(transport, client, storage);
+        transport.queueResponse(_rawSessionInvalidated('trust_reset'));
+        await pumpEventQueue();
+
+        expect(invalidations, hasLength(1));
+        expect(
+          invalidations.single.hostId,
+          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+        );
+        expect(
+          invalidations.single.reason,
+          AdministrativeInvalidationReason.trustReset,
+        );
+      },
+    );
+
+    test(
+      'Behavior session_invalidated handling cleans only the invalidated Host credential',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+        );
+        final DovahLinkHost hostB = Fixtures.buildDovahLinkHost(
+          hostId: hostBId,
+        );
+        final InMemoryClientStorage multiHostStorage = InMemoryClientStorage();
+        await multiHostStorage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: PersistedKnownHost(
+                host: hostA,
+                credential: 'credential-a',
+              ),
+              hostBId: PersistedKnownHost(
+                host: hostB,
+                credential: 'credential-b',
+              ),
+            },
+          ),
+        );
+        final FakeDovahLinkTransport multiHostTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient multiHostClient = buildDovahLinkClientForTesting(
+          transport: multiHostTransport,
+          storage: multiHostStorage,
+        );
+        addTearDown(multiHostClient.close);
+
+        multiHostTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        multiHostTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await multiHostClient.connections.connectKnownHost(
+          DovahLinkHostId(hostAId),
+        );
+        multiHostTransport.queueResponse(_rawSessionInvalidated('revoked'));
+        await pumpEventQueue();
+
+        final PersistedClientState stored = await multiHostStorage.load();
+        expect(stored.clientId, 'client-1');
+        expect(stored.knownHosts[hostAId]?.credential, isNull);
+        expect(stored.knownHosts[hostAId]?.pairingRequired, isTrue);
+        expect(stored.knownHosts[hostBId]?.credential, 'credential-b');
+        expect(stored.knownHosts[hostBId]?.pairingRequired, isFalse);
+      },
+    );
+
     test('Behavior session_invalidated handling is observable through '
         'connectionStateChanges without waiting for another request', () async {
       final List<DovahLinkConnectionState> observed =
@@ -3909,6 +3990,10 @@ void main() {
           final PersistedClientState stored = await storage.load();
           expect(stored.clientId, 'client-1');
           expect(stored.knownHosts.values.single.credential, isNull);
+          expect(
+            stored.knownHosts.values.single.pairingRequired,
+            entry.key != AdministrativeInvalidationReason.blocked,
+          );
           expect(stored.pendingPairingRecovery, isNull);
         },
       );
