@@ -7,6 +7,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -267,6 +268,18 @@ void main() {
         PairingCredentialRejectionReason.blocked,
       );
       expect(model.credentialRejectedMessage, 'Pairing is required again.');
+    });
+  });
+
+  group('Method buildPairingRenotifyResult behaves correctly', () {
+    test('Method buildPairingRenotifyResult preserves typed values', () {
+      final PairingRenotifyResult result = Fixtures.buildPairingRenotifyResult(
+        outcome: PairingRenotifyOutcome.cooldown,
+        retryAfterSeconds: 3,
+      );
+
+      expect(result.outcome, PairingRenotifyOutcome.cooldown);
+      expect(result.retryAfterSeconds, 3);
     });
   });
 

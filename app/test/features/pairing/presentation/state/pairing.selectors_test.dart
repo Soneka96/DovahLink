@@ -11,6 +11,9 @@ AppState buildPairingState({
   PairingPhase phase = PairingPhase.none,
   String? error,
   PairingCredentialRejectionReason? rejectionReason,
+  PairingFailureOutcome? pairingOutcome,
+  int? attemptsRemaining,
+  PairingRenotifyOutcome? renotifyOutcome,
 }) => AppState(
   connection: ConnectionState.initial(),
   pairing: PairingState(
@@ -18,6 +21,9 @@ AppState buildPairingState({
     hostVersion: null,
     error: error,
     credentialRejectionReason: rejectionReason,
+    pairingOutcome: pairingOutcome,
+    attemptsRemaining: attemptsRemaining,
+    renotifyOutcome: renotifyOutcome,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
   ),
@@ -40,6 +46,32 @@ void main() {
 
       expect(PairingSelectors.phaseSelector(state), PairingPhase.awaitingCode);
       expect(PairingSelectors.statusLabelSelector(state), 'Awaiting code');
+    });
+
+    test('selects typed pairing outcome and Host remaining attempts', () {
+      final AppState state = buildPairingState(
+        phase: PairingPhase.awaitingCode,
+        pairingOutcome: PairingFailureOutcome.invalid,
+        attemptsRemaining: 2,
+      );
+
+      expect(
+        PairingSelectors.pairingOutcomeSelector(state),
+        PairingFailureOutcome.invalid,
+      );
+      expect(PairingSelectors.attemptsRemainingSelector(state), 2);
+    });
+
+    test('selects the typed redisplay outcome', () {
+      final AppState state = buildPairingState(
+        phase: PairingPhase.awaitingCode,
+        renotifyOutcome: PairingRenotifyOutcome.renotified,
+      );
+
+      expect(
+        PairingSelectors.renotifyOutcomeSelector(state),
+        PairingRenotifyOutcome.renotified,
+      );
     });
 
     test('selects host version and error values from AppState', () {

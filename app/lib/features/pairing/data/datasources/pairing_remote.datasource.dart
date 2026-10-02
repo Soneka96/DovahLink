@@ -1,7 +1,11 @@
-import 'package:dovahlink_client_sdk/dovahlink_client.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    hide PairingRenotifyResult;
+
 import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
+import 'package:dovahlink_client/features/pairing/pairing_failure.mapper.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
@@ -30,7 +34,7 @@ abstract interface class IPairingRemoteDataSource {
   /// Requests redisplay of the active pairing code in Skyrim.
   /// Returns Host-reported retry seconds, including the cooldown that starts after
   /// successful redisplay.
-  Future<Either<Failure, int?>> requestPairingRenotify();
+  Future<Either<Failure, PairingRenotifyResult>> requestPairingRenotify();
 
   /// Cancels the owned active pairing challenge or pending credential.
   Future<Either<Failure, Unit>> cancelPairing();
@@ -86,7 +90,13 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     } on DovahLinkProtocolException {
       return const Left(_unexpectedPairingFailure);
     } on DovahLinkPairingException catch (error) {
-      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+      return Left(
+        PairingFailureMapper.fromSdkException(
+              error,
+              fallbackMessage: _unexpectedPairingFailure.message,
+            ) ??
+            _unexpectedPairingFailure,
+      );
     } on DovahLinkStorageException catch (error) {
       return Left(DatabaseFailure(error.message));
     } on Object {
@@ -143,16 +153,14 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     } on DovahLinkProtocolException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkPairingException catch (error) {
-      final String message = _pairingOutcomeMessage(error.outcome);
-      // Only a wrong code or a too-soon retry are retriable against the same still-active
-      // challenge: everything else (expired, hard_limit_reached, pending_not_found) ends the
-      // flow: a short-of-hard-limit wrong code stays on awaitingCode instead of bouncing to
-      // failed, while hard_limit_reached follows the existing PairingFailedAction path.
-      if (error.outcome == PairingOutcome.invalid ||
-          error.outcome == PairingOutcome.pacingLimited) {
-        return Left(PairingRetriableFailure(message));
-      }
-      return Left(PairingFailure(message));
+      return Left(
+        PairingFailureMapper.fromSdkException(
+              error,
+              fallbackMessage: _unexpectedPairingFailure.message,
+              keepCodeEntry: true,
+            ) ??
+            _unexpectedPairingFailure,
+      );
     } on DovahLinkStorageException catch (error) {
       return Left(DatabaseFailure(error.message));
     } on Object {
@@ -173,43 +181,36 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     }
   }
 
-  /// Converts a `pairing_confirm`/`pairing_ack` outcome into a
-  /// user-safe message.
-  String _pairingOutcomeMessage(PairingOutcome outcome) => switch (outcome) {
-    PairingOutcome.expired =>
-      'That pairing code has expired. Request a new one.',
-    PairingOutcome.invalid =>
-      "That code isn't correct. Check Skyrim and try again.",
-    PairingOutcome.pacingLimited => 'Slow down a little, then try again.',
-    PairingOutcome.hardLimitReached =>
-      'Too many wrong attempts. Request a new pairing code.',
-    PairingOutcome.pendingNotFound =>
-      'This pairing attempt is no longer recognized. Request a new code.',
-    _ => 'Pairing could not be completed. Please try again.',
-  };
-
   /// See [IPairingRemoteDataSource.requestPairingRenotify].
   @override
-  Future<Either<Failure, int?>> requestPairingRenotify() async {
+  Future<Either<Failure, PairingRenotifyResult>>
+  requestPairingRenotify() async {
     try {
       final renotifyResult = await _client.pairing.renotify();
-      return switch (renotifyResult.status) {
-        PairingRenotifyStatus.renotified => Right(
-          renotifyResult.retryAfterSeconds,
+      return Right(
+        PairingRenotifyResult(
+          outcome: switch (renotifyResult.status) {
+            PairingRenotifyStatus.renotified =>
+              PairingRenotifyOutcome.renotified,
+            PairingRenotifyStatus.cooldown => PairingRenotifyOutcome.cooldown,
+            PairingRenotifyStatus.alreadyIdle =>
+              PairingRenotifyOutcome.alreadyIdle,
+          },
+          retryAfterSeconds: renotifyResult.retryAfterSeconds,
         ),
-        PairingRenotifyStatus.cooldown => Right(
-          renotifyResult.retryAfterSeconds,
-        ),
-        PairingRenotifyStatus.alreadyIdle => const Left(
-          PairingFailure('No pairing is currently active.'),
-        ),
-      };
+      );
     } on DovahLinkConnectionException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkProtocolException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkPairingException catch (error) {
-      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+      return Left(
+        PairingFailureMapper.fromSdkException(
+              error,
+              fallbackMessage: _unexpectedPairingFailure.message,
+            ) ??
+            _unexpectedPairingFailure,
+      );
     } on Object {
       return const Left(_unexpectedPairingFailure);
     }
@@ -229,7 +230,13 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
     } on DovahLinkProtocolException catch (error) {
       return Left(NetworkFailure(error.message));
     } on DovahLinkPairingException catch (error) {
-      return Left(PairingFailure(_pairingOutcomeMessage(error.outcome)));
+      return Left(
+        PairingFailureMapper.fromSdkException(
+              error,
+              fallbackMessage: _unexpectedPairingFailure.message,
+            ) ??
+            _unexpectedPairingFailure,
+      );
     } on DovahLinkStorageException catch (error) {
       return Left(DatabaseFailure(error.message));
     } on Object {

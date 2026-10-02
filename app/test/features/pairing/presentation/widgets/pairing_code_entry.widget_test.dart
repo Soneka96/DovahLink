@@ -53,14 +53,10 @@ void main() {
     when(() => cancelViewModel.onPressed).thenReturn(() {});
     when(() => countdownViewModel.remainingSeconds).thenReturn(272);
     when(() => renotifyViewModel.isAvailable).thenReturn(true);
+    when(() => renotifyViewModel.isPending).thenReturn(false);
     when(() => renotifyViewModel.cooldownSeconds).thenReturn(null);
+    when(() => renotifyViewModel.outcome).thenReturn(null);
     when(() => renotifyViewModel.onPressed).thenReturn(() {});
-    when(
-      () => renotifyViewModel.displayLabel(
-        label: any(named: 'label'),
-        cooldownLabel: any(named: 'cooldownLabel'),
-      ),
-    ).thenReturn('Send Code Again');
     sl.registerFactoryParam<
       PairingCancelButtonViewModel,
       Store<AppState>,
@@ -83,6 +79,8 @@ void main() {
   Future<void> pumpEntry(
     WidgetTester tester, {
     String? message,
+    PairingFailureOutcome? failureOutcome,
+    int? attemptsRemaining,
     List<String>? submissions,
     DovahThemePreset preset = DovahThemePreset.dovah,
     Size size = const Size(900, 560),
@@ -97,6 +95,8 @@ void main() {
             body: PairingCodeEntry(
               hostName: 'Bedroom PC',
               message: message,
+              failureOutcome: failureOutcome,
+              attemptsRemaining: attemptsRemaining,
               onSubmit: (String code) => submissions?.add(code),
             ),
           ),
@@ -154,6 +154,24 @@ void main() {
 
       expect(find.text('That code is not correct.'), findsOneWidget);
     });
+
+    testWidgets(
+      'PairingCodeEntry renders wrong-code copy and remaining attempts from typed state',
+      (WidgetTester tester) async {
+        await pumpEntry(
+          tester,
+          failureOutcome: PairingFailureOutcome.invalid,
+          attemptsRemaining: 2,
+        );
+
+        expect(
+          find.text(
+            "That code isn't correct. Check Skyrim and try again. 2 attempts remaining.",
+          ),
+          findsOneWidget,
+        );
+      },
+    );
   });
 
   group('PairingCodeEntry contains widgets', () {

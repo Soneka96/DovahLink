@@ -11,6 +11,9 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 import '../../../../fixtures/fixtures.dart';
 
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart'
+    as app;
+
 /// Mocks the wrapped SDK client for [PairingRemoteDataSource] tests.
 class MockDovahLinkClient extends Mock implements DovahLinkClient {}
 
@@ -256,7 +259,8 @@ void main() {
           result,
           const Left<Failure, PairingHandshakeModel>(
             PairingFailure(
-              'This pairing attempt is no longer recognized. Request a new code.',
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.pendingNotFound,
             ),
           ),
         );
@@ -450,7 +454,10 @@ void main() {
         expect(
           result,
           const Left<Failure, Unit>(
-            PairingFailure('That pairing code has expired. Request a new one.'),
+            PairingFailure(
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.expired,
+            ),
           ),
         );
       },
@@ -464,7 +471,12 @@ void main() {
             code: any(named: 'code'),
             displayName: any(named: 'displayName'),
           ),
-        ).thenThrow(const DovahLinkPairingException(PairingOutcome.invalid));
+        ).thenThrow(
+          const DovahLinkPairingException(
+            PairingOutcome.invalid,
+            attemptsRemaining: 2,
+          ),
+        );
 
         final Either<Failure, Unit> result = await dataSource
             .confirmPairingCode(code: '000000');
@@ -473,7 +485,9 @@ void main() {
           result,
           const Left<Failure, Unit>(
             PairingRetriableFailure(
-              "That code isn't correct. Check Skyrim and try again.",
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.invalid,
+              attemptsRemaining: 2,
             ),
           ),
         );
@@ -498,7 +512,10 @@ void main() {
         expect(
           result,
           const Left<Failure, Unit>(
-            PairingRetriableFailure('Slow down a little, then try again.'),
+            PairingRetriableFailure(
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.pacingLimited,
+            ),
           ),
         );
       },
@@ -523,7 +540,8 @@ void main() {
           result,
           const Left<Failure, Unit>(
             PairingFailure(
-              'Too many wrong attempts. Request a new pairing code.',
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.hardLimitReached,
             ),
           ),
         );
@@ -553,7 +571,35 @@ void main() {
           result,
           const Left<Failure, Unit>(
             PairingFailure(
-              'This pairing attempt is no longer recognized. Request a new code.',
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.pendingNotFound,
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method confirmPairingCode preserves the typed administrative invalidation outcome',
+      () async {
+        when(
+          () => mockPairing.confirmCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenThrow(
+          const DovahLinkPairingException(PairingOutcome.pairingInvalidated),
+        );
+
+        final Either<Failure, Unit> result = await dataSource
+            .confirmPairingCode(code: '123456');
+
+        expect(
+          result,
+          const Left<Failure, Unit>(
+            PairingFailure(
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.pairingInvalidated,
             ),
           ),
         );
@@ -699,10 +745,18 @@ void main() {
           ),
         );
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
-        expect(result, const Right<Failure, int?>(5));
+        expect(
+          result,
+          const Right<Failure, app.PairingRenotifyResult>(
+            app.PairingRenotifyResult(
+              outcome: PairingRenotifyOutcome.renotified,
+              retryAfterSeconds: 5,
+            ),
+          ),
+        );
       },
     );
 
@@ -716,15 +770,23 @@ void main() {
           ),
         );
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
-        expect(result, const Right<Failure, int?>(3));
+        expect(
+          result,
+          const Right<Failure, app.PairingRenotifyResult>(
+            app.PairingRenotifyResult(
+              outcome: PairingRenotifyOutcome.cooldown,
+              retryAfterSeconds: 3,
+            ),
+          ),
+        );
       },
     );
 
     test(
-      'Method requestPairingRenotify returns Left with PairingFailure when nothing is owned',
+      'Method requestPairingRenotify preserves the already-idle Host status',
       () async {
         when(() => mockPairing.renotify()).thenAnswer(
           (_) async => const PairingRenotifyResult(
@@ -732,13 +794,15 @@ void main() {
           ),
         );
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
         expect(
           result,
-          const Left<Failure, int?>(
-            PairingFailure('No pairing is currently active.'),
+          const Right<Failure, app.PairingRenotifyResult>(
+            app.PairingRenotifyResult(
+              outcome: PairingRenotifyOutcome.alreadyIdle,
+            ),
           ),
         );
       },
@@ -751,12 +815,14 @@ void main() {
           () => mockPairing.renotify(),
         ).thenThrow(const DovahLinkConnectionException('socket failed'));
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
         expect(
           result,
-          const Left<Failure, int?>(NetworkFailure('socket failed')),
+          const Left<Failure, app.PairingRenotifyResult>(
+            NetworkFailure('socket failed'),
+          ),
         );
       },
     );
@@ -772,10 +838,15 @@ void main() {
           ),
         );
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
-        expect(result, const Left<Failure, int?>(NetworkFailure('bad reply')));
+        expect(
+          result,
+          const Left<Failure, app.PairingRenotifyResult>(
+            NetworkFailure('bad reply'),
+          ),
+        );
       },
     );
 
@@ -786,33 +857,37 @@ void main() {
           () => mockPairing.renotify(),
         ).thenThrow(const DovahLinkPairingException(PairingOutcome.expired));
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
         expect(
           result,
-          const Left<Failure, int?>(
-            PairingFailure('That pairing code has expired. Request a new one.'),
+          const Left<Failure, app.PairingRenotifyResult>(
+            PairingFailure(
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.expired,
+            ),
           ),
         );
       },
     );
 
     test(
-      'Method requestPairingRenotify maps an invalid pairing outcome to a user-safe PairingFailure',
+      'Method requestPairingRenotify maps an invalid pairing outcome to a typed PairingFailure',
       () async {
         when(
           () => mockPairing.renotify(),
         ).thenThrow(const DovahLinkPairingException(PairingOutcome.invalid));
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
         expect(
           result,
-          const Left<Failure, int?>(
+          const Left<Failure, app.PairingRenotifyResult>(
             PairingFailure(
-              "That code isn't correct. Check Skyrim and try again.",
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.invalid,
             ),
           ),
         );
@@ -823,18 +898,18 @@ void main() {
       'Method requestPairingRenotify maps a pairing outcome outside the explicit message set to a generic PairingFailure',
       () async {
         // credentialIssued is a real PairingOutcome value, just never a valid reply to
-        // pairing_renotify -- exercises _pairingOutcomeMessage's defensive fallback arm the same
+        // pairing_renotify -- exercises the typed converter's defensive fallback arm the same
         // way an unrecognized wire value used to, before PairingOutcome became a closed enum.
         when(() => mockPairing.renotify()).thenThrow(
           const DovahLinkPairingException(PairingOutcome.credentialIssued),
         );
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
         expect(
           result,
-          const Left<Failure, int?>(
+          const Left<Failure, app.PairingRenotifyResult>(
             PairingFailure('Pairing could not be completed. Please try again.'),
           ),
         );
@@ -846,12 +921,12 @@ void main() {
       () async {
         when(() => mockPairing.renotify()).thenThrow(StateError('boom'));
 
-        final Either<Failure, int?> result = await dataSource
-            .requestPairingRenotify();
+        final Either<Failure, app.PairingRenotifyResult> result =
+            await dataSource.requestPairingRenotify();
 
         expect(
           result,
-          const Left<Failure, int?>(
+          const Left<Failure, app.PairingRenotifyResult>(
             PairingFailure('Pairing could not be completed. Please try again.'),
           ),
         );
@@ -934,7 +1009,10 @@ void main() {
         expect(
           result,
           const Left<Failure, Unit>(
-            PairingFailure('That pairing code has expired. Request a new one.'),
+            PairingFailure(
+              'Pairing could not be completed. Please try again.',
+              outcome: PairingFailureOutcome.expired,
+            ),
           ),
         );
       },

@@ -116,14 +116,24 @@ class PairingDisconnectedAction extends Equatable {
 /// Carries a user-safe pairing failure message.
 class PairingFailedAction extends Equatable {
   /// Creates a failed-state action.
-  const PairingFailedAction(this.message);
+  const PairingFailedAction(
+    this.message, {
+    this.pairingOutcome,
+    this.attemptsRemaining,
+  });
 
   /// A user-safe explanation of why pairing failed.
   final String message;
 
+  /// The typed Host outcome, or `null` for failures without a pairing outcome.
+  final PairingFailureOutcome? pairingOutcome;
+
+  /// Host-reported wrong-code attempts remaining, when available.
+  final int? attemptsRemaining;
+
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, pairingOutcome, attemptsRemaining];
 }
 
 /// Closes the pairing session and resets its state.
@@ -155,24 +165,37 @@ class PairingRenotifyRequestedAction extends Equatable {
 /// Marks the active pairing code as redisplayed in Skyrim.
 class PairingRenotifySucceededAction extends Equatable {
   /// Creates a renotify-success action.
-  const PairingRenotifySucceededAction();
+  const PairingRenotifySucceededAction({this.retryAfterSeconds});
+
+  /// Host-reported cooldown seconds after successful redisplay, when provided.
+  final int? retryAfterSeconds;
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [];
+  List<Object?> get props => [retryAfterSeconds];
 }
 
 /// Carries renotify cooldown information when redisplay was rejected.
 class PairingRenotifyCooldownAction extends Equatable {
   /// Creates a renotify-cooldown action.
-  const PairingRenotifyCooldownAction({required this.retryAfterSeconds});
+  const PairingRenotifyCooldownAction({this.retryAfterSeconds});
 
   /// The remaining cooldown in seconds before the next manual renotify.
-  final int retryAfterSeconds;
+  final int? retryAfterSeconds;
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [retryAfterSeconds];
+}
+
+/// Marks that the Host no longer owns an active pairing challenge.
+class PairingRenotifyAlreadyIdleAction extends Equatable {
+  /// Creates an already-idle renotify result action.
+  const PairingRenotifyAlreadyIdleAction();
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [];
 }
 
 /// Requests cancellation of the active pairing challenge or pending credential.
@@ -200,14 +223,22 @@ class PairingConfirmFailedWithAttemptsRemainingAction extends Equatable {
   /// Creates a failed-but-retriable code-submission action.
   const PairingConfirmFailedWithAttemptsRemainingAction({
     required this.message,
+    required this.pairingOutcome,
+    this.attemptsRemaining,
   });
 
   /// A user-safe explanation of why the code was rejected.
   final String message;
 
+  /// The Host's typed nonterminal rejection.
+  final PairingFailureOutcome pairingOutcome;
+
+  /// Host-reported wrong-code attempts remaining, when available.
+  final int? attemptsRemaining;
+
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [message];
+  List<Object?> get props => [message, pairingOutcome, attemptsRemaining];
 }
 
 /// Marks that a trusted pairing session now exists -- dispatched after a

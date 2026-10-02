@@ -7,6 +7,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
@@ -168,7 +169,15 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        store.dispatch(
+          PairingFailedAction(
+            failure.message,
+            pairingOutcome: failure is PairingFailure ? failure.outcome : null,
+            attemptsRemaining: failure is PairingFailure
+                ? failure.attemptsRemaining
+                : null,
+          ),
+        );
       },
       (PairingHandshake handshake) {
         store.dispatch(
@@ -202,15 +211,32 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        store.dispatch(
+          PairingFailedAction(
+            failure.message,
+            pairingOutcome: failure is PairingFailure ? failure.outcome : null,
+            attemptsRemaining: failure is PairingFailure
+                ? failure.attemptsRemaining
+                : null,
+          ),
+        );
       },
-      (int? cooldownSeconds) {
-        if (cooldownSeconds == null) {
-          store.dispatch(const PairingRenotifySucceededAction());
-        } else {
-          store.dispatch(
-            PairingRenotifyCooldownAction(retryAfterSeconds: cooldownSeconds),
-          );
+      (PairingRenotifyResult result) {
+        switch (result.outcome) {
+          case PairingRenotifyOutcome.renotified:
+            store.dispatch(
+              PairingRenotifySucceededAction(
+                retryAfterSeconds: result.retryAfterSeconds,
+              ),
+            );
+          case PairingRenotifyOutcome.cooldown:
+            store.dispatch(
+              PairingRenotifyCooldownAction(
+                retryAfterSeconds: result.retryAfterSeconds,
+              ),
+            );
+          case PairingRenotifyOutcome.alreadyIdle:
+            store.dispatch(const PairingRenotifyAlreadyIdleAction());
         }
       },
     );
@@ -231,7 +257,15 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        store.dispatch(
+          PairingFailedAction(
+            failure.message,
+            pairingOutcome: failure is PairingFailure ? failure.outcome : null,
+            attemptsRemaining: failure is PairingFailure
+                ? failure.attemptsRemaining
+                : null,
+          ),
+        );
       },
       (_) {
         if (pendingPairingHostId != null) {
@@ -262,7 +296,15 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     result.fold(
       (Failure failure) {
-        store.dispatch(PairingFailedAction(failure.message));
+        store.dispatch(
+          PairingFailedAction(
+            failure.message,
+            pairingOutcome: failure is PairingFailure ? failure.outcome : null,
+            attemptsRemaining: failure is PairingFailure
+                ? failure.attemptsRemaining
+                : null,
+          ),
+        );
       },
       (int? expiresInSeconds) {
         store.dispatch(
@@ -316,10 +358,22 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           store.dispatch(
             PairingConfirmFailedWithAttemptsRemainingAction(
               message: failure.message,
+              pairingOutcome: failure.outcome!,
+              attemptsRemaining: failure.attemptsRemaining,
             ),
           );
         } else {
-          store.dispatch(PairingFailedAction(failure.message));
+          store.dispatch(
+            PairingFailedAction(
+              failure.message,
+              pairingOutcome: failure is PairingFailure
+                  ? failure.outcome
+                  : null,
+              attemptsRemaining: failure is PairingFailure
+                  ? failure.attemptsRemaining
+                  : null,
+            ),
+          );
         }
       },
       (_) {

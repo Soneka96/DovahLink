@@ -10,6 +10,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
@@ -1210,12 +1211,14 @@ void main() {
       test(
         'PairingRenotifyRequestedAction suppresses late results after disposal',
         () async {
-          final Completer<Either<Failure, int?>> successfulRenotify =
-              Completer<Either<Failure, int?>>();
-          final Completer<Either<Failure, int?>> cooledDownRenotify =
-              Completer<Either<Failure, int?>>();
-          final Completer<Either<Failure, int?>> failedRenotify =
-              Completer<Either<Failure, int?>>();
+          final Completer<Either<Failure, PairingRenotifyResult>>
+          successfulRenotify =
+              Completer<Either<Failure, PairingRenotifyResult>>();
+          final Completer<Either<Failure, PairingRenotifyResult>>
+          cooledDownRenotify =
+              Completer<Either<Failure, PairingRenotifyResult>>();
+          final Completer<Either<Failure, PairingRenotifyResult>>
+          failedRenotify = Completer<Either<Failure, PairingRenotifyResult>>();
           final MockRequestPairingRenotifyUseCase mockRenotify =
               sl<RequestPairingRenotifyUseCase>()
                   as MockRequestPairingRenotifyUseCase;
@@ -1240,8 +1243,17 @@ void main() {
             next,
           );
           await pumpEventQueue();
-          successfulRenotify.complete(const Right(null));
-          cooledDownRenotify.complete(const Right(5));
+          successfulRenotify.complete(
+            Right(Fixtures.buildPairingRenotifyResult(retryAfterSeconds: 5)),
+          );
+          cooledDownRenotify.complete(
+            Right(
+              Fixtures.buildPairingRenotifyResult(
+                outcome: PairingRenotifyOutcome.cooldown,
+                retryAfterSeconds: 5,
+              ),
+            ),
+          );
           failedRenotify.complete(const Left(PairingFailure('no challenge')));
           await pumpEventQueue();
 
@@ -1423,6 +1435,8 @@ void main() {
       () async {
         const PairingRetriableFailure failure = PairingRetriableFailure(
           "That code isn't correct. Check Skyrim and try again.",
+          outcome: PairingFailureOutcome.invalid,
+          attemptsRemaining: 2,
         );
         when(
           () => mockConfirmPairingCode(
@@ -1442,6 +1456,8 @@ void main() {
           ConnectionCandidatePairingStartedAction(Fixtures.buildHost().hostId),
           const PairingConfirmFailedWithAttemptsRemainingAction(
             message: "That code isn't correct. Check Skyrim and try again.",
+            pairingOutcome: PairingFailureOutcome.invalid,
+            attemptsRemaining: 2,
           ),
         ]);
       },
@@ -1559,24 +1575,24 @@ void main() {
 
   group('PairingMiddleware processes PairingRenotifyRequestedAction correctly', () {
     test(
-      'PairingRenotifyRequestedAction dispatches the Host retry cooldown after successful redisplay',
+      'PairingRenotifyRequestedAction dispatches typed success after code redisplay',
       () async {
         final mockRenotifyUseCase =
             sl<RequestPairingRenotifyUseCase>()
                 as MockRequestPairingRenotifyUseCase;
         when(
           () => mockRenotifyUseCase(any()),
-        ).thenAnswer((_) async => const Right(5));
+        ).thenAnswer((_) async => Right(Fixtures.buildPairingRenotifyResult()));
 
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
 
         expect(actionLog, [
           isA<PairingRenotifyRequestedAction>(),
-          isA<PairingRenotifyCooldownAction>(),
+          isA<PairingRenotifySucceededAction>(),
         ]);
         expect(
-          (actionLog[1] as PairingRenotifyCooldownAction).retryAfterSeconds,
+          (actionLog[1] as PairingRenotifySucceededAction).retryAfterSeconds,
           5,
         );
         verify(() => mockRenotifyUseCase(any())).called(1);
@@ -1589,9 +1605,14 @@ void main() {
         final mockRenotifyUseCase =
             sl<RequestPairingRenotifyUseCase>()
                 as MockRequestPairingRenotifyUseCase;
-        when(
-          () => mockRenotifyUseCase(any()),
-        ).thenAnswer((_) async => const Right(3));
+        when(() => mockRenotifyUseCase(any())).thenAnswer(
+          (_) async => Right(
+            Fixtures.buildPairingRenotifyResult(
+              outcome: PairingRenotifyOutcome.cooldown,
+              retryAfterSeconds: 3,
+            ),
+          ),
+        );
 
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
@@ -1613,9 +1634,14 @@ void main() {
         final mockRenotifyUseCase =
             sl<RequestPairingRenotifyUseCase>()
                 as MockRequestPairingRenotifyUseCase;
-        when(
-          () => mockRenotifyUseCase(any()),
-        ).thenAnswer((_) async => const Right(0));
+        when(() => mockRenotifyUseCase(any())).thenAnswer(
+          (_) async => Right(
+            Fixtures.buildPairingRenotifyResult(
+              outcome: PairingRenotifyOutcome.cooldown,
+              retryAfterSeconds: 0,
+            ),
+          ),
+        );
 
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
@@ -1624,6 +1650,31 @@ void main() {
           (actionLog[1] as PairingRenotifyCooldownAction).retryAfterSeconds,
           0,
         );
+      },
+    );
+
+    test(
+      'PairingRenotifyRequestedAction dispatches the already-idle Host status',
+      () async {
+        final mockRenotifyUseCase =
+            sl<RequestPairingRenotifyUseCase>()
+                as MockRequestPairingRenotifyUseCase;
+        when(() => mockRenotifyUseCase(any())).thenAnswer(
+          (_) async => Right(
+            Fixtures.buildPairingRenotifyResult(
+              outcome: PairingRenotifyOutcome.alreadyIdle,
+              retryAfterSeconds: null,
+            ),
+          ),
+        );
+
+        middleware.call(store, const PairingRenotifyRequestedAction(), next);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(actionLog, [
+          const PairingRenotifyRequestedAction(),
+          const PairingRenotifyAlreadyIdleAction(),
+        ]);
       },
     );
 

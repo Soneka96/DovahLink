@@ -35,14 +35,10 @@ void main() {
       () => store.onChange,
     ).thenAnswer((_) => const Stream<AppState>.empty());
     when(() => viewModel.isAvailable).thenReturn(false);
+    when(() => viewModel.isPending).thenReturn(false);
     when(() => viewModel.cooldownSeconds).thenReturn(3);
+    when(() => viewModel.outcome).thenReturn(null);
     when(() => viewModel.onPressed).thenReturn(null);
-    when(
-      () => viewModel.displayLabel(
-        label: any(named: 'label'),
-        cooldownLabel: any(named: 'cooldownLabel'),
-      ),
-    ).thenReturn('Send Code Again (3s)');
     sl.registerFactoryParam<
       PairingRenotifyButtonViewModel,
       Store<AppState>,
@@ -85,13 +81,6 @@ void main() {
         when(() => viewModel.isAvailable).thenReturn(true);
         when(() => viewModel.cooldownSeconds).thenReturn(null);
         when(() => viewModel.onPressed).thenReturn(() {});
-        when(
-          () => viewModel.displayLabel(
-            label: 'Send Code Again',
-            cooldownLabel: null,
-          ),
-        ).thenReturn('Send Code Again');
-
         await tester.pumpWidget(buildWidget());
 
         final DovahButton button = tester.widget<DovahButton>(
@@ -117,18 +106,49 @@ void main() {
     );
 
     testWidgets(
+      'PairingRenotifyButton displays a successful redisplay separately from cooldown',
+      (WidgetTester tester) async {
+        when(
+          () => viewModel.outcome,
+        ).thenReturn(PairingRenotifyOutcome.renotified);
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.text('Sent · try again in 3s'), findsOneWidget);
+        expect(
+          tester.widget<DovahButton>(find.byType(DovahButton)).onPressed,
+          isNull,
+        );
+      },
+    );
+
+    testWidgets(
+      'PairingRenotifyButton still reports success when no retry interval is supplied',
+      (WidgetTester tester) async {
+        when(() => viewModel.isAvailable).thenReturn(true);
+        when(() => viewModel.cooldownSeconds).thenReturn(null);
+        when(
+          () => viewModel.outcome,
+        ).thenReturn(PairingRenotifyOutcome.renotified);
+        when(() => viewModel.onPressed).thenReturn(() {});
+
+        await tester.pumpWidget(buildWidget());
+
+        expect(find.text('Send Code Again · code sent'), findsOneWidget);
+        expect(
+          tester.widget<DovahButton>(find.byType(DovahButton)).onPressed,
+          isNotNull,
+        );
+      },
+    );
+
+    testWidgets(
       'PairingRenotifyButton displays sending state and disables redisplay while pending',
       (WidgetTester tester) async {
         when(() => viewModel.isAvailable).thenReturn(false);
+        when(() => viewModel.isPending).thenReturn(true);
         when(() => viewModel.cooldownSeconds).thenReturn(null);
         when(() => viewModel.onPressed).thenReturn(null);
-        when(
-          () => viewModel.displayLabel(
-            label: 'Send Code Again',
-            cooldownLabel: null,
-          ),
-        ).thenReturn('Sending to Skyrim…');
-
         await tester.pumpWidget(buildWidget());
 
         final DovahButton button = tester.widget<DovahButton>(
@@ -142,12 +162,6 @@ void main() {
     testWidgets('PairingRenotifyButton displays the custom cooldown label', (
       WidgetTester tester,
     ) async {
-      when(
-        () => viewModel.displayLabel(
-          label: 'Send Code Again',
-          cooldownLabel: 'Please wait...',
-        ),
-      ).thenReturn('Please wait...');
       await tester.pumpWidget(buildWidget(cooldownLabel: 'Please wait...'));
 
       expect(find.text('Please wait...'), findsOneWidget);
@@ -159,13 +173,6 @@ void main() {
       when(() => viewModel.isAvailable).thenReturn(true);
       when(() => viewModel.cooldownSeconds).thenReturn(0);
       when(() => viewModel.onPressed).thenReturn(() {});
-      when(
-        () => viewModel.displayLabel(
-          label: 'Redisplay Code',
-          cooldownLabel: null,
-        ),
-      ).thenReturn('Redisplay Code');
-
       await tester.pumpWidget(buildWidget(label: 'Redisplay Code'));
 
       expect(find.text('Redisplay Code'), findsOneWidget);
@@ -180,13 +187,6 @@ void main() {
         when(() => viewModel.isAvailable).thenReturn(true);
         when(() => viewModel.cooldownSeconds).thenReturn(null);
         when(() => viewModel.onPressed).thenReturn(() => wasPressed = true);
-        when(
-          () => viewModel.displayLabel(
-            label: 'Send Code Again',
-            cooldownLabel: null,
-          ),
-        ).thenReturn('Send Code Again');
-
         await tester.pumpWidget(buildWidget());
         await tester.tap(find.byType(DovahButton));
 

@@ -36,6 +36,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Pairing preserves Host-reported wrong-code attempts, terminal outcomes, and code-redisplay
+  status through app state.
 - Known Host cards use the prototype's text chevron glyph for their entry affordance.
 - Offline Known Host cards open the prototype's status dialog without starting authentication.
 - Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,

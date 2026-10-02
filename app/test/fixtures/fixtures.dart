@@ -5,6 +5,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/known_host.
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -165,6 +166,18 @@ abstract final class Fixtures {
     trusted: trusted,
     credentialRejectionReason: credentialRejectionReason,
     credentialRejectedMessage: credentialRejectedMessage,
+  );
+
+  /// Builds a typed pairing-code redisplay result.
+  static PairingRenotifyResult buildPairingRenotifyResult({
+    /// The Host response to the redisplay request.
+    PairingRenotifyOutcome outcome = PairingRenotifyOutcome.renotified,
+
+    /// Host-reported retry interval, or `null` when absent.
+    int? retryAfterSeconds = 5,
+  }) => PairingRenotifyResult(
+    outcome: outcome,
+    retryAfterSeconds: retryAfterSeconds,
   );
 
   /// Builds a data-layer pairing handshake with representative trusted-session defaults.

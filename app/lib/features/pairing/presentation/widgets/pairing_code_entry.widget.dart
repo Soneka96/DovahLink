@@ -7,6 +7,7 @@ import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_m
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_renotify_button.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
+import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -21,6 +22,12 @@ class PairingCodeEntry extends StatelessWidget {
   /// Why the last code was not accepted, or `null` when none was rejected.
   final String? message;
 
+  /// The typed Host code-submission result, when the field contains an outcome-specific message.
+  final PairingFailureOutcome? failureOutcome;
+
+  /// Host-reported wrong-code attempts remaining, when present.
+  final int? attemptsRemaining;
+
   /// Called with the entered code.
   final void Function(String code) onSubmit;
 
@@ -28,6 +35,8 @@ class PairingCodeEntry extends StatelessWidget {
   const PairingCodeEntry({
     required this.hostName,
     required this.message,
+    this.failureOutcome,
+    this.attemptsRemaining,
     required this.onSubmit,
     super.key,
   });
@@ -37,6 +46,9 @@ class PairingCodeEntry extends StatelessWidget {
   Widget build(BuildContext context) {
     final DovahThemeTokens tokens = context.dovahTokens;
     final DovahDialogMetrics metrics = context.dovahDialogMetrics;
+    final String? errorMessage =
+        failureOutcome?.message(attemptsRemaining: attemptsRemaining) ??
+        message;
 
     return PairingStateLayout(
       mark: const PairingMark(icon: Icons.desktop_windows_outlined),
@@ -56,7 +68,7 @@ class PairingCodeEntry extends StatelessWidget {
         SizedBox(height: metrics.codeRowTopGap),
         PairingCodeForm(
           onSubmit: onSubmit,
-          errorMessage: message,
+          errorMessage: errorMessage,
           secondaryActions: const [
             PairingCancelButton(),
             PairingRenotifyButton(),

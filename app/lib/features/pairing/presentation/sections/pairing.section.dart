@@ -100,6 +100,8 @@ class PairingSection extends StatelessWidget {
                   PairingPhase.awaitingCode => PairingCodeEntry(
                     hostName: viewModel.hostName,
                     message: viewModel.error,
+                    failureOutcome: viewModel.pairingOutcome,
+                    attemptsRemaining: viewModel.attemptsRemaining,
                     onSubmit: viewModel.onSubmitCode,
                   ),
                   PairingPhase.trusted => PairingSuccess(
@@ -109,6 +111,9 @@ class PairingSection extends StatelessWidget {
                   PairingPhase.failed => PairingFailure(
                     message:
                         viewModel.error ?? 'Pairing could not be completed.',
+                    outcome: viewModel.pairingOutcome,
+                    attemptsRemaining: viewModel.attemptsRemaining,
+                    renotifyOutcome: viewModel.renotifyOutcome,
                     onClose: close,
                     onRetry: viewModel.onStart,
                   ),

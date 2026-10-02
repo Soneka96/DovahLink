@@ -1,5 +1,7 @@
 import 'package:equatable/equatable.dart';
 
+import 'package:dovahlink_client/shared/constants/enums.dart';
+
 /// Base class for expected runtime failures.
 abstract class Failure extends Equatable {
   /// Creates a failure with a user-safe [message].
@@ -36,7 +38,17 @@ class DatabaseFailure extends Failure {
 /// [NetworkFailure].
 class PairingFailure extends Failure {
   /// Creates a pairing failure.
-  const PairingFailure(super.message);
+  const PairingFailure(super.message, {this.outcome, this.attemptsRemaining});
+
+  /// The typed Host outcome, or `null` for a non-outcome pairing failure.
+  final PairingFailureOutcome? outcome;
+
+  /// Host-reported wrong-code attempts remaining, when available.
+  final int? attemptsRemaining;
+
+  /// See [Equatable.props].
+  @override
+  List<Object?> get props => [...super.props, outcome, attemptsRemaining];
 }
 
 /// A [PairingFailure] the user can retry against the same still-active
@@ -46,7 +58,11 @@ class PairingFailure extends Failure {
 /// screen instead of bouncing them out of the pairing flow.
 class PairingRetriableFailure extends PairingFailure {
   /// Creates a retriable pairing failure.
-  const PairingRetriableFailure(super.message);
+  const PairingRetriableFailure(
+    super.message, {
+    required super.outcome,
+    super.attemptsRemaining,
+  });
 }
 
 /// Indicates the host administratively ended this device's session
