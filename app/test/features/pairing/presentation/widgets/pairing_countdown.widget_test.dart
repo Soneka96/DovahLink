@@ -47,6 +47,7 @@ void main() {
 
   Widget buildWidget({
     TextStyle? textStyle,
+    TextStyle? remainingStyle,
     String Function(int seconds)? formatSeconds,
     String label = '',
   }) => MaterialApp(
@@ -54,9 +55,14 @@ void main() {
       store: store,
       child: Scaffold(
         body: formatSeconds == null
-            ? PairingCountdown(textStyle: textStyle, label: label)
+            ? PairingCountdown(
+                textStyle: textStyle,
+                remainingStyle: remainingStyle,
+                label: label,
+              )
             : PairingCountdown(
                 textStyle: textStyle,
+                remainingStyle: remainingStyle,
                 label: label,
                 formatSeconds: formatSeconds,
               ),
@@ -133,7 +139,27 @@ void main() {
 
       await tester.pumpWidget(buildWidget(textStyle: style));
 
-      expect(tester.widget<Text>(find.byType(Text)).style, style);
+      expect(
+        (tester.widget<Text>(find.byType(Text)).textSpan! as TextSpan).style,
+        style,
+      );
+    });
+
+    testWidgets('PairingCountdown styles remaining time separately', (
+      WidgetTester tester,
+    ) async {
+      when(() => viewModel.remainingSeconds).thenReturn(10);
+      const TextStyle emphasis = TextStyle(fontWeight: FontWeight.w600);
+
+      await tester.pumpWidget(
+        buildWidget(label: 'Code expires in ', remainingStyle: emphasis),
+      );
+
+      final TextSpan span =
+          tester.widget<Text>(find.byType(Text)).textSpan! as TextSpan;
+      expect(span.children![0].toPlainText(), 'Code expires in ');
+      expect(span.children![1].toPlainText(), '0:10');
+      expect(span.children![1].style, emphasis);
     });
 
     testWidgets('PairingCountdown uses the supplied format function', (

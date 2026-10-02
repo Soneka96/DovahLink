@@ -23,11 +23,15 @@ class PairingCodeForm extends StatefulWidget {
   /// Buttons laid out before the primary button in the action row, such as cancel.
   final List<Widget> secondaryActions;
 
+  /// A code-redisplay action shown between the message slot and the action row.
+  final Widget? renotifyAction;
+
   /// Creates a pairing code form.
   const PairingCodeForm({
     required this.onSubmit,
     this.errorMessage,
     this.secondaryActions = const <Widget>[],
+    this.renotifyAction,
     super.key,
   });
 
@@ -166,6 +170,10 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
           key: const Key('pairing-code-message'),
           message: message,
         ),
+        if (widget.renotifyAction != null) ...[
+          SizedBox(height: metrics.renotifyTopGap),
+          UnconstrainedBox(child: widget.renotifyAction!),
+        ],
         SizedBox(height: metrics.actionsTopGap),
         Wrap(
           alignment: WrapAlignment.center,

@@ -165,9 +165,7 @@ void main() {
         );
 
         expect(
-          find.text(
-            "That code isn't correct. Check Skyrim and try again. 2 attempts remaining.",
-          ),
+          find.text('That code isn’t correct. 2 attempts remaining.'),
           findsOneWidget,
         );
       },
@@ -176,7 +174,7 @@ void main() {
 
   group('PairingCodeEntry contains widgets', () {
     testWidgets(
-      'PairingCodeEntry contains the code field, Cancel, Send Code Again, and Pair actions in that order',
+      'PairingCodeEntry contains the code field, redisplay action, Cancel, and Pair in prototype order',
       (WidgetTester tester) async {
         await pumpEntry(tester);
 
@@ -190,8 +188,18 @@ void main() {
         final double pair = tester
             .getTopLeft(find.byKey(const Key('pairing-confirm-button')))
             .dx;
-        expect(cancel, lessThan(renotify));
-        expect(renotify, lessThan(pair));
+        expect(renotify, lessThan(cancel));
+        expect(cancel, lessThan(pair));
+        expect(
+          tester
+              .getBottomLeft(find.byKey(const Key('pairing-renotify-button')))
+              .dy,
+          lessThan(
+            tester
+                .getTopLeft(find.byKey(const Key('pairing-cancel-button')))
+                .dy,
+          ),
+        );
       },
     );
   });

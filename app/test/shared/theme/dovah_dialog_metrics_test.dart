@@ -135,6 +135,7 @@ void main() {
       expect(metrics.codeBoxHeight, 56);
       expect(metrics.codeRowTopGap, 6);
       expect(metrics.codeRowBottomGap, 12);
+      expect(metrics.renotifyTopGap, 5);
       expect(metrics.messageMinHeight, 18);
       expect(metrics.actionsTopGap, 18);
       expect(metrics.noteTopGap, 17);
@@ -161,6 +162,7 @@ void main() {
       expect(metrics.codeBoxHeight, 48);
       expect(metrics.codeRowTopGap, 3);
       expect(metrics.codeRowBottomGap, 6);
+      expect(metrics.renotifyTopGap, 5);
       expect(metrics.messageMinHeight, 14);
       expect(metrics.actionsTopGap, 7);
       expect(metrics.noteTopGap, 8);

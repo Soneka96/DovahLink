@@ -99,16 +99,16 @@ enum PairingFailureOutcome {
   /// Returns app-owned copy for this outcome and its optional remaining attempt count.
   String message({int? attemptsRemaining}) => switch (this) {
     PairingFailureOutcome.expired =>
-      'That pairing code has expired. Request a new one.',
+      'The code is no longer valid. Ask Skyrim for a new one to continue.',
     PairingFailureOutcome.invalid =>
       attemptsRemaining == null
-          ? "That code isn't correct. Check Skyrim and try again."
-          : "That code isn't correct. Check Skyrim and try again. "
+          ? 'That code isn’t correct.'
+          : 'That code isn’t correct. '
                 '$attemptsRemaining ${attemptsRemaining == 1 ? 'attempt' : 'attempts'} remaining.',
     PairingFailureOutcome.pacingLimited =>
       'Slow down a little, then try again.',
     PairingFailureOutcome.hardLimitReached =>
-      'Too many wrong attempts. Request a new pairing code.',
+      'This pairing code can no longer be used. Request a new code from Skyrim to try again.',
     PairingFailureOutcome.pendingNotFound =>
       'This pairing attempt is no longer recognized. Request a new code.',
     PairingFailureOutcome.pairingInvalidated =>
@@ -131,8 +131,8 @@ enum PairingRenotifyOutcome {
   String message({int? retryAfterSeconds}) => switch (this) {
     PairingRenotifyOutcome.renotified =>
       retryAfterSeconds == null
-          ? 'Code sent to Skyrim.'
-          : 'Sent · try again in ${retryAfterSeconds}s',
+          ? 'Shown in Skyrim'
+          : 'Shown in Skyrim · ${retryAfterSeconds}s',
     PairingRenotifyOutcome.cooldown =>
       'Send Code Again (${retryAfterSeconds ?? 0}s)',
     PairingRenotifyOutcome.alreadyIdle => 'No pairing is currently active.',
@@ -148,12 +148,10 @@ enum PairingRenotifyOutcome {
     String? cooldownLabel,
   }) {
     if (isPending) {
-      return 'Sending to Skyrim…';
+      return 'Showing in Skyrim…';
     }
     if (outcome == PairingRenotifyOutcome.renotified) {
-      return isAvailable
-          ? '$label · code sent'
-          : outcome!.message(retryAfterSeconds: cooldownSeconds);
+      return outcome!.message(retryAfterSeconds: cooldownSeconds);
     }
     if (isAvailable) {
       return label;

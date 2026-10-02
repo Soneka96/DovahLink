@@ -132,6 +132,7 @@ class DovahDialogMetrics extends Equatable {
     codeBoxHeight: 56,
     codeRowTopGap: 6,
     codeRowBottomGap: 12,
+    renotifyTopGap: 5,
     messageMinHeight: 18,
     actionsTopGap: 18,
     noteTopGap: 17,
@@ -158,6 +159,7 @@ class DovahDialogMetrics extends Equatable {
     codeBoxHeight: 48,
     codeRowTopGap: 3,
     codeRowBottomGap: 6,
+    renotifyTopGap: 5,
     messageMinHeight: 14,
     actionsTopGap: 7,
     noteTopGap: 8,
@@ -213,6 +215,9 @@ class DovahDialogMetrics extends Equatable {
   /// Gap below the row of pairing-code digit boxes.
   final double codeRowBottomGap;
 
+  /// Gap between the code message slot and the code-redisplay action.
+  final double renotifyTopGap;
+
   /// Height reserved for an inline message, so showing one does not shift the layout.
   final double messageMinHeight;
 
@@ -247,6 +252,7 @@ class DovahDialogMetrics extends Equatable {
     required this.codeBoxHeight,
     required this.codeRowTopGap,
     required this.codeRowBottomGap,
+    required this.renotifyTopGap,
     required this.messageMinHeight,
     required this.actionsTopGap,
     required this.noteTopGap,
@@ -296,6 +302,7 @@ class DovahDialogMetrics extends Equatable {
     codeBoxHeight: codeBoxHeight,
     codeRowTopGap: codeRowTopGap,
     codeRowBottomGap: codeRowBottomGap,
+    renotifyTopGap: renotifyTopGap,
     messageMinHeight: messageMinHeight,
     actionsTopGap: actionsTopGap,
     noteTopGap: noteTopGap,
@@ -322,6 +329,7 @@ class DovahDialogMetrics extends Equatable {
     codeBoxHeight,
     codeRowTopGap,
     codeRowBottomGap,
+    renotifyTopGap,
     messageMinHeight,
     actionsTopGap,
     noteTopGap,

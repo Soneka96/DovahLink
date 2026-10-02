@@ -23,7 +23,7 @@ class PairingRenotifyButton extends StatefulWidget {
   /// Label displayed during cooldown; if null, shows "[label] (Xs)" format.
   final String? cooldownLabel;
   const PairingRenotifyButton({
-    this.label = 'Send Code Again',
+    this.label = 'Show code again in Skyrim',
     this.cooldownLabel,
     super.key,
   });

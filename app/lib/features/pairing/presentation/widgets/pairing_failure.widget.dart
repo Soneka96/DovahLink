@@ -43,13 +43,20 @@ class PairingFailure extends StatelessWidget {
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
+    final bool isExpired = outcome == PairingFailureOutcome.expired;
+    final bool reachedAttemptLimit =
+        outcome == PairingFailureOutcome.hardLimitReached;
     final String displayMessage =
         outcome?.message(attemptsRemaining: attemptsRemaining) ??
         renotifyOutcome?.message() ??
         message;
     return PairingStateLayout(
       mark: const PairingMark(icon: Icons.refresh),
-      heading: 'Pairing didn’t finish',
+      heading: isExpired
+          ? 'Code expired'
+          : reachedAttemptLimit
+          ? 'Too many incorrect attempts'
+          : 'Pairing didn’t finish',
       body: displayMessage,
       children: [
         Wrap(
@@ -60,12 +67,19 @@ class PairingFailure extends StatelessWidget {
             UnconstrainedBox(
               child: DovahButton(
                 key: const Key('pairing-close-button'),
-                label: 'Close',
+                label: isExpired || reachedAttemptLimit ? 'Cancel' : 'Close',
                 variant: DovahButtonVariant.secondary,
                 onPressed: onClose,
               ),
             ),
-            UnconstrainedBox(child: PairingRetryButton(onRetry: onRetry)),
+            UnconstrainedBox(
+              child: PairingRetryButton(
+                onRetry: onRetry,
+                label: isExpired || reachedAttemptLimit
+                    ? 'Get a new code'
+                    : 'Try Again',
+              ),
+            ),
           ],
         ),
       ],

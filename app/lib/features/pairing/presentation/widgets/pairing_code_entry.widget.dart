@@ -64,15 +64,17 @@ class PairingCodeEntry extends StatelessWidget {
             color: tokens.textMuted,
             fontSize: DovahThemeTokens.compactFontSize,
           ),
+          remainingStyle: TextStyle(
+            color: tokens.textPrimary,
+            fontWeight: FontWeight.w600,
+          ),
         ),
         SizedBox(height: metrics.codeRowTopGap),
         PairingCodeForm(
           onSubmit: onSubmit,
           errorMessage: errorMessage,
-          secondaryActions: const [
-            PairingCancelButton(),
-            PairingRenotifyButton(),
-          ],
+          secondaryActions: const [PairingCancelButton()],
+          renotifyAction: const PairingRenotifyButton(),
         ),
         SizedBox(height: metrics.noteTopGap),
         Text(

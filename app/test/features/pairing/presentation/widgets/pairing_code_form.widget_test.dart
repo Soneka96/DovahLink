@@ -21,6 +21,7 @@ Widget buildForm({
   List<String>? submissions,
   String? errorMessage,
   List<Widget> secondaryActions = const <Widget>[],
+  Widget? renotifyAction,
 }) => MaterialApp(
   theme: dovahThemeDataFor(DovahThemePreset.dovah),
   home: Scaffold(
@@ -29,6 +30,7 @@ Widget buildForm({
         onSubmit: (String code) => submissions?.add(code),
         errorMessage: errorMessage,
         secondaryActions: secondaryActions,
+        renotifyAction: renotifyAction,
       ),
     ),
   ),
@@ -96,6 +98,33 @@ void main() {
       );
     });
 
+    testWidgets(
+      'PairingCodeForm places the redisplay action between its message and action row',
+      (WidgetTester tester) async {
+        await tester.pumpWidget(
+          buildForm(
+            secondaryActions: const [SizedBox(key: Key('cancel'), width: 40)],
+            renotifyAction: const SizedBox(key: Key('renotify'), width: 40),
+          ),
+        );
+
+        expect(
+          tester
+              .getBottomLeft(find.byKey(const Key('pairing-code-message')))
+              .dy,
+          lessThan(tester.getTopLeft(find.byKey(const Key('renotify'))).dy),
+        );
+        expect(
+          tester.getBottomLeft(find.byKey(const Key('renotify'))).dy,
+          lessThan(tester.getTopLeft(find.byKey(const Key('cancel'))).dy),
+        );
+        expect(
+          tester.getTopLeft(find.byKey(const Key('cancel'))).dx,
+          lessThan(tester.getTopLeft(find.byKey(confirmButtonKey)).dx),
+        );
+      },
+    );
+
     testWidgets('PairingCodeForm disposes cleanly when unmounted', (
       WidgetTester tester,
     ) async {
@@ -105,6 +134,45 @@ void main() {
 
       expect(tester.takeException(), isNull);
     });
+  });
+
+  group('PairingCodeForm sizes its redisplay action', () {
+    for (final Size size in const [Size(900, 560), Size(1280, 720)]) {
+      final bool isCompact = size.height <= 620;
+      testWidgets('PairingCodeForm applies prototype gaps at $size', (
+        WidgetTester tester,
+      ) async {
+        await pumpDovahThemedWidget(
+          tester,
+          Center(
+            child: PairingCodeForm(
+              onSubmit: (_) {},
+              secondaryActions: const [
+                SizedBox(key: Key('cancel'), width: 40, height: 48),
+              ],
+              renotifyAction: const SizedBox(
+                key: Key('renotify'),
+                width: 40,
+                height: 20,
+              ),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: size,
+        );
+
+        final Rect message = tester.getRect(
+          find.byKey(const Key('pairing-code-message')),
+        );
+        final Rect renotify = tester.getRect(find.byKey(const Key('renotify')));
+        final Rect cancel = tester.getRect(find.byKey(const Key('cancel')));
+        final Rect pair = tester.getRect(find.byKey(confirmButtonKey));
+        expect(renotify.top - message.bottom, 5);
+        expect(cancel.top - renotify.bottom, isCompact ? 7 : 18);
+        expect(cancel.left, lessThan(pair.left));
+        expect(tester.takeException(), isNull);
+      });
+    }
   });
 
   group('PairingCodeForm accepts only a complete code', () {
