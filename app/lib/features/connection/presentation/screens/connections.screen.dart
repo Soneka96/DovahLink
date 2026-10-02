@@ -90,8 +90,12 @@ class ConnectionsScreen extends StatelessWidget {
                                 // removal semantics are defined.
                                 ConnectionsHostSection(
                                   cards: viewModel.hostCards,
-                                  onReenterConnectedHost:
-                                      viewModel.onReenterConnectedHost,
+                                  onReenterConnectedHost: (_) {
+                                    PairingDialog.show(
+                                      context,
+                                      startOnInit: false,
+                                    );
+                                  },
                                   onShowOfflineHost: (HostCardViewData card) {
                                     DovahDialog.show<void>(
                                       context,

@@ -27,25 +27,6 @@ void main() {
     },
   );
 
-  group(
-    'Behavior equality in ConnectionHostReentryRequestedAction behaves correctly',
-    () {
-      test(
-        'ConnectionHostReentryRequestedAction carries its Known Host ID',
-        () {
-          const ConnectionHostReentryRequestedAction action =
-              ConnectionHostReentryRequestedAction('host-1');
-          const ConnectionHostReentryRequestedAction sameAction =
-              ConnectionHostReentryRequestedAction('host-1');
-
-          expect(action.hostId, 'host-1');
-          expect(action, sameAction);
-          expect(action.hashCode, sameAction.hashCode);
-        },
-      );
-    },
-  );
-
   group('Behavior equality in candidate pairing actions behaves correctly', () {
     test('pairing actions carry their candidate Host ID', () {
       const ConnectionCandidatePairingStartedAction started =

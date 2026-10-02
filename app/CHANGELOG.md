@@ -47,7 +47,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 - Known Host cards use the prototype's text chevron glyph for their entry affordance.
 - Offline Known Host cards open the prototype's status dialog without starting authentication.
 - Connections routes Online and Pair again cards through authentication, while Connected cards
-  send a session re-entry request for their Host.
+  reopen the current pairing state without restarting authentication.
 - Connections lists durable Known Hosts separately from ephemeral discovery candidates.
 - Discover shows “Local Host found.” after real candidates arrive and keeps authentication and any
   required pairing inside the same modal flow.
