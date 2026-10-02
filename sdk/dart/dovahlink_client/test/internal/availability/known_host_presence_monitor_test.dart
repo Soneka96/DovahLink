@@ -15,6 +15,7 @@ import 'package:dovahlink_client_sdk/src/internal/availability/known_host_presen
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
 
@@ -39,17 +40,23 @@ class FakePresenceClientStateService implements IClientStateService {
 
   /// Emits current and later committed Known Host snapshots.
   @override
-  Stream<List<DovahLinkHost>> get knownHostsChanges =>
-      Stream<List<DovahLinkHost>>.multi((
-        MultiStreamController<List<DovahLinkHost>> sink,
+  Stream<List<PersistedKnownHost>> get knownHostsChanges =>
+      Stream<List<PersistedKnownHost>>.multi((
+        MultiStreamController<List<PersistedKnownHost>> sink,
       ) {
         final List<DovahLinkHost>? current = _snapshot;
         if (current != null) {
-          sink.add(current);
+          sink.add(
+            current.map((host) => PersistedKnownHost(host: host)).toList(),
+          );
         }
         final StreamSubscription<List<DovahLinkHost>> subscription = _changes
             .stream
-            .listen(sink.add);
+            .listen(
+              (hosts) => sink.add(
+                hosts.map((host) => PersistedKnownHost(host: host)).toList(),
+              ),
+            );
         sink.onCancel = subscription.cancel;
       }, isBroadcast: true);
 

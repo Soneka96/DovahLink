@@ -383,10 +383,15 @@ class ReconnectService implements IReconnectService {
         terminalFailure = error;
         giveUpAvailability = DovahLinkHostAvailability.unknown;
         if (ReconnectRejectionClassifier.isTerminal(error)) {
-          if (CredentialRejectionReason.fromProtocolErrorCode(error.code) !=
-              null) {
+          final CredentialRejectionReason? credentialRejection =
+              CredentialRejectionReason.fromProtocolErrorCode(error.code);
+          if (credentialRejection != null && knownHostId != null) {
             try {
-              await _authenticationService.forgetLastKnownCredential();
+              await _authenticationService.forgetCredential(
+                knownHostId,
+                pairingRequired:
+                    credentialRejection != CredentialRejectionReason.blocked,
+              );
             } on Object {
               // Best-effort cleanup must not prevent the recovery cycle from finalizing with a
               // disconnect. A later explicit authentication can retry this cleanup.

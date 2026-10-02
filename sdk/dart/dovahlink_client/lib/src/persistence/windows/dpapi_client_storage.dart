@@ -63,6 +63,7 @@ class DpapiClientStorage implements IClientStorage {
         'hostName': relationship.host.hostName,
         'endpoint': relationship.host.endpoint.toString(),
         'credential': relationship.credential,
+        'pairingRequired': relationship.pairingRequired,
       };
     }
     final Map<String, dynamic> json = <String, dynamic>{

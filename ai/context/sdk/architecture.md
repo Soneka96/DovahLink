@@ -101,6 +101,15 @@ The owner suppresses equivalent successive projections. After a stream error, it
 valid complete snapshot even if the projection is unchanged, so subscribers can observe recovery
 without losing the prior snapshot.
 
+### Known Host pairing-recovery hint
+
+The Known Host projection includes a persisted `pairingRequired` hint for the official app's root
+card. It is separate from runtime availability and session lifecycle, and never establishes current
+trust. The SDK sets it only from typed Host credential-rejection or administrative-invalidation
+evidence for that Known Host; `blocked` clears it and never makes the Host repairable. An Offline
+card still describes reachability, not repair. Every Pair again action must go through Known Host
+authentication and the normal pairing flow so the Host can confirm the current result.
+
 ## App independence
 
 After the Dart Client SDK Foundation phase, the official app depends on the SDK's public API for
@@ -234,8 +243,9 @@ The nine Services:
 
 - `ISessionService`/`SessionService` — owns transport lifecycle, connection state, and stream
   ownership: `connect`, `disconnect`, reads (`connectionState`, `currentSessionId`,
-  `currentTrustState`, `currentHost`, `currentEndpoint`, `invalidationReason`), and the reactive
-  signals `onUnhealthy`, `onProtocolViolation`, `onSessionInvalidated`, and `onUnsolicitedError`.
+  `currentTrustState`, `currentHost`, `currentEndpoint`, `invalidationReason`, and immutable
+  `knownHostInvalidations` events), and the reactive signals `onUnhealthy`,
+  `onProtocolViolation`, `onSessionInvalidated`, and `onUnsolicitedError`.
   Privately owns `ConnectionTeardownCoordinator` and `LifecycleOperationQueue`.
 - `ISessionAdmissionService`/`SessionAdmissionService` — `admitSession`, a privileged capability
   injected only into `AuthenticationService`. Also triggers `RequestService`'s

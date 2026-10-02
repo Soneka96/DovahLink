@@ -82,16 +82,31 @@ void main() {
   });
 
   group('Property knownHostsChanges behaves correctly', () {
-    test('Property knownHostsChanges exposes the durable state stream', () {
-      const Stream<List<DovahLinkHost>> changes =
-          Stream<List<DovahLinkHost>>.empty();
-      when(
-        () => clientStateService.knownHostsChanges,
-      ).thenAnswer((_) => changes);
+    test(
+      'Property knownHostsChanges exposes metadata without repair hints',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final DovahLinkHost host = Fixtures.buildDovahLinkHost(hostId: hostId);
+        final Stream<List<PersistedKnownHost>> source = Stream.fromIterable(
+          <List<PersistedKnownHost>>[
+            <PersistedKnownHost>[
+              PersistedKnownHost(host: host, pairingRequired: true),
+            ],
+            <PersistedKnownHost>[
+              PersistedKnownHost(host: host, pairingRequired: false),
+            ],
+          ],
+        );
+        when(
+          () => clientStateService.knownHostsChanges,
+        ).thenAnswer((_) => source);
 
-      expect(identical(hosts.knownHostsChanges, changes), isTrue);
-      verify(() => clientStateService.knownHostsChanges).called(1);
-    });
+        expect(await hosts.knownHostsChanges.toList(), <List<DovahLinkHost>>[
+          <DovahLinkHost>[host],
+        ]);
+        verify(() => clientStateService.knownHostsChanges).called(1);
+      },
+    );
   });
 
   group('Property knownHostStatesChanges behaves correctly', () {

@@ -2,6 +2,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_compatibility_exception.dart'
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_not_found_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
@@ -27,6 +28,9 @@ abstract interface class IDovahLinkConnections {
 
   /// The administrative reason for invalidation, or `null` otherwise.
   AdministrativeInvalidationReason? get invalidationReason;
+
+  /// Emits terminal invalidations for admitted Known Host sessions with their reason attached.
+  Stream<DovahLinkKnownHostInvalidation> get knownHostInvalidations;
 
   /// Connects and authenticates a discovered candidate without using Known Host credentials.
   /// An initial connection or retryable protocol failure is retried by the SDK every three seconds
@@ -106,6 +110,11 @@ class DovahLinkConnections implements IDovahLinkConnections {
   @override
   AdministrativeInvalidationReason? get invalidationReason =>
       _sessionService.invalidationReason;
+
+  /// Implements [IDovahLinkConnections.knownHostInvalidations].
+  @override
+  Stream<DovahLinkKnownHostInvalidation> get knownHostInvalidations =>
+      _sessionService.knownHostInvalidations;
 
   /// Implements [IDovahLinkConnections.connectCandidate].
   @override

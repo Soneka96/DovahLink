@@ -75,11 +75,27 @@ void main() {
       expect(state.knownHosts[hostA]?.host.hostId, hostA);
       expect(state.pendingPairingRecovery?.hostId, hostA);
     });
+
+    test(
+      'Method constructor preserves the pairing hint while normalizing a Host ID',
+      () {
+        final PersistedClientState state = PersistedClientState(
+          knownHosts: <String, PersistedKnownHost>{
+            hostA.toUpperCase(): PersistedKnownHost(
+              host: Fixtures.buildDovahLinkHost(hostId: hostA.toUpperCase()),
+              pairingRequired: true,
+            ),
+          },
+        );
+
+        expect(state.knownHosts[hostA]?.pairingRequired, isTrue);
+      },
+    );
   });
 
   group('Property currentFormatVersion behaves correctly', () {
-    test('Property currentFormatVersion reports version 3', () {
-      expect(PersistedClientState.currentFormatVersion, 3);
+    test('Property currentFormatVersion reports version 4', () {
+      expect(PersistedClientState.currentFormatVersion, 4);
     });
   });
 

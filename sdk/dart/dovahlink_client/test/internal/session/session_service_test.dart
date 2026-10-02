@@ -7,6 +7,7 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
@@ -211,6 +212,16 @@ void main() {
       when(() => state.knownHostSessionChanges).thenAnswer((_) => changes);
 
       expect(service.knownHostSessionChanges, same(changes));
+    });
+  });
+
+  group('Property knownHostInvalidations behaves correctly', () {
+    test('Property knownHostInvalidations delegates to SessionState', () {
+      const Stream<DovahLinkKnownHostInvalidation> changes =
+          Stream<DovahLinkKnownHostInvalidation>.empty();
+      when(() => state.knownHostInvalidations).thenAnswer((_) => changes);
+
+      expect(service.knownHostInvalidations, same(changes));
     });
   });
 

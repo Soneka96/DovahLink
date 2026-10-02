@@ -44,6 +44,15 @@ void main() {
     );
   });
 
+  group('Property pairingRequired behaves correctly', () {
+    test('Property pairingRequired returns the saved recovery hint', () {
+      final DovahLinkKnownHostState state =
+          Fixtures.buildDovahLinkKnownHostState(pairingRequired: true);
+
+      expect(state.pairingRequired, isTrue);
+    });
+  });
+
   group('Behavior equality behaves correctly', () {
     test('Behavior equality compares Host and availability values', () {
       final DovahLinkKnownHostState first =
@@ -62,12 +71,15 @@ void main() {
           Fixtures.buildDovahLinkKnownHostState(
             host: Fixtures.buildDovahLinkHost(hostName: 'OTHER-HOST'),
           );
+      final DovahLinkKnownHostState requiresPairing =
+          Fixtures.buildDovahLinkKnownHostState(pairingRequired: true);
 
       expect(first, equal);
       expect(first.hashCode, equal.hashCode);
       expect(first, isNot(online));
       expect(first, isNot(connected));
       expect(first, isNot(renamedHost));
+      expect(first, isNot(requiresPairing));
     });
   });
 }

@@ -8,6 +8,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_discovery_service.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_hosts.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing.dart';
 import 'package:dovahlink_client_sdk/src/host_presence_probe.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
@@ -126,7 +127,7 @@ class DovahLinkClient {
       clientStateService: _clientStateService,
       hostAvailabilityService: _hostAvailabilityService,
     );
-    final SessionState state = SessionState();
+    final SessionState state = _sessionState = SessionState();
     final LifecycleOperationQueue lifecycleQueue = LifecycleOperationQueue();
     // The callback closes over the session service before it is assigned; it is only invoked by
     // a real teardown after construction has completed. The request service supplies teardown's
@@ -303,25 +304,17 @@ class DovahLinkClient {
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
     );
-    _sessionService
-        .onTeardown = (Exception reason, {required bool orphanRetrySafeOperations}) {
-      _requestService.failAll(
-        reason,
-        orphanRetrySafeOperations: orphanRetrySafeOperations,
-      );
-      _subscriptionService.onSessionEnded();
-      if (_sessionService.invalidationReason != null) {
-        unawaited(
-          _authenticationService.forgetLastKnownCredential().catchError((
-            Object _,
-            StackTrace __,
-          ) {
-            // Invalidation is already terminal; a later explicit authentication can retry this
-            // best-effort cleanup when the persistence failure has been resolved.
-          }),
-        );
-      }
-    };
+    _knownHostInvalidationSubscription = state.knownHostInvalidations.listen(
+      _handleKnownHostInvalidation,
+    );
+    _sessionService.onTeardown =
+        (Exception reason, {required bool orphanRetrySafeOperations}) {
+          _requestService.failAll(
+            reason,
+            orphanRetrySafeOperations: orphanRetrySafeOperations,
+          );
+          _subscriptionService.onSessionEnded();
+        };
     _reconnectService = ReconnectService(
       sessionService: _sessionService,
       authenticationService: _authenticationService,
@@ -384,6 +377,9 @@ class DovahLinkClient {
   /// session's late-bound callbacks.
   late final SessionService _sessionService;
 
+  /// Owns session state and immutable Known Host invalidation events.
+  late final SessionState _sessionState;
+
   /// Owns the runtime availability map and complete Known Host projection.
   late final IHostAvailabilityService _hostAvailabilityService;
 
@@ -403,8 +399,12 @@ class DovahLinkClient {
   late final StreamSubscription<KnownHostSessionSnapshot>
   _knownHostSessionSubscription;
 
+  /// Applies credential cleanup from the exact invalidated Host event.
+  late final StreamSubscription<DovahLinkKnownHostInvalidation>
+  _knownHostInvalidationSubscription;
+
   /// Tracks authoritative Known Host changes so newly known Hosts leave candidates immediately.
-  StreamSubscription<List<DovahLinkHost>>? _knownHostCandidateSubscription;
+  StreamSubscription<List<PersistedKnownHost>>? _knownHostCandidateSubscription;
 
   /// Owns sessionless startup and periodic presence checks until [close].
   late final IKnownHostPresenceMonitor _knownHostPresenceMonitor;
@@ -515,6 +515,26 @@ class DovahLinkClient {
         sink.onCancel = subscription.cancel;
       }, isBroadcast: true);
 
+  /// Removes the credential using the Host ID and reason captured by the invalidation event.
+  /// @param event The exact invalidated Host and Host-reported reason.
+  void _handleKnownHostInvalidation(DovahLinkKnownHostInvalidation event) {
+    unawaited(
+      _authenticationService
+          .forgetCredential(
+            event.hostId,
+            pairingRequired: switch (event.reason) {
+              AdministrativeInvalidationReason.revoked ||
+              AdministrativeInvalidationReason.trustReset ||
+              AdministrativeInvalidationReason.factoryReset => true,
+              AdministrativeInvalidationReason.blocked => false,
+            },
+          )
+          .catchError((Object _, StackTrace __) {
+            // Invalidation is terminal; a later authentication can retry cleanup.
+          }),
+    );
+  }
+
   /// Starts observing committed Known Hosts once their initial state has loaded.
   void _observeCandidateKnownHosts() {
     if (_isClosed || _knownHostCandidateSubscription != null) {
@@ -522,9 +542,13 @@ class DovahLinkClient {
     }
     _knownHostCandidateSubscription = _clientStateService.knownHostsChanges
         .listen(
-          (List<DovahLinkHost> hosts) {
+          (List<PersistedKnownHost> relationships) {
             if (!_isClosed) {
-              _reconcileCandidateHosts(hosts);
+              _reconcileCandidateHosts(
+                relationships
+                    .map((PersistedKnownHost relationship) => relationship.host)
+                    .toList(growable: false),
+              );
             }
           },
           onError: (Object error, StackTrace stackTrace) {
@@ -587,6 +611,9 @@ class DovahLinkClient {
     await _knownHostSessionSubscription.cancel().catchError(
       (Object _, StackTrace __) {},
     );
+    await _knownHostInvalidationSubscription.cancel().catchError(
+      (Object _, StackTrace __) {},
+    );
     await _hostAvailabilityService.close().catchError(
       (Object _, StackTrace __) {},
     );
@@ -596,6 +623,7 @@ class DovahLinkClient {
     await _candidateHostsController.close().catchError(
       (Object _, StackTrace __) {},
     );
+    await _sessionState.close().catchError((Object _, StackTrace __) {});
   })();
 
   /// Removes one Known Host's credential while preserving its metadata and the local client ID.

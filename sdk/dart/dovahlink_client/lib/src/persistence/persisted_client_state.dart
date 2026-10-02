@@ -6,7 +6,7 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 /// The SDK-owned client identity and Host relationships.
 class PersistedClientState {
   /// The current persisted-state format version this SDK writes.
-  static const int currentFormatVersion = 3;
+  static const int currentFormatVersion = 4;
 
   /// The stable local client identity, or `null` before one has been generated.
   final String? clientId;
@@ -127,6 +127,7 @@ class PersistedClientState {
                 endpoint: host.endpoint,
               ),
         credential: entry.value.credential,
+        pairingRequired: entry.value.pairingRequired,
       );
     }
     return Map<String, PersistedKnownHost>.unmodifiable(normalized);

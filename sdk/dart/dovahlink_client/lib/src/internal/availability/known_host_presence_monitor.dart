@@ -8,6 +8,7 @@ import 'package:dovahlink_client_sdk/src/host_presence_probe.dart';
 import 'package:dovahlink_client_sdk/src/internal/availability/host_availability_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
+import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
@@ -60,7 +61,7 @@ class KnownHostPresenceMonitor implements IKnownHostPresenceMonitor {
   final Set<Future<void>> _workers = <Future<void>>{};
 
   /// The subscription to committed Known Host snapshots.
-  StreamSubscription<List<DovahLinkHost>>? _knownHostsSubscription;
+  StreamSubscription<List<PersistedKnownHost>>? _knownHostsSubscription;
 
   /// The refresh tick subscription, once monitoring starts.
   StreamSubscription<void>? _refreshSubscription;
@@ -116,7 +117,11 @@ class KnownHostPresenceMonitor implements IKnownHostPresenceMonitor {
     }
     _started = true;
     _knownHostsSubscription = _clientStateService.knownHostsChanges.listen(
-      handleKnownHostsChanged,
+      (List<PersistedKnownHost> relationships) => handleKnownHostsChanged(
+        relationships
+            .map((PersistedKnownHost relationship) => relationship.host)
+            .toList(growable: false),
+      ),
       onError: (Object _, StackTrace __) {},
     );
     _refreshSubscription = _refreshTicks.listen((_) => refreshPresence());
@@ -324,7 +329,7 @@ class KnownHostPresenceMonitor implements IKnownHostPresenceMonitor {
     _isClosed = true;
     final StreamSubscription<void>? refreshSubscription = _refreshSubscription;
     _refreshSubscription = null;
-    final StreamSubscription<List<DovahLinkHost>>? subscription =
+    final StreamSubscription<List<PersistedKnownHost>>? subscription =
         _knownHostsSubscription;
     _knownHostsSubscription = null;
     for (final Completer<void> cancellation in _cancellations.values) {

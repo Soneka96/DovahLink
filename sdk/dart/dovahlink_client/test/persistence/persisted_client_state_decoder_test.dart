@@ -13,15 +13,16 @@ void main() {
   /// Builds a serialized relationship fixture for [id].
   /// @param id The Host UUID represented by the record.
   /// @param credential The optional Host-scoped credential.
-  /// @return A version-3 Known Host JSON object.
+  /// @return A current-version Known Host JSON object.
   Map<String, dynamic> host({String id = hostA, String? credential}) =>
       <String, dynamic>{
         'hostName': id,
         'endpoint': 'ws://127.0.0.1:58231/',
         'credential': credential,
+        'pairingRequired': false,
       };
 
-  /// Builds a version-3 root state object with scenario overrides.
+  /// Builds a current-version root state object with scenario overrides.
   /// @param knownHosts The serialized Host collection, or an empty object by default.
   /// @param recovery The pending recovery record, or `null` when none is stored.
   /// @return A valid root object before scenario-specific validation.
@@ -36,12 +37,50 @@ void main() {
   };
 
   group('Method decode behaves correctly', () {
-    test('Method decode creates the empty v3 state', () {
+    test('Method decode creates the empty v4 state', () {
       expect(
         PersistedClientStateDecoder.decode(currentJson()),
         PersistedClientState(clientId: 'client-1'),
       );
     });
+
+    test(
+      'Method decode migrates v3 Known Hosts without losing stored values',
+      () {
+        final PersistedClientState state = PersistedClientStateDecoder.decode(
+          <String, dynamic>{
+            'formatVersion': 3,
+            'clientId': 'client-1',
+            'knownHosts': <String, dynamic>{
+              hostA: <String, dynamic>{
+                'hostName': 'OLD-HOST',
+                'endpoint': 'ws://127.0.0.1:58231/',
+                'credential': 'credential-a',
+                'pairingRequired': true,
+              },
+            },
+            'pendingPairingRecovery': <String, dynamic>{
+              'hostId': hostA,
+              'state': 'confirming',
+            },
+          },
+        );
+
+        expect(state.clientId, 'client-1');
+        expect(state.knownHosts[hostA]?.host.hostName, 'OLD-HOST');
+        expect(
+          state.knownHosts[hostA]?.host.endpoint,
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        expect(state.knownHosts[hostA]?.credential, 'credential-a');
+        expect(state.knownHosts[hostA]?.pairingRequired, isFalse);
+        expect(state.pendingPairingRecovery?.hostId, hostA);
+        expect(
+          state.pendingPairingRecovery?.state,
+          PairingRecoveryState.confirming,
+        );
+      },
+    );
 
     test('Method decode invalidates unreleased v1 singleton credentials', () {
       final PersistedClientState state =
@@ -191,6 +230,7 @@ void main() {
         <String, dynamic>{...host(), 'endpoint': 'ws://127.0.0.1:0/'},
         <String, dynamic>{...host(), 'endpoint': 'ws://127.0.0.1:65536/'},
         <String, dynamic>{...host(), 'credential': 42},
+        <String, dynamic>{...host(), 'pairingRequired': 'yes'},
       ];
 
       for (final Map<String, dynamic> record in malformed) {
@@ -202,6 +242,15 @@ void main() {
           reason: '$record must fail closed',
         );
       }
+
+      final Map<String, dynamic> missingPairingHint = host()
+        ..remove('pairingRequired');
+      expect(
+        () => PersistedClientStateDecoder.decode(
+          currentJson(knownHosts: <String, dynamic>{hostA: missingPairingHint}),
+        ),
+        throwsA(isA<DovahLinkStorageException>()),
+      );
     });
 
     test(

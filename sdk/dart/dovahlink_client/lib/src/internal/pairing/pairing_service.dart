@@ -353,6 +353,7 @@ class PairingService implements IPairingService {
           currentHost.hostId: PersistedKnownHost(
             host: currentHost,
             credential: credential,
+            pairingRequired: false,
           ),
         },
         pendingPairingRecovery: PendingPairingRecovery(
@@ -532,7 +533,10 @@ class PairingService implements IPairingService {
           return current.copyWith(
             knownHosts: <String, PersistedKnownHost>{
               ...current.knownHosts,
-              recovery.hostId: PersistedKnownHost(host: relationship.host),
+              recovery.hostId: PersistedKnownHost(
+                host: relationship.host,
+                pairingRequired: relationship.pairingRequired,
+              ),
             },
             clearPendingPairingRecovery: true,
           );
