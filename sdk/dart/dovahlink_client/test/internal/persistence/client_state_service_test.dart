@@ -3,7 +3,6 @@ import 'dart:async';
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
-import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
@@ -30,9 +29,11 @@ void main() {
     String id, {
     String? name,
     String? credential,
+    bool pairingRequired = false,
   }) => PersistedKnownHost(
     host: Fixtures.buildDovahLinkHost(hostId: id, hostName: name ?? id),
     credential: credential,
+    pairingRequired: pairingRequired,
   );
 
   setUpAll(() {
@@ -54,13 +55,11 @@ void main() {
     test(
       'Property knownHostsChanges emits an empty immutable collection',
       () async {
-        final List<DovahLinkHost> hosts = await service.knownHostsChanges.first;
+        final List<PersistedKnownHost> hosts =
+            await service.knownHostsChanges.first;
 
         expect(hosts, isEmpty);
-        expect(
-          () => hosts.add(Fixtures.buildDovahLinkHost()),
-          throwsUnsupportedError,
-        );
+        expect(() => hosts.add(relationship(hostAId)), throwsUnsupportedError);
       },
     );
 
@@ -74,13 +73,12 @@ void main() {
             hostAId: relationship(hostAId),
           },
         );
-        final List<List<DovahLinkHost>> emitted = [];
-        final StreamSubscription<List<DovahLinkHost>> subscription = service
-            .knownHostsChanges
-            .listen(emitted.add);
+        final List<List<PersistedKnownHost>> emitted = [];
+        final StreamSubscription<List<PersistedKnownHost>> subscription =
+            service.knownHostsChanges.listen(emitted.add);
         await Future<void>.delayed(Duration.zero);
 
-        expect(emitted.single.map((host) => host.hostId), <String>[
+        expect(emitted.single.map((host) => host.host.hostId), <String>[
           hostAId,
           hostBId,
         ]);
@@ -106,16 +104,18 @@ void main() {
           );
         });
         final List<Object> errors = [];
-        final List<List<DovahLinkHost>> values = [];
-        final StreamSubscription<List<DovahLinkHost>> subscription = service
-            .knownHostsChanges
-            .listen(values.add, onError: (Object error) => errors.add(error));
+        final List<List<PersistedKnownHost>> values = [];
+        final StreamSubscription<List<PersistedKnownHost>> subscription =
+            service.knownHostsChanges.listen(
+              values.add,
+              onError: (Object error) => errors.add(error),
+            );
         await Future<void>.delayed(Duration.zero);
         await service.load();
         await Future<void>.delayed(Duration.zero);
 
         expect(errors, <Object>[failure]);
-        expect(values.single, <DovahLinkHost>[relationship(hostAId).host]);
+        expect(values.single, <PersistedKnownHost>[relationship(hostAId)]);
         expect(loadCount, 2);
         await subscription.cancel();
       },
@@ -133,10 +133,12 @@ void main() {
           return PersistedClientState(clientId: 'client-1');
         });
         final List<Object> errors = [];
-        final List<List<DovahLinkHost>> values = [];
-        final StreamSubscription<List<DovahLinkHost>> subscription = service
-            .knownHostsChanges
-            .listen(values.add, onError: (Object error) => errors.add(error));
+        final List<List<PersistedKnownHost>> values = [];
+        final StreamSubscription<List<PersistedKnownHost>> subscription =
+            service.knownHostsChanges.listen(
+              values.add,
+              onError: (Object error) => errors.add(error),
+            );
         await Future<void>.delayed(Duration.zero);
 
         expect(values, isEmpty);
@@ -144,7 +146,9 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         expect(errors, hasLength(1));
-        expect(values, <List<DovahLinkHost>>[const <DovahLinkHost>[]]);
+        expect(values, <List<PersistedKnownHost>>[
+          const <PersistedKnownHost>[],
+        ]);
         await subscription.cancel();
       },
     );
@@ -159,10 +163,9 @@ void main() {
           loadStarted.complete();
           return loadGate.future;
         });
-        final List<List<DovahLinkHost>> values = [];
-        final StreamSubscription<List<DovahLinkHost>> subscription = service
-            .knownHostsChanges
-            .listen(values.add);
+        final List<List<PersistedKnownHost>> values = [];
+        final StreamSubscription<List<PersistedKnownHost>> subscription =
+            service.knownHostsChanges.listen(values.add);
         await loadStarted.future;
         await subscription.cancel();
         loadGate.complete(
@@ -183,10 +186,9 @@ void main() {
     test(
       'Property knownHostsChanges publishes only after persistence succeeds',
       () async {
-        final List<List<DovahLinkHost>> values = [];
-        final StreamSubscription<List<DovahLinkHost>> subscription = service
-            .knownHostsChanges
-            .listen(values.add);
+        final List<List<PersistedKnownHost>> values = [];
+        final StreamSubscription<List<PersistedKnownHost>> subscription =
+            service.knownHostsChanges.listen(values.add);
         await Future<void>.delayed(Duration.zero);
         when(() => storage.save(any())).thenThrow(StateError('save failed'));
 
@@ -201,51 +203,75 @@ void main() {
           throwsA(isA<StateError>()),
         );
 
-        expect(values, <List<DovahLinkHost>>[const <DovahLinkHost>[]]);
+        expect(values, <List<PersistedKnownHost>>[
+          const <PersistedKnownHost>[],
+        ]);
         expect(persisted.knownHosts, isEmpty);
         await subscription.cancel();
       },
     );
 
-    test(
-      'Property knownHostsChanges skips an equivalent public projection',
-      () async {
-        persisted = PersistedClientState(
+    test('Property knownHostsChanges skips credential-only changes', () async {
+      persisted = PersistedClientState(
+        knownHosts: <String, PersistedKnownHost>{
+          hostAId: relationship(hostAId, credential: 'credential-a'),
+        },
+      );
+      final List<List<PersistedKnownHost>> values = [];
+      final StreamSubscription<List<PersistedKnownHost>> subscription = service
+          .knownHostsChanges
+          .listen(values.add);
+      await Future<void>.delayed(Duration.zero);
+
+      await service.updateState(
+        (PersistedClientState state) => state.copyWith(
           knownHosts: <String, PersistedKnownHost>{
-            hostAId: relationship(hostAId, credential: 'credential-a'),
+            hostAId: relationship(hostAId, credential: 'rotated-credential'),
           },
-        );
-        final List<List<DovahLinkHost>> values = [];
-        final StreamSubscription<List<DovahLinkHost>> subscription = service
-            .knownHostsChanges
-            .listen(values.add);
-        await Future<void>.delayed(Duration.zero);
+        ),
+      );
 
-        await service.updateState(
-          (PersistedClientState state) => state.copyWith(
-            knownHosts: <String, PersistedKnownHost>{
-              hostAId: relationship(hostAId, credential: 'rotated-credential'),
-            },
-          ),
-        );
+      expect(values, <List<PersistedKnownHost>>[
+        <PersistedKnownHost>[relationship(hostAId)],
+      ]);
+      await subscription.cancel();
+    });
 
-        expect(values, <List<DovahLinkHost>>[
-          <DovahLinkHost>[
-            relationship(hostAId, credential: 'credential-a').host,
-          ],
-        ]);
-        await subscription.cancel();
-      },
-    );
+    test('Property knownHostsChanges publishes a repair-hint change', () async {
+      persisted = PersistedClientState(
+        knownHosts: <String, PersistedKnownHost>{
+          hostAId: relationship(hostAId),
+        },
+      );
+      final List<List<PersistedKnownHost>> values = [];
+      final StreamSubscription<List<PersistedKnownHost>> subscription = service
+          .knownHostsChanges
+          .listen(values.add);
+      await Future<void>.delayed(Duration.zero);
+
+      await service.updateState(
+        (PersistedClientState state) => state.copyWith(
+          knownHosts: <String, PersistedKnownHost>{
+            hostAId: relationship(hostAId, pairingRequired: true),
+          },
+        ),
+      );
+      await Future<void>.delayed(Duration.zero);
+
+      expect(values, hasLength(2));
+      expect(values.last.single.pairingRequired, isTrue);
+      expect(values.last.single.credential, isNull);
+      await subscription.cancel();
+    });
 
     test(
       'Property knownHostsChanges gives each subscriber the same complete view',
       () async {
-        final List<List<DovahLinkHost>> first = [];
-        final List<List<DovahLinkHost>> second = [];
-        final StreamSubscription<List<DovahLinkHost>> firstSubscription =
+        final List<List<PersistedKnownHost>> first = [];
+        final List<List<PersistedKnownHost>> second = [];
+        final StreamSubscription<List<PersistedKnownHost>> firstSubscription =
             service.knownHostsChanges.listen(first.add);
-        final StreamSubscription<List<DovahLinkHost>> secondSubscription =
+        final StreamSubscription<List<PersistedKnownHost>> secondSubscription =
             service.knownHostsChanges.listen(second.add);
         await Future<void>.delayed(Duration.zero);
         await service.updateState(
@@ -259,7 +285,7 @@ void main() {
         await Future<void>.delayed(Duration.zero);
 
         expect(first, second);
-        expect(first.last.map((host) => host.hostId), <String>[
+        expect(first.last.map((host) => host.host.hostId), <String>[
           hostAId,
           hostBId,
         ]);

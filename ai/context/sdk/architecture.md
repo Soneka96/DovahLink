@@ -103,13 +103,12 @@ without losing the prior snapshot.
 
 ### Known Host pairing-recovery hint
 
-The approved Known Host projection change will add an optional persisted `pairingRequired` hint for
-the official app's root card. It is separate from runtime availability and session lifecycle, and
-never establishes current trust. The SDK will set it only from typed Host credential-rejection or
-administrative-invalidation evidence for that Known Host; `blocked` will clear it and never make the
-Host repairable. An Offline card still describes reachability, not repair. Every Pair again action
-must go through Known Host authentication and the normal pairing flow so the Host can confirm the
-current result.
+The Known Host projection includes a persisted `pairingRequired` hint for the official app's root
+card. It is separate from runtime availability and session lifecycle, and never establishes current
+trust. The SDK sets it only from typed Host credential-rejection or administrative-invalidation
+evidence for that Known Host; `blocked` clears it and never makes the Host repairable. An Offline
+card still describes reachability, not repair. Every Pair again action must go through Known Host
+authentication and the normal pairing flow so the Host can confirm the current result.
 
 ## App independence
 

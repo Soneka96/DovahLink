@@ -40,10 +40,12 @@ abstract final class Fixtures {
     DovahLinkHostAvailability availability = DovahLinkHostAvailability.unknown,
     DovahLinkKnownHostSessionState sessionState =
         DovahLinkKnownHostSessionState.disconnected,
+    bool pairingRequired = false,
   }) => DovahLinkKnownHostState(
     host: host ?? buildDovahLinkHost(),
     availability: availability,
     sessionState: sessionState,
+    pairingRequired: pairingRequired,
   );
 
   // ---- Request ----
@@ -131,6 +133,7 @@ abstract final class Fixtures {
   /// @param endpoint The representative WebSocket endpoint.
   /// @param host An explicit Host value for a scenario-specific relationship.
   /// @param credential The current credential owned by this Host, if any.
+  /// @param pairingRequired Whether the saved recovery hint is set.
   /// @param recoveryState The pending pairing recovery phase to represent.
   /// @return A fresh persisted state with credentials associated with their Host.
   static PersistedClientState buildPersistedClientState({
@@ -140,12 +143,14 @@ abstract final class Fixtures {
     String endpoint = 'ws://127.0.0.1:58231/',
     DovahLinkHost? host,
     String? credential,
+    bool pairingRequired = false,
     PairingRecoveryState recoveryState = PairingRecoveryState.none,
   }) {
     final Map<String, PersistedKnownHost> knownHosts =
         credential == null &&
             recoveryState == PairingRecoveryState.none &&
-            host == null
+            host == null &&
+            !pairingRequired
         ? <String, PersistedKnownHost>{}
         : <String, PersistedKnownHost>{
             (host?.hostId ?? hostId): PersistedKnownHost(
@@ -157,6 +162,7 @@ abstract final class Fixtures {
                     endpoint: Uri.parse(endpoint),
                   ),
               credential: credential,
+              pairingRequired: pairingRequired,
             ),
           };
     return PersistedClientState(

@@ -49,8 +49,21 @@ class DovahLinkHosts implements IDovahLinkHosts {
 
   /// Implements [IDovahLinkHosts.knownHostsChanges].
   @override
-  Stream<List<DovahLinkHost>> get knownHostsChanges =>
-      _clientStateService.knownHostsChanges;
+  Stream<List<DovahLinkHost>> get knownHostsChanges => _clientStateService
+      .knownHostsChanges
+      .map(
+        (List<PersistedKnownHost> relationships) =>
+            List<DovahLinkHost>.unmodifiable(
+              relationships.map(
+                (PersistedKnownHost relationship) => relationship.host,
+              ),
+            ),
+      )
+      .distinct(
+        (List<DovahLinkHost> previous, List<DovahLinkHost> next) =>
+            previous.length == next.length &&
+            previous.indexed.every((entry) => entry.$2 == next[entry.$1]),
+      );
 
   /// Implements [IDovahLinkHosts.knownHostStatesChanges].
   @override

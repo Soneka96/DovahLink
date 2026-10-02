@@ -12,11 +12,11 @@ resource/cache metadata, cache-format version, and SDK persistence-format versio
 App-owned persistence includes product/UI preferences such as preferred Host selection, dashboard
 layout, map zoom, selected marker, and UI filters.
 
-Administrative invalidation reasons are not persisted as authoritative trust state. The approved
-Known Host recovery presentation will add only a per-Host `pairingRequired` hint after a Host-reported
+Administrative invalidation reasons are not persisted as authoritative trust state. Known Host
+recovery presentation uses only a per-Host `pairingRequired` hint after a Host-reported
 `revoked`/`unrecognized` credential rejection or an administrative
 `revoked`/`trust_reset`/`factory_reset` event for an admitted Known Host session. The implementation
-will not persist the reason, set the hint for `blocked`, or retain an existing hint when the Host
+does not persist the reason, set the hint for `blocked`, or retain an existing hint when the Host
 reports `blocked`. This is last-known UI guidance, not a statement of current trust; an offline Host
 can make it stale. Selecting the action must run normal SDK authentication and pairing, and the
 Host's current response remains authoritative. Clear the hint after trusted Known Host
@@ -26,8 +26,8 @@ Because the hint changes SDK-owned storage, implementation requires a format ver
 migration that preserves `clientId`, credentials, endpoint metadata, and pending pairing recovery.
 
 Each Known Host relationship currently stores `hostId`, last-known `hostName`, last-known `endpoint`,
-and the current bearer credential issued by that Host. `hostId` is identity; name and endpoint are
-mutable metadata. The approved `pairingRequired` hint will not be authoritative trust state: the Host
+the current bearer credential issued by that Host, and its `pairingRequired` hint. `hostId` is
+identity; name and endpoint are mutable metadata. The hint is not authoritative trust state: the Host
 establishes current trust on every session, and no trusted/connected/offline/blocked/revoked status
 is persisted. A discovery claim or unpaired `hello_ack` alone never writes Known Host metadata or
 sets the hint. Successful code confirmation atomically adds or updates only the issuing Host's

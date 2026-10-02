@@ -149,13 +149,32 @@ class DovahLinkClient {
       lifecycleQueue: lifecycleQueue,
       teardownCoordinator: teardownCoordinator,
     );
-    _knownHostSessionSubscription = _sessionService.knownHostSessionChanges
-        .listen((KnownHostSessionSnapshot snapshot) {
-          _hostAvailabilityService.setSessionState(
-            snapshot.hostId,
-            snapshot.state,
-          );
-        });
+    _knownHostSessionSubscription = _sessionService.knownHostSessionChanges.listen((
+      KnownHostSessionSnapshot snapshot,
+    ) {
+      _hostAvailabilityService.setSessionState(snapshot.hostId, snapshot.state);
+      final AdministrativeInvalidationReason? invalidationReason =
+          _sessionService.invalidationReason;
+      if (snapshot.hostId != null &&
+          snapshot.state == DovahLinkKnownHostSessionState.disconnected &&
+          invalidationReason != null) {
+        unawaited(
+          _authenticationService
+              .forgetCredential(
+                snapshot.hostId!,
+                pairingRequired: switch (invalidationReason) {
+                  AdministrativeInvalidationReason.revoked ||
+                  AdministrativeInvalidationReason.trustReset ||
+                  AdministrativeInvalidationReason.factoryReset => true,
+                  AdministrativeInvalidationReason.blocked => false,
+                },
+              )
+              .catchError((Object _, StackTrace __) {
+                // Invalidation is terminal; a later authentication can retry cleanup.
+              }),
+        );
+      }
+    });
 
     final CurrentValueStream<StateSynchronization<CharacterXpState>>
     characterXpStream =
@@ -303,25 +322,14 @@ class DovahLinkClient {
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
     );
-    _sessionService
-        .onTeardown = (Exception reason, {required bool orphanRetrySafeOperations}) {
-      _requestService.failAll(
-        reason,
-        orphanRetrySafeOperations: orphanRetrySafeOperations,
-      );
-      _subscriptionService.onSessionEnded();
-      if (_sessionService.invalidationReason != null) {
-        unawaited(
-          _authenticationService.forgetLastKnownCredential().catchError((
-            Object _,
-            StackTrace __,
-          ) {
-            // Invalidation is already terminal; a later explicit authentication can retry this
-            // best-effort cleanup when the persistence failure has been resolved.
-          }),
-        );
-      }
-    };
+    _sessionService.onTeardown =
+        (Exception reason, {required bool orphanRetrySafeOperations}) {
+          _requestService.failAll(
+            reason,
+            orphanRetrySafeOperations: orphanRetrySafeOperations,
+          );
+          _subscriptionService.onSessionEnded();
+        };
     _reconnectService = ReconnectService(
       sessionService: _sessionService,
       authenticationService: _authenticationService,
@@ -404,7 +412,7 @@ class DovahLinkClient {
   _knownHostSessionSubscription;
 
   /// Tracks authoritative Known Host changes so newly known Hosts leave candidates immediately.
-  StreamSubscription<List<DovahLinkHost>>? _knownHostCandidateSubscription;
+  StreamSubscription<List<PersistedKnownHost>>? _knownHostCandidateSubscription;
 
   /// Owns sessionless startup and periodic presence checks until [close].
   late final IKnownHostPresenceMonitor _knownHostPresenceMonitor;
@@ -522,9 +530,13 @@ class DovahLinkClient {
     }
     _knownHostCandidateSubscription = _clientStateService.knownHostsChanges
         .listen(
-          (List<DovahLinkHost> hosts) {
+          (List<PersistedKnownHost> relationships) {
             if (!_isClosed) {
-              _reconcileCandidateHosts(hosts);
+              _reconcileCandidateHosts(
+                relationships
+                    .map((PersistedKnownHost relationship) => relationship.host)
+                    .toList(growable: false),
+              );
             }
           },
           onError: (Object error, StackTrace stackTrace) {

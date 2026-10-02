@@ -22,6 +22,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - The SDK exposes the shared Host presence probe for local discovery and Known Host reachability.
 - `client.pairing.discoverHosts()` and `client.pairing.candidates` expose SDK-reconciled, runtime-only candidates.
 - `DovahLinkKnownHostState` exposes the exact Known Host session lifecycle separately from reachability.
+- `DovahLinkKnownHostState.pairingRequired` projects the persisted last-known recovery hint without granting trust.
 - `DovahLinkClient.close()` stops background presence monitoring and releases SDK-owned subscriptions.
 - DovahLinkConnectionException preserves an HTTP status when a peer rejects the metadata probe.
 

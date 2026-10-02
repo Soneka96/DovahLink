@@ -3909,6 +3909,10 @@ void main() {
           final PersistedClientState stored = await storage.load();
           expect(stored.clientId, 'client-1');
           expect(stored.knownHosts.values.single.credential, isNull);
+          expect(
+            stored.knownHosts.values.single.pairingRequired,
+            entry.key != AdministrativeInvalidationReason.blocked,
+          );
           expect(stored.pendingPairingRecovery, isNull);
         },
       );

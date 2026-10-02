@@ -91,11 +91,9 @@ class GatedClientStateService implements IClientStateService {
 
   /// Emits the current Known Host to a new subscriber.
   @override
-  Stream<List<DovahLinkHost>> get knownHostsChanges =>
-      Stream<List<DovahLinkHost>>.value(
-        _state.knownHosts.values
-            .map((PersistedKnownHost relationship) => relationship.host)
-            .toList(growable: false),
+  Stream<List<PersistedKnownHost>> get knownHostsChanges =>
+      Stream<List<PersistedKnownHost>>.value(
+        _state.knownHosts.values.toList(growable: false),
       );
 }
 
