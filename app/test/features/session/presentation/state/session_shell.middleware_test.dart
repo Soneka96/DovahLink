@@ -213,6 +213,67 @@ void main() {
   });
 
   group(
+    'SessionShellMiddleware processes ConnectionHostReentryRequestedAction correctly',
+    () {
+      test(
+        'ConnectionHostReentryRequestedAction opens only the already-connected Host shell',
+        () {
+          final store = const CreateStore()(middleware: [middleware.call]);
+          final host = Fixtures.buildHost(hostId: 'selected-host');
+          store.dispatch(
+            ConnectionKnownHostsChangedAction([
+              Fixtures.buildKnownHost(
+                host: host,
+                availability: HostAvailability.online,
+                sessionState: KnownHostSessionState.connected,
+              ),
+            ]),
+          );
+
+          store.dispatch(ConnectionHostReentryRequestedAction(host.hostId));
+
+          verify(
+            () => navigator.go(AppRoutes.sessionFor(host.hostId)),
+          ).called(1);
+          expect(store.state.connection.selectedHost, isNull);
+          expect(
+            store.state.connection.knownHosts.single.sessionState,
+            KnownHostSessionState.connected,
+          );
+          expect(store.state.pairing.phase, PairingPhase.none);
+        },
+      );
+
+      test(
+        'ConnectionHostReentryRequestedAction does not open a Host without a connected session',
+        () {
+          final store = const CreateStore()(middleware: [middleware.call]);
+          final host = Fixtures.buildHost(hostId: 'selected-host');
+          store.dispatch(
+            ConnectionKnownHostsChangedAction([
+              Fixtures.buildKnownHost(
+                host: host,
+                availability: HostAvailability.online,
+                sessionState: KnownHostSessionState.disconnected,
+              ),
+              Fixtures.buildKnownHost(
+                host: Fixtures.buildHost(hostId: 'other-host'),
+                availability: HostAvailability.online,
+                sessionState: KnownHostSessionState.connected,
+              ),
+            ]),
+          );
+
+          store.dispatch(ConnectionHostReentryRequestedAction(host.hostId));
+
+          verifyNever(() => navigator.go(any()));
+          expect(store.state.connection.selectedHost, isNull);
+        },
+      );
+    },
+  );
+
+  group(
     'SessionShellMiddleware processes SessionShellBackRequestedAction correctly',
     () {
       test(

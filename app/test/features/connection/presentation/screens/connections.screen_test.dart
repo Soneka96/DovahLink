@@ -74,6 +74,7 @@ void main() {
   late List<String> pairingCalls;
   late List<String> discoveryCalls;
   late List<HostCardViewData> selectedCandidates;
+  late List<HostCardViewData> reenteredHosts;
   late List<Host> selectedHosts;
   late List<ConnectionHostSelectionSource> selectedSources;
   late List<DovahThemePreset> selectedPresets;
@@ -90,6 +91,7 @@ void main() {
     pairingCalls = [];
     discoveryCalls = [];
     selectedCandidates = [];
+    reenteredHosts = [];
     selectedHosts = [];
     selectedSources = [];
     selectedPresets = [];
@@ -136,6 +138,7 @@ void main() {
       selectedHosts.add(card.host);
       selectedSources.add(card.source);
     });
+    when(() => viewModel.onReenterConnectedHost).thenReturn(reenteredHosts.add);
     when(
       () => appearanceViewModel.activePreset,
     ).thenReturn(DovahThemePreset.dovah);
@@ -460,6 +463,30 @@ void main() {
       expect(selectedHosts, [Fixtures.buildHost()]);
       expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
     });
+
+    testWidgets(
+      'ConnectionsScreen re-enters a Connected Host without starting pairing',
+      (WidgetTester tester) async {
+        final HostCardViewData connectedCard = Fixtures.buildHostCardViewData(
+          source: ConnectionHostSelectionSource.knownHost,
+          state: DovahConnectionCardState.connected,
+          subtitle: 'Known Host',
+        );
+        when(() => viewModel.hostCards).thenReturn([connectedCard]);
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(
+          find.byKey(Key('host-card-${connectedCard.host.hostId}')),
+        );
+        await tester.pump();
+
+        expect(reenteredHosts, [connectedCard]);
+        expect(selectedHosts, isEmpty);
+        expect(pairingCalls, isEmpty);
+        expect(find.byType(PairingDialog), findsNothing);
+      },
+    );
 
     testWidgets(
       'ConnectionsScreen starts the existing Known Host pairing flow when Pair again is tapped',

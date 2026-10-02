@@ -961,19 +961,23 @@ void main() {
     },
   );
 
-  group('ConnectionMiddleware processes unrelated actions correctly', () {
-    test(
-      'ConnectionMiddleware forwards an unrelated action without discovering Hosts',
-      () {
-        final List<Object?> actions = [];
-        final Object action = Object();
+  group(
+    'ConnectionMiddleware processes ConnectionHostReentryRequestedAction correctly',
+    () {
+      test(
+        'ConnectionHostReentryRequestedAction does not start another discovery',
+        () {
+          final List<Object?> actions = [];
+          const ConnectionHostReentryRequestedAction action =
+              ConnectionHostReentryRequestedAction('connected-host');
 
-        middleware.call(store, action, actions.add);
+          middleware.call(store, action, actions.add);
 
-        expect(actions, [action]);
-        verifyNever(() => mockPairing.discoverHosts());
-        verifyNever(() => store.dispatch(any()));
-      },
-    );
-  });
+          expect(actions, [action]);
+          verifyNever(() => mockPairing.discoverHosts());
+          verifyNever(() => store.dispatch(any()));
+        },
+      );
+    },
+  );
 }

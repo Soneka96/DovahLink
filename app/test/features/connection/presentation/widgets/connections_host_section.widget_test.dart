@@ -449,7 +449,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsHostSection keeps non-online Known Hosts visible but not selectable',
+      'ConnectionsHostSection keeps non-connected Known Hosts visible but not selectable',
       (WidgetTester tester) async {
         final List<HostCardViewData> selected = [];
         final List<HostCardViewData> offlineInfoRequests = [];
@@ -457,7 +457,6 @@ void main() {
         try {
           for (final DovahConnectionCardState state in [
             DovahConnectionCardState.offline,
-            DovahConnectionCardState.connected,
             DovahConnectionCardState.reconnecting,
             DovahConnectionCardState.checking,
             DovahConnectionCardState.unknown,
@@ -521,6 +520,88 @@ void main() {
         } finally {
           semantics.dispose();
         }
+      },
+    );
+
+    testWidgets(
+      'ConnectionsHostSection makes a Connected card a direct Session Shell entry',
+      (WidgetTester tester) async {
+        final HostCardViewData connectedCard = Fixtures.buildHostCardViewData(
+          source: ConnectionHostSelectionSource.knownHost,
+          subtitle: 'Known Host',
+          state: DovahConnectionCardState.connected,
+        );
+        final List<HostCardViewData> selected = [];
+        final List<HostCardViewData> reentered = [];
+        final SemanticsHandle semantics = tester.ensureSemantics();
+        try {
+          await pumpDovahThemedWidget(
+            tester,
+            ConnectionsHostSection(
+              cards: [connectedCard],
+              onSelectHost: selected.add,
+              onReenterConnectedHost: reentered.add,
+            ),
+            preset: DovahThemePreset.dovah,
+            size: dovahTestSizes.first,
+          );
+
+          final DovahConnectionCard card = tester.widget(
+            find.byKey(Key('host-card-${connectedCard.host.hostId}')),
+          );
+          expect(card.onTap, isNotNull);
+          expect(find.text('›'), findsOneWidget);
+          final SemanticsData semanticsData = tester
+              .getSemantics(
+                find.bySemanticsLabel(
+                  'Local Host, Known Host, 127.0.0.1:58231, Connected',
+                ),
+              )
+              .getSemanticsData();
+          expect(semanticsData.flagsCollection.isEnabled, Tristate.isTrue);
+          expect(semanticsData.hasAction(SemanticsAction.tap), isTrue);
+          await tester.tap(
+            find.byKey(Key('host-card-${connectedCard.host.hostId}')),
+          );
+
+          expect(reentered, [connectedCard]);
+          expect(selected, isEmpty);
+        } finally {
+          semantics.dispose();
+        }
+      },
+    );
+
+    testWidgets(
+      'ConnectionsHostSection leaves a Connected card inert without its re-entry callback',
+      (WidgetTester tester) async {
+        final HostCardViewData connectedCard = Fixtures.buildHostCardViewData(
+          source: ConnectionHostSelectionSource.knownHost,
+          subtitle: 'Known Host',
+          state: DovahConnectionCardState.connected,
+        );
+        final List<HostCardViewData> selected = [];
+        await pumpDovahThemedWidget(
+          tester,
+          ConnectionsHostSection(
+            cards: [connectedCard],
+            onSelectHost: selected.add,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final DovahConnectionCard card = tester.widget(
+          find.byKey(Key('host-card-${connectedCard.host.hostId}')),
+        );
+        expect(card.onTap, isNull);
+        expect(find.text('›'), findsNothing);
+        await tester.tap(
+          find.byKey(Key('host-card-${connectedCard.host.hostId}')),
+          warnIfMissed: false,
+        );
+
+        expect(selected, isEmpty);
       },
     );
 

@@ -44,8 +44,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
   user-facing empty-state copy (“No other Skyrim PCs found.”).
 - Known Host cards use the prototype's text chevron glyph for their entry affordance.
 - Offline Known Host cards open the prototype's status dialog without starting authentication.
-- Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,
-  and Unknown states remain visible without an entry affordance.
+- Connections routes Online and Pair again cards through authentication, while Connected cards
+  re-enter the matching admitted Session Shell directly.
 - Connections lists durable Known Hosts separately from ephemeral discovery candidates.
 - Discover shows “Local Host found.” after real candidates arrive and keeps authentication and any
   required pairing inside the same modal flow.

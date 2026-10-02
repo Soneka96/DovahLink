@@ -18,11 +18,15 @@ class ConnectionsScreenViewModel extends Equatable {
   /// Called when the user selects a card to pair or connect with.
   final void Function(HostCardViewData card) onSelectHost;
 
+  /// Called when the user re-enters the selected Host's admitted session.
+  final void Function(HostCardViewData card) onReenterConnectedHost;
+
   /// Creates a connections screen ViewModel.
   const ConnectionsScreenViewModel({
     required this.hostCards,
     required this.canDiscover,
     required this.onSelectHost,
+    required this.onReenterConnectedHost,
   });
 
   /// Builds a ViewModel from the Redux [store].
@@ -33,6 +37,9 @@ class ConnectionsScreenViewModel extends Equatable {
       canDiscover: ConnectionSelectors.canDiscoverSelector(state),
       onSelectHost: (HostCardViewData card) => store.dispatch(
         ConnectionHostSelectedAction(card.host, source: card.source),
+      ),
+      onReenterConnectedHost: (HostCardViewData card) => store.dispatch(
+        ConnectionHostReentryRequestedAction(card.host.hostId),
       ),
     );
   }

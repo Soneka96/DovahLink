@@ -1962,4 +1962,27 @@ void main() {
       },
     );
   });
+
+  group(
+    'PairingMiddleware processes ConnectionHostReentryRequestedAction correctly',
+    () {
+      test(
+        'ConnectionHostReentryRequestedAction does not start authentication, pairing, or retry work',
+        () {
+          const ConnectionHostReentryRequestedAction action =
+              ConnectionHostReentryRequestedAction('connected-host');
+
+          middleware.call(store, action, next);
+
+          expect(actionLog, [action]);
+          verifyNever(() => mockAuthenticate(any()));
+          verifyNever(() => mockRequestPairing(any()));
+          verifyNever(() => mockConfirmPairingCode(any()));
+          verifyNever(() => mockDovahLinkClient.connections);
+          verifyNever(() => mockObserveConnectionStatus(any()));
+          verifyNever(() => mockDisconnect(any()));
+        },
+      );
+    },
+  );
 }

@@ -46,6 +46,8 @@ class SessionShellMiddleware extends MiddlewareClass<AppState>
         _pairingDisposed();
       case SessionShellBackRequestedAction _:
         _sessionShellBackRequested();
+      case final ConnectionHostReentryRequestedAction reentryAction:
+        _connectionHostReentryRequested(store, reentryAction);
     }
   }
 
@@ -81,6 +83,20 @@ class SessionShellMiddleware extends MiddlewareClass<AppState>
     _navigator.go(AppRoutes.home);
   }
 
+  /// Opens the existing Session Shell without starting another authentication lifecycle.
+  /// @param store The application store containing SDK-owned Known Host session state.
+  /// @param action The Connected card request for its Host ID.
+  void _connectionHostReentryRequested(
+    Store<AppState> store,
+    ConnectionHostReentryRequestedAction action,
+  ) {
+    if (!_isKnownHostConnected(store, action.hostId)) {
+      return;
+    }
+    _pendingHostId = null;
+    _navigator.go(AppRoutes.sessionFor(action.hostId));
+  }
+
   /// Replaces Connections with the shell only when SDK state admits the exact trusted Host.
   /// @param store The application store containing Known Host session state.
   void _enterWhenConnected(Store<AppState> store) {
@@ -88,15 +104,21 @@ class SessionShellMiddleware extends MiddlewareClass<AppState>
     if (hostId == null) {
       return;
     }
-    final bool isConnected = store.state.connection.knownHosts.any(
-      (knownHost) =>
-          knownHost.host.hostId == hostId &&
-          knownHost.sessionState == KnownHostSessionState.connected,
-    );
-    if (!isConnected) {
+    if (!_isKnownHostConnected(store, hostId)) {
       return;
     }
     _pendingHostId = null;
     _navigator.go(AppRoutes.sessionFor(hostId));
   }
+
+  /// Returns whether the SDK projection admits [hostId] as the connected Known Host.
+  /// @param store The application store containing the latest SDK projection.
+  /// @param hostId The stable Host ID to check.
+  /// @return Whether the matching Known Host session is connected.
+  bool _isKnownHostConnected(Store<AppState> store, String hostId) =>
+      store.state.connection.knownHosts.any(
+        (knownHost) =>
+            knownHost.host.hostId == hostId &&
+            knownHost.sessionState == KnownHostSessionState.connected,
+      );
 }
