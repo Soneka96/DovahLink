@@ -28,6 +28,9 @@ Dart SDK synchronization-aware state streams
 The Adapter's generic request dispatch, IPC architecture, scheduling framework, queue semantics,
 transport, backpressure, Host/Adapter routing, and generic response handling are unchanged. Native
 work is limited to specific capture leaves, including extending the existing coherent Vitals read.
+The fixed `CapturedPayload` capacity grows from 12 to 24 bytes because the coherent Vitals result
+now contains six float32 values; splitting those values into separate captures would lose the
+requested observation coherence.
 The Host continues to register and publish independently authoritative state areas through its
 existing machinery. The retired aggregate `character` state area stays retired, and existing
 `character_level` behavior is preserved.

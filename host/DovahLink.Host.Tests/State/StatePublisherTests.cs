@@ -1122,23 +1122,26 @@ namespace DovahLink.Host.Tests.State
     /// <summary>Tests for live-state catalog validation and resynchronization plans.</summary>
     public class LiveStateCatalogTests
     {
-        /// <summary>Verifies that the default catalog defines exactly the five state areas Stage 4's "Real capture and host integration" slice names, each with its documented update mode.</summary>
+        /// <summary>Verifies that the default catalog defines all eight independently authoritative Character areas with their documented update modes.</summary>
         [Fact]
-        public void Default_DefinesExactlyTheFiveProductionStateAreasWithTheirUpdateModes()
+        public void Default_DefinesExactlyTheEightProductionStateAreasWithTheirUpdateModes()
         {
             Dictionary<string, UpdateMode> byId = LiveStateCatalog.Default.StateAreas.ToDictionary(area => area.Id.Value, area => area.UpdateMode);
 
-            Assert.Equal(5, byId.Count);
+            Assert.Equal(8, byId.Count);
             Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterHealthStateArea]);
             Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterMagickaStateArea]);
             Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterStaminaStateArea]);
+            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterHealthMaxStateArea]);
+            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterMagickaMaxStateArea]);
+            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterStaminaMaxStateArea]);
             Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterXpStateArea]);
             Assert.Equal(UpdateMode.Event, byId[Constants.CharacterLevelStateArea]);
         }
 
-        /// <summary>Verifies that the vitals capture unit is one coherent Fast sample feeding all three resource areas.</summary>
+        /// <summary>Verifies that the Vitals capture unit is one coherent Fast sample feeding all six current and maximum resource areas.</summary>
         [Fact]
-        public void Default_VitalsCaptureUnit_IsOneFastSampleFeedingAllThreeResourceAreas()
+        public void Default_VitalsCaptureUnit_IsOneFastSampleFeedingAllSixResourceAreas()
         {
             CaptureUnitDefinition vitals = LiveStateCatalog.Default.CaptureUnits.Single(unit => unit.Source == CaptureSourceKind.Sample && unit.CaptureKey == (uint)CharacterSampleToken.CharacterVitals);
 
@@ -1146,7 +1149,14 @@ namespace DovahLink.Host.Tests.State
             Assert.Equal(RateClass.Fast, vitals.RateClass);
             Assert.Equal(SynchronizationRole.BaselineSample, vitals.SynchronizationRole);
             Assert.Equal(
-                [new StateAreaId(Constants.CharacterHealthStateArea), new StateAreaId(Constants.CharacterMagickaStateArea), new StateAreaId(Constants.CharacterStaminaStateArea)],
+                [
+                    new StateAreaId(Constants.CharacterHealthStateArea),
+                    new StateAreaId(Constants.CharacterMagickaStateArea),
+                    new StateAreaId(Constants.CharacterStaminaStateArea),
+                    new StateAreaId(Constants.CharacterHealthMaxStateArea),
+                    new StateAreaId(Constants.CharacterMagickaMaxStateArea),
+                    new StateAreaId(Constants.CharacterStaminaMaxStateArea),
+                ],
                 vitals.StateAreas);
         }
 

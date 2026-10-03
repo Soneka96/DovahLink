@@ -26,7 +26,7 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
     private readonly ILiveStateApplication liveStateApplication;
 
     /// <summary>Creates the handler for the current Character capture set.</summary>
-    /// <param name="floatPublisher">The typed publisher for health, magicka, stamina, and experience.</param>
+    /// <param name="floatPublisher">The typed publisher for Character float areas.</param>
     /// <param name="levelPublisher">The typed publisher for level.</param>
     /// <param name="liveStateApplication">The shared Host authority and publication service.</param>
     public CharacterCaptureHandler(
@@ -63,12 +63,12 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         }
     }
 
-    /// <summary>Decodes and applies a coherent health, magicka, and stamina sample.</summary>
+    /// <summary>Decodes and applies a coherent current-and-maximum Vitals sample.</summary>
     /// <param name="captureResult">The Vitals capture result.</param>
     /// <param name="context">The validated provenance and play-context metadata.</param>
     private void ApplyVitals(IpcCaptureResultMessage captureResult, LiveCaptureContext context)
     {
-        if (context.CaptureUnit.StateAreas.Count != 3)
+        if (context.CaptureUnit.StateAreas.Count != 6)
         {
             return;
         }
@@ -76,17 +76,24 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         float? health = null;
         float? magicka = null;
         float? stamina = null;
+        float? healthMax = null;
+        float? magickaMax = null;
+        float? staminaMax = null;
         if (captureResult.Availability == CaptureAvailability.Available)
         {
-            if (captureResult.Payload.Length != 12
+            if (captureResult.Payload.Length != 24
                 || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(0, 4), out float decodedHealth)
                 || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(4, 4), out float decodedMagicka)
-                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(8, 4), out float decodedStamina))
+                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(8, 4), out float decodedStamina)
+                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(12, 4), out float decodedHealthMax)
+                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(16, 4), out float decodedMagickaMax)
+                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(20, 4), out float decodedStaminaMax))
             {
                 return;
             }
 
-            (health, magicka, stamina) = (decodedHealth, decodedMagicka, decodedStamina);
+            (health, magicka, stamina, healthMax, magickaMax, staminaMax) =
+                (decodedHealth, decodedMagicka, decodedStamina, decodedHealthMax, decodedMagickaMax, decodedStaminaMax);
         }
         else if (captureResult.Payload.Length != 0)
         {
@@ -97,6 +104,9 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], health, isResynchronizationBaseline, context);
         Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[1], magicka, isResynchronizationBaseline, context);
         Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[2], stamina, isResynchronizationBaseline, context);
+        Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[3], healthMax, isResynchronizationBaseline, context);
+        Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[4], magickaMax, isResynchronizationBaseline, context);
+        Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[5], staminaMax, isResynchronizationBaseline, context);
     }
 
     /// <summary>Decodes and applies one experience value.</summary>

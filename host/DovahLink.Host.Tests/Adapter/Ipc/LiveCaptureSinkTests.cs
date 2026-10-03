@@ -20,6 +20,12 @@ public class LiveCaptureSinkTests
     private static readonly StateAreaId HealthArea = new(Constants.CharacterHealthStateArea);
     private static readonly StateAreaId MagickaArea = new(Constants.CharacterMagickaStateArea);
     private static readonly StateAreaId StaminaArea = new(Constants.CharacterStaminaStateArea);
+    /// <summary>The maximum Health state area.</summary>
+    private static readonly StateAreaId HealthMaxArea = new(Constants.CharacterHealthMaxStateArea);
+    /// <summary>The maximum Magicka state area.</summary>
+    private static readonly StateAreaId MagickaMaxArea = new(Constants.CharacterMagickaMaxStateArea);
+    /// <summary>The maximum Stamina state area.</summary>
+    private static readonly StateAreaId StaminaMaxArea = new(Constants.CharacterStaminaMaxStateArea);
     private static readonly StateAreaId XpArea = new(Constants.CharacterXpStateArea);
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
 
@@ -164,17 +170,23 @@ public class LiveCaptureSinkTests
             [new StateAreaDefinition(areaId, mode)]);
     }
 
-    /// <summary>Encodes a Vitals sample in health, magicka, and stamina order.</summary>
+    /// <summary>Encodes current Health, Magicka, and Stamina followed by their maximums.</summary>
     /// <param name="health">The health value to encode.</param>
     /// <param name="magicka">The magicka value to encode.</param>
     /// <param name="stamina">The stamina value to encode.</param>
-    /// <returns>The 12-byte little-endian Vitals payload.</returns>
-    private static byte[] EncodeVitals(float health, float magicka, float stamina)
+    /// <param name="healthMax">The maximum health value.</param>
+    /// <param name="magickaMax">The maximum magicka value.</param>
+    /// <param name="staminaMax">The maximum stamina value.</param>
+    /// <returns>The 24-byte little-endian Vitals payload.</returns>
+    private static byte[] EncodeVitals(float health, float magicka, float stamina, float healthMax, float magickaMax, float staminaMax)
     {
-        var bytes = new byte[12];
+        var bytes = new byte[24];
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0, 4), health);
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(4, 4), magicka);
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(8, 4), stamina);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(12, 4), healthMax);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(16, 4), magickaMax);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(20, 4), staminaMax);
         return bytes;
     }
 
@@ -204,23 +216,29 @@ public class LiveCaptureSinkTests
     private static float? ReadValue(JsonElement data) =>
         data.GetProperty("value").ValueKind == JsonValueKind.Null ? null : data.GetProperty("value").GetSingle();
 
-    /// <summary>Verifies that one coherent vitals capture applies all three resource areas independently.</summary>
+    /// <summary>Verifies that one coherent Vitals capture applies all six resource areas independently.</summary>
     [Fact]
-    public void ApplyCaptureResult_Vitals_AppliesAllThreeAreasIndependently()
+    public void ApplyCaptureResult_Vitals_AppliesAllSixAreasIndependently()
     {
         Fixture fixture = CreateReady();
         // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
         // resynchronization baseline (which always carries zero).
-        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f));
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(327.0f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.True(fixture.Feed.TryGetSnapshot(HealthArea, out StateSnapshotPublication? health));
-        Assert.Equal(93.4f, ReadValue(health!.Data));
+        Assert.Equal(327.0f, ReadValue(health!.Data));
         Assert.True(fixture.Feed.TryGetSnapshot(MagickaArea, out StateSnapshotPublication? magicka));
         Assert.Equal(71.0f, ReadValue(magicka!.Data));
         Assert.True(fixture.Feed.TryGetSnapshot(StaminaArea, out StateSnapshotPublication? stamina));
         Assert.Equal(100.0f, ReadValue(stamina!.Data));
+        Assert.True(fixture.Feed.TryGetSnapshot(HealthMaxArea, out StateSnapshotPublication? healthMax));
+        Assert.Equal(410.0f, ReadValue(healthMax!.Data));
+        Assert.True(fixture.Feed.TryGetSnapshot(MagickaMaxArea, out StateSnapshotPublication? magickaMax));
+        Assert.Equal(220.0f, ReadValue(magickaMax!.Data));
+        Assert.True(fixture.Feed.TryGetSnapshot(StaminaMaxArea, out StateSnapshotPublication? staminaMax));
+        Assert.Equal(300.0f, ReadValue(staminaMax!.Data));
     }
 
     /// <summary>Verifies that a coherent Vitals capture fans out through the shared application with its exact context.</summary>
@@ -229,15 +247,18 @@ public class LiveCaptureSinkTests
     {
         var application = new RecordingLiveStateApplication();
         Fixture fixture = CreateReady(applicationOverride: application);
-        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f));
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(327.0f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.Collection(
             application.ApplyCalls,
-            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, HealthArea, 93.4f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
+            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, HealthArea, 327.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
             call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, MagickaArea, 71.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
-            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, StaminaArea, 100.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)));
+            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, StaminaArea, 100.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
+            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, HealthMaxArea, 410.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
+            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, MagickaMaxArea, 220.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
+            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, StaminaMaxArea, 300.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)));
         Assert.All(application.ApplyCalls, call =>
         {
             Assert.False(call.IsBaseline);
@@ -281,12 +302,12 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_VitalsSecondCaptureChangesOnlyHealth_OnlyHealthRevisionAdvances()
     {
         Fixture fixture = CreateReady();
-        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f)), fixture.Source);
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f)), fixture.Source);
         RevisionNumber healthRevisionBefore = fixture.FloatPublisher.CurrentRevision(HealthArea);
         RevisionNumber magickaRevisionBefore = fixture.FloatPublisher.CurrentRevision(MagickaArea);
         RevisionNumber staminaRevisionBefore = fixture.FloatPublisher.CurrentRevision(StaminaArea);
 
-        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(80.0f, 71.0f, 100.0f)), fixture.Source);
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(80.0f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f)), fixture.Source);
 
         Assert.NotEqual(healthRevisionBefore, fixture.FloatPublisher.CurrentRevision(HealthArea));
         Assert.Equal(magickaRevisionBefore, fixture.FloatPublisher.CurrentRevision(MagickaArea));
@@ -543,7 +564,7 @@ public class LiveCaptureSinkTests
             (uint)CharacterSampleToken.CharacterVitals,
             CaptureAvailability.Available,
             fixture.Context,
-            EncodeVitals(90.0f, 80.0f, 70.0f)), fixture.Source);
+            EncodeVitals(90.0f, 80.0f, 70.0f, 400.0f, 200.0f, 300.0f)), fixture.Source);
         fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
             0,
             CaptureSourceKind.Sample,
@@ -818,18 +839,21 @@ public class LiveCaptureSinkTests
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
 
-    /// <summary>Verifies that a vitals capture with a non-finite value applies none of the three areas, not just the invalid one.</summary>
+    /// <summary>Verifies that a Vitals capture with a non-finite value applies none of its six areas.</summary>
     [Fact]
-    public void ApplyCaptureResult_VitalsContainsNaN_AppliesNoneOfTheThreeAreas()
+    public void ApplyCaptureResult_VitalsContainsNaN_AppliesNoneOfTheSixAreas()
     {
         Fixture fixture = CreateReady();
-        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, float.NaN, 100.0f));
+        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f, 410.0f, float.NaN, 300.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.False(fixture.Feed.TryGetSnapshot(HealthArea, out _));
         Assert.False(fixture.Feed.TryGetSnapshot(MagickaArea, out _));
         Assert.False(fixture.Feed.TryGetSnapshot(StaminaArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(HealthMaxArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(MagickaMaxArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(StaminaMaxArea, out _));
     }
 
     /// <summary>Verifies that a vitals payload of the wrong length applies nothing.</summary>

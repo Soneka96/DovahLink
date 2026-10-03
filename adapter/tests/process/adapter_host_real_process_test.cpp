@@ -334,11 +334,17 @@ class DeterministicBaselineCaptureRouter final
             std::array<std::byte, 4> health = EncodeFloatLittleEndian(100.0f);
             std::array<std::byte, 4> magicka = EncodeFloatLittleEndian(80.0f);
             std::array<std::byte, 4> stamina = EncodeFloatLittleEndian(90.0f);
+            std::array<std::byte, 4> healthMax = EncodeFloatLittleEndian(410.0f);
+            std::array<std::byte, 4> magickaMax = EncodeFloatLittleEndian(220.0f);
+            std::array<std::byte, 4> staminaMax = EncodeFloatLittleEndian(300.0f);
             CapturedPayload payload;
             std::ranges::copy(health, payload.bytes.begin());
             std::ranges::copy(magicka, payload.bytes.begin() + 4);
             std::ranges::copy(stamina, payload.bytes.begin() + 8);
-            payload.size = 12;
+            std::ranges::copy(healthMax, payload.bytes.begin() + 12);
+            std::ranges::copy(magickaMax, payload.bytes.begin() + 16);
+            std::ranges::copy(staminaMax, payload.bytes.begin() + 20);
+            payload.size = 24;
             return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
                                        .payload = payload};
         }
@@ -693,7 +699,7 @@ class MinimalPublicWebSocketClient {
 
 ///  RAII guard that sets `DOVAHLINK_TEST_PUBLIC_LISTENER_PORT` for the scope
 ///  of a single test, then clears it -- so the real Host process this test
-///  launches opens its public listener on a fixed port (per
+///  launches opens its public listener on the selected port (per
 ///  `Program::ParseTestPublicListenerPort`), and no other test sharing this
 ///  process's environment block ever observes it set.
 class ScopedTestPublicListenerPortEnvironmentVariable {
@@ -822,6 +828,14 @@ class ScopedLoopbackListener {
     ///  The operating-system-assigned listening port.
     std::uint16_t port_ = 0;
 };
+
+///  Reserves an operating-system-assigned loopback port briefly, then releases
+///  it so a real Host process can bind it without relying on a fixed port that
+///  may be reserved by the test machine's networking policy.
+std::uint16_t FindAvailableLoopbackPort() {
+    ScopedLoopbackListener listener;
+    return listener.Port();
+}
 
 ///  A test-only IPC connection that records the target startup selected by the
 ///  supervisor without opening a second real connection in this fallback test.
@@ -1067,15 +1081,11 @@ TEST_CASE("real hosts remain isolated by owner lifetime and shutdown signals",
     std::filesystem::remove(*secondPath, secondRemoveError);
 
     //  Each real host's production Main entry point always composes a public
-    //  WebSocket listener, defaulting to the fixed production port unless
-    //  DOVAHLINK_TEST_PUBLIC_LISTENER_PORT overrides it -- so two real hosts
-    //  launched without distinct overrides collide on that fixed port, and the
-    //  second one's listener bind fails before it ever reports its endpoint.
-    //  Each launch below gets its own override, scoped narrowly around the
+    //  WebSocket listener. Each launch below gets its own OS-assigned port,
+    //  scoped narrowly around the
     //  Launch() call: the child only ever reads the environment once, at
     //  CreateProcessW, so the guard can clear before the next launch begins.
-    constexpr std::uint16_t kFirstPublicListenerPort = 58429;
-    constexpr std::uint16_t kSecondPublicListenerPort = 58430;
+    const std::uint16_t kFirstPublicListenerPort = FindAvailableLoopbackPort();
 
     Win32AdapterHostProcessLauncher firstLauncher(hostExecutable, firstOwner,
                                                   std::chrono::seconds(10));
@@ -1087,6 +1097,7 @@ TEST_CASE("real hosts remain isolated by owner lifetime and shutdown signals",
             kFirstPublicListenerPort);
         firstEndpoint = firstLauncher.Launch();
     }
+    const std::uint16_t kSecondPublicListenerPort = FindAvailableLoopbackPort();
     std::optional<AdapterHostEndpoint> secondEndpoint;
     {
         ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
@@ -1916,7 +1927,7 @@ TEST_CASE("a real native adapter observes a real Host's pairing-display "
     //  DOVAHLINK_TEST_PUBLIC_LISTENER_PORT before launching the real Host --
     //  see Program::ParseTestPublicListenerPort's own documentation for why
     //  the production launch path never does.
-    constexpr std::uint16_t kPublicListenerPort = 58427;
+    const std::uint16_t kPublicListenerPort = FindAvailableLoopbackPort();
     ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
         kPublicListenerPort);
     RecordingPairingNotificationSink pairingSink;
@@ -1988,7 +1999,7 @@ TEST_CASE("a real native adapter acknowledges a rejected pairing-display "
     //  false, and the real Host's own rollback path reports pairing_status
     //  unavailable rather than committing a challenge no adapter actually
     //  presented.
-    constexpr std::uint16_t kPublicListenerPort = 58428;
+    const std::uint16_t kPublicListenerPort = FindAvailableLoopbackPort();
     ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
         kPublicListenerPort);
     RecordingPairingNotificationSink pairingSink;
@@ -2048,7 +2059,7 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
     //  involvement at all -- proving trusted reconnect never depends on the
     //  adapter being present, using the real native adapter binary that
     //  produces the displayed code here.
-    constexpr std::uint16_t kPublicListenerPort = 58431;
+    const std::uint16_t kPublicListenerPort = FindAvailableLoopbackPort();
     ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
         kPublicListenerPort);
     RecordingPairingNotificationSink pairingSink;
@@ -2370,7 +2381,7 @@ TEST_CASE("a real native adapter's play-context-changed notification is "
 }
 
 TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
-          "reaches a real public WebSocket client as a character_xp "
+          "reaches a real public WebSocket client as max-vitals and XP "
           "Snapshot",
           "[process][integration]") {
     //  The end-to-end live-state proof: a synthetic native capture in this
@@ -2384,7 +2395,7 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     //  DeterministicBaselineCaptureRouter reported it from the real
     //  Host-driven resynchronization plan this fixture never asks for
     //  directly: the normal active-context replay below is what earns it.
-    constexpr std::uint16_t kPublicListenerPort = 58432;
+    const std::uint16_t kPublicListenerPort = FindAvailableLoopbackPort();
     const std::array<std::byte, 16> playContextId = {
         std::byte{0xF9}, std::byte{0xE8}, std::byte{0xD7}, std::byte{0xC6},
         std::byte{0xB5}, std::byte{0xA4}, std::byte{0x93}, std::byte{0x82},
@@ -2458,7 +2469,7 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     std::string ackOutcome = client.ReceiveText();
     REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
 
-    //  Full trust now: subscribe to exactly the one state area this test
+    //  Full trust now: subscribe to max Health and XP
     //  cares about. subscription_ack accepts it immediately -- registration
     //  (RegisteredStateAreaPolicy) is independent of whether a baseline
     //  value is available yet -- so acceptance alone does not prove the
@@ -2466,13 +2477,15 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     client.SendText(
         R"({"messageType":"subscribe","messageId":"m5","sessionId":")" +
         sessionId +
-        R"(","correlationId":null,"payload":{"stateAreas":["character_xp"]},)"
+        R"(","correlationId":null,"payload":{"stateAreas":["character_health_max","character_xp"]},)"
         R"("playContextId":null,"clientId":")" +
         clientId + R"("})");
     std::string subscriptionAck = client.ReceiveText();
     REQUIRE(subscriptionAck.find(R"("messageType":"subscription_ack")") !=
             std::string::npos);
-    REQUIRE(subscriptionAck.find(R"("acceptedStateAreas":["character_xp"])") !=
+    REQUIRE(subscriptionAck.find(R"("character_health_max")") !=
+            std::string::npos);
+    REQUIRE(subscriptionAck.find(R"("character_xp")") !=
             std::string::npos);
 
     //  The Host's own pending-baseline mechanism (Constants.PendingBaselineDeadline
@@ -2482,27 +2495,35 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     //  A well-formed hello_ack/capabilities/subscription_ack may legitimately
     //  precede it, so this waits for the specific expected message type
     //  rather than assuming the very next frame.
-    std::string snapshot =
-        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15));
+    std::array<std::string, 2> snapshots = {
+        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15)),
+        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15)),
+    };
+    std::string xpSnapshot;
+    std::string healthMaxSnapshot;
+    for (const std::string& snapshot : snapshots) {
+        std::string area = ExtractJsonStringField(snapshot, "stateArea");
+        CHECK(ExtractJsonStringField(snapshot, "correlationId") == "m5");
+        std::optional<double> revision = ExtractJsonNumberField(snapshot, "revision");
+        REQUIRE(revision.has_value());
+        CHECK(*revision >= 1.0);
+        if (area == "character_xp") {
+            xpSnapshot = snapshot;
+        } else if (area == "character_health_max") {
+            healthMaxSnapshot = snapshot;
+        }
+    }
+    REQUIRE_FALSE(xpSnapshot.empty());
+    REQUIRE_FALSE(healthMaxSnapshot.empty());
+    CHECK(ExtractJsonNumberField(xpSnapshot, "value") == 42.5);
+    CHECK(ExtractJsonNumberField(healthMaxSnapshot, "value") == 410.0);
 
-    //  Proves this is specifically the character_xp Snapshot, not merely a
-    //  frame containing the substring "42.5" somewhere.
-    CHECK(ExtractJsonStringField(snapshot, "stateArea") == "character_xp");
-    CHECK(ExtractJsonStringField(snapshot, "correlationId") == "m5");
-    std::optional<double> revision = ExtractJsonNumberField(snapshot, "revision");
-    REQUIRE(revision.has_value());
-    CHECK(*revision >= 1.0);
-    //  42.5 is exactly representable in both float and double, so this
-    //  compares exactly rather than needing an epsilon.
-    std::optional<double> value = ExtractJsonNumberField(snapshot, "value");
-    REQUIRE(value.has_value());
-    CHECK(*value == 42.5);
-
-    //  The active play context this adapter replayed is the one the Host
-    //  captured the baseline under.
+    //  Both baselines belong to the active play context this adapter replayed.
     std::string expectedPlayContextId =
         "f9e8d7c6-b5a4-9382-7160-5f4e3d2c1b0a";
-    CHECK(ExtractJsonStringField(snapshot, "playContextId") ==
+    CHECK(ExtractJsonStringField(xpSnapshot, "playContextId") ==
+          expectedPlayContextId);
+    CHECK(ExtractJsonStringField(healthMaxSnapshot, "playContextId") ==
           expectedPlayContextId);
 }
 
@@ -2520,7 +2541,7 @@ TEST_CASE("a synthetic native LevelChanged event reaches a real public "
     //  baseline (source = Sample) publishes as a Snapshot, while the later
     //  LevelChanged (source = Event) publishes as a state_event, per
     //  CharacterCaptureHandler::ApplyLevel's explicit source-to-mode split.
-    constexpr std::uint16_t kPublicListenerPort = 58433;
+    const std::uint16_t kPublicListenerPort = FindAvailableLoopbackPort();
     const std::array<std::byte, 16> playContextId = {
         std::byte{0xAB}, std::byte{0xCD}, std::byte{0xEF}, std::byte{0x01},
         std::byte{0x23}, std::byte{0x45}, std::byte{0x67}, std::byte{0x89},

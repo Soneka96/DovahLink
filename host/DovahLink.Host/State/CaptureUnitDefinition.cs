@@ -4,7 +4,8 @@ namespace DovahLink.Host.State;
 /// One <see cref="LiveStateCatalog"/>-defined capture unit: one host-owned sample token or event
 /// key, opaque to the adapter beyond mapping it to its one approved native operation, and the
 /// state area(s) it feeds. Several state areas may share one coherent capture (for example one
-/// vitals sample feeding health, magicka, and stamina); one state area may in turn be fed by more
+/// vitals sample feeding current and maximum health, magicka, and stamina); one state area may in
+/// turn be fed by more
 /// than one capture unit (for example the level baseline sample and the level-changed event both
 /// feed <c>character_level</c>).
 /// </summary>

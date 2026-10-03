@@ -52,7 +52,7 @@ independent protocol-generation number carried on every message — see
 ```
 
 - `stateArea` is a canonical identifier assigned when a state area is registered; see "Registered
-  state areas" below for the five areas currently registered.
+  state areas" below for the eight areas currently registered.
 - `revision` is a non-negative integer, monotonically increasing within one
   `(stateAuthorityId, playContextId, stateArea)`.
 - A revision belongs to that authority continuity epoch, play context, and state area rather
@@ -84,7 +84,7 @@ area.
 
 ## Registered state areas
 
-The Host currently registers five Character state areas, each independently authoritative:
+The Host currently registers eight Character state areas, each independently authoritative:
 
 | State area | Value meaning | Public `data` value type | Delivery mode | Capture policy | Unavailable behavior |
 |---|---|---|---|---|---|
@@ -92,9 +92,12 @@ The Host currently registers five Character state areas, each independently auth
 | `character_health` | Current health | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, as part of one coherent Vitals capture together with magicka and stamina | `"value": null` |
 | `character_magicka` | Current magicka | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
 | `character_stamina` | Current stamina | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
+| `character_health_max` | Current effective maximum Health actor value, raw single-precision reading | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence in the same coherent Vitals capture as current Health, Magicka, and Stamina | `"value": null` |
+| `character_magicka_max` | Current effective maximum Magicka actor value, raw single-precision reading | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
+| `character_stamina_max` | Current effective maximum Stamina actor value, raw single-precision reading | JSON number (single-precision reading) | Snapshot | Sampled at Fast cadence, same coherent Vitals capture | `"value": null` |
 | `character_level` | Current level | JSON number (integer-valued, 0-65535) | Event | Its initial/recovery baseline is established by a dedicated resynchronization-only sample, delivered as a `state_snapshot`; native level-up occurrences then publish as `state_event` | `"value": null` |
 
-Every one of the five areas uses the same public `data` shape, with `value` as its only field:
+Every one of the eight areas uses the same public `data` shape, with `value` as its only field:
 
 ```json
 {
@@ -108,12 +111,12 @@ unrecognized private capture is a distinct case from a legitimate unavailable re
 reaches the public contract as a null value either, and instead produces no publication at all for
 that update.
 
-`character_xp`, `character_health`, `character_magicka`, and `character_stamina` are Snapshot-only:
+`character_xp`, the current and maximum Vitals areas are Snapshot-only:
 the Host has no Event-domain update for them, and only ever revises their value at a new `revision`
 via `state_snapshot`, through the normal subscribe/snapshot_request/recovery rules above.
 
 `character_level`'s canonical delivery mode is Event, but native level changes are not its only
-source of state: its initial or recovery value is established the same way as the four Snapshot-only
+source of state: its initial or recovery value is established the same way as the seven Snapshot-only
 areas above, as a `state_snapshot`, before any Event is delivered. This baseline delivery does not
 change the area's canonical Event mode -- it is how an Event-mode area still gives a client a
 starting value to apply Events against. Once established, subsequent native level changes are
@@ -123,16 +126,16 @@ post-change value, not a delta, per the general event rule above. A client must 
 not a valid starting point.
 
 The retired `character` aggregate (player level and three resource pools bundled into one state
-area) is not revived by this. `character_xp`, `character_health`, `character_magicka`,
-`character_stamina`, and `character_level` are five independent, separately-subscribable state
-areas, not facets of one composed view.
+area) is not revived by this. `character_xp`, the six current/maximum Vitals areas, and
+`character_level` are eight independent, separately-subscribable state areas, not facets of one
+composed view.
 
 Host/Adapter resynchronization establishes a fresh authoritative baseline for these areas after
 continuity recovery or an active play-context transition; this is why a `state_snapshot` for an
 already-subscribed area can arrive without a client-initiated `snapshot_request`. The client always
 receives an authoritative Snapshot from the Host -- it never reads Skyrim state directly.
 
-An area requested by `subscribe` or `snapshot_request` that is not one of these five remains
+An area requested by `subscribe` or `snapshot_request` that is not one of these eight remains
 explicitly rejected (see their sections below).
 
 ### Registered state area examples
@@ -157,8 +160,8 @@ explicitly rejected (see their sections below).
 }
 ```
 
-`character_health` snapshot, one member of the same coherent Vitals capture as `character_magicka`
-and `character_stamina`:
+`character_health` snapshot, one member of the same coherent Vitals capture as `character_magicka`,
+`character_stamina`, and their three maximum-value areas:
 
 ```json
 {
@@ -171,6 +174,28 @@ and `character_stamina`:
     "revision": 12,
     "occurredAt": "2026-08-10T12:00:03Z",
     "data": { "value": 87.5 }
+  },
+  "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
+  "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
+  "clientId": null
+}
+```
+
+The maximum-value areas are separate Snapshot contracts read in the same Fast Vitals capture. For
+example, `character_health_max` carries the raw effective maximum, not a percentage or clamped UI
+value:
+
+```json
+{
+  "messageType": "state_snapshot",
+  "messageId": "f7a8b9c0-1d2e-4f3a-8b4c-5d6e7f8091a2",
+  "sessionId": "0f1e2d3c-4b5a-4968-8778-90a1b2c3d4e5",
+  "correlationId": null,
+  "payload": {
+    "stateArea": "character_health_max",
+    "revision": 13,
+    "occurredAt": "2026-08-10T12:00:03Z",
+    "data": { "value": 410.0 }
   },
   "stateAuthorityId": "9f2c1a3e-5b6d-4c7a-8e9f-0a1b2c3d4e5f",
   "playContextId": "4b7ad2f1-6c8e-4a9b-9d0e-1f2a3b4c5d6e",
@@ -577,7 +602,7 @@ available yet is never a dead end: its baseline is delivered automatically, stil
 `error` if none does before a bounded deadline elapses.
 
 Required payload field: `stateAreas`. The Host responds with `subscription_ack`. A requested area
-that is one of the five registered state areas above is accepted; any other requested area is
+that is one of the eight registered state areas above is accepted; any other requested area is
 rejected into `subscription_ack.rejectedStateAreas`. The resulting active set is exactly the
 accepted areas from this request, so omitted previously accepted areas and areas rejected in this
 request are removed from the active set. Duplicate entries are treated as one requested area.
@@ -594,7 +619,7 @@ Confirms accepted and rejected state areas:
 ```
 
 Both arrays are required. The host sends snapshots only for accepted areas. A requested area among
-the five registered state areas above appears in `acceptedStateAreas`; any other requested area
+the eight registered state areas above appears in `acceptedStateAreas`; any other requested area
 appears in `rejectedStateAreas`.
 
 `subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. An accepted

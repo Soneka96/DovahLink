@@ -20,6 +20,12 @@ public class CharacterCaptureHandlerTests
     private static readonly StateAreaId HealthArea = new(Constants.CharacterHealthStateArea);
     private static readonly StateAreaId MagickaArea = new(Constants.CharacterMagickaStateArea);
     private static readonly StateAreaId StaminaArea = new(Constants.CharacterStaminaStateArea);
+    /// <summary>The maximum Health state area.</summary>
+    private static readonly StateAreaId HealthMaxArea = new(Constants.CharacterHealthMaxStateArea);
+    /// <summary>The maximum Magicka state area.</summary>
+    private static readonly StateAreaId MagickaMaxArea = new(Constants.CharacterMagickaMaxStateArea);
+    /// <summary>The maximum Stamina state area.</summary>
+    private static readonly StateAreaId StaminaMaxArea = new(Constants.CharacterStaminaMaxStateArea);
     private static readonly StateAreaId XpArea = new(Constants.CharacterXpStateArea);
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
 
@@ -202,17 +208,23 @@ public class CharacterCaptureHandlerTests
         Assert.Equal(context.OccurredAt, call.OccurredAt);
     }
 
-    /// <summary>Encodes a Vitals sample in health, magicka, and stamina order.</summary>
+    /// <summary>Encodes current Health, Magicka, and Stamina followed by their maximums.</summary>
     /// <param name="health">The encoded health value.</param>
     /// <param name="magicka">The encoded magicka value.</param>
     /// <param name="stamina">The encoded stamina value.</param>
-    /// <returns>The 12-byte little-endian sample.</returns>
-    private static byte[] EncodeVitals(float health, float magicka, float stamina)
+    /// <param name="healthMax">The encoded maximum health value.</param>
+    /// <param name="magickaMax">The encoded maximum magicka value.</param>
+    /// <param name="staminaMax">The encoded maximum stamina value.</param>
+    /// <returns>The 24-byte little-endian sample.</returns>
+    private static byte[] EncodeVitals(float health, float magicka, float stamina, float healthMax, float magickaMax, float staminaMax)
     {
-        var bytes = new byte[12];
+        var bytes = new byte[24];
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(0, 4), health);
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(4, 4), magicka);
         BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(8, 4), stamina);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(12, 4), healthMax);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(16, 4), magickaMax);
+        BinaryPrimitives.WriteSingleLittleEndian(bytes.AsSpan(20, 4), staminaMax);
         return bytes;
     }
 
@@ -236,6 +248,15 @@ public class CharacterCaptureHandlerTests
         return bytes;
     }
 
+    /// <summary>Reads a canonical public state fixture copied beside the test assembly.</summary>
+    /// <param name="fileName">The fixture file under <c>protocol/fixtures/state</c>.</param>
+    /// <returns>The parsed complete public message.</returns>
+    private static JsonDocument ReadStateFixture(string fileName)
+    {
+        string path = Path.Combine(AppContext.BaseDirectory, "protocol", "fixtures", "state", fileName);
+        return JsonDocument.Parse(File.ReadAllText(path));
+    }
+
     /// <summary>Verifies that the handler advertises exactly its four Character capture identities.</summary>
     [Fact]
     public void SupportedCaptures_ListsTheCharacterCaptureSet()
@@ -253,29 +274,40 @@ public class CharacterCaptureHandlerTests
             fixture.Handler.SupportedCaptures);
     }
 
-    /// <summary>Verifies that one Vitals sample maps finite values to all three areas atomically.</summary>
+    /// <summary>Verifies that one Vitals sample maps all six finite values atomically.</summary>
     [Fact]
     public void Handle_VitalsAvailable_AppliesEveryAreaInCatalogOrder()
     {
+        using JsonDocument protocolFixture = ReadStateFixture("state-snapshot-character-health-max.json");
+        JsonElement fixturePayload = protocolFixture.RootElement.GetProperty("payload");
+        Assert.Equal(Constants.CharacterHealthMaxStateArea, fixturePayload.GetProperty("stateArea").GetString());
+        float expectedHealthMax = fixturePayload.GetProperty("data").GetProperty("value").GetSingle();
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(
             1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
-            CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(93.4f, 71.0f, 100.0f));
+            CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(327.0f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f));
         LiveCaptureContext context = BuildContext(captureResult);
 
         fixture.Handler.Handle(context);
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthArea, 93.4f, false, context),
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthArea, 327.0f, false, context),
             call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, MagickaArea, 71.0f, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaArea, 100.0f, false, context));
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaArea, 100.0f, false, context),
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthMaxArea, expectedHealthMax, false, context),
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, MagickaMaxArea, 220.0f, false, context),
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaMaxArea, 300.0f, false, context));
     }
 
-    /// <summary>Verifies that an unavailable Vitals sample sets all three areas unavailable.</summary>
+    /// <summary>Verifies that an unavailable Vitals sample sets all six areas unavailable.</summary>
     [Fact]
     public void Handle_VitalsUnavailable_AppliesNullToEveryArea()
     {
+        using JsonDocument protocolFixture = ReadStateFixture("state-snapshot-character-health-max-unavailable.json");
+        JsonElement fixturePayload = protocolFixture.RootElement.GetProperty("payload");
+        Assert.Equal(Constants.CharacterHealthMaxStateArea, fixturePayload.GetProperty("stateArea").GetString());
+        Assert.Equal(JsonValueKind.Null, fixturePayload.GetProperty("data").GetProperty("value").ValueKind);
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(
             1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
@@ -288,7 +320,26 @@ public class CharacterCaptureHandlerTests
             fixture.Application.ApplyCalls,
             call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthArea, null, false, context),
             call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, MagickaArea, null, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaArea, null, false, context));
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaArea, null, false, context),
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthMaxArea, null, false, context),
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, MagickaMaxArea, null, false, context),
+            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaMaxArea, null, false, context));
+    }
+
+    /// <summary>Verifies that finite maximum values are forwarded raw even when they are negative.</summary>
+    [Fact]
+    public void Handle_VitalsNegativeMaximum_PreservesRawValue()
+    {
+        Fixture fixture = CreateReady();
+        var captureResult = new IpcCaptureResultMessage(
+            1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
+            CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(327.0f, 71.0f, 100.0f, -12.0f, 0.0f, 300.0f));
+        LiveCaptureContext context = BuildContext(captureResult);
+
+        fixture.Handler.Handle(context);
+
+        Assert.Equal(-12.0f, (float)fixture.Application.ApplyCalls[3].Value!);
+        Assert.Equal(0.0f, (float)fixture.Application.ApplyCalls[4].Value!);
     }
 
     /// <summary>Verifies that malformed, non-finite, or unavailable-with-payload Vitals captures apply no area.</summary>
@@ -300,7 +351,9 @@ public class CharacterCaptureHandlerTests
             new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
                 CaptureAvailability.Available, PlayContextId.NewId(), new byte[10]),
             new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
-                CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(93.4f, float.NaN, 100.0f)),
+                CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(93.4f, float.NaN, 100.0f, 410.0f, 220.0f, 300.0f)),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
+                CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(93.4f, 71.0f, 100.0f, float.NaN, 220.0f, 300.0f)),
             new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
                 CaptureAvailability.Unavailable, PlayContextId.NewId(), [1]),
         ];
@@ -434,7 +487,7 @@ public class CharacterCaptureHandlerTests
             (
                 new IpcCaptureResultMessage(
                     1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
-                    CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(90.0f, 80.0f, 70.0f)),
+                    CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(90.0f, 80.0f, 70.0f, 400.0f, 200.0f, 300.0f)),
                 defaultVitals with { StateAreas = [HealthArea] }),
             (
                 new IpcCaptureResultMessage(

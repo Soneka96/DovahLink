@@ -86,38 +86,54 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes each token's payload "
 
     CHECK(source.find(NormalizeWhitespace("EncodeFloatLittleEndian")) != std::string::npos);
     CHECK(source.find(NormalizeWhitespace("EncodeUInt16LittleEndian")) != std::string::npos);
-    //  Vitals is 3 float32 fields (12 bytes); the fixed size assignment pins
-    //  that a later edit cannot silently add or drop a field without this
-    //  test failing.
-    CHECK(source.find(NormalizeWhitespace("payload.size = 12;")) != std::string::npos);
+    //  Vitals is 6 float32 fields (24 bytes); the fixed size assignment pins
+    //  the coherent current/maximum payload shape.
+    CHECK(source.find(NormalizeWhitespace("payload.size = 24;")) != std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes and copies vitals in "
           "health, magicka, stamina order, matching the host's own decode "
           "offsets",
           "[runtime][commonlib_adapter_native_capture_router][structural]") {
-    //  LiveCaptureSink.cs's ApplyVitals decodes bytes [0,4) as health, [4,8)
-    //  as magicka, and [8,12) as stamina; the source's own field and copy
-    //  order must match that exactly, not just contain all three fields.
+    //  LiveCaptureSink.cs's ApplyVitals decodes current values first, then
+    //  maximum values; the source's field and copy order must match it.
     std::string source = RouterSource();
 
     auto healthEncodePosition = source.find("EncodeFloatLittleEndian(vitals->health)");
     auto magickaEncodePosition = source.find("EncodeFloatLittleEndian(vitals->magicka)");
     auto staminaEncodePosition = source.find("EncodeFloatLittleEndian(vitals->stamina)");
+    auto healthMaxEncodePosition = source.find("EncodeFloatLittleEndian(vitals->healthMax)");
+    auto magickaMaxEncodePosition = source.find("EncodeFloatLittleEndian(vitals->magickaMax)");
+    auto staminaMaxEncodePosition = source.find("EncodeFloatLittleEndian(vitals->staminaMax)");
     REQUIRE(healthEncodePosition != std::string::npos);
     REQUIRE(magickaEncodePosition != std::string::npos);
     REQUIRE(staminaEncodePosition != std::string::npos);
+    REQUIRE(healthMaxEncodePosition != std::string::npos);
+    REQUIRE(magickaMaxEncodePosition != std::string::npos);
+    REQUIRE(staminaMaxEncodePosition != std::string::npos);
     CHECK(healthEncodePosition < magickaEncodePosition);
     CHECK(magickaEncodePosition < staminaEncodePosition);
+    CHECK(staminaEncodePosition < healthMaxEncodePosition);
+    CHECK(healthMaxEncodePosition < magickaMaxEncodePosition);
+    CHECK(magickaMaxEncodePosition < staminaMaxEncodePosition);
 
     auto healthCopyPosition = source.find("std::ranges::copy(health,");
     auto magickaCopyPosition = source.find("std::ranges::copy(magicka,");
     auto staminaCopyPosition = source.find("std::ranges::copy(stamina,");
+    auto healthMaxCopyPosition = source.find("std::ranges::copy(healthMax,");
+    auto magickaMaxCopyPosition = source.find("std::ranges::copy(magickaMax,");
+    auto staminaMaxCopyPosition = source.find("std::ranges::copy(staminaMax,");
     REQUIRE(healthCopyPosition != std::string::npos);
     REQUIRE(magickaCopyPosition != std::string::npos);
     REQUIRE(staminaCopyPosition != std::string::npos);
+    REQUIRE(healthMaxCopyPosition != std::string::npos);
+    REQUIRE(magickaMaxCopyPosition != std::string::npos);
+    REQUIRE(staminaMaxCopyPosition != std::string::npos);
     CHECK(healthCopyPosition < magickaCopyPosition);
     CHECK(magickaCopyPosition < staminaCopyPosition);
+    CHECK(staminaCopyPosition < healthMaxCopyPosition);
+    CHECK(healthMaxCopyPosition < magickaMaxCopyPosition);
+    CHECK(magickaMaxCopyPosition < staminaMaxCopyPosition);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter::RegisterEvent fails closed "

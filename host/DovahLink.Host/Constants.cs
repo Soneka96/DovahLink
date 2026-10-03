@@ -577,6 +577,15 @@ public static class Constants
     /// <summary>The <c>stateArea</c> id for the current stamina value.</summary>
     public const string CharacterStaminaStateArea = "character_stamina";
 
+    /// <summary>The <c>stateArea</c> id for the maximum health value.</summary>
+    public const string CharacterHealthMaxStateArea = "character_health_max";
+
+    /// <summary>The <c>stateArea</c> id for the maximum magicka value.</summary>
+    public const string CharacterMagickaMaxStateArea = "character_magicka_max";
+
+    /// <summary>The <c>stateArea</c> id for the maximum stamina value.</summary>
+    public const string CharacterStaminaMaxStateArea = "character_stamina_max";
+
     /// <summary>The <c>stateArea</c> id for the current experience value.</summary>
     public const string CharacterXpStateArea = "character_xp";
 
