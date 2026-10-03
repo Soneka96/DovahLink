@@ -28,6 +28,23 @@ abstract final class ConnectionSelectors {
   static Host? selectedHostSelector(AppState state) =>
       state.connection.selectedHost;
 
+  /// Returns the unique Host with an SDK-observed admitted session, if one exists.
+  /// @param state The current application state.
+  /// @return The admitted Host ID, or `null` when no unique session is connected.
+  static String? admittedHostIdSelector(AppState state) {
+    String? admittedHostId;
+    for (final KnownHost knownHost in state.connection.knownHosts) {
+      if (knownHost.sessionState != KnownHostSessionState.connected) {
+        continue;
+      }
+      if (admittedHostId != null) {
+        return null;
+      }
+      admittedHostId = knownHost.host.hostId;
+    }
+    return admittedHostId;
+  }
+
   /// Returns whether the selected Host is a candidate or a durable Known Host relationship.
   static ConnectionHostSelectionSource selectedHostSourceSelector(
     AppState state,

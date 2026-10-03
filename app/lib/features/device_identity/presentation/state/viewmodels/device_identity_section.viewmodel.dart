@@ -1,6 +1,7 @@
 import 'package:equatable/equatable.dart';
 import 'package:redux/redux.dart';
 
+import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.actions.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.selectors.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -23,6 +24,12 @@ class DeviceIdentitySectionViewModel extends Equatable {
   /// The last active-Host rename outcome, or `null` before a completed save.
   final DeviceNameRenameStatus? remoteRenameStatus;
 
+  /// The Host associated with [remoteRenameStatus], if a rename was attempted.
+  final String? remoteHostId;
+
+  /// The unique Host with a currently admitted SDK session, if one exists.
+  final String? admittedHostId;
+
   /// Dispatches a Settings device-name save request.
   final void Function(String displayName) onSave;
 
@@ -32,6 +39,8 @@ class DeviceIdentitySectionViewModel extends Equatable {
   /// @param isSaving Whether a name save is pending.
   /// @param saveFailure The local save error, if any.
   /// @param remoteRenameStatus The last typed Host outcome.
+  /// @param remoteHostId The Host associated with that result.
+  /// @param admittedHostId The current SDK-admitted Host ID.
   /// @param onSave Dispatches the proposed text.
   const DeviceIdentitySectionViewModel({
     required this.displayName,
@@ -39,6 +48,8 @@ class DeviceIdentitySectionViewModel extends Equatable {
     required this.isSaving,
     required this.saveFailure,
     required this.remoteRenameStatus,
+    required this.remoteHostId,
+    required this.admittedHostId,
     required this.onSave,
   });
 
@@ -55,6 +66,8 @@ class DeviceIdentitySectionViewModel extends Equatable {
       remoteRenameStatus: DeviceIdentitySelectors.remoteRenameStatusSelector(
         state,
       ),
+      remoteHostId: DeviceIdentitySelectors.remoteHostIdSelector(state),
+      admittedHostId: ConnectionSelectors.admittedHostIdSelector(state),
       onSave: (String displayName) => store.dispatch(
         DeviceNameSaveRequestedAction(displayName: displayName),
       ),
@@ -69,5 +82,7 @@ class DeviceIdentitySectionViewModel extends Equatable {
     isSaving,
     saveFailure,
     remoteRenameStatus,
+    remoteHostId,
+    admittedHostId,
   ];
 }

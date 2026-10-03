@@ -52,12 +52,6 @@ fan a change out across saved Hosts; each trust record belongs to its own Host. 
 not retried after an ambiguous transport failure because the Host persists the trust mutation and
 advances its security fence. An empty name follows the protocol's clear-name behavior.
 
-`connections.renameDevice(displayName)` sends the typed `rename_request` for the current trusted
-session and returns the Host's typed `RenameOutcome`. It cannot rename an offline Known Host or
-fan a change out across saved Hosts; each trust record belongs to its own Host. The operation is
-not retried after an ambiguous transport failure because the Host persists the trust mutation and
-advances its security fence. An empty name follows the protocol's clear-name behavior.
-
 The Flutter app maps these grouped values into Redux and retains navigation, dialog lifetime, user
 input, and display decisions. `ReconnectService` owns the three-second initial retry schedule and
 cancellation separately from its bounded established-session recovery. It reports the active

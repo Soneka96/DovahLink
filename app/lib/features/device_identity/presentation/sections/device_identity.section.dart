@@ -58,6 +58,8 @@ class DeviceIdentitySection extends StatelessWidget {
               isSaving: viewModel.isSaving,
               saveFailure: viewModel.saveFailure,
               remoteRenameStatus: viewModel.remoteRenameStatus,
+              remoteHostId: viewModel.remoteHostId,
+              admittedHostId: viewModel.admittedHostId,
               onSave: viewModel.onSave,
             );
 

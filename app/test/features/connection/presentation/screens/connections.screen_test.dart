@@ -157,6 +157,8 @@ void main() {
     when(() => deviceIdentityViewModel.isSaving).thenReturn(false);
     when(() => deviceIdentityViewModel.saveFailure).thenReturn(null);
     when(() => deviceIdentityViewModel.remoteRenameStatus).thenReturn(null);
+    when(() => deviceIdentityViewModel.remoteHostId).thenReturn(null);
+    when(() => deviceIdentityViewModel.admittedHostId).thenReturn(null);
     when(() => deviceIdentityViewModel.onSave).thenReturn((String _) {});
     when(() => pairingViewModel.phase).thenReturn(PairingPhase.unpaired);
     when(() => pairingViewModel.support).thenReturn(PairingSupport.available);

@@ -39,6 +39,8 @@ void main() {
     when(() => viewModel.isSaving).thenReturn(false);
     when(() => viewModel.saveFailure).thenReturn(null);
     when(() => viewModel.remoteRenameStatus).thenReturn(null);
+    when(() => viewModel.remoteHostId).thenReturn(null);
+    when(() => viewModel.admittedHostId).thenReturn(null);
     when(() => viewModel.onSave).thenReturn(savedNames.add);
     sl.registerFactoryParam<
       DeviceIdentitySectionViewModel,

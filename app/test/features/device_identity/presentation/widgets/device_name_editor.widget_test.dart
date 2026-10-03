@@ -8,6 +8,34 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
+/// Builds a themed editor with the supplied Redux-projected save result.
+/// @param savedNames Receives names submitted by the editor.
+/// @param isSaving Whether the simulated save is still pending.
+/// @param remoteRenameStatus The result supplied by Redux, if any.
+/// @param remoteHostId The Host associated with the rename result.
+/// @param admittedHostId The Host with the current admitted session.
+/// @return The editor mounted in its themed test scaffold.
+Widget buildDeviceNameEditor({
+  required List<String> savedNames,
+  bool isSaving = false,
+  DeviceNameRenameStatus? remoteRenameStatus,
+  String? remoteHostId,
+  String? admittedHostId,
+}) => MaterialApp(
+  theme: dovahThemeDataFor(DovahThemePreset.dovah),
+  home: Scaffold(
+    body: DeviceNameEditor(
+      key: const Key('device-name-editor'),
+      displayName: 'Gaming PC',
+      isSaving: isSaving,
+      remoteRenameStatus: remoteRenameStatus,
+      remoteHostId: remoteHostId,
+      admittedHostId: admittedHostId,
+      onSave: savedNames.add,
+    ),
+  ),
+);
+
 /// Exercises the Settings device-name editor's input and feedback behavior.
 void main() {
   group('DeviceNameEditor calls onSave', () {
@@ -71,7 +99,7 @@ void main() {
       DeviceNameRenameStatus.notAttempted:
           'Saved locally. This name will be used for future pairings.',
       DeviceNameRenameStatus.renamed:
-          'Saved locally and confirmed by the active Host.',
+          'Saved locally and confirmed by the Host.',
       DeviceNameRenameStatus.invalidDisplayName:
           'Saved locally, but the Host rejected the name.',
       DeviceNameRenameStatus.notTrusted:
@@ -82,23 +110,174 @@ void main() {
     for (final MapEntry<DeviceNameRenameStatus, String> outcome
         in outcomes.entries) {
       testWidgets(
-        'DeviceNameEditor displays the ${outcome.key} rename outcome',
+        'DeviceNameEditor displays the ${outcome.key} result for its save',
         (WidgetTester tester) async {
-          await pumpDovahThemedWidget(
-            tester,
-            DeviceNameEditor(
-              displayName: 'Gaming PC',
+          final List<String> savedNames = <String>[];
+
+          await tester.pumpWidget(
+            buildDeviceNameEditor(
+              savedNames: savedNames,
               remoteRenameStatus: outcome.key,
-              onSave: (_) {},
+              remoteHostId: outcome.key == DeviceNameRenameStatus.notAttempted
+                  ? null
+                  : 'host-a',
+              admittedHostId: outcome.key == DeviceNameRenameStatus.notAttempted
+                  ? null
+                  : 'host-a',
             ),
-            preset: DovahThemePreset.dovah,
-            size: const Size(1280, 720),
+          );
+          expect(find.text(outcome.value), findsNothing);
+
+          await tester.tap(find.byKey(const Key('settings-device-name-save')));
+          expect(savedNames, ['Gaming PC']);
+          await tester.pumpWidget(
+            buildDeviceNameEditor(savedNames: savedNames, isSaving: true),
+          );
+          await tester.pumpWidget(
+            buildDeviceNameEditor(
+              savedNames: savedNames,
+              remoteRenameStatus: outcome.key,
+              remoteHostId: outcome.key == DeviceNameRenameStatus.notAttempted
+                  ? null
+                  : 'host-a',
+              admittedHostId: outcome.key == DeviceNameRenameStatus.notAttempted
+                  ? null
+                  : 'host-a',
+            ),
           );
 
           expect(find.text(outcome.value), findsOneWidget);
         },
       );
     }
+
+    testWidgets(
+      'DeviceNameEditor hides a previous Host result when Settings reopens',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          const DeviceNameEditor(
+            displayName: 'Gaming PC',
+            remoteRenameStatus: DeviceNameRenameStatus.renamed,
+            remoteHostId: 'host-a',
+            admittedHostId: 'host-a',
+            onSave: _ignoreName,
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(1280, 720),
+        );
+
+        expect(
+          find.text('Saved locally and confirmed by the Host.'),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'DeviceNameEditor hides Host A feedback after disconnect or Host B admission',
+      (WidgetTester tester) async {
+        final List<String> savedNames = <String>[];
+
+        await tester.pumpWidget(buildDeviceNameEditor(savedNames: savedNames));
+        await tester.tap(find.byKey(const Key('settings-device-name-save')));
+        await tester.pumpWidget(
+          buildDeviceNameEditor(savedNames: savedNames, isSaving: true),
+        );
+        await tester.pumpWidget(
+          buildDeviceNameEditor(
+            savedNames: savedNames,
+            remoteRenameStatus: DeviceNameRenameStatus.renamed,
+            remoteHostId: 'host-a',
+            admittedHostId: 'host-a',
+          ),
+        );
+        expect(
+          find.text('Saved locally and confirmed by the Host.'),
+          findsOneWidget,
+        );
+
+        await tester.pumpWidget(
+          buildDeviceNameEditor(
+            savedNames: savedNames,
+            remoteRenameStatus: DeviceNameRenameStatus.renamed,
+            remoteHostId: 'host-a',
+            admittedHostId: 'host-b',
+          ),
+        );
+        expect(
+          find.text('Saved locally and confirmed by the Host.'),
+          findsNothing,
+        );
+
+        await tester.pumpWidget(
+          buildDeviceNameEditor(
+            savedNames: savedNames,
+            remoteRenameStatus: DeviceNameRenameStatus.renamed,
+            remoteHostId: 'host-a',
+          ),
+        );
+        expect(
+          find.text('Saved locally and confirmed by the Host.'),
+          findsNothing,
+        );
+      },
+    );
+
+    testWidgets(
+      'DeviceNameEditor hides the previous Host result until the next save completes',
+      (WidgetTester tester) async {
+        final List<String> savedNames = <String>[];
+
+        await tester.pumpWidget(buildDeviceNameEditor(savedNames: savedNames));
+        await tester.tap(find.byKey(const Key('settings-device-name-save')));
+        await tester.pumpWidget(
+          buildDeviceNameEditor(savedNames: savedNames, isSaving: true),
+        );
+        await tester.pumpWidget(
+          buildDeviceNameEditor(
+            savedNames: savedNames,
+            remoteRenameStatus: DeviceNameRenameStatus.renamed,
+            remoteHostId: 'host-a',
+            admittedHostId: 'host-a',
+          ),
+        );
+        expect(
+          find.text('Saved locally and confirmed by the Host.'),
+          findsOneWidget,
+        );
+
+        await tester.tap(find.byKey(const Key('settings-device-name-save')));
+        await tester.pumpWidget(
+          buildDeviceNameEditor(savedNames: savedNames, isSaving: true),
+        );
+        expect(
+          find.text('Saved locally and confirmed by the Host.'),
+          findsNothing,
+        );
+
+        await tester.pumpWidget(
+          buildDeviceNameEditor(savedNames: savedNames, isSaving: true),
+        );
+        expect(
+          find.text('Saved locally and confirmed by the Host.'),
+          findsNothing,
+        );
+        await tester.pumpWidget(
+          buildDeviceNameEditor(
+            savedNames: savedNames,
+            remoteRenameStatus: DeviceNameRenameStatus.notAttempted,
+          ),
+        );
+        expect(
+          find.text(
+            'Saved locally. This name will be used for future pairings.',
+          ),
+          findsOneWidget,
+        );
+        expect(savedNames, ['Gaming PC', 'Gaming PC']);
+      },
+    );
 
     testWidgets(
       'DeviceNameEditor displays local failures and disables saving',

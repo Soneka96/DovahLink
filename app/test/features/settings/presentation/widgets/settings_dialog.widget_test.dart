@@ -57,6 +57,8 @@ void main() {
     when(() => deviceIdentityViewModel.isSaving).thenReturn(false);
     when(() => deviceIdentityViewModel.saveFailure).thenReturn(null);
     when(() => deviceIdentityViewModel.remoteRenameStatus).thenReturn(null);
+    when(() => deviceIdentityViewModel.remoteHostId).thenReturn(null);
+    when(() => deviceIdentityViewModel.admittedHostId).thenReturn(null);
     when(() => deviceIdentityViewModel.onSave).thenReturn(savedNames.add);
     sl.registerFactoryParam<AppearanceSectionViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => appearanceViewModel,

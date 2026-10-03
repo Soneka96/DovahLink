@@ -12,7 +12,7 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
-/// Edits a local device-name override and presents its separate Host outcome.
+/// Edits a local device-name override and presents its save's Host outcome.
 class DeviceNameEditor extends StatefulWidget {
   /// The resolved name to show in the field, or `null` if loading failed.
   final String? displayName;
@@ -26,8 +26,14 @@ class DeviceNameEditor extends StatefulWidget {
   /// The local validation or persistence error, if one occurred.
   final String? saveFailure;
 
-  /// The latest active-Host rename outcome, or `null` before a completed save.
+  /// The stored active-Host outcome, if a save has completed.
   final DeviceNameRenameStatus? remoteRenameStatus;
+
+  /// The Host whose rename response is represented by [remoteRenameStatus].
+  final String? remoteHostId;
+
+  /// The Host with the currently admitted SDK session.
+  final String? admittedHostId;
 
   /// Called with the text currently in the field when Save or Enter is used.
   final ValueChanged<String> onSave;
@@ -38,6 +44,8 @@ class DeviceNameEditor extends StatefulWidget {
   /// @param isSaving Whether a save operation is in progress.
   /// @param saveFailure The local validation or persistence failure, if any.
   /// @param remoteRenameStatus The latest active-Host rename result.
+  /// @param remoteHostId The Host associated with that result.
+  /// @param admittedHostId The current SDK-admitted Host ID.
   /// @param onSave Receives the proposed name when the user saves.
   const DeviceNameEditor({
     required this.displayName,
@@ -46,6 +54,8 @@ class DeviceNameEditor extends StatefulWidget {
     this.isSaving = false,
     this.saveFailure,
     this.remoteRenameStatus,
+    this.remoteHostId,
+    this.admittedHostId,
     super.key,
   });
 
@@ -68,6 +78,12 @@ class _DeviceNameEditorState extends State<DeviceNameEditor> {
   /// Whether the last completed save is still showing its temporary button label.
   bool _showSavedLabel = false;
 
+  /// Whether this editor initiated the save whose Host result it may present.
+  bool _awaitingSaveResult = false;
+
+  /// Whether the current editor may present its own save's Host result.
+  bool _showRemoteRenameFeedback = false;
+
   /// See [State.initState].
   @override
   void initState() {
@@ -79,6 +95,13 @@ class _DeviceNameEditorState extends State<DeviceNameEditor> {
   @override
   void didUpdateWidget(covariant DeviceNameEditor oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (_awaitingSaveResult && oldWidget.isSaving && !widget.isSaving) {
+      _awaitingSaveResult = false;
+      _showRemoteRenameFeedback =
+          widget.saveFailure == null && widget.remoteRenameStatus != null;
+    } else if (widget.isSaving) {
+      _showRemoteRenameFeedback = false;
+    }
     final String? persistedName = widget.displayName;
     if (oldWidget.isSaving &&
         !widget.isSaving &&
@@ -126,7 +149,7 @@ class _DeviceNameEditorState extends State<DeviceNameEditor> {
         textInputAction: TextInputAction.done,
         onSubmitted: (String value) {
           if (!widget.isSaving) {
-            widget.onSave(value);
+            _save(value);
           }
         },
         onChanged: (String _) {
@@ -179,17 +202,24 @@ class _DeviceNameEditorState extends State<DeviceNameEditor> {
           : 'Save',
       labelFontSize: DovahDialogMetrics.settingsSaveButtonFontSize,
       variant: DovahButtonVariant.secondary,
-      onPressed: widget.isSaving ? null : () => widget.onSave(_controller.text),
+      onPressed: widget.isSaving ? null : () => _save(_controller.text),
     );
     final String? localFailure = widget.loadFailure ?? widget.saveFailure;
+    final DeviceNameRenameStatus? remoteRenameStatus = _showRemoteRenameFeedback
+        ? widget.remoteRenameStatus
+        : null;
+    final bool isCurrentHostResult =
+        remoteRenameStatus == DeviceNameRenameStatus.notAttempted ||
+        (widget.remoteHostId != null &&
+            widget.remoteHostId == widget.admittedHostId);
     final String? feedback =
         localFailure ??
-        switch (widget.remoteRenameStatus) {
+        switch (isCurrentHostResult ? remoteRenameStatus : null) {
           null => null,
           DeviceNameRenameStatus.notAttempted =>
             'Saved locally. This name will be used for future pairings.',
           DeviceNameRenameStatus.renamed =>
-            'Saved locally and confirmed by the active Host.',
+            'Saved locally and confirmed by the Host.',
           DeviceNameRenameStatus.invalidDisplayName =>
             'Saved locally, but the Host rejected the name.',
           DeviceNameRenameStatus.notTrusted =>
@@ -200,7 +230,7 @@ class _DeviceNameEditorState extends State<DeviceNameEditor> {
     final Color feedbackColor =
         widget.loadFailure != null || widget.saveFailure != null
         ? tokens.danger
-        : switch (widget.remoteRenameStatus) {
+        : switch (isCurrentHostResult ? remoteRenameStatus : null) {
             DeviceNameRenameStatus.renamed => tokens.success,
             DeviceNameRenameStatus.notAttempted => tokens.textMuted,
             DeviceNameRenameStatus.invalidDisplayName ||
@@ -263,5 +293,16 @@ class _DeviceNameEditorState extends State<DeviceNameEditor> {
         );
       },
     );
+  }
+
+  /// Starts a save interaction owned by this editor.
+  /// @param displayName The proposed device name.
+  void _save(String displayName) {
+    if (widget.isSaving) {
+      return;
+    }
+    _awaitingSaveResult = true;
+    _showRemoteRenameFeedback = false;
+    widget.onSave(displayName);
   }
 }
