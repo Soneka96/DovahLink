@@ -95,7 +95,7 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes and copies vitals in "
           "health, magicka, stamina order, matching the host's own decode "
           "offsets",
           "[runtime][commonlib_adapter_native_capture_router][structural]") {
-    //  LiveCaptureSink.cs's ApplyVitals decodes current values first, then
+    //  CharacterCaptureHandler.cs's ApplyVitals decodes current values first, then
     //  maximum values; the source's field and copy order must match it.
     std::string source = RouterSource();
 

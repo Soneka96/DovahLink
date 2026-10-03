@@ -31,12 +31,11 @@ struct CharacterVitalsCapture {
 ///  the permanent/base variants, matching the current-value semantics of the
 ///  `character_vitals` domain. See `ai/context/adapter/architecture.md` for the
 ///  maintainer-reviewable record of this choice, including its known open
-///  question around death/essential/negative-health behavior. Must be called
+///  question around death/essential/negative-health behavior.
 ///  Maximum values use `RE::Actor::GetActorValueMax`, whose CommonLibSSE-NG
 ///  implementation combines permanent actor value and the temporary modifier.
-///  All six values are captured in one call. Must be called already on the
-///  Skyrim game thread, matching every other approved native read in this
-///  codebase.
+///  All six values are captured in one call. Call this function on the Skyrim
+///  game thread, matching every other approved native read in this codebase.
 ///  @return The vitals, or `std::nullopt` if the player or its actor-value
 ///  owner is not currently available.
 std::optional<CharacterVitalsCapture> CaptureCharacterVitals();
