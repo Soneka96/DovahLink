@@ -32,7 +32,7 @@ void main() {
         await useCase(
           const SetDeviceNameParams(displayName: '  Living Room PC  '),
         ),
-        const Right<Failure, Unit>(unit),
+        const Right<Failure, String>('Living Room PC'),
       );
       verify(
         () => repository.saveDisplayNameOverride('Living Room PC'),
@@ -49,7 +49,7 @@ void main() {
 
         expect(
           await useCase(const SetDeviceNameParams(displayName: '  ')),
-          const Right<Failure, Unit>(unit),
+          const Right<Failure, String>(defaultDeviceName),
         );
         verify(
           () => repository.saveDisplayNameOverride(defaultDeviceName),
@@ -71,7 +71,7 @@ void main() {
 
         expect(
           await useCase(SetDeviceNameParams(displayName: name)),
-          const Right<Failure, Unit>(unit),
+          Right<Failure, String>(name),
         );
         verify(() => repository.saveDisplayNameOverride(name)).called(1);
         verifyNoMoreInteractions(repository);
@@ -88,7 +88,7 @@ void main() {
 
         expect(
           await useCase(SetDeviceNameParams(displayName: name)),
-          const Left<Failure, Unit>(
+          const Left<Failure, String>(
             ValidationFailure(
               'Use a device name of 64 UTF-8 bytes or less without control characters.',
             ),
@@ -101,7 +101,7 @@ void main() {
     test('Method call rejects a control character before saving', () async {
       expect(
         await useCase(const SetDeviceNameParams(displayName: 'Desk\nTop')),
-        const Left<Failure, Unit>(
+        const Left<Failure, String>(
           ValidationFailure(
             'Use a device name of 64 UTF-8 bytes or less without control characters.',
           ),
@@ -118,7 +118,7 @@ void main() {
             await useCase(
               SetDeviceNameParams(displayName: 'Desk${control}Top'),
             ),
-            const Left<Failure, Unit>(
+            const Left<Failure, String>(
               ValidationFailure(
                 'Use a device name of 64 UTF-8 bytes or less without control characters.',
               ),
@@ -137,7 +137,7 @@ void main() {
 
       expect(
         await useCase(const SetDeviceNameParams(displayName: 'Desktop')),
-        const Left<Failure, Unit>(failure),
+        const Left<Failure, String>(failure),
       );
       verify(() => repository.saveDisplayNameOverride('Desktop')).called(1);
       verifyNoMoreInteractions(repository);

@@ -6,7 +6,16 @@ import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import 'package:dovahlink_client/shared/usecase/usecase.dart';
 
 /// Loads the resolved companion display name through [IDeviceIdentityRepository].
-class LoadDeviceNameUseCase extends UseCase<Either<Failure, String>, NoParams> {
+abstract interface class ILoadDeviceNameUseCase {
+  /// Loads the resolved name.
+  /// @param params Unused load parameters.
+  /// @return The resolved name, or a persistence [Failure].
+  Future<Either<Failure, String>> call(NoParams params);
+}
+
+/// Implements [ILoadDeviceNameUseCase] through the app-owned repository.
+class LoadDeviceNameUseCase extends UseCase<Either<Failure, String>, NoParams>
+    implements ILoadDeviceNameUseCase {
   /// The repository that owns local name and OS fallback access.
   final IDeviceIdentityRepository _repository;
 

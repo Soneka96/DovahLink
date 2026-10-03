@@ -7,6 +7,7 @@ import 'package:dovahlink_client/features/device_identity/data/repositories/devi
 import 'package:dovahlink_client/features/device_identity/domain/repositories/device_identity_repository.dart';
 import 'package:dovahlink_client/features/device_identity/domain/usecases/load_device_name.usecase.dart';
 import 'package:dovahlink_client/features/device_identity/domain/usecases/set_device_name.usecase.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.middleware.dart';
 import 'package:dovahlink_client/injection_container.dart';
 
 /// Registers local device-identity dependencies.
@@ -20,10 +21,13 @@ void initDeviceIdentityDependencies() {
   sl.registerLazySingleton<IDeviceIdentityRepository>(
     () => DeviceIdentityRepository(sl<IDeviceIdentityLocalDataSource>()),
   );
-  sl.registerLazySingleton<LoadDeviceNameUseCase>(
+  sl.registerLazySingleton<ILoadDeviceNameUseCase>(
     () => LoadDeviceNameUseCase(sl<IDeviceIdentityRepository>()),
   );
-  sl.registerLazySingleton<SetDeviceNameUseCase>(
+  sl.registerLazySingleton<ISetDeviceNameUseCase>(
     () => SetDeviceNameUseCase(sl<IDeviceIdentityRepository>()),
+  );
+  sl.registerLazySingleton<IDeviceIdentityMiddleware>(
+    DeviceIdentityMiddleware.new,
   );
 }

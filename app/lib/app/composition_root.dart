@@ -6,6 +6,7 @@ import 'package:dovahlink_client/features/appearance/presentation/state/appearan
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/features/device_identity/domain/usecases/load_device_name.usecase.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.middleware.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/features/session/presentation/state/session_shell.middleware.dart';
@@ -40,7 +41,7 @@ class AppCompositionRoot {
       (DovahThemePreset preset) => preset,
     );
     final Either<Failure, String> loadedDeviceName =
-        await sl<LoadDeviceNameUseCase>()(NoParams());
+        await sl<ILoadDeviceNameUseCase>()(NoParams());
     final DeviceIdentityState deviceIdentity = loadedDeviceName.fold(
       (Failure failure) =>
           DeviceIdentityState(displayName: null, loadFailure: failure.message),
@@ -54,6 +55,7 @@ class AppCompositionRoot {
         sl<IPairingMiddleware>().call,
         sl<ISessionShellMiddleware>().call,
         AppearanceMiddleware().call,
+        sl<IDeviceIdentityMiddleware>().call,
       ],
       initialState: AppState.initial(
         appearance: AppearanceState(activePreset: preset),
