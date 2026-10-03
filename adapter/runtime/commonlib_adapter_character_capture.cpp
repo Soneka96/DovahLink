@@ -17,6 +17,9 @@ std::optional<CharacterVitalsCapture> CaptureCharacterVitals() {
         .health = actorValues->GetActorValue(RE::ActorValue::kHealth),
         .magicka = actorValues->GetActorValue(RE::ActorValue::kMagicka),
         .stamina = actorValues->GetActorValue(RE::ActorValue::kStamina),
+        .healthMax = player->GetActorValueMax(RE::ActorValue::kHealth),
+        .magickaMax = player->GetActorValueMax(RE::ActorValue::kMagicka),
+        .staminaMax = player->GetActorValueMax(RE::ActorValue::kStamina),
     };
 }
 

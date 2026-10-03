@@ -304,6 +304,8 @@ class ValidateAllTests(unittest.TestCase):
             "state/state-event.json",
             "state/state-snapshot.json",
             "state/state-snapshot-unavailable.json",
+            "state/state-snapshot-character-vitals.json",
+            "state/state-snapshot-character-vitals-unavailable.json",
             "errors/error-blocked.json",
             "errors/error-frame-too-large.json",
             "errors/error-malformed-message.json",

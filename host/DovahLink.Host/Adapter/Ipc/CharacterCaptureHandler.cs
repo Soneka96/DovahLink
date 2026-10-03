@@ -16,8 +16,11 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
             (CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged),
         ]);
 
-    /// <summary>Backs float-valued Character areas.</summary>
-    private readonly IStatePublisher<float?> floatPublisher;
+    /// <summary>Backs the coherent Vitals area.</summary>
+    private readonly IStatePublisher<CharacterVitals?> vitalsPublisher;
+
+    /// <summary>Backs the Character XP area.</summary>
+    private readonly IStatePublisher<float?> xpPublisher;
 
     /// <summary>Backs the Character level area.</summary>
     private readonly IStatePublisher<ushort?> levelPublisher;
@@ -26,15 +29,18 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
     private readonly ILiveStateApplication liveStateApplication;
 
     /// <summary>Creates the handler for the current Character capture set.</summary>
-    /// <param name="floatPublisher">The typed publisher for health, magicka, stamina, and experience.</param>
+    /// <param name="vitalsPublisher">The typed publisher for coherent Vitals.</param>
+    /// <param name="xpPublisher">The typed publisher for XP.</param>
     /// <param name="levelPublisher">The typed publisher for level.</param>
     /// <param name="liveStateApplication">The shared Host authority and publication service.</param>
     public CharacterCaptureHandler(
-        IStatePublisher<float?> floatPublisher,
+        IStatePublisher<CharacterVitals?> vitalsPublisher,
+        IStatePublisher<float?> xpPublisher,
         IStatePublisher<ushort?> levelPublisher,
         ILiveStateApplication liveStateApplication)
     {
-        this.floatPublisher = floatPublisher;
+        this.vitalsPublisher = vitalsPublisher;
+        this.xpPublisher = xpPublisher;
         this.levelPublisher = levelPublisher;
         this.liveStateApplication = liveStateApplication;
     }
@@ -54,7 +60,7 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         }
         else if (unit.Source == CaptureSourceKind.Sample && unit.CaptureKey == (uint)CharacterSampleToken.CharacterXp)
         {
-            ApplyScalarFloat(captureResult, context);
+            ApplyXp(captureResult, context);
         }
         else if ((unit.Source == CaptureSourceKind.Sample && unit.CaptureKey == (uint)CharacterSampleToken.CharacterLevelBaseline)
             || (unit.Source == CaptureSourceKind.Event && unit.CaptureKey == (uint)CharacterEventKey.CharacterLevelChanged))
@@ -63,30 +69,34 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         }
     }
 
-    /// <summary>Decodes and applies a coherent health, magicka, and stamina sample.</summary>
+    /// <summary>Decodes and applies one coherent current-and-maximum Vitals value.</summary>
     /// <param name="captureResult">The Vitals capture result.</param>
     /// <param name="context">The validated provenance and play-context metadata.</param>
     private void ApplyVitals(IpcCaptureResultMessage captureResult, LiveCaptureContext context)
     {
-        if (context.CaptureUnit.StateAreas.Count != 3)
+        if (context.CaptureUnit.StateAreas.Count != 1)
         {
             return;
         }
 
-        float? health = null;
-        float? magicka = null;
-        float? stamina = null;
+        CharacterVitals? vitals = null;
         if (captureResult.Availability == CaptureAvailability.Available)
         {
-            if (captureResult.Payload.Length != 12
+            if (captureResult.Payload.Length != 24
                 || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(0, 4), out float decodedHealth)
                 || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(4, 4), out float decodedMagicka)
-                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(8, 4), out float decodedStamina))
+                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(8, 4), out float decodedStamina)
+                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(12, 4), out float decodedHealthMax)
+                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(16, 4), out float decodedMagickaMax)
+                || !TryDecodeFiniteFloat(captureResult.Payload.AsSpan(20, 4), out float decodedStaminaMax))
             {
                 return;
             }
 
-            (health, magicka, stamina) = (decodedHealth, decodedMagicka, decodedStamina);
+            vitals = new CharacterVitals(
+                new CharacterVital(decodedHealth, decodedHealthMax),
+                new CharacterVital(decodedMagicka, decodedMagickaMax),
+                new CharacterVital(decodedStamina, decodedStaminaMax));
         }
         else if (captureResult.Payload.Length != 0)
         {
@@ -94,15 +104,13 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         }
 
         bool isResynchronizationBaseline = captureResult.CorrelationId == 0;
-        Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], health, isResynchronizationBaseline, context);
-        Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[1], magicka, isResynchronizationBaseline, context);
-        Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[2], stamina, isResynchronizationBaseline, context);
+        Apply(vitalsPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], vitals, isResynchronizationBaseline, context);
     }
 
-    /// <summary>Decodes and applies one experience value.</summary>
+    /// <summary>Decodes and applies one XP value.</summary>
     /// <param name="captureResult">The XP capture result.</param>
     /// <param name="context">The validated provenance and play-context metadata.</param>
-    private void ApplyScalarFloat(IpcCaptureResultMessage captureResult, LiveCaptureContext context)
+    private void ApplyXp(IpcCaptureResultMessage captureResult, LiveCaptureContext context)
     {
         if (context.CaptureUnit.StateAreas.Count != 1)
         {
@@ -124,7 +132,7 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
             return;
         }
 
-        Apply(floatPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], value, captureResult.CorrelationId == 0, context);
+        Apply(xpPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], value, captureResult.CorrelationId == 0, context);
     }
 
     /// <summary>Decodes and applies the level baseline Sample or level-changed Event.</summary>

@@ -49,6 +49,12 @@
     <None Include="..\..\protocol\fixtures\subscriptions\subscribe-empty.json"
           Link="protocol\fixtures\subscriptions\subscribe-empty.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-character-vitals.json"
+          Link="protocol\fixtures\state\state-snapshot-character-vitals.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-character-vitals-unavailable.json"
+          Link="protocol\fixtures\state\state-snapshot-character-vitals-unavailable.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

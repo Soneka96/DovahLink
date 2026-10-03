@@ -1924,8 +1924,9 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "The official\nFlutter app consumes the same public API through `dovahlink_client_sdk`.",
             "The SDK supports Host releases in the `0.5.x` range and rejects older or newer Host "
             "versions during\n`hello`, before admitting a session.",
-            "Phase 5.2 is complete: the public client exposes replayable typed\n"
-            "state streams for XP, health, magicka, stamina, and level",
+            "Phase 5.2 is complete: `client.currentHost.character` exposes "
+            "replayable typed streams for coherent\n"
+            "Vitals, XP, and Level domains",
         ):
             self.assertIn(required_phrase, sdk_readme)
 
@@ -2045,13 +2046,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 "host",
                 "trustState",
                 "sessionId",
-                "characterXpChanges",
-                "characterHealthChanges",
-                "characterMagickaChanges",
-                "characterStaminaChanges",
-                "characterLevelChanges",
+                "character",
                 "subscribeStateArea",
                 "unsubscribeStateArea",
+            ),
+            "sdk/dart/dovahlink_client/lib/src/dovahlink_character.dart": (
+                "vitalsChanges",
+                "xpChanges",
+                "levelChanges",
             ),
         }
         for relative_path, members in grouped_contracts.items():

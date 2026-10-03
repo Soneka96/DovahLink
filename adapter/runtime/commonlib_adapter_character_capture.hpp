@@ -5,8 +5,8 @@
 
 namespace dovahlink::adapter::runtime {
 
-///  One coherent player-vitals read: health, magicka, and stamina from a
-///  single `RE::PlayerCharacter` lookup, per
+///  One coherent player-vitals read: current and maximum health, magicka, and
+///  stamina from a single `RE::PlayerCharacter` lookup, per
 ///  `roadmap/04-live-state-synchronization-foundation.md`'s "Real capture and
 ///  host integration" narrow first slice, which requires one coherent fast
 ///  sample rather than three independently scheduled reads.
@@ -14,20 +14,28 @@ struct CharacterVitalsCapture {
     float health = 0.0f;
     float magicka = 0.0f;
     float stamina = 0.0f;
+    ///  The effective maximum Health actor value.
+    float healthMax = 0.0f;
+    ///  The effective maximum Magicka actor value.
+    float magickaMax = 0.0f;
+    ///  The effective maximum Stamina actor value.
+    float staminaMax = 0.0f;
 
     ///  Structural equality over every field.
     bool operator==(const CharacterVitalsCapture&) const = default;
 };
 
-///  Reads current health, magicka, and stamina from one player lookup, via
+///  Reads current and effective maximum health, magicka, and stamina from one
+///  player lookup. Current values use
 ///  `RE::ActorValueOwner::GetActorValue` -- the current-value accessor, not
-///  the permanent/base variants, matching `character_health`/
-///  `character_magicka`/`character_stamina`'s documented "current value"
-///  meaning. See `ai/context/adapter/architecture.md` for the
+///  the permanent/base variants, matching the current-value semantics of the
+///  `character_vitals` domain. See `ai/context/adapter/architecture.md` for the
 ///  maintainer-reviewable record of this choice, including its known open
-///  question around death/essential/negative-health behavior. Must be called
-///  already on the Skyrim game thread, matching every other approved native
-///  read in this codebase.
+///  question around death/essential/negative-health behavior.
+///  Maximum values use `RE::Actor::GetActorValueMax`, whose CommonLibSSE-NG
+///  implementation combines permanent actor value and the temporary modifier.
+///  All six values are captured in one call. Call this function on the Skyrim
+///  game thread, matching every other approved native read in this codebase.
 ///  @return The vitals, or `std::nullopt` if the player or its actor-value
 ///  owner is not currently available.
 std::optional<CharacterVitalsCapture> CaptureCharacterVitals();

@@ -21,6 +21,8 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Changed
 
+- Host publishes current and effective maximum Health, Magicka, and Stamina as one coherent
+  `character_vitals` snapshot instead of three scalar state areas.
 - Pairing outcomes now expose Host-calculated attempts remaining and the committed renotify cooldown.
 - Raw public connection capacity is bounded separately from authenticated session capacity.
 

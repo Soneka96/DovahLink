@@ -10,15 +10,19 @@ Stage 4 is complete on Host + Adapter. Its Bridge-authored 4.2–4.4 implementat
 below as historical engineering evidence; it was superseded after Stage 3A and is not part of the
 active completion criteria.
 
+The initial scalar Vitals areas described below were superseded before release by the approved
+Character data architecture correction: current and effective maximum Health, Magicka, and Stamina
+are now one `character_vitals` Snapshot domain. `character_xp` and `character_level` remain
+independent. Detailed Stage 4 acceptance text below records the original delivery and is retained as
+history; the current registered contract is in [`protocol/schema/README.md`](../protocol/schema/README.md).
+
 ### Outcome
 
 The Host and Adapter publish changing state from a shared authoritative store without requiring
-client polling or allowing delivery pressure to block Skyrim. The first production domains are
-deliberately focused: `character_xp`, `character_health`,
-`character_magicka`, and `character_stamina` use Snapshot mode, while `character_level` uses Event
-mode. Each is a separate state area; the existing aggregate `character` area is retired in the
-redesigned contract. A future phase may add a composed character view without creating a second
-authority for these values.
+client polling or allowing delivery pressure to block Skyrim. The original production domains were
+deliberately focused: XP and each Vitals scalar used Snapshot mode, while Level used Event mode.
+This Vitals representation is superseded by the correction note above. The existing aggregate
+`character` area remains retired.
 
 ### Architecture model
 

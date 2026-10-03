@@ -3,12 +3,13 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <string>
+#include <string_view>
 
 using dovahlink::adapter::test_support::NormalizeWhitespace;
 using dovahlink::adapter::test_support::ReadSource;
 
-TEST_CASE("CommonLibAdapterCharacterCapture's vitals read the current-value "
-          "actor-value accessor, not permanent/base/clamped",
+TEST_CASE("CommonLibAdapterCharacterCapture's vitals read current values and "
+          "effective maximums from one coherent player capture",
           "[runtime][commonlib_adapter_character_capture][structural]") {
     //  The test target intentionally does not link CommonLibSSE-NG, and
     //  RE::PlayerCharacter::GetSingleton()'s relocated-pointer resolution is
@@ -23,6 +24,19 @@ TEST_CASE("CommonLibAdapterCharacterCapture's vitals read the current-value "
     CHECK(source.find("GetActorValue(RE::ActorValue::kHealth)") != std::string::npos);
     CHECK(source.find("GetActorValue(RE::ActorValue::kMagicka)") != std::string::npos);
     CHECK(source.find("GetActorValue(RE::ActorValue::kStamina)") != std::string::npos);
+    CHECK(source.find("GetActorValueMax(RE::ActorValue::kHealth)") != std::string::npos);
+    CHECK(source.find("GetActorValueMax(RE::ActorValue::kMagicka)") != std::string::npos);
+    CHECK(source.find("GetActorValueMax(RE::ActorValue::kStamina)") != std::string::npos);
+    auto captureStart = source.find("CaptureCharacterVitals() {");
+    auto xpCaptureStart = source.find("CaptureCharacterXp() {", captureStart);
+    REQUIRE(captureStart != std::string::npos);
+    REQUIRE(xpCaptureStart != std::string::npos);
+    std::string_view vitalsCapture = std::string_view(source).substr(
+        captureStart, xpCaptureStart - captureStart);
+    auto playerLookup = vitalsCapture.find("RE::PlayerCharacter::GetSingleton()");
+    REQUIRE(playerLookup != std::string_view::npos);
+    CHECK(vitalsCapture.find("RE::PlayerCharacter::GetSingleton()",
+                             playerLookup + 1) == std::string_view::npos);
     CHECK(source.find("GetPermanentActorValue") == std::string::npos);
     CHECK(source.find("GetBaseActorValue") == std::string::npos);
     CHECK(source.find("GetClampedActorValue") == std::string::npos);

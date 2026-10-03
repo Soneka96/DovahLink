@@ -4,18 +4,36 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/protocol/protocol_format_exception.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_event_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/state/character_health_state.dart';
 import 'mock_state_revision_tracker.dart';
+
+/// Decodes the nullable numeric value used by this generic state-domain test.
+/// @param json The arbitrary test-domain payload.
+/// @return The numeric value or explicit unavailability.
+/// @throws [ProtocolFormatException] when a nonnumeric value is supplied.
+num? _decodeTestValue(JsonMap json) {
+  final Object? value = json['value'];
+  if (value == null) {
+    return null;
+  }
+  if (value is num) {
+    return value;
+  }
+  throw const ProtocolFormatException(
+    'Expected a nullable numeric test value.',
+  );
+}
 
 /// Builds one valid Snapshot payload for the registered test area.
 /// @param value The current value or explicit unavailable representation.
 /// @return A decoded Snapshot payload.
 StateSnapshotPayload buildSnapshotPayload(Object? value) =>
     StateSnapshotPayload(
-      stateArea: 'character_health',
+      stateArea: 'synthetic_area',
       revision: 4,
       occurredAt: '2026-09-23T12:00:00Z',
       data: <String, dynamic>{'value': value},
@@ -25,7 +43,7 @@ StateSnapshotPayload buildSnapshotPayload(Object? value) =>
 /// @param value The complete post-change value.
 /// @return A decoded Event payload.
 StateEventPayload buildEventPayload(Object? value) => StateEventPayload(
-  stateArea: 'character_health',
+  stateArea: 'synthetic_area',
   baseRevision: 4,
   revision: 5,
   occurredAt: '2026-09-23T12:00:01Z',
@@ -48,15 +66,15 @@ Envelope buildStateEnvelope(ProtocolMessageType messageType) => Envelope(
 
 /// Runs typed state-domain definition behavior tests.
 void main() {
-  late MockStateRevisionTracker<CharacterHealthState> tracker;
-  late StateDomainDefinition<CharacterHealthState> definition;
+  late MockStateRevisionTracker<num?> tracker;
+  late StateDomainDefinition<num?> definition;
 
   setUpAll(() {
-    registerFallbackValue(const CharacterHealthState(value: null));
+    registerFallbackValue(0);
   });
 
   setUp(() {
-    tracker = MockStateRevisionTracker<CharacterHealthState>();
+    tracker = MockStateRevisionTracker<num?>();
     when(
       () => tracker.applySnapshot(
         stateAuthorityId: any(named: 'stateAuthorityId'),
@@ -76,29 +94,31 @@ void main() {
         isUnavailable: any(named: 'isUnavailable'),
       ),
     ).thenReturn(StateEventApplyResult.applied);
-    definition = StateDomainDefinition<CharacterHealthState>(
-      stateArea: 'character_health',
-      decode: CharacterHealthState.fromJson,
+    definition = StateDomainDefinition<num?>(
+      stateArea: 'synthetic_area',
+      decode: _decodeTestValue,
       tracker: tracker,
-      isUnavailable: (CharacterHealthState value) => value.value == null,
+      isUnavailable: (num? value) => value == null,
       supportsEvents: true,
     );
   });
 
   group('Method decodeState behaves correctly', () {
     test('Method decodeState returns the typed available value and status', () {
-      final ({CharacterHealthState value, bool isUnavailable}) decoded =
-          definition.decodeState(const <String, dynamic>{'value': 87.5});
+      final ({num? value, bool isUnavailable}) decoded = definition.decodeState(
+        const <String, dynamic>{'value': 87.5},
+      );
 
-      expect(decoded.value.value, 87.5);
+      expect(decoded.value, 87.5);
       expect(decoded.isUnavailable, isFalse);
     });
 
     test('Method decodeState marks an explicit null value unavailable', () {
-      final ({CharacterHealthState value, bool isUnavailable}) decoded =
-          definition.decodeState(const <String, dynamic>{'value': null});
+      final ({num? value, bool isUnavailable}) decoded = definition.decodeState(
+        const <String, dynamic>{'value': null},
+      );
 
-      expect(decoded.value.value, isNull);
+      expect(decoded.value, isNull);
       expect(decoded.isUnavailable, isTrue);
     });
 
@@ -136,7 +156,7 @@ void main() {
           payload: buildSnapshotPayload(87.5),
         );
 
-        final CharacterHealthState value =
+        final num? value =
             verify(
                   () => tracker.applySnapshot(
                     stateAuthorityId: 'authority-1',
@@ -146,8 +166,8 @@ void main() {
                     isUnavailable: false,
                   ),
                 ).captured.single
-                as CharacterHealthState;
-        expect(value.value, 87.5);
+                as num?;
+        expect(value, 87.5);
       },
     );
 
@@ -159,7 +179,7 @@ void main() {
           payload: buildSnapshotPayload(null),
         );
 
-        final CharacterHealthState value =
+        final num? value =
             verify(
                   () => tracker.applySnapshot(
                     stateAuthorityId: 'authority-1',
@@ -169,8 +189,8 @@ void main() {
                     isUnavailable: true,
                   ),
                 ).captured.single
-                as CharacterHealthState;
-        expect(value.value, isNull);
+                as num?;
+        expect(value, isNull);
       },
     );
 
@@ -210,7 +230,7 @@ void main() {
         payload: buildEventPayload(91.0),
       );
 
-      final CharacterHealthState value =
+      final num? value =
           verify(
                 () => tracker.applyEvent(
                   stateAuthorityId: 'authority-1',
@@ -221,8 +241,8 @@ void main() {
                   isUnavailable: false,
                 ),
               ).captured.single
-              as CharacterHealthState;
-      expect(value.value, 91.0);
+              as num?;
+      expect(value, 91.0);
     });
 
     test('Method applyEvent marks an explicit null value as unavailable', () {
@@ -231,7 +251,7 @@ void main() {
         payload: buildEventPayload(null),
       );
 
-      final CharacterHealthState value =
+      final num? value =
           verify(
                 () => tracker.applyEvent(
                   stateAuthorityId: 'authority-1',
@@ -242,8 +262,8 @@ void main() {
                   isUnavailable: true,
                 ),
               ).captured.single
-              as CharacterHealthState;
-      expect(value.value, isNull);
+              as num?;
+      expect(value, isNull);
     });
 
     test(
@@ -278,13 +298,12 @@ void main() {
     test(
       'Method applyEvent rejects an Event when the domain is Snapshot-only',
       () {
-        final StateDomainDefinition<CharacterHealthState> snapshotOnly =
-            StateDomainDefinition<CharacterHealthState>(
-              stateArea: 'character_health',
-              decode: CharacterHealthState.fromJson,
+        final StateDomainDefinition<num?> snapshotOnly =
+            StateDomainDefinition<num?>(
+              stateArea: 'synthetic_area',
+              decode: _decodeTestValue,
               tracker: tracker,
-              isUnavailable: (CharacterHealthState value) =>
-                  value.value == null,
+              isUnavailable: (num? value) => value == null,
             );
 
         expect(

@@ -46,9 +46,11 @@ capabilities (list/revoke/reset), but the authoritative mutation always happens 
 Client-side semantic facts have one SDK owner and are exposed through typed, domain-specific state
 streams. The app may map those values into Redux for presentation but must not infer Known Host,
 connection, trust, pairing lifecycle, or game-state transitions from its own commands or actions.
-The Host remains authoritative for live game values and server-side trust; existing SDK streams for
-health, magicka, stamina, level, and XP are examples of typed live-state views. Keep separate SDK
-streams per domain rather than combining unrelated state into a global stream.
+The Host remains authoritative for live game values and server-side trust. Group fields into one
+typed domain stream when they share a capture source and observation instant, cadence, authority,
+availability, revision lifecycle, delivery mode, and recovery semantics; keep domains such as Vitals,
+XP, and Level separate when those properties differ. Do not create one SDK stream per scalar field
+or combine unrelated state in a global stream.
 
 The current SDK stores multiple Known Hosts and scopes the current bearer credential and pending
 pairing recovery to their owning Host IDs. This does not authenticate a discovered Host-ID claim;
@@ -425,14 +427,19 @@ is ever given either interface.
 
 ## State synchronization composition
 
-`DovahLinkClient` remains the SDK composition root for state synchronization. It creates each
-replayable state stream and its `StateRevisionTracker<T>`, registers the typed decoders and
-availability rules as `StateDomainDefinition<T>` values, and gives those registrations to
-`StateMessageHandler`. The handler selects a definition by the payload's `stateArea`; it does not
-branch on individual area names. It applies state messages only for areas accepted by the current
-session's subscription acknowledgement; removed areas reset to `notSubscribed`, and late messages
-for them are ignored. Each definition applies typed Snapshots and applies Events only when that area
-is registered for Event updates. Unknown areas remain protocol violations.
+`DovahLinkClient` remains the SDK composition root for state synchronization, while domain modules
+own composition of their own typed trackers, decoders, availability rules, and
+`StateDomainDefinition<T>` registrations. The root registers each module's definitions with the
+shared `StateMessageHandler` and exposes consumer views grouped by domain (for example,
+`currentHost.character`). Root facades must not gain one field or constructor dependency for every
+state area indefinitely. Domain modules use the existing generic state machinery; they do not add a
+parallel message handler or transport/session policy.
+
+The handler selects a definition by the payload's `stateArea`; it does not branch on individual area
+names. It applies state messages only for areas accepted by the current session's subscription
+acknowledgement; removed areas reset to `notSubscribed`, and late messages for them are ignored.
+Each definition applies typed Snapshots and applies Events only when that area is registered for
+Event updates. Unknown areas remain protocol violations.
 
 `StateMessageHandler` is composed before `RequestService` because the inbound router depends on the
 unsolicited state handler. `SubscriptionService` is composed after `RequestService`, using the

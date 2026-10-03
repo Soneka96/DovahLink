@@ -1,17 +1,12 @@
+import 'package:dovahlink_client_sdk/src/dovahlink_character.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/state/character_health_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_level_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_magicka_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_stamina_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
-import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
-/// Exposes the admitted session's Host context and typed game-state streams.
+/// Exposes the admitted session's Host context and grouped domain views.
 ///
 /// The Host context describes the SDK session, not Flutter's selected card. Its trust state may be
 /// `unpaired`; the reported Host ID is not cryptographic proof of the peer's identity.
@@ -25,22 +20,8 @@ abstract interface class IDovahLinkCurrentHost {
   /// The admitted session identifier, or `null` before admission.
   String? get sessionId;
 
-  /// Emits the current character experience synchronization view and later changes.
-  Stream<StateSynchronization<CharacterXpState>> get characterXpChanges;
-
-  /// Emits the current character health synchronization view and later changes.
-  Stream<StateSynchronization<CharacterHealthState>> get characterHealthChanges;
-
-  /// Emits the current character magicka synchronization view and later changes.
-  Stream<StateSynchronization<CharacterMagickaState>>
-  get characterMagickaChanges;
-
-  /// Emits the current character stamina synchronization view and later changes.
-  Stream<StateSynchronization<CharacterStaminaState>>
-  get characterStaminaChanges;
-
-  /// Emits the current character level synchronization view and later changes.
-  Stream<StateSynchronization<CharacterLevelState>> get characterLevelChanges;
+  /// The typed game-state views grouped by owning domain.
+  IDovahLinkCharacter get character;
 
   /// Adds [area] to the desired state domains and synchronizes the complete set with the Host.
   /// @param area The state domain to request.
@@ -57,60 +38,28 @@ abstract interface class IDovahLinkCurrentHost {
   Future<Set<DovahLinkStateArea>> unsubscribeStateArea(DovahLinkStateArea area);
 }
 
-/// Implements [IDovahLinkCurrentHost] over the existing session, tracker, and subscription owners.
+/// Implements [IDovahLinkCurrentHost] over the existing session and Character owners.
 class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   /// Owns the admitted Host context, session ID, and trust state.
   final ISessionService _sessionService;
 
+  /// Owns the grouped Character state view.
+  final IDovahLinkCharacter _character;
+
   /// Owns desired state-area subscriptions.
   final ISubscriptionService _subscriptionService;
 
-  /// Emits character experience synchronization changes.
-  final Stream<StateSynchronization<CharacterXpState>> _characterXpChanges;
-
-  /// Emits character health synchronization changes.
-  final Stream<StateSynchronization<CharacterHealthState>>
-  _characterHealthChanges;
-
-  /// Emits character magicka synchronization changes.
-  final Stream<StateSynchronization<CharacterMagickaState>>
-  _characterMagickaChanges;
-
-  /// Emits character stamina synchronization changes.
-  final Stream<StateSynchronization<CharacterStaminaState>>
-  _characterStaminaChanges;
-
-  /// Emits character level synchronization changes.
-  final Stream<StateSynchronization<CharacterLevelState>>
-  _characterLevelChanges;
-
-  /// Creates the current Host view over the client's existing session and state owners.
+  /// Creates the current Host view over the existing session and domain owners.
   /// @param sessionService Owns the admitted session context.
+  /// @param character Exposes the existing Character domain streams.
   /// @param subscriptionService Owns desired state subscription operations.
-  /// @param characterXpChanges The existing experience tracker stream.
-  /// @param characterHealthChanges The existing health tracker stream.
-  /// @param characterMagickaChanges The existing magicka tracker stream.
-  /// @param characterStaminaChanges The existing stamina tracker stream.
-  /// @param characterLevelChanges The existing level tracker stream.
   DovahLinkCurrentHost({
     required ISessionService sessionService,
+    required IDovahLinkCharacter character,
     required ISubscriptionService subscriptionService,
-    required Stream<StateSynchronization<CharacterXpState>> characterXpChanges,
-    required Stream<StateSynchronization<CharacterHealthState>>
-    characterHealthChanges,
-    required Stream<StateSynchronization<CharacterMagickaState>>
-    characterMagickaChanges,
-    required Stream<StateSynchronization<CharacterStaminaState>>
-    characterStaminaChanges,
-    required Stream<StateSynchronization<CharacterLevelState>>
-    characterLevelChanges,
   }) : _sessionService = sessionService,
-       _subscriptionService = subscriptionService,
-       _characterXpChanges = characterXpChanges,
-       _characterHealthChanges = characterHealthChanges,
-       _characterMagickaChanges = characterMagickaChanges,
-       _characterStaminaChanges = characterStaminaChanges,
-       _characterLevelChanges = characterLevelChanges;
+       _character = character,
+       _subscriptionService = subscriptionService;
 
   /// Implements [IDovahLinkCurrentHost.host].
   @override
@@ -124,30 +73,9 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   @override
   String? get sessionId => _sessionService.currentSessionId;
 
-  /// Implements [IDovahLinkCurrentHost.characterXpChanges].
+  /// Implements [IDovahLinkCurrentHost.character].
   @override
-  Stream<StateSynchronization<CharacterXpState>> get characterXpChanges =>
-      _characterXpChanges;
-
-  /// Implements [IDovahLinkCurrentHost.characterHealthChanges].
-  @override
-  Stream<StateSynchronization<CharacterHealthState>>
-  get characterHealthChanges => _characterHealthChanges;
-
-  /// Implements [IDovahLinkCurrentHost.characterMagickaChanges].
-  @override
-  Stream<StateSynchronization<CharacterMagickaState>>
-  get characterMagickaChanges => _characterMagickaChanges;
-
-  /// Implements [IDovahLinkCurrentHost.characterStaminaChanges].
-  @override
-  Stream<StateSynchronization<CharacterStaminaState>>
-  get characterStaminaChanges => _characterStaminaChanges;
-
-  /// Implements [IDovahLinkCurrentHost.characterLevelChanges].
-  @override
-  Stream<StateSynchronization<CharacterLevelState>> get characterLevelChanges =>
-      _characterLevelChanges;
+  IDovahLinkCharacter get character => _character;
 
   /// Implements [IDovahLinkCurrentHost.subscribeStateArea].
   @override

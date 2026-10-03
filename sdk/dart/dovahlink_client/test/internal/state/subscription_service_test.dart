@@ -82,7 +82,7 @@ void main() {
         final Future<Set<DovahLinkStateArea>> first = service
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         expect(requestService.requests.single.payload, <String, dynamic>{
-          'stateAreas': <String>['character_xp'],
+          'stateAreas': <String>[DovahLinkStateArea.characterXp.protocolValue],
         });
         expect(requestService.requests.single.policy.retrySafe, isTrue);
         expect(
@@ -90,21 +90,29 @@ void main() {
           DovahLinkTrustState.trusted,
         );
         requestService.requests.single.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         expect(await first, isEmpty);
         expect(stateMessageHandler.subscribedStateAreas, <String>{
-          'character_xp',
+          DovahLinkStateArea.characterXp.protocolValue,
         });
 
         final Future<Set<DovahLinkStateArea>> second = service
-            .subscribeStateArea(DovahLinkStateArea.characterHealth);
+            .subscribeStateArea(DovahLinkStateArea.characterLevel);
         expect(requestService.requests.last.payload, <String, dynamic>{
-          'stateAreas': <String>['character_xp', 'character_health'],
+          'stateAreas': <String>[
+            DovahLinkStateArea.characterXp.protocolValue,
+            DovahLinkStateArea.characterLevel.protocolValue,
+          ],
         });
         requestService.requests.last.reply.complete(
           _acknowledgement(
-            accepted: <String>['character_xp', 'character_health'],
+            accepted: <String>[
+              DovahLinkStateArea.characterXp.protocolValue,
+              DovahLinkStateArea.characterLevel.protocolValue,
+            ],
           ),
         );
         expect(await second, isEmpty);
@@ -112,15 +120,19 @@ void main() {
         final Future<Set<DovahLinkStateArea>> third = service
             .unsubscribeStateArea(DovahLinkStateArea.characterXp);
         expect(requestService.requests.last.payload, <String, dynamic>{
-          'stateAreas': <String>['character_health'],
+          'stateAreas': <String>[
+            DovahLinkStateArea.characterLevel.protocolValue,
+          ],
         });
         requestService.requests.last.reply.complete(
-          _acknowledgement(accepted: <String>['character_health']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterLevel.protocolValue],
+          ),
         );
         expect(await third, isEmpty);
 
         final Future<Set<DovahLinkStateArea>> fourth = service
-            .unsubscribeStateArea(DovahLinkStateArea.characterHealth);
+            .unsubscribeStateArea(DovahLinkStateArea.characterLevel);
         expect(requestService.requests.last.payload, <String, dynamic>{
           'stateAreas': <String>[],
         });
@@ -141,7 +153,7 @@ void main() {
         requestService.requests.single.reply.complete(
           _acknowledgement(
             accepted: const <String>[],
-            rejected: <String>['character_xp'],
+            rejected: <String>[DovahLinkStateArea.characterXp.protocolValue],
           ),
         );
 
@@ -175,14 +187,16 @@ void main() {
         final Future<Set<DovahLinkStateArea>> retry = service
             .synchronizeDesiredStateAreas();
         expect(requestService.requests.last.payload, <String, dynamic>{
-          'stateAreas': <String>['character_xp'],
+          'stateAreas': <String>[DovahLinkStateArea.characterXp.protocolValue],
         });
         requestService.requests.last.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         expect(await retry, isEmpty);
         expect(stateMessageHandler.subscribedStateAreas, <String>{
-          'character_xp',
+          DovahLinkStateArea.characterXp.protocolValue,
         });
       },
     );
@@ -193,7 +207,9 @@ void main() {
         final Future<Set<DovahLinkStateArea>> first = service
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         requestService.requests.single.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         await first;
 
@@ -217,17 +233,21 @@ void main() {
         final Future<Set<DovahLinkStateArea>> first = service
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         requestService.requests.single.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         await first;
 
         final Future<Set<DovahLinkStateArea>> repeated = service
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         expect(requestService.requests.last.payload, <String, dynamic>{
-          'stateAreas': <String>['character_xp'],
+          'stateAreas': <String>[DovahLinkStateArea.characterXp.protocolValue],
         });
         requestService.requests.last.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         expect(await repeated, isEmpty);
         expect(service.desiredStateAreas, <DovahLinkStateArea>{
@@ -265,7 +285,9 @@ void main() {
         );
         await second;
         requestService.requests[0].reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         await first;
 
@@ -280,7 +302,9 @@ void main() {
         final Future<Set<DovahLinkStateArea>> update = service
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         requestService.requests.single.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         await update;
 
@@ -300,7 +324,9 @@ void main() {
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         service.onSessionEnded();
         requestService.requests.single.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
 
         expect(await update, isEmpty);
@@ -317,7 +343,9 @@ void main() {
         final Future<Set<DovahLinkStateArea>> update = service
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         requestService.requests.single.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         await update;
         service.onSessionEnded();
@@ -326,14 +354,16 @@ void main() {
 
         expect(requestService.requests, hasLength(2));
         expect(requestService.requests.last.payload, <String, dynamic>{
-          'stateAreas': <String>['character_xp'],
+          'stateAreas': <String>[DovahLinkStateArea.characterXp.protocolValue],
         });
         requestService.requests.last.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         await pumpEventQueue();
         expect(stateMessageHandler.subscribedStateAreas, <String>{
-          'character_xp',
+          DovahLinkStateArea.characterXp.protocolValue,
         });
       },
     );
@@ -344,7 +374,9 @@ void main() {
         final Future<Set<DovahLinkStateArea>> update = service
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         requestService.requests.single.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         await update;
         service.onSessionEnded();
@@ -368,7 +400,9 @@ void main() {
         final Future<Set<DovahLinkStateArea>> update = service
             .subscribeStateArea(DovahLinkStateArea.characterXp);
         requestService.requests.single.reply.complete(
-          _acknowledgement(accepted: <String>['character_xp']),
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
         );
         await update;
 
@@ -393,23 +427,29 @@ void main() {
     test(
       'Method synchronizeDesiredStateAreas fails closed on malformed acknowledgements',
       () async {
-        final List<({List<String> accepted, List<String> rejected})> malformed =
-            <({List<String> accepted, List<String> rejected})>[
-              (accepted: <String>['unknown_area'], rejected: <String>[]),
-              (
-                accepted: <String>['character_xp', 'character_xp'],
-                rejected: <String>[],
-              ),
-              (
-                accepted: <String>['character_xp'],
-                rejected: <String>['character_xp'],
-              ),
-              (accepted: <String>[], rejected: <String>[]),
-              (
-                accepted: <String>['character_xp', 'character_health'],
-                rejected: <String>[],
-              ),
-            ];
+        final List<({List<String> accepted, List<String> rejected})>
+        malformed = <({List<String> accepted, List<String> rejected})>[
+          (accepted: <String>['unknown_area'], rejected: <String>[]),
+          (
+            accepted: <String>[
+              DovahLinkStateArea.characterXp.protocolValue,
+              DovahLinkStateArea.characterXp.protocolValue,
+            ],
+            rejected: <String>[],
+          ),
+          (
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+            rejected: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+          (accepted: <String>[], rejected: <String>[]),
+          (
+            accepted: <String>[
+              DovahLinkStateArea.characterXp.protocolValue,
+              DovahLinkStateArea.characterLevel.protocolValue,
+            ],
+            rejected: <String>[],
+          ),
+        ];
 
         for (final ({List<String> accepted, List<String> rejected}) payload
             in malformed) {
@@ -443,8 +483,9 @@ void main() {
         requestService.requests.last.reply.complete(
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.subscriptionAck,
-            payload: const <String, dynamic>{
-              'acceptedStateAreas': 'character_xp',
+            payload: <String, dynamic>{
+              'acceptedStateAreas':
+                  DovahLinkStateArea.characterXp.protocolValue,
               'rejectedStateAreas': <String>[],
             },
           ),
@@ -459,7 +500,7 @@ void main() {
         requestService.requests.last.reply.complete(
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.subscriptionAck,
-            payload: const <String, dynamic>{
+            payload: <String, dynamic>{
               'acceptedStateAreas': <String>[],
               'rejectedStateAreas': null,
             },

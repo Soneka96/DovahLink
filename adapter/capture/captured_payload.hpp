@@ -10,10 +10,10 @@
 
 namespace dovahlink::adapter::capture {
 
-///  An owned captured value in a fixed, preallocated buffer sized for the
-///  largest capture any current capture unit produces
-///  (`kMaxCapturedPayloadBytes`), so building one -- on the Skyrim game
-///  thread, at the capture boundary -- never allocates. Unused trailing
+///  An owned captured value in a fixed, preallocated buffer bounded by
+///  `kMaxCapturedPayloadBytes`, so building one -- on the Skyrim game thread,
+///  at the capture boundary -- never allocates. The capacity is an
+///  infrastructure limit, not a feature-specific codec size. Unused trailing
 ///  bytes beyond `size` are always zero, so structural equality over the
 ///  whole fixed buffer is well-defined regardless of a shorter payload's
 ///  actual length.

@@ -31,23 +31,16 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_admission_serv
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/character_state_module.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/state_revision_tracker.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
-import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/state/character_health_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_level_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_magicka_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_stamina_state.dart';
-import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
-import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A single Flutter/Redux-independent DovahLink client engine, exposed through grouped Host,
@@ -158,84 +151,10 @@ class DovahLinkClient {
           );
         });
 
-    final CurrentValueStream<StateSynchronization<CharacterXpState>>
-    characterXpStream =
-        CurrentValueStream<StateSynchronization<CharacterXpState>>(
-          const StateSynchronization<CharacterXpState>.notSubscribed(),
-        );
-    _characterXpTracker = StateRevisionTracker<CharacterXpState>(
-      state: characterXpStream,
-    );
-    final CurrentValueStream<StateSynchronization<CharacterHealthState>>
-    characterHealthStream =
-        CurrentValueStream<StateSynchronization<CharacterHealthState>>(
-          const StateSynchronization<CharacterHealthState>.notSubscribed(),
-        );
-    _characterHealthTracker = StateRevisionTracker<CharacterHealthState>(
-      state: characterHealthStream,
-    );
-    final CurrentValueStream<StateSynchronization<CharacterMagickaState>>
-    characterMagickaStream =
-        CurrentValueStream<StateSynchronization<CharacterMagickaState>>(
-          const StateSynchronization<CharacterMagickaState>.notSubscribed(),
-        );
-    _characterMagickaTracker = StateRevisionTracker<CharacterMagickaState>(
-      state: characterMagickaStream,
-    );
-    final CurrentValueStream<StateSynchronization<CharacterStaminaState>>
-    characterStaminaStream =
-        CurrentValueStream<StateSynchronization<CharacterStaminaState>>(
-          const StateSynchronization<CharacterStaminaState>.notSubscribed(),
-        );
-    _characterStaminaTracker = StateRevisionTracker<CharacterStaminaState>(
-      state: characterStaminaStream,
-    );
-    final CurrentValueStream<StateSynchronization<CharacterLevelState>>
-    characterLevelStream =
-        CurrentValueStream<StateSynchronization<CharacterLevelState>>(
-          const StateSynchronization<CharacterLevelState>.notSubscribed(),
-        );
-    _characterLevelTracker = StateRevisionTracker<CharacterLevelState>(
-      state: characterLevelStream,
-    );
-
-    final StateDomainDefinition<CharacterLevelState> characterLevelDomain =
-        StateDomainDefinition<CharacterLevelState>(
-          stateArea: DovahLinkStateArea.characterLevel.protocolValue,
-          decode: CharacterLevelState.fromJson,
-          tracker: _characterLevelTracker,
-          isUnavailable: (CharacterLevelState state) => state.value == null,
-          supportsEvents: true,
-        );
+    final ICharacterStateModule characterState = CharacterStateModule();
     final IStateMessageHandler stateMessageHandler = StateMessageHandler(
       sessionService: _sessionService,
-      domains: <IStateDomainDefinition<Object?>>[
-        StateDomainDefinition<CharacterXpState>(
-          stateArea: DovahLinkStateArea.characterXp.protocolValue,
-          decode: CharacterXpState.fromJson,
-          tracker: _characterXpTracker,
-          isUnavailable: (CharacterXpState state) => state.value == null,
-        ),
-        StateDomainDefinition<CharacterHealthState>(
-          stateArea: DovahLinkStateArea.characterHealth.protocolValue,
-          decode: CharacterHealthState.fromJson,
-          tracker: _characterHealthTracker,
-          isUnavailable: (CharacterHealthState state) => state.value == null,
-        ),
-        StateDomainDefinition<CharacterMagickaState>(
-          stateArea: DovahLinkStateArea.characterMagicka.protocolValue,
-          decode: CharacterMagickaState.fromJson,
-          tracker: _characterMagickaTracker,
-          isUnavailable: (CharacterMagickaState state) => state.value == null,
-        ),
-        StateDomainDefinition<CharacterStaminaState>(
-          stateArea: DovahLinkStateArea.characterStamina.protocolValue,
-          decode: CharacterStaminaState.fromJson,
-          tracker: _characterStaminaTracker,
-          isUnavailable: (CharacterStaminaState state) => state.value == null,
-        ),
-        characterLevelDomain,
-      ],
+      domains: characterState.domains,
     );
     final IUnsolicitedMessageHandler unsolicitedMessageHandler =
         UnsolicitedMessageHandler(
@@ -276,7 +195,7 @@ class DovahLinkClient {
 
     final StateRecoveryService<CharacterLevelState> levelRecoveryService =
         StateRecoveryService<CharacterLevelState>(
-          domain: characterLevelDomain,
+          domain: characterState.levelDomain,
           requestService: _requestService,
           sessionService: _sessionService,
         );
@@ -358,12 +277,8 @@ class DovahLinkClient {
     );
     currentHost = DovahLinkCurrentHost(
       sessionService: _sessionService,
+      character: characterState.character,
       subscriptionService: _subscriptionService,
-      characterXpChanges: _characterXpTracker.changes,
-      characterHealthChanges: _characterHealthTracker.changes,
-      characterMagickaChanges: _characterMagickaTracker.changes,
-      characterStaminaChanges: _characterStaminaTracker.changes,
-      characterLevelChanges: _characterLevelTracker.changes,
     );
     pairing = DovahLinkPairing(
       discoverHosts: _discoverHosts,
@@ -424,24 +339,6 @@ class DovahLinkClient {
 
   /// Owns bounded automatic recovery from ordinary transport loss.
   late final IReconnectService _reconnectService;
-
-  /// Owns the current character experience value and revisions.
-  late final IStateRevisionTracker<CharacterXpState> _characterXpTracker;
-
-  /// Owns the current character health value and revisions.
-  late final IStateRevisionTracker<CharacterHealthState>
-  _characterHealthTracker;
-
-  /// Owns the current character magicka value and revisions.
-  late final IStateRevisionTracker<CharacterMagickaState>
-  _characterMagickaTracker;
-
-  /// Owns the current character stamina value and revisions.
-  late final IStateRevisionTracker<CharacterStaminaState>
-  _characterStaminaTracker;
-
-  /// Owns the current character level value and revisions.
-  late final IStateRevisionTracker<CharacterLevelState> _characterLevelTracker;
 
   /// This installation's stable client ID, or `null` before authentication resolves it.
   String? get clientId => _authenticationService.clientId;

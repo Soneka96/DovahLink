@@ -66,6 +66,12 @@ targets under `ai/context/common.md`'s pre-release policy; do not add nullable l
 compatibility fallback for them. The repository version remains release-managed and is not bumped
 in this feature change.
 
+The Character Vitals contract replaces the `character_health`, `character_magicka`, and
+`character_stamina` state areas with one coherent `character_vitals` area. The Host, protocol
+fixtures, and Dart SDK are updated together; earlier unreleased `0.5.x` builds using the scalar
+areas are not compatibility targets under the same pre-release policy. The declared `0.5.x` Host
+range remains valid for the updated SDK, and no legacy area aliases or fallback are added.
+
 The Phase 5.3 meaning of `subscribe.stateAreas` is complete-set replacement. Released Host `0.4.0`
 treated successive requests additively, so it cannot satisfy the Phase 5.3 public SDK subscription
 API. The next compatible Host line is `0.5.x`; do not use capability negotiation or a second wire

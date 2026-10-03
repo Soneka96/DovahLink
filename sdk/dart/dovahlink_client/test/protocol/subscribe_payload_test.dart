@@ -29,7 +29,7 @@ void main() {
 
     test('Method toJson matches the canonical complete multi-area set', () {
       const SubscribePayload payload = SubscribePayload(
-        stateAreas: <String>['character_xp', 'character_health'],
+        stateAreas: <String>['character_xp', 'character_vitals'],
       );
 
       expect(
@@ -40,7 +40,7 @@ void main() {
 
     test('Method toJson matches the canonical replacement set', () {
       const SubscribePayload payload = SubscribePayload(
-        stateAreas: <String>['character_health'],
+        stateAreas: <String>['character_vitals'],
       );
 
       expect(

@@ -16,7 +16,7 @@ namespace dovahlink::adapter::runtime {
 ///  and host integration". Maps each host-owned `CharacterSampleToken` to its
 ///  one approved `CommonLibCharacterCapture` read and encodes the result
 ///  into the little-endian wire payload the host's own `LiveCaptureSink`
-///  decodes: 12 bytes (three float32: health, magicka, stamina) for vitals,
+///  decodes: 24 bytes (six float32 current/maximum vitals values),
 ///  4 bytes (one float32) for XP, 2 bytes (one uint16) for the level
 ///  baseline. An unknown token reports `SampleCaptureStatus::kUnsupported`; a
 ///  known token whose underlying read is currently unavailable reports

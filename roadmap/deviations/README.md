@@ -35,4 +35,7 @@ The main roadmap answers **“What is the normal product delivery order?”** De
 - [Prototype → Flutter Convergence](prototype-flutter-convergence/README.md) — staged work to align
   the production Flutter client with the approved prototype while preserving SDK/domain authority
   over real connection and pairing semantics.
+- [Character Core Data Foundation](character-core-data-foundation/README.md) — backend and
+  typed-contract work establishing coherent Character state domains before deferred identity,
+  world-context, and Overview convergence.
 - [Initial Pairing Security Investigation and Extraction](initial-pairing-security/README.md)

@@ -4,7 +4,7 @@
   "sessionId": "session-1",
   "correlationId": null,
   "payload": {
-    "stateAreas": ["character_health"]
+    "stateAreas": ["character_vitals"]
   },
   "playContextId": null,
   "clientId": "client-1"

@@ -39,7 +39,13 @@ active deviations.
 
    Tapping an Offline Known Host opens an informational “Skyrim isn’t running” dialog from the real
    offline projection; it does not select the Host or start authentication.
-4. **Later — production LAN discovery and secure initial pairing.** Production LAN exposure and
+4. **Character Core Data Foundation — active.** The current and effective maximum Health, Magicka,
+   and Stamina values now form one coherent `character_vitals` domain; XP and Level remain separate.
+   Character name, identity race, and supernatural traits are deferred until this architecture
+   correction is reviewed and their source semantics are verified. This remains backend/data-contract
+   work, with no Flutter UI or playable-context lifecycle. See the
+   [Character Core Data Foundation deviation](character-core-data-foundation/README.md).
+5. **Later — production LAN discovery and secure initial pairing.** Production LAN exposure and
    secure first contact remain gated by the security requirements and integration evidence. If an
    approved SAS profile preserves the current human interaction, pairing implementation changes
    may stay behind the SDK boundary and use the same Flutter presentation. If SAS requires materially
@@ -70,11 +76,14 @@ active deviations.
 - **Close or explicitly defer remaining connection/pairing convergence work.** Keep its disposition
   in the [prototype convergence deviation](prototype-flutter-convergence/README.md) and its
   [connection/pairing index](prototype-flutter-convergence/03-connection-pairing-convergence/README.md).
-- **Return to the normal roadmap:** [Phase 5.4 — Flutter Middleware and Minimal Live-State
-  Proof](../05-dart-client-sdk-foundation.md); [Phase 5.5 — Version-Impact Audit and Stage 5
-  Closure](../05-dart-client-sdk-foundation.md#55-version-impact-audit-and-stage-5-closure);
-  [Stage 6 — PC / Second-Screen Baseline](../06-pc-second-screen-baseline.md); [Stage 7 — Core UI
-  Theme System](../07-core-ui-theme-system.md); then [Stage 8 — Live Player State](../08-live-player-state.md).
+- **After the character data sequence, return to the normal roadmap:** complete the active
+  [Character Core Data Foundation](character-core-data-foundation/README.md), then its follow-on
+  World Context Data Foundation, Active Play Context Lifecycle, and Session Overview convergence
+  phases in that order. Reconcile the resulting product work with [Phase 5.4 — Flutter Middleware
+  and Minimal Live-State Proof](../05-dart-client-sdk-foundation.md), [Phase 5.5 — Version-Impact
+  Audit and Stage 5 Closure](../05-dart-client-sdk-foundation.md#55-version-impact-audit-and-stage-5-closure),
+  [Stage 6 — PC / Second-Screen Baseline](../06-pc-second-screen-baseline.md), [Stage 7 — Core UI
+  Theme System](../07-core-ui-theme-system.md), and [Stage 8 — Live Player State](../08-live-player-state.md).
 
 ## Return condition
 
@@ -85,8 +94,8 @@ scheduled ahead of this deviation unless the maintainer explicitly reprioritizes
 
 Resume normal roadmap progression once the discovery foundation, Known Host lifecycle integration,
 and separate canonical UI convergence are complete, remaining connection/pairing slices have been
-re-planned, necessary work has been completed or explicitly deferred, and no active deviation still
-has a justified reason to precede Phase 5.4.
+re-planned, the character data sequence above is complete or explicitly re-planned, and no active
+deviation still has a justified reason to precede Phase 5.4.
 
 ## Stage 7 remains planned
 

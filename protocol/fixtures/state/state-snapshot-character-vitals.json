@@ -1,0 +1,21 @@
+{
+  "messageType": "state_snapshot",
+  "messageId": "message-character-vitals-1",
+  "sessionId": "session-1",
+  "correlationId": "message-subscribe-1",
+  "payload": {
+    "stateArea": "character_vitals",
+    "revision": 1,
+    "occurredAt": "2026-08-11T12:00:00Z",
+    "data": {
+      "value": {
+        "health": { "current": 327.0, "max": 410.0 },
+        "magicka": { "current": 180.0, "max": 250.0 },
+        "stamina": { "current": 120.0, "max": 190.0 }
+      }
+    }
+  },
+  "stateAuthorityId": "state-authority-1",
+  "playContextId": null,
+  "clientId": null
+}

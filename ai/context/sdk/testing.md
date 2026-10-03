@@ -36,6 +36,13 @@ Apply `ai/context/dart/dart-style.md`'s shared test-organization rules to SDK te
 
 ## Test ownership boundaries
 
+Generic state-infrastructure tests use synthetic state-area identifiers and arbitrary typed values
+unless production catalog composition is the behavior under test. Adding a production area should
+not require editing generic revision, publisher, message-handler, subscription, recovery, or
+transport tests. Assert the exact production state-area set and its delivery modes in a focused
+catalog test. Keep only a small number of real composition tests to prove that a wire message reaches
+the intended public domain stream; domain consumers can mock the corresponding domain facade.
+
 SDK tests own: canonical contract encoding/decoding, semantic validation, session identity,
 state-authority identity, play-context identity, revision handling, stale suppression, subscription
 state, snapshot recovery, reconnect, late-message handling, pairing client recovery, SDK

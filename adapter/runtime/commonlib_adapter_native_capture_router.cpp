@@ -76,11 +76,17 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
         std::array<std::byte, 4> health = capture::EncodeFloatLittleEndian(vitals->health);
         std::array<std::byte, 4> magicka = capture::EncodeFloatLittleEndian(vitals->magicka);
         std::array<std::byte, 4> stamina = capture::EncodeFloatLittleEndian(vitals->stamina);
+        std::array<std::byte, 4> healthMax = capture::EncodeFloatLittleEndian(vitals->healthMax);
+        std::array<std::byte, 4> magickaMax = capture::EncodeFloatLittleEndian(vitals->magickaMax);
+        std::array<std::byte, 4> staminaMax = capture::EncodeFloatLittleEndian(vitals->staminaMax);
         capture::CapturedPayload payload;
         std::ranges::copy(health, payload.bytes.begin());
         std::ranges::copy(magicka, payload.bytes.begin() + 4);
         std::ranges::copy(stamina, payload.bytes.begin() + 8);
-        payload.size = 12;
+        std::ranges::copy(healthMax, payload.bytes.begin() + 12);
+        std::ranges::copy(magickaMax, payload.bytes.begin() + 16);
+        std::ranges::copy(staminaMax, payload.bytes.begin() + 20);
+        payload.size = 24;
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kAvailable,
             .payload = payload};

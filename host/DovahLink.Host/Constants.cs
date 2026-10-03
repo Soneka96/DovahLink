@@ -568,14 +568,8 @@ public static class Constants
 
     // ---- Live state ----
 
-    /// <summary>The <c>stateArea</c> id for the current health value.</summary>
-    public const string CharacterHealthStateArea = "character_health";
-
-    /// <summary>The <c>stateArea</c> id for the current magicka value.</summary>
-    public const string CharacterMagickaStateArea = "character_magicka";
-
-    /// <summary>The <c>stateArea</c> id for the current stamina value.</summary>
-    public const string CharacterStaminaStateArea = "character_stamina";
+    /// <summary>The <c>stateArea</c> id for the coherent Health, Magicka, and Stamina value.</summary>
+    public const string CharacterVitalsStateArea = "character_vitals";
 
     /// <summary>The <c>stateArea</c> id for the current experience value.</summary>
     public const string CharacterXpStateArea = "character_xp";
