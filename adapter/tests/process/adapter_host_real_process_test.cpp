@@ -966,6 +966,26 @@ std::optional<double> ExtractJsonNumberField(const std::string& json,
     }
 }
 
+///  Extracts one numeric field from a named one-level object in a server
+///  response, using bounded substring parsing for these test-owned messages.
+std::optional<double> ExtractNestedJsonNumberField(const std::string& json,
+                                                   const std::string& objectKey,
+                                                   const std::string& valueKey) {
+    const std::string marker = "\"" + objectKey + "\":{";
+    const std::size_t objectStart = json.find(marker);
+    if (objectStart == std::string::npos) {
+        return std::nullopt;
+    }
+
+    const std::size_t objectEnd = json.find('}', objectStart + marker.size());
+    if (objectEnd == std::string::npos) {
+        return std::nullopt;
+    }
+
+    return ExtractJsonNumberField(
+        json.substr(objectStart + marker.size(), objectEnd - objectStart - marker.size()), valueKey);
+}
+
 ///  Waits for a bounded asynchronous process condition without busy spinning.
 template <typename Predicate>
 bool WaitUntil(Predicate predicate, std::chrono::milliseconds timeout) {
@@ -2381,7 +2401,7 @@ TEST_CASE("a real native adapter's play-context-changed notification is "
 }
 
 TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
-          "reaches a real public WebSocket client as max-vitals and XP "
+          "reaches a real public WebSocket client as coherent Vitals and XP "
           "Snapshot",
           "[process][integration]") {
     //  The end-to-end live-state proof: a synthetic native capture in this
@@ -2469,7 +2489,7 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     std::string ackOutcome = client.ReceiveText();
     REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
 
-    //  Full trust now: subscribe to max Health and XP
+    //  Full trust now: subscribe to coherent Vitals and XP
     //  cares about. subscription_ack accepts it immediately -- registration
     //  (RegisteredStateAreaPolicy) is independent of whether a baseline
     //  value is available yet -- so acceptance alone does not prove the
@@ -2477,13 +2497,13 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     client.SendText(
         R"({"messageType":"subscribe","messageId":"m5","sessionId":")" +
         sessionId +
-        R"(","correlationId":null,"payload":{"stateAreas":["character_health_max","character_xp"]},)"
+        R"(","correlationId":null,"payload":{"stateAreas":["character_vitals","character_xp"]},)"
         R"("playContextId":null,"clientId":")" +
         clientId + R"("})");
     std::string subscriptionAck = client.ReceiveText();
     REQUIRE(subscriptionAck.find(R"("messageType":"subscription_ack")") !=
             std::string::npos);
-    REQUIRE(subscriptionAck.find(R"("character_health_max")") !=
+    REQUIRE(subscriptionAck.find(R"("character_vitals")") !=
             std::string::npos);
     REQUIRE(subscriptionAck.find(R"("character_xp")") !=
             std::string::npos);
@@ -2500,7 +2520,7 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
         ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15)),
     };
     std::string xpSnapshot;
-    std::string healthMaxSnapshot;
+    std::string vitalsSnapshot;
     for (const std::string& snapshot : snapshots) {
         std::string area = ExtractJsonStringField(snapshot, "stateArea");
         CHECK(ExtractJsonStringField(snapshot, "correlationId") == "m5");
@@ -2509,21 +2529,26 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
         CHECK(*revision >= 1.0);
         if (area == "character_xp") {
             xpSnapshot = snapshot;
-        } else if (area == "character_health_max") {
-            healthMaxSnapshot = snapshot;
+        } else if (area == "character_vitals") {
+            vitalsSnapshot = snapshot;
         }
     }
     REQUIRE_FALSE(xpSnapshot.empty());
-    REQUIRE_FALSE(healthMaxSnapshot.empty());
+    REQUIRE_FALSE(vitalsSnapshot.empty());
     CHECK(ExtractJsonNumberField(xpSnapshot, "value") == 42.5);
-    CHECK(ExtractJsonNumberField(healthMaxSnapshot, "value") == 410.0);
+    CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "health", "current") == 100.0);
+    CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "health", "max") == 410.0);
+    CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "magicka", "current") == 80.0);
+    CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "magicka", "max") == 220.0);
+    CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "stamina", "current") == 90.0);
+    CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "stamina", "max") == 300.0);
 
     //  Both baselines belong to the active play context this adapter replayed.
     std::string expectedPlayContextId =
         "f9e8d7c6-b5a4-9382-7160-5f4e3d2c1b0a";
     CHECK(ExtractJsonStringField(xpSnapshot, "playContextId") ==
           expectedPlayContextId);
-    CHECK(ExtractJsonStringField(healthMaxSnapshot, "playContextId") ==
+    CHECK(ExtractJsonStringField(vitalsSnapshot, "playContextId") ==
           expectedPlayContextId);
 }
 

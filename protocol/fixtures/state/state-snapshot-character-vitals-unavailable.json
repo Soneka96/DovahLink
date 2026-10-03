@@ -1,13 +1,13 @@
 {
   "messageType": "state_snapshot",
-  "messageId": "message-character-health-max-1",
+  "messageId": "message-character-vitals-unavailable-1",
   "sessionId": "session-1",
   "correlationId": "message-subscribe-1",
   "payload": {
-    "stateArea": "character_health_max",
+    "stateArea": "character_vitals",
     "revision": 1,
     "occurredAt": "2026-08-11T12:00:00Z",
-    "data": { "value": 410.0 }
+    "data": { "value": null }
   },
   "stateAuthorityId": "state-authority-1",
   "playContextId": null,

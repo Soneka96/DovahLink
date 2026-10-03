@@ -17,15 +17,7 @@ namespace DovahLink.Host.Tests.Adapter.Ipc;
 /// <summary>Tests Character payload decoding, area mapping, and forwarding to shared application authority.</summary>
 public class CharacterCaptureHandlerTests
 {
-    private static readonly StateAreaId HealthArea = new(Constants.CharacterHealthStateArea);
-    private static readonly StateAreaId MagickaArea = new(Constants.CharacterMagickaStateArea);
-    private static readonly StateAreaId StaminaArea = new(Constants.CharacterStaminaStateArea);
-    /// <summary>The maximum Health state area.</summary>
-    private static readonly StateAreaId HealthMaxArea = new(Constants.CharacterHealthMaxStateArea);
-    /// <summary>The maximum Magicka state area.</summary>
-    private static readonly StateAreaId MagickaMaxArea = new(Constants.CharacterMagickaMaxStateArea);
-    /// <summary>The maximum Stamina state area.</summary>
-    private static readonly StateAreaId StaminaMaxArea = new(Constants.CharacterStaminaMaxStateArea);
+    private static readonly StateAreaId VitalsArea = new(Constants.CharacterVitalsStateArea);
     private static readonly StateAreaId XpArea = new(Constants.CharacterXpStateArea);
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
 
@@ -132,22 +124,25 @@ public class CharacterCaptureHandlerTests
     /// <summary>The handler and test doubles used to observe its application calls.</summary>
     /// <param name="Handler">The Character handler under test.</param>
     /// <param name="Application">The recorder for decoded values.</param>
-    /// <param name="FloatPublisher">The strict publisher for float-valued areas.</param>
+    /// <param name="VitalsPublisher">The strict publisher for coherent Vitals.</param>
+    /// <param name="XpPublisher">The strict publisher for XP.</param>
     /// <param name="LevelPublisher">The strict publisher for level.</param>
     private sealed record Fixture(
         CharacterCaptureHandler Handler,
         RecordingLiveStateApplication Application,
-        IStatePublisher<float?> FloatPublisher,
+        IStatePublisher<CharacterVitals?> VitalsPublisher,
+        IStatePublisher<float?> XpPublisher,
         IStatePublisher<ushort?> LevelPublisher);
 
     /// <summary>Builds a handler with strict publishers and an application-call recorder.</summary>
     private static Fixture CreateReady()
     {
         var application = new RecordingLiveStateApplication();
-        IStatePublisher<float?> floatPublisher = new UnusedStatePublisher<float?>();
+        IStatePublisher<CharacterVitals?> vitalsPublisher = new UnusedStatePublisher<CharacterVitals?>();
+        IStatePublisher<float?> xpPublisher = new UnusedStatePublisher<float?>();
         IStatePublisher<ushort?> levelPublisher = new UnusedStatePublisher<ushort?>();
-        var handler = new CharacterCaptureHandler(floatPublisher, levelPublisher, application);
-        return new Fixture(handler, application, floatPublisher, levelPublisher);
+        var handler = new CharacterCaptureHandler(vitalsPublisher, xpPublisher, levelPublisher, application);
+        return new Fixture(handler, application, vitalsPublisher, xpPublisher, levelPublisher);
     }
 
     /// <summary>Builds validated dispatch metadata for a capture in the production catalog.</summary>
@@ -274,14 +269,13 @@ public class CharacterCaptureHandlerTests
             fixture.Handler.SupportedCaptures);
     }
 
-    /// <summary>Verifies that one Vitals sample maps all six finite values atomically.</summary>
+    /// <summary>Verifies that one Vitals sample maps all six finite values into one typed area application.</summary>
     [Fact]
-    public void Handle_VitalsAvailable_AppliesEveryAreaInCatalogOrder()
+    public void Handle_VitalsAvailable_AppliesOneCoherentArea()
     {
-        using JsonDocument protocolFixture = ReadStateFixture("state-snapshot-character-health-max.json");
+        using JsonDocument protocolFixture = ReadStateFixture("state-snapshot-character-vitals.json");
         JsonElement fixturePayload = protocolFixture.RootElement.GetProperty("payload");
-        Assert.Equal(Constants.CharacterHealthMaxStateArea, fixturePayload.GetProperty("stateArea").GetString());
-        float expectedHealthMax = fixturePayload.GetProperty("data").GetProperty("value").GetSingle();
+        Assert.Equal(Constants.CharacterVitalsStateArea, fixturePayload.GetProperty("stateArea").GetString());
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(
             1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
@@ -290,23 +284,22 @@ public class CharacterCaptureHandlerTests
 
         fixture.Handler.Handle(context);
 
+        var expected = new CharacterVitals(
+            new CharacterVital(327.0f, 410.0f),
+            new CharacterVital(71.0f, 220.0f),
+            new CharacterVital(100.0f, 300.0f));
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthArea, 327.0f, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, MagickaArea, 71.0f, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaArea, 100.0f, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthMaxArea, expectedHealthMax, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, MagickaMaxArea, 220.0f, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaMaxArea, 300.0f, false, context));
+            call => AssertApplyCall(call, fixture.VitalsPublisher, typeof(CharacterVitals), UpdateMode.Snapshot, VitalsArea, expected, false, context));
     }
 
-    /// <summary>Verifies that an unavailable Vitals sample sets all six areas unavailable.</summary>
+    /// <summary>Verifies that an unavailable Vitals sample marks the whole domain unavailable.</summary>
     [Fact]
     public void Handle_VitalsUnavailable_AppliesNullToEveryArea()
     {
-        using JsonDocument protocolFixture = ReadStateFixture("state-snapshot-character-health-max-unavailable.json");
+        using JsonDocument protocolFixture = ReadStateFixture("state-snapshot-character-vitals-unavailable.json");
         JsonElement fixturePayload = protocolFixture.RootElement.GetProperty("payload");
-        Assert.Equal(Constants.CharacterHealthMaxStateArea, fixturePayload.GetProperty("stateArea").GetString());
+        Assert.Equal(Constants.CharacterVitalsStateArea, fixturePayload.GetProperty("stateArea").GetString());
         Assert.Equal(JsonValueKind.Null, fixturePayload.GetProperty("data").GetProperty("value").ValueKind);
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(
@@ -318,15 +311,10 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthArea, null, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, MagickaArea, null, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaArea, null, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, HealthMaxArea, null, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, MagickaMaxArea, null, false, context),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, StaminaMaxArea, null, false, context));
+            call => AssertApplyCall(call, fixture.VitalsPublisher, typeof(CharacterVitals), UpdateMode.Snapshot, VitalsArea, null, false, context));
     }
 
-    /// <summary>Verifies that finite maximum values are forwarded raw even when they are negative.</summary>
+    /// <summary>Verifies that finite maxima are preserved raw inside the coherent value.</summary>
     [Fact]
     public void Handle_VitalsNegativeMaximum_PreservesRawValue()
     {
@@ -338,8 +326,9 @@ public class CharacterCaptureHandlerTests
 
         fixture.Handler.Handle(context);
 
-        Assert.Equal(-12.0f, (float)fixture.Application.ApplyCalls[3].Value!);
-        Assert.Equal(0.0f, (float)fixture.Application.ApplyCalls[4].Value!);
+        CharacterVitals vitals = Assert.IsType<CharacterVitals>(fixture.Application.ApplyCalls[0].Value);
+        Assert.Equal(-12.0f, vitals.Health.Max);
+        Assert.Equal(0.0f, vitals.Magicka.Max);
     }
 
     /// <summary>Verifies that malformed, non-finite, or unavailable-with-payload Vitals captures apply no area.</summary>
@@ -386,8 +375,8 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, XpArea, 50.5f, false, availableContext),
-            call => AssertApplyCall(call, fixture.FloatPublisher, typeof(float?), UpdateMode.Snapshot, XpArea, null, false, unavailableContext));
+            call => AssertApplyCall(call, fixture.XpPublisher, typeof(float?), UpdateMode.Snapshot, XpArea, 50.5f, false, availableContext),
+            call => AssertApplyCall(call, fixture.XpPublisher, typeof(float?), UpdateMode.Snapshot, XpArea, null, false, unavailableContext));
     }
 
     /// <summary>Verifies that malformed or non-finite XP samples are dropped.</summary>
@@ -488,7 +477,7 @@ public class CharacterCaptureHandlerTests
                 new IpcCaptureResultMessage(
                     1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals,
                     CaptureAvailability.Available, PlayContextId.NewId(), EncodeVitals(90.0f, 80.0f, 70.0f, 400.0f, 200.0f, 300.0f)),
-                defaultVitals with { StateAreas = [HealthArea] }),
+                defaultVitals with { StateAreas = [] }),
             (
                 new IpcCaptureResultMessage(
                     1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp,

@@ -42,11 +42,9 @@ public sealed class LiveStateCatalog
     public IReadOnlyList<StateAreaDefinition> StateAreas { get; }
 
     /// <summary>
-    /// The production catalog: one fast coherent vitals sample (current and maximum health,
-    /// magicka, and stamina), one
-    /// medium experience sample, and one level-up event with its own baseline sample -- the narrow
-    /// first state slice named in <c>roadmap/04-live-state-synchronization-foundation.md</c>'s "Real
-    /// capture and host integration". None of these eight state areas is Slow-rate.
+    /// The production catalog: one fast coherent Vitals sample, one medium XP sample, and one
+    /// Level event with its own baseline sample. The public Vitals state area has one revision for
+    /// all six captured resource values.
     /// </summary>
     public static LiveStateCatalog Default { get; } = new(
         captureUnits:
@@ -56,14 +54,7 @@ public sealed class LiveStateCatalog
                 (uint)CharacterSampleToken.CharacterVitals,
                 RateClass.Fast,
                 SynchronizationRole.BaselineSample,
-                [
-                    new StateAreaId(Constants.CharacterHealthStateArea),
-                    new StateAreaId(Constants.CharacterMagickaStateArea),
-                    new StateAreaId(Constants.CharacterStaminaStateArea),
-                    new StateAreaId(Constants.CharacterHealthMaxStateArea),
-                    new StateAreaId(Constants.CharacterMagickaMaxStateArea),
-                    new StateAreaId(Constants.CharacterStaminaMaxStateArea),
-                ]),
+                [new StateAreaId(Constants.CharacterVitalsStateArea)]),
             new CaptureUnitDefinition(
                 CaptureSourceKind.Sample,
                 (uint)CharacterSampleToken.CharacterXp,
@@ -85,12 +76,7 @@ public sealed class LiveStateCatalog
         ],
         stateAreas:
         [
-            new StateAreaDefinition(new StateAreaId(Constants.CharacterHealthStateArea), UpdateMode.Snapshot),
-            new StateAreaDefinition(new StateAreaId(Constants.CharacterMagickaStateArea), UpdateMode.Snapshot),
-            new StateAreaDefinition(new StateAreaId(Constants.CharacterStaminaStateArea), UpdateMode.Snapshot),
-            new StateAreaDefinition(new StateAreaId(Constants.CharacterHealthMaxStateArea), UpdateMode.Snapshot),
-            new StateAreaDefinition(new StateAreaId(Constants.CharacterMagickaMaxStateArea), UpdateMode.Snapshot),
-            new StateAreaDefinition(new StateAreaId(Constants.CharacterStaminaMaxStateArea), UpdateMode.Snapshot),
+            new StateAreaDefinition(new StateAreaId(Constants.CharacterVitalsStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterXpStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterLevelStateArea), UpdateMode.Event),
         ]);

@@ -28,9 +28,8 @@ struct CharacterVitalsCapture {
 ///  Reads current and effective maximum health, magicka, and stamina from one
 ///  player lookup. Current values use
 ///  `RE::ActorValueOwner::GetActorValue` -- the current-value accessor, not
-///  the permanent/base variants, matching `character_health`/
-///  `character_magicka`/`character_stamina`'s documented "current value"
-///  meaning. See `ai/context/adapter/architecture.md` for the
+///  the permanent/base variants, matching the current-value semantics of the
+///  `character_vitals` domain. See `ai/context/adapter/architecture.md` for the
 ///  maintainer-reviewable record of this choice, including its known open
 ///  question around death/essential/negative-health behavior. Must be called
 ///  Maximum values use `RE::Actor::GetActorValueMax`, whose CommonLibSSE-NG

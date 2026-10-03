@@ -10,7 +10,7 @@ namespace DovahLink.Host.Tests.State
     /// <summary>Tests for <see cref="StatePublisher{TState}"/>, using <see langword="int"/> as a stand-in captured value type.</summary>
     public class StatePublisherTests
     {
-        private static readonly StateAreaId AreaId = new("Character");
+        private static readonly StateAreaId AreaId = new("area_a");
 
         /// <summary>Verifies that reading a value before any play context is established reports unavailable rather than a stale default.</summary>
         [Fact]
@@ -379,8 +379,8 @@ namespace DovahLink.Host.Tests.State
 
             publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, context, playContextTracker.TransitionGeneration, AreaId, 42);
 
-            Assert.True(publisher.TryGetCurrentValue(AreaId, out int characterValue));
-            Assert.Equal(42, characterValue);
+            Assert.True(publisher.TryGetCurrentValue(AreaId, out int areaValue));
+            Assert.Equal(42, areaValue);
             Assert.False(publisher.TryGetCurrentValue(otherAreaId, out _));
             Assert.Equal(RevisionNumber.Initial, publisher.CurrentRevision(otherAreaId));
         }
@@ -812,7 +812,7 @@ namespace DovahLink.Host.Tests.State
     /// <summary>Tests for <see cref="StatePublicationFeed"/>.</summary>
     public class StatePublicationFeedTests
     {
-        private static readonly StateAreaId AreaId = new("character_health");
+        private static readonly StateAreaId AreaId = new("area_a");
         private static readonly JsonElement Data = JsonDocument.Parse("""{"value":93.4}""").RootElement;
 
         private static (StatePublicationFeed Feed, FakeAdapterAvailabilityTracker AdapterTracker, FakePlayContextTracker PlayContextTracker, RegisteredStateAreaPolicy RegisteredAreas, PlayContextId Context)
@@ -1047,17 +1047,17 @@ namespace DovahLink.Host.Tests.State
         public void PublishSnapshot_TwoDifferentAreas_AreIndependent()
         {
             (StatePublicationFeed feed, _, _, RegisteredStateAreaPolicy registeredAreas, PlayContextId context) = CreateReadyFeed();
-            var otherAreaId = new StateAreaId("character_magicka");
+            var otherAreaId = new StateAreaId("area_b");
             registeredAreas.TryRegister(otherAreaId);
             var otherData = JsonDocument.Parse("""{"value":71.0}""").RootElement;
 
             feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
             feed.PublishSnapshot(otherAreaId, RevisionNumber.Initial.Next(), otherData, context, 1, DateTimeOffset.UtcNow);
 
-            Assert.True(feed.TryGetSnapshot(AreaId, out StateSnapshotPublication? healthSnapshot));
-            Assert.Equal(Data, healthSnapshot!.Data);
-            Assert.True(feed.TryGetSnapshot(otherAreaId, out StateSnapshotPublication? magickaSnapshot));
-            Assert.Equal(otherData, magickaSnapshot!.Data);
+            Assert.True(feed.TryGetSnapshot(AreaId, out StateSnapshotPublication? firstSnapshot));
+            Assert.Equal(Data, firstSnapshot!.Data);
+            Assert.True(feed.TryGetSnapshot(otherAreaId, out StateSnapshotPublication? secondSnapshot));
+            Assert.Equal(otherData, secondSnapshot!.Data);
         }
 
         /// <summary>Verifies that one SnapshotChanged subscriber throwing does not prevent the stored value from updating or another subscriber from being invoked.</summary>
@@ -1087,7 +1087,7 @@ namespace DovahLink.Host.Tests.State
         public void AvailabilityChanged_AfterSuccessfulPublish_ClearsStoredSnapshotsAcrossAllAreas()
         {
             (StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, _, RegisteredStateAreaPolicy registeredAreas, PlayContextId context) = CreateReadyFeed();
-            var otherAreaId = new StateAreaId("character_magicka");
+            var otherAreaId = new StateAreaId("area_b");
             registeredAreas.TryRegister(otherAreaId);
             feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
             feed.PublishSnapshot(otherAreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
@@ -1120,143 +1120,8 @@ namespace DovahLink.Host.Tests.State
     }
 
     /// <summary>Tests for live-state catalog validation and resynchronization plans.</summary>
-    public class LiveStateCatalogTests
+    public class LiveStateCatalogInfrastructureTests
     {
-        /// <summary>Verifies that the default catalog defines all eight independently authoritative Character areas with their documented update modes.</summary>
-        [Fact]
-        public void Default_DefinesExactlyTheEightProductionStateAreasWithTheirUpdateModes()
-        {
-            Dictionary<string, UpdateMode> byId = LiveStateCatalog.Default.StateAreas.ToDictionary(area => area.Id.Value, area => area.UpdateMode);
-
-            Assert.Equal(8, byId.Count);
-            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterHealthStateArea]);
-            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterMagickaStateArea]);
-            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterStaminaStateArea]);
-            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterHealthMaxStateArea]);
-            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterMagickaMaxStateArea]);
-            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterStaminaMaxStateArea]);
-            Assert.Equal(UpdateMode.Snapshot, byId[Constants.CharacterXpStateArea]);
-            Assert.Equal(UpdateMode.Event, byId[Constants.CharacterLevelStateArea]);
-        }
-
-        /// <summary>Verifies that the Vitals capture unit is one coherent Fast sample feeding all six current and maximum resource areas.</summary>
-        [Fact]
-        public void Default_VitalsCaptureUnit_IsOneFastSampleFeedingAllSixResourceAreas()
-        {
-            CaptureUnitDefinition vitals = LiveStateCatalog.Default.CaptureUnits.Single(unit => unit.Source == CaptureSourceKind.Sample && unit.CaptureKey == (uint)CharacterSampleToken.CharacterVitals);
-
-            Assert.Equal(CaptureSourceKind.Sample, vitals.Source);
-            Assert.Equal(RateClass.Fast, vitals.RateClass);
-            Assert.Equal(SynchronizationRole.BaselineSample, vitals.SynchronizationRole);
-            Assert.Equal(
-                [
-                    new StateAreaId(Constants.CharacterHealthStateArea),
-                    new StateAreaId(Constants.CharacterMagickaStateArea),
-                    new StateAreaId(Constants.CharacterStaminaStateArea),
-                    new StateAreaId(Constants.CharacterHealthMaxStateArea),
-                    new StateAreaId(Constants.CharacterMagickaMaxStateArea),
-                    new StateAreaId(Constants.CharacterStaminaMaxStateArea),
-                ],
-                vitals.StateAreas);
-        }
-
-        /// <summary>Verifies that the experience capture unit is a Medium sample feeding only the experience area.</summary>
-        [Fact]
-        public void Default_XpCaptureUnit_IsMediumSampleFeedingOnlyXpArea()
-        {
-            CaptureUnitDefinition xp = LiveStateCatalog.Default.CaptureUnits.Single(unit => unit.CaptureKey == (uint)CharacterSampleToken.CharacterXp && unit.Source == CaptureSourceKind.Sample);
-
-            Assert.Equal(RateClass.Medium, xp.RateClass);
-            Assert.Equal(SynchronizationRole.BaselineSample, xp.SynchronizationRole);
-            Assert.Equal([new StateAreaId(Constants.CharacterXpStateArea)], xp.StateAreas);
-        }
-
-        /// <summary>Verifies that the level state area is fed by exactly two capture units: the baseline sample and the level-changed event, neither polled on any cadence.</summary>
-        [Fact]
-        public void Default_LevelStateArea_IsFedByBaselineSampleAndEventNeitherOnACadence()
-        {
-            var levelAreaId = new StateAreaId(Constants.CharacterLevelStateArea);
-            List<CaptureUnitDefinition> feedingLevel = LiveStateCatalog.Default.CaptureUnits.Where(unit => unit.StateAreas.Contains(levelAreaId)).ToList();
-
-            Assert.Equal(2, feedingLevel.Count);
-            CaptureUnitDefinition baseline = Assert.Single(feedingLevel, unit => unit.Source == CaptureSourceKind.Sample);
-            Assert.Equal((uint)CharacterSampleToken.CharacterLevelBaseline, baseline.CaptureKey);
-            Assert.Null(baseline.RateClass);
-            Assert.Equal(SynchronizationRole.BaselineSample, baseline.SynchronizationRole);
-            CaptureUnitDefinition levelChanged = Assert.Single(feedingLevel, unit => unit.Source == CaptureSourceKind.Event);
-            Assert.Equal((uint)CharacterEventKey.CharacterLevelChanged, levelChanged.CaptureKey);
-            Assert.Null(levelChanged.RateClass);
-            Assert.Equal(SynchronizationRole.PersistentEvent, levelChanged.SynchronizationRole);
-        }
-
-        /// <summary>
-        /// Verifies that SynchronizationRole is not inferable from RateClass: the level baseline sample
-        /// has no RateClass (it is polled on no cadence) yet is still a BaselineSample, while Vitals and
-        /// XP have a RateClass yet are also BaselineSample -- the two properties vary independently, per
-        /// <see cref="DovahLink.Host.SynchronizationRole"/>'s own documentation.
-        /// </summary>
-        [Fact]
-        public void Default_SynchronizationRole_IsIndependentOfRateClass()
-        {
-            CaptureUnitDefinition[] baselineSamples = [.. LiveStateCatalog.Default.CaptureUnits.Where(unit => unit.SynchronizationRole == SynchronizationRole.BaselineSample)];
-
-            Assert.Equal(3, baselineSamples.Length);
-            Assert.Contains(baselineSamples, unit => unit.RateClass == RateClass.Fast);
-            Assert.Contains(baselineSamples, unit => unit.RateClass == RateClass.Medium);
-            Assert.Contains(baselineSamples, unit => unit.RateClass == null);
-
-            CaptureUnitDefinition persistentEvent = Assert.Single(LiveStateCatalog.Default.CaptureUnits, unit => unit.SynchronizationRole == SynchronizationRole.PersistentEvent);
-            Assert.Null(persistentEvent.RateClass);
-
-            //  Exhaustiveness: every capture unit falls into exactly one of the two roles checked above,
-            //  so a future unit added with no role assignment (or an unexpected one) cannot silently
-            //  evade both counts.
-            Assert.Equal(LiveStateCatalog.Default.CaptureUnits.Count, baselineSamples.Length + 1);
-        }
-
-        /// <summary>Verifies that every capture unit's state areas are already registered in the catalog's own state-area list, so nothing feeds an area the catalog does not also define.</summary>
-        [Fact]
-        public void Default_EveryCaptureUnitStateArea_IsDefinedInStateAreas()
-        {
-            var definedAreaIds = LiveStateCatalog.Default.StateAreas.Select(area => area.Id).ToHashSet();
-
-            foreach (CaptureUnitDefinition unit in LiveStateCatalog.Default.CaptureUnits)
-            {
-                foreach (StateAreaId areaId in unit.StateAreas)
-                {
-                    Assert.Contains(areaId, definedAreaIds);
-                }
-            }
-        }
-
-        /// <summary>Verifies the inverse of <see cref="Default_EveryCaptureUnitStateArea_IsDefinedInStateAreas"/>: every defined state area is fed by at least one capture unit, so nothing is registered as servable without any way to ever receive a value.</summary>
-        [Fact]
-        public void Default_EveryStateArea_IsFedByAtLeastOneCaptureUnit()
-        {
-            var fedAreaIds = LiveStateCatalog.Default.CaptureUnits.SelectMany(unit => unit.StateAreas).ToHashSet();
-
-            foreach (StateAreaDefinition area in LiveStateCatalog.Default.StateAreas)
-            {
-                Assert.Contains(area.Id, fedAreaIds);
-            }
-        }
-
-        /// <summary>Verifies that the default catalog builds its event and baseline-sample plan from synchronization roles.</summary>
-        [Fact]
-        public void Default_BuildsExpectedResynchronizationPlan()
-        {
-            ResynchronizationPlan plan = LiveStateCatalog.Default.BuildResynchronizationPlan();
-
-            Assert.Equal([(uint)CharacterEventKey.CharacterLevelChanged], plan.PersistentEventKeys);
-            uint[] expectedSamples =
-            [
-                (uint)CharacterSampleToken.CharacterVitals,
-                (uint)CharacterSampleToken.CharacterXp,
-                (uint)CharacterSampleToken.CharacterLevelBaseline,
-            ];
-            Assert.Equal(expectedSamples.OrderBy(token => token), plan.BaselineSampleTokens.OrderBy(token => token));
-        }
-
         /// <summary>Verifies that a future baseline sample joins the plan without a scheduling special case.</summary>
         [Fact]
         public void BuildResynchronizationPlan_IncludesFutureSampleToken()
@@ -1304,13 +1169,13 @@ namespace DovahLink.Host.Tests.State
                 999,
                 RateClass.Fast,
                 SynchronizationRole.BaselineSample,
-                [new StateAreaId(Constants.CharacterHealthStateArea)]);
+                [new StateAreaId("area-a")]);
             CaptureUnitDefinition second = new(
                 CaptureSourceKind.Sample,
                 999,
                 RateClass.Medium,
                 SynchronizationRole.BaselineSample,
-                [new StateAreaId(Constants.CharacterMagickaStateArea)]);
+                [new StateAreaId("area-b")]);
 
             InvalidOperationException exception = Assert.Throws<InvalidOperationException>(
                 () => new LiveStateCatalog([first, second], []));

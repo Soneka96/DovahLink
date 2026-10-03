@@ -46,6 +46,7 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IAdapterIpcListener, AdapterIpcListener>();
         services.AddSingleton<IPairingAdapterNotifier, AdapterPairingNotifier>();
         services.AddSingleton<IRevisionTracker, RevisionTracker>();
+        services.AddSingleton<IStatePublisher<CharacterVitals?>, StatePublisher<CharacterVitals?>>();
         services.AddSingleton<IStatePublisher<float?>, StatePublisher<float?>>();
         services.AddSingleton<IStatePublisher<ushort?>, StatePublisher<ushort?>>();
         services.AddSingleton<IResynchronizationTransactionCoordinator>(sp => new ResynchronizationTransactionCoordinator(

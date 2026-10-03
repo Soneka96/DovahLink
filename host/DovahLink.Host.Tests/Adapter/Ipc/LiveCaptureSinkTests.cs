@@ -17,15 +17,7 @@ namespace DovahLink.Host.Tests.Adapter.Ipc;
 /// <summary>Tests for <see cref="LiveCaptureSink"/>.</summary>
 public class LiveCaptureSinkTests
 {
-    private static readonly StateAreaId HealthArea = new(Constants.CharacterHealthStateArea);
-    private static readonly StateAreaId MagickaArea = new(Constants.CharacterMagickaStateArea);
-    private static readonly StateAreaId StaminaArea = new(Constants.CharacterStaminaStateArea);
-    /// <summary>The maximum Health state area.</summary>
-    private static readonly StateAreaId HealthMaxArea = new(Constants.CharacterHealthMaxStateArea);
-    /// <summary>The maximum Magicka state area.</summary>
-    private static readonly StateAreaId MagickaMaxArea = new(Constants.CharacterMagickaMaxStateArea);
-    /// <summary>The maximum Stamina state area.</summary>
-    private static readonly StateAreaId StaminaMaxArea = new(Constants.CharacterStaminaMaxStateArea);
+    private static readonly StateAreaId VitalsArea = new(Constants.CharacterVitalsStateArea);
     private static readonly StateAreaId XpArea = new(Constants.CharacterXpStateArea);
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
 
@@ -33,7 +25,8 @@ public class LiveCaptureSinkTests
     /// <param name="Sink">The capture sink under test.</param>
     /// <param name="Catalog">The catalog used to recognize capture results.</param>
     /// <param name="Feed">The publication feed that exposes applied values.</param>
-    /// <param name="FloatPublisher">The publisher used to inspect float-area revisions.</param>
+    /// <param name="VitalsPublisher">The publisher used to inspect Vitals revisions.</param>
+    /// <param name="FloatPublisher">The publisher used to inspect XP revisions.</param>
     /// <param name="AdapterTracker">The controllable adapter authority source.</param>
     /// <param name="PlayContextTracker">The active play-context source.</param>
     /// <param name="Context">The play context stamped on test captures.</param>
@@ -45,6 +38,7 @@ public class LiveCaptureSinkTests
         LiveCaptureSink Sink,
         LiveStateCatalog Catalog,
         StatePublicationFeed Feed,
+        IStatePublisher<CharacterVitals?> VitalsPublisher,
         IStatePublisher<float?> FloatPublisher,
         FakeAdapterAvailabilityTracker AdapterTracker,
         FakePlayContextTracker PlayContextTracker,
@@ -136,6 +130,7 @@ public class LiveCaptureSinkTests
 
         var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas);
         var revisionTracker = new RevisionTracker();
+        var vitalsPublisher = new StatePublisher<CharacterVitals?>(revisionTracker, playContextTracker, adapterTracker);
         var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
@@ -144,10 +139,10 @@ public class LiveCaptureSinkTests
         FakeClock clock = clockOverride ?? new FakeClock();
         ILiveStateApplication application = applicationOverride ?? new LiveStateApplication(coordinator, continuityRecovery, feed);
         IReadOnlyCollection<ILiveCaptureHandler> handlers = handlerOverrides
-            ?? new ILiveCaptureHandler[] { new CharacterCaptureHandler(floatPublisher, levelPublisher, application) };
+            ?? new ILiveCaptureHandler[] { new CharacterCaptureHandler(vitalsPublisher, floatPublisher, levelPublisher, application) };
         var sink = new LiveCaptureSink(catalog, handlers, adapterTracker, playContextTracker, clock);
         var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
-        return new Fixture(sink, catalog, feed, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
+        return new Fixture(sink, catalog, feed, vitalsPublisher, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
     }
 
     /// <summary>Builds a one-unit catalog for generic handler-routing tests.</summary>
@@ -216,9 +211,9 @@ public class LiveCaptureSinkTests
     private static float? ReadValue(JsonElement data) =>
         data.GetProperty("value").ValueKind == JsonValueKind.Null ? null : data.GetProperty("value").GetSingle();
 
-    /// <summary>Verifies that one coherent Vitals capture applies all six resource areas independently.</summary>
+    /// <summary>Verifies that one coherent Vitals capture publishes all six values as one area.</summary>
     [Fact]
-    public void ApplyCaptureResult_Vitals_AppliesAllSixAreasIndependently()
+    public void ApplyCaptureResult_Vitals_AppliesOneCoherentArea()
     {
         Fixture fixture = CreateReady();
         // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
@@ -227,23 +222,38 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
-        Assert.True(fixture.Feed.TryGetSnapshot(HealthArea, out StateSnapshotPublication? health));
-        Assert.Equal(327.0f, ReadValue(health!.Data));
-        Assert.True(fixture.Feed.TryGetSnapshot(MagickaArea, out StateSnapshotPublication? magicka));
-        Assert.Equal(71.0f, ReadValue(magicka!.Data));
-        Assert.True(fixture.Feed.TryGetSnapshot(StaminaArea, out StateSnapshotPublication? stamina));
-        Assert.Equal(100.0f, ReadValue(stamina!.Data));
-        Assert.True(fixture.Feed.TryGetSnapshot(HealthMaxArea, out StateSnapshotPublication? healthMax));
-        Assert.Equal(410.0f, ReadValue(healthMax!.Data));
-        Assert.True(fixture.Feed.TryGetSnapshot(MagickaMaxArea, out StateSnapshotPublication? magickaMax));
-        Assert.Equal(220.0f, ReadValue(magickaMax!.Data));
-        Assert.True(fixture.Feed.TryGetSnapshot(StaminaMaxArea, out StateSnapshotPublication? staminaMax));
-        Assert.Equal(300.0f, ReadValue(staminaMax!.Data));
+        Assert.True(fixture.Feed.TryGetSnapshot(VitalsArea, out StateSnapshotPublication? vitals));
+        JsonElement value = vitals!.Data.GetProperty("value");
+        Assert.Equal(327.0f, value.GetProperty("health").GetProperty("current").GetSingle());
+        Assert.Equal(410.0f, value.GetProperty("health").GetProperty("max").GetSingle());
+        Assert.Equal(71.0f, value.GetProperty("magicka").GetProperty("current").GetSingle());
+        Assert.Equal(220.0f, value.GetProperty("magicka").GetProperty("max").GetSingle());
+        Assert.Equal(100.0f, value.GetProperty("stamina").GetProperty("current").GetSingle());
+        Assert.Equal(300.0f, value.GetProperty("stamina").GetProperty("max").GetSingle());
     }
 
-    /// <summary>Verifies that a coherent Vitals capture fans out through the shared application with its exact context.</summary>
+    /// <summary>Verifies that an unavailable Vitals capture publishes a null value for the whole domain.</summary>
     [Fact]
-    public void ApplyCaptureResult_Vitals_UsesSharedApplicationForEachArea()
+    public void ApplyCaptureResult_VitalsUnavailable_PublishesWholeDomainUnavailable()
+    {
+        Fixture fixture = CreateReady();
+        var captureResult = new IpcCaptureResultMessage(
+            1,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.CharacterVitals,
+            CaptureAvailability.Unavailable,
+            fixture.Context,
+            []);
+
+        fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
+
+        Assert.True(fixture.Feed.TryGetSnapshot(VitalsArea, out StateSnapshotPublication? vitals));
+        Assert.Equal(JsonValueKind.Null, vitals!.Data.GetProperty("value").ValueKind);
+    }
+
+    /// <summary>Verifies that a coherent Vitals capture reaches shared application once with its exact context.</summary>
+    [Fact]
+    public void ApplyCaptureResult_Vitals_UsesSharedApplicationOnce()
     {
         var application = new RecordingLiveStateApplication();
         Fixture fixture = CreateReady(applicationOverride: application);
@@ -251,14 +261,14 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
+        var expected = new CharacterVitals(
+            new CharacterVital(327.0f, 410.0f),
+            new CharacterVital(71.0f, 220.0f),
+            new CharacterVital(100.0f, 300.0f));
         Assert.Collection(
             application.ApplyCalls,
-            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, HealthArea, 327.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
-            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, MagickaArea, 71.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
-            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, StaminaArea, 100.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
-            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, HealthMaxArea, 410.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
-            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, MagickaMaxArea, 220.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)),
-            call => Assert.Equal((typeof(float?), UpdateMode.Snapshot, StaminaMaxArea, 300.0f), (call.StateType, call.Mode, call.AreaId, (float)call.Value!)));
+            call => Assert.Equal((typeof(CharacterVitals), UpdateMode.Snapshot, VitalsArea, (object?)expected),
+                (call.StateType, call.Mode, call.AreaId, call.Value)));
         Assert.All(application.ApplyCalls, call =>
         {
             Assert.False(call.IsBaseline);
@@ -297,23 +307,19 @@ public class LiveCaptureSinkTests
         Assert.All(application.ApplyCalls, call => Assert.Equal(LevelArea, call.AreaId));
     }
 
-    /// <summary>Verifies that only the area whose value actually changed advances its revision, matching the roadmap's "only Health revision advances" acceptance scenario.</summary>
+    /// <summary>Verifies that a changed Vitals value advances the domain's single revision.</summary>
     [Fact]
-    public void ApplyCaptureResult_VitalsSecondCaptureChangesOnlyHealth_OnlyHealthRevisionAdvances()
+    public void ApplyCaptureResult_VitalsChange_AdvancesOneRevision()
     {
         Fixture fixture = CreateReady();
         fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f)), fixture.Source);
-        RevisionNumber healthRevisionBefore = fixture.FloatPublisher.CurrentRevision(HealthArea);
-        RevisionNumber magickaRevisionBefore = fixture.FloatPublisher.CurrentRevision(MagickaArea);
-        RevisionNumber staminaRevisionBefore = fixture.FloatPublisher.CurrentRevision(StaminaArea);
+        RevisionNumber revisionBefore = fixture.VitalsPublisher.CurrentRevision(VitalsArea);
 
         fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(80.0f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f)), fixture.Source);
 
-        Assert.NotEqual(healthRevisionBefore, fixture.FloatPublisher.CurrentRevision(HealthArea));
-        Assert.Equal(magickaRevisionBefore, fixture.FloatPublisher.CurrentRevision(MagickaArea));
-        Assert.Equal(staminaRevisionBefore, fixture.FloatPublisher.CurrentRevision(StaminaArea));
-        Assert.True(fixture.Feed.TryGetSnapshot(HealthArea, out StateSnapshotPublication? health));
-        Assert.Equal(80.0f, ReadValue(health!.Data));
+        Assert.NotEqual(revisionBefore, fixture.VitalsPublisher.CurrentRevision(VitalsArea));
+        Assert.True(fixture.Feed.TryGetSnapshot(VitalsArea, out StateSnapshotPublication? vitals));
+        Assert.Equal(80.0f, vitals!.Data.GetProperty("value").GetProperty("health").GetProperty("current").GetSingle());
     }
 
     /// <summary>Verifies that an unavailable capture applies an explicit null value, never a fabricated zero.</summary>
@@ -839,21 +845,16 @@ public class LiveCaptureSinkTests
         Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
     }
 
-    /// <summary>Verifies that a Vitals capture with a non-finite value applies none of its six areas.</summary>
+    /// <summary>Verifies that a Vitals capture with a non-finite value applies no partial domain value.</summary>
     [Fact]
-    public void ApplyCaptureResult_VitalsContainsNaN_AppliesNoneOfTheSixAreas()
+    public void ApplyCaptureResult_VitalsContainsNaN_AppliesNoArea()
     {
         Fixture fixture = CreateReady();
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f, 410.0f, float.NaN, 300.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
-        Assert.False(fixture.Feed.TryGetSnapshot(HealthArea, out _));
-        Assert.False(fixture.Feed.TryGetSnapshot(MagickaArea, out _));
-        Assert.False(fixture.Feed.TryGetSnapshot(StaminaArea, out _));
-        Assert.False(fixture.Feed.TryGetSnapshot(HealthMaxArea, out _));
-        Assert.False(fixture.Feed.TryGetSnapshot(MagickaMaxArea, out _));
-        Assert.False(fixture.Feed.TryGetSnapshot(StaminaMaxArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(VitalsArea, out _));
     }
 
     /// <summary>Verifies that a vitals payload of the wrong length applies nothing.</summary>
@@ -865,7 +866,7 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
-        Assert.False(fixture.Feed.TryGetSnapshot(HealthArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(VitalsArea, out _));
     }
 
     /// <summary>
