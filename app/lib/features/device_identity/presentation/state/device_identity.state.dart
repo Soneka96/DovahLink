@@ -19,8 +19,8 @@ class DeviceIdentityState extends Equatable {
   /// A local validation or persistence failure, or `null` after a successful local save.
   final String? saveFailure;
 
-  /// The Host rename outcome, kept separate from the saved local preference.
-  final DeviceNameRenameStatus remoteRenameStatus;
+  /// The last Host rename outcome, or `null` before a save has completed.
+  final DeviceNameRenameStatus? remoteRenameStatus;
 
   /// The Host whose rename outcome [remoteRenameStatus] describes, or `null` if none was attempted.
   final String? remoteHostId;
@@ -30,14 +30,14 @@ class DeviceIdentityState extends Equatable {
   /// @param loadFailure The user-safe load failure, or `null` when loading succeeded.
   /// @param isSaving Whether a local save and remote acknowledgement are pending.
   /// @param saveFailure A local save error, or `null` after success.
-  /// @param remoteRenameStatus The current active-Host rename outcome.
+  /// @param remoteRenameStatus The active-Host rename outcome, if a save completed.
   /// @param remoteHostId The Host associated with that rename outcome.
   const DeviceIdentityState({
     required this.displayName,
     this.loadFailure,
     this.isSaving = false,
     this.saveFailure,
-    this.remoteRenameStatus = DeviceNameRenameStatus.notAttempted,
+    this.remoteRenameStatus,
     this.remoteHostId,
   });
 

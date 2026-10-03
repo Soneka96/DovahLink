@@ -616,7 +616,12 @@ void main() {
         expect(headerTitle('Connected'), findsOneWidget);
         expect(find.text('You’re connected'), findsOneWidget);
         verify(
-          () => confirm(const ConfirmPairingCodeParams(code: '123456')),
+          () => confirm(
+            const ConfirmPairingCodeParams(
+              code: '123456',
+              displayName: 'This device',
+            ),
+          ),
         ).called(1);
 
         await tester.tap(find.byKey(const Key('pairing-done-button')));

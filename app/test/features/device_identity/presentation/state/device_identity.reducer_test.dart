@@ -47,7 +47,7 @@ void main() {
         expect(result.displayName, 'Old Device');
         expect(result.isSaving, isTrue);
         expect(result.saveFailure, isNull);
-        expect(result.remoteRenameStatus, DeviceNameRenameStatus.notAttempted);
+        expect(result.remoteRenameStatus, isNull);
         expect(result.remoteHostId, isNull);
       },
     );
@@ -70,7 +70,7 @@ void main() {
         expect(result.displayName, 'Old Device');
         expect(result.isSaving, isFalse);
         expect(result.saveFailure, 'Storage unavailable.');
-        expect(result.remoteRenameStatus, DeviceNameRenameStatus.notAttempted);
+        expect(result.remoteRenameStatus, isNull);
       },
     );
   });

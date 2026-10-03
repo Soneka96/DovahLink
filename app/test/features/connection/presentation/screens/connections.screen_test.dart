@@ -20,6 +20,7 @@ import 'package:dovahlink_client/features/connection/presentation/viewdata/host_
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_hero.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_host_section.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/root_header.widget.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/viewmodels/device_identity_section.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_dialog.viewmodel.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/viewmodels/pairing_section.viewmodel.dart';
@@ -51,6 +52,10 @@ class MockDiscoverDialogViewModel extends Mock
 class MockAppearanceSectionViewModel extends Mock
     implements AppearanceSectionViewModel {}
 
+/// Mock ViewModel supplied to the device-identity section in Settings.
+class MockDeviceIdentitySectionViewModel extends Mock
+    implements DeviceIdentitySectionViewModel {}
+
 /// Mock ViewModel supplied to the [PairingDialog] the screen opens.
 class MockPairingDialogViewModel extends Mock
     implements PairingDialogViewModel {}
@@ -69,6 +74,7 @@ void main() {
   late MockConnectionsScreenViewModel viewModel;
   late MockDiscoverDialogViewModel discoverViewModel;
   late MockAppearanceSectionViewModel appearanceViewModel;
+  late MockDeviceIdentitySectionViewModel deviceIdentityViewModel;
   late MockPairingSectionViewModel pairingViewModel;
   late MockPairingDialogViewModel pairingDialogViewModel;
   late List<String> pairingCalls;
@@ -85,6 +91,7 @@ void main() {
     viewModel = MockConnectionsScreenViewModel();
     discoverViewModel = MockDiscoverDialogViewModel();
     appearanceViewModel = MockAppearanceSectionViewModel();
+    deviceIdentityViewModel = MockDeviceIdentitySectionViewModel();
     pairingViewModel = MockPairingSectionViewModel();
     pairingDialogViewModel = MockPairingDialogViewModel();
     when(() => pairingDialogViewModel.title).thenReturn('Pair with Local Host');
@@ -145,6 +152,12 @@ void main() {
     when(
       () => appearanceViewModel.onSelectPreset,
     ).thenReturn(selectedPresets.add);
+    when(() => deviceIdentityViewModel.displayName).thenReturn('Gaming PC');
+    when(() => deviceIdentityViewModel.loadFailure).thenReturn(null);
+    when(() => deviceIdentityViewModel.isSaving).thenReturn(false);
+    when(() => deviceIdentityViewModel.saveFailure).thenReturn(null);
+    when(() => deviceIdentityViewModel.remoteRenameStatus).thenReturn(null);
+    when(() => deviceIdentityViewModel.onSave).thenReturn((String _) {});
     when(() => pairingViewModel.phase).thenReturn(PairingPhase.unpaired);
     when(() => pairingViewModel.support).thenReturn(PairingSupport.available);
     when(() => pairingViewModel.hostName).thenReturn('Local Host');
@@ -176,6 +189,11 @@ void main() {
     sl.registerFactoryParam<AppearanceSectionViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => appearanceViewModel,
     );
+    sl.registerFactoryParam<
+      DeviceIdentitySectionViewModel,
+      Store<AppState>,
+      void
+    >((Store<AppState> _, void _) => deviceIdentityViewModel);
   });
 
   tearDown(() async {
@@ -183,6 +201,7 @@ void main() {
     reset(viewModel);
     reset(discoverViewModel);
     reset(appearanceViewModel);
+    reset(deviceIdentityViewModel);
     reset(pairingViewModel);
     reset(pairingDialogViewModel);
     reset(store);
@@ -1139,9 +1158,9 @@ void main() {
     );
   });
 
-  group('ConnectionsScreen opens the appearance UI', () {
+  group('ConnectionsScreen opens the Settings UI', () {
     testWidgets(
-      'ConnectionsScreen displays the appearance picker in a dialog when the appearance action is tapped',
+      'ConnectionsScreen displays shared Settings when its Settings action is tapped',
       (WidgetTester tester) async {
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
@@ -1150,14 +1169,15 @@ void main() {
         await tester.pumpAndSettle();
 
         expect(find.byType(DovahDialog), findsOneWidget);
-        expect(find.text('Appearance'), findsOneWidget);
+        expect(find.text('Settings'), findsOneWidget);
+        expect(find.text('This device'), findsOneWidget);
         expect(find.byType(AppearanceSection), findsOneWidget);
         expect(find.text('Choose your Skyrim atmosphere'), findsOneWidget);
       },
     );
 
     testWidgets(
-      'ConnectionsScreen opens the appearance picker when its header action is activated by keyboard',
+      'ConnectionsScreen opens Settings when its header action is activated by keyboard',
       (WidgetTester tester) async {
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
@@ -1235,7 +1255,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsScreen does not display the appearance dialog before the action is tapped',
+      'ConnectionsScreen does not display the Settings dialog before the action is tapped',
       (WidgetTester tester) async {
         await tester.pumpWidget(buildWidget());
 
@@ -1244,20 +1264,19 @@ void main() {
       },
     );
 
-    testWidgets(
-      'ConnectionsScreen closes the appearance dialog with its close action',
-      (WidgetTester tester) async {
-        await useSurface(tester, const Size(1280, 720));
-        await tester.pumpWidget(buildWidget());
-        await tester.tap(find.byIcon(Icons.settings_outlined));
-        await tester.pumpAndSettle();
+    testWidgets('ConnectionsScreen closes Settings with its close action', (
+      WidgetTester tester,
+    ) async {
+      await useSurface(tester, const Size(1280, 720));
+      await tester.pumpWidget(buildWidget());
+      await tester.tap(find.byIcon(Icons.settings_outlined));
+      await tester.pumpAndSettle();
 
-        await tester.tap(find.byTooltip('Close'));
-        await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
 
-        expect(find.byType(DovahDialog), findsNothing);
-      },
-    );
+      expect(find.byType(DovahDialog), findsNothing);
+    });
   });
 
   group('ConnectionsScreen follows the active theme', () {
@@ -1350,16 +1369,16 @@ void main() {
           final SemanticsData discover = tester
               .getSemantics(find.bySemanticsLabel('Discover Skyrim'))
               .getSemanticsData();
-          final SemanticsData appearance = tester
-              .getSemantics(find.bySemanticsLabel('Appearance settings'))
+          final SemanticsData settings = tester
+              .getSemantics(find.bySemanticsLabel('Settings'))
               .getSemanticsData();
 
           expect(title.flagsCollection.isHeader, isTrue);
           expect(host.flagsCollection.isButton, isTrue);
           expect(host.flagsCollection.isEnabled, Tristate.isTrue);
           expect(discover.flagsCollection.isEnabled, Tristate.isTrue);
-          expect(appearance.flagsCollection.isButton, isTrue);
-          expect(appearance.hasAction(SemanticsAction.tap), isTrue);
+          expect(settings.flagsCollection.isButton, isTrue);
+          expect(settings.hasAction(SemanticsAction.tap), isTrue);
         } finally {
           handle.dispose();
         }

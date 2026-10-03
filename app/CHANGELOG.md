@@ -13,7 +13,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Added
 
-- The app persists a device-name override, resolves its display label from the OS name when unset, supplies it during pairing, and reports Host rename outcomes separately.
+- Connections and Session Shell share one Settings dialog with the existing Appearance picker and a persisted device-name editor; pairing uses the resolved name and active trusted-Host rename outcomes stay separate.
 - Known Host cards show Checking during startup and endpoint checks while retaining stable availability
   during periodic refresh.
 - Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions.

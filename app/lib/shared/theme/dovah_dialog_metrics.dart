@@ -52,6 +52,40 @@ class DovahDialogMetrics extends Equatable {
   /// Maximum width of a pairing state's body copy (the prototype's `.pairing p`).
   static const double bodyMaxWidth = 430;
 
+  /// Vertical padding of the Settings `THIS DEVICE` row.
+  static const double settingsDeviceRowVerticalPadding = 13;
+
+  /// Gap between the Settings label and name controls in the regular row.
+  static const double settingsDeviceRowGap = 20;
+
+  /// Width of the Settings device-name input.
+  static const double settingsDeviceNameInputWidth = 180;
+
+  /// Gap between the Settings name field and Save button.
+  static const double settingsDeviceControlGap = 8;
+
+  /// Width below which the Settings device row stacks its label and controls for readability.
+  static const double settingsDeviceRowStackBreakpoint = 500;
+
+  /// Width below which the Settings name field and Save button stack.
+  static const double settingsDeviceControlsStackBreakpoint = 264;
+
+  /// Font sizes for the Settings device label and its explanation.
+  static const double settingsDeviceLabelFontSize = 14;
+  static const double settingsDeviceCopyFontSize = 12;
+  static const double settingsDeviceCopyGap = 4;
+  static const double settingsSaveButtonFontSize = 13;
+  static const double settingsDeviceFeedbackTopGap = 8;
+
+  /// Dimensions and typography of the Settings shared-principles footer.
+  static const double settingsSharedMarkSize = 32;
+  static const double settingsSharedSigilSize = 28;
+  static const double settingsSharedContentGap = 11;
+  static const double settingsSharedTitleFontSize = 12;
+  static const double settingsSharedDetailFontSize = 11;
+  static const double settingsSharedDetailGap = 2;
+  static const double settingsOrientationFontSize = 11;
+
   /// Font size of a pairing state's body copy (the prototype's `.pairing p`).
   static const double bodyFontSize = 14;
 
@@ -149,6 +183,11 @@ class DovahDialogMetrics extends Equatable {
     noteTopGap: 17,
     markCornerRadius: 0,
     codeBoxCornerRadius: 0,
+    settingsSharedTopGap: 14,
+    settingsSharedVerticalPadding: 11,
+    settingsSharedHorizontalPadding: 13,
+    settingsOrientationTopGap: 11,
+    settingsOrientationTopPadding: 11,
   );
 
   /// The measurements for windows no taller than [compactMaxWindowHeight], before a theme's own
@@ -176,6 +215,11 @@ class DovahDialogMetrics extends Equatable {
     noteTopGap: 8,
     markCornerRadius: 0,
     codeBoxCornerRadius: 0,
+    settingsSharedTopGap: 9,
+    settingsSharedVerticalPadding: 8,
+    settingsSharedHorizontalPadding: 10,
+    settingsOrientationTopGap: 7,
+    settingsOrientationTopPadding: 7,
   );
 
   /// Vertical padding of a dialog's header.
@@ -245,6 +289,21 @@ class DovahDialogMetrics extends Equatable {
   /// Corner radius of a pairing-code digit box, which the theme pins.
   final double codeBoxCornerRadius;
 
+  /// Top gap above the shared-principles Settings footer.
+  final double settingsSharedTopGap;
+
+  /// Vertical padding inside the shared-principles Settings footer.
+  final double settingsSharedVerticalPadding;
+
+  /// Horizontal padding inside the shared-principles Settings footer.
+  final double settingsSharedHorizontalPadding;
+
+  /// Gap above the landscape note in Settings.
+  final double settingsOrientationTopGap;
+
+  /// Top padding above the landscape note divider.
+  final double settingsOrientationTopPadding;
+
   /// Creates a complete measurement set. Every value is required so a set cannot be assembled
   /// with an accidentally-inherited default.
   const DovahDialogMetrics({
@@ -270,6 +329,11 @@ class DovahDialogMetrics extends Equatable {
     required this.noteTopGap,
     required this.markCornerRadius,
     required this.codeBoxCornerRadius,
+    required this.settingsSharedTopGap,
+    required this.settingsSharedVerticalPadding,
+    required this.settingsSharedHorizontalPadding,
+    required this.settingsOrientationTopGap,
+    required this.settingsOrientationTopPadding,
   });
 
   /// The total width of a row of [pairingCodeLength] digit boxes and the gaps between them.
@@ -320,6 +384,11 @@ class DovahDialogMetrics extends Equatable {
     noteTopGap: noteTopGap,
     markCornerRadius: markCornerRadius,
     codeBoxCornerRadius: codeBoxCornerRadius,
+    settingsSharedTopGap: settingsSharedTopGap,
+    settingsSharedVerticalPadding: settingsSharedVerticalPadding,
+    settingsSharedHorizontalPadding: settingsSharedHorizontalPadding,
+    settingsOrientationTopGap: settingsOrientationTopGap,
+    settingsOrientationTopPadding: settingsOrientationTopPadding,
   );
 
   /// See [Equatable.props].
@@ -347,5 +416,10 @@ class DovahDialogMetrics extends Equatable {
     noteTopGap,
     markCornerRadius,
     codeBoxCornerRadius,
+    settingsSharedTopGap,
+    settingsSharedVerticalPadding,
+    settingsSharedHorizontalPadding,
+    settingsOrientationTopGap,
+    settingsOrientationTopPadding,
   ];
 }

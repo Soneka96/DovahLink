@@ -2,7 +2,6 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.actions.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
-import 'package:dovahlink_client/shared/constants/enums.dart';
 
 /// Reduces successful device-name persistence into [DeviceIdentityState].
 /// @return A reducer that recognizes [DeviceNameSavedAction].
@@ -33,7 +32,7 @@ DeviceIdentityState deviceNameSaveRequestedReducer(
   displayName: state.displayName,
   loadFailure: state.loadFailure,
   isSaving: true,
-  remoteRenameStatus: DeviceNameRenameStatus.notAttempted,
+  remoteRenameStatus: null,
 );
 
 /// Applies [DeviceNameSavedAction.displayName] and clears any previous load error.
@@ -60,7 +59,7 @@ DeviceIdentityState deviceNameSaveFailedReducer(
   displayName: state.displayName,
   loadFailure: state.loadFailure,
   saveFailure: action.message,
-  remoteRenameStatus: DeviceNameRenameStatus.notAttempted,
+  remoteRenameStatus: null,
 );
 
 /// Finishes local-save feedback with the separately reported Host outcome.

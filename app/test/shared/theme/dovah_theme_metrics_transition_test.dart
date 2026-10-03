@@ -38,7 +38,7 @@ Widget _buildApp(DovahThemePreset preset, _Probe probe) => MaterialApp(
     body: SingleChildScrollView(
       child: Column(
         children: [
-          RootHeader(onOpenAppearance: () {}),
+          RootHeader(onOpenSettings: () {}),
           ConnectionsHero(onDiscover: () {}),
           DovahConnectionCard(
             title: 'Gaming PC',

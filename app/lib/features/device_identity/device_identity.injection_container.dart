@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:redux/redux.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/features/device_identity/data/datasources/device_identity_local.datasource.dart';
@@ -8,7 +9,9 @@ import 'package:dovahlink_client/features/device_identity/domain/repositories/de
 import 'package:dovahlink_client/features/device_identity/domain/usecases/load_device_name.usecase.dart';
 import 'package:dovahlink_client/features/device_identity/domain/usecases/set_device_name.usecase.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.middleware.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/viewmodels/device_identity_section.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
+import 'package:dovahlink_client/shared/state/app_state.dart';
 
 /// Registers local device-identity dependencies.
 void initDeviceIdentityDependencies() {
@@ -29,5 +32,13 @@ void initDeviceIdentityDependencies() {
   );
   sl.registerLazySingleton<IDeviceIdentityMiddleware>(
     DeviceIdentityMiddleware.new,
+  );
+  sl.registerFactoryParam<
+    DeviceIdentitySectionViewModel,
+    Store<AppState>,
+    void
+  >(
+    (Store<AppState> store, void _) =>
+        DeviceIdentitySectionViewModel.fromStore(store),
   );
 }

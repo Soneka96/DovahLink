@@ -6,6 +6,7 @@ import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/state/viewmodels/appearance_section.viewmodel.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/viewmodels/device_identity_section.viewmodel.dart';
 import 'package:dovahlink_client/features/session/presentation/screens/session_shell.screen.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_shell.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -21,14 +22,19 @@ import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 /// Mocks the Session Shell's Redux store subscription.
 class MockStore extends Mock implements Store<AppState> {}
 
-/// Mocks the existing Appearance dialog's ViewModel.
+/// Mocks the appearance section's ViewModel inside Settings.
 class MockAppearanceSectionViewModel extends Mock
     implements AppearanceSectionViewModel {}
+
+/// Mocks the device-identity section's Redux projection.
+class MockDeviceIdentitySectionViewModel extends Mock
+    implements DeviceIdentitySectionViewModel {}
 
 /// Exercises the minimal Session Shell using its ViewModel contract.
 void main() {
   late MockStore store;
   late MockAppearanceSectionViewModel appearanceViewModel;
+  late MockDeviceIdentitySectionViewModel deviceIdentityViewModel;
   late SessionShellViewModel viewModel;
   int backCalls = 0;
 
@@ -36,6 +42,7 @@ void main() {
     await sl.reset();
     store = MockStore();
     appearanceViewModel = MockAppearanceSectionViewModel();
+    deviceIdentityViewModel = MockDeviceIdentitySectionViewModel();
     backCalls = 0;
     when(
       () => store.onChange,
@@ -47,9 +54,20 @@ void main() {
     when(
       () => appearanceViewModel.onSelectPreset,
     ).thenReturn((DovahThemePreset _) {});
+    when(() => deviceIdentityViewModel.displayName).thenReturn('Gaming PC');
+    when(() => deviceIdentityViewModel.loadFailure).thenReturn(null);
+    when(() => deviceIdentityViewModel.isSaving).thenReturn(false);
+    when(() => deviceIdentityViewModel.saveFailure).thenReturn(null);
+    when(() => deviceIdentityViewModel.remoteRenameStatus).thenReturn(null);
+    when(() => deviceIdentityViewModel.onSave).thenReturn((String _) {});
     sl.registerFactoryParam<AppearanceSectionViewModel, Store<AppState>, void>(
       (Store<AppState> _, void _) => appearanceViewModel,
     );
+    sl.registerFactoryParam<
+      DeviceIdentitySectionViewModel,
+      Store<AppState>,
+      void
+    >((Store<AppState> _, void _) => deviceIdentityViewModel);
     viewModel = SessionShellViewModel(
       host: Fixtures.buildHostCardViewData(
         host: Fixtures.buildHost(
@@ -95,7 +113,7 @@ void main() {
       expect(find.text('Connected'), findsOneWidget);
       expect(find.byType(DovahSigil), findsOneWidget);
       expect(find.byTooltip('Notifications'), findsOneWidget);
-      expect(find.byTooltip('Appearance settings'), findsOneWidget);
+      expect(find.byTooltip('Settings'), findsOneWidget);
       expect(
         find.byKey(const Key('session-shell-empty-content')),
         findsOneWidget,
@@ -197,14 +215,15 @@ void main() {
       expect(backCalls, 1);
     });
 
-    testWidgets('SessionShellScreen opens the existing appearance dialog', (
+    testWidgets('SessionShellScreen opens the shared Settings dialog', (
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(buildWidget());
-      await tester.tap(find.byTooltip('Appearance settings'));
+      await tester.tap(find.byTooltip('Settings'));
       await tester.pumpAndSettle();
 
-      expect(find.text('Appearance'), findsOneWidget);
+      expect(find.text('Settings'), findsOneWidget);
+      expect(find.text('This device'), findsOneWidget);
     });
 
     testWidgets('SessionShellScreen keeps Notifications prototype-only', (
@@ -217,7 +236,7 @@ void main() {
 
       expect(find.byTooltip('Notifications'), findsOneWidget);
       expect(find.byType(SessionShellScreen), findsOneWidget);
-      expect(find.text('Appearance'), findsNothing);
+      expect(find.text('Settings'), findsNothing);
       expect(backCalls, 0);
     });
   });

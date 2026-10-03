@@ -29,7 +29,7 @@ abstract final class DeviceIdentitySelectors {
   /// Returns the Host rename outcome from the most recent save.
   /// @param state The application state to inspect.
   /// @return The typed remote rename status.
-  static DeviceNameRenameStatus remoteRenameStatusSelector(AppState state) =>
+  static DeviceNameRenameStatus? remoteRenameStatusSelector(AppState state) =>
       state.deviceIdentity.remoteRenameStatus;
 
   /// Returns the exact Host associated with the most recent rename response.

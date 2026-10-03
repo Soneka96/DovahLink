@@ -104,6 +104,24 @@ void main() {
         },
       );
     }
+
+    testWidgets('DovahButton honors a component-specific label size', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        DovahButton(
+          label: 'Save',
+          onPressed: () {},
+          variant: DovahButtonVariant.secondary,
+          labelFontSize: 13,
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expect(tester.widget<Text>(find.text('Save')).style?.fontSize, 13);
+    });
   });
 
   group('DovahButton renders its icon', () {
