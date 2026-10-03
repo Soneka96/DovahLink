@@ -38,7 +38,7 @@ class MockStateDomainDefinition<T> extends Mock
 Envelope buildStateSnapshotEnvelope({
   required int revision,
   required int? value,
-  String stateArea = 'character_level',
+  String stateArea = 'test_area',
   String stateAuthorityId = 'authority-1',
   String? playContextId = 'context-1',
   JsonMap? data,
@@ -132,7 +132,7 @@ void main() {
       );
       stateChanges.add(currentState);
     });
-    when(() => domain.stateArea).thenReturn('character_level');
+    when(() => domain.stateArea).thenReturn('test_area');
     when(() => domain.tracker).thenReturn(tracker);
     when(
       () => domain.decodeState(any()),
@@ -276,7 +276,7 @@ void main() {
         ProtocolMessageType.stateSnapshot,
       );
       expect(requests.requests.single.payload, <String, dynamic>{
-        'stateArea': 'character_level',
+        'stateArea': 'test_area',
         'knownRevision': 1,
       });
       expect(requests.requests.single.policy.retrySafe, isTrue);
@@ -727,7 +727,7 @@ void main() {
         buildStateSnapshotEnvelope(
           revision: 5,
           value: 50,
-          stateArea: 'character_health',
+          stateArea: 'other_area',
         ),
       );
       await service.recover();
@@ -743,7 +743,7 @@ void main() {
               as DovahLinkProtocolException;
       expect(error.code, ProtocolErrorCode.malformedMessage);
       expect(error.retryable, isFalse);
-      expect(error.message, contains('character_level'));
+      expect(error.message, contains('test_area'));
     });
 
     test('Method recover rejects a malformed outer Snapshot payload', () async {

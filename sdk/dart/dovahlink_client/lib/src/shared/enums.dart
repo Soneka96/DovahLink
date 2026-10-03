@@ -496,26 +496,11 @@ enum DovahLinkStateArea {
   /// The character's current experience and progress to the next level.
   characterXp('character_xp'),
 
-  /// The character's current health.
-  characterHealth('character_health'),
-
-  /// The character's current magicka.
-  characterMagicka('character_magicka'),
-
-  /// The character's current stamina.
-  characterStamina('character_stamina'),
+  /// The character's complete Health, Magicka, and Stamina observation.
+  characterVitals('character_vitals'),
 
   /// The character's current level.
-  characterLevel('character_level'),
-
-  /// The character's effective maximum Health actor value.
-  characterHealthMax('character_health_max'),
-
-  /// The character's effective maximum Magicka actor value.
-  characterMagickaMax('character_magicka_max'),
-
-  /// The character's effective maximum Stamina actor value.
-  characterStaminaMax('character_stamina_max');
+  characterLevel('character_level');
 
   /// The canonical protocol value for this area.
   final String protocolValue;

@@ -91,16 +91,16 @@ IStateMessageHandler buildStateMessageHandler({
 /// Runs state-message-handler behavior tests.
 void main() {
   late MockSessionService session;
-  late MockStateDomainDefinition experience;
-  late MockStateDomainDefinition health;
-  late MockStateDomainDefinition magicka;
-  late MockStateDomainDefinition stamina;
-  late MockStateDomainDefinition level;
-  late MockStateRevisionTracker<Object?> experienceTracker;
-  late MockStateRevisionTracker<Object?> healthTracker;
-  late MockStateRevisionTracker<Object?> magickaTracker;
-  late MockStateRevisionTracker<Object?> staminaTracker;
-  late MockStateRevisionTracker<Object?> levelTracker;
+  late MockStateDomainDefinition domainA;
+  late MockStateDomainDefinition domainB;
+  late MockStateDomainDefinition domainC;
+  late MockStateDomainDefinition domainD;
+  late MockStateDomainDefinition domainE;
+  late MockStateRevisionTracker<Object?> trackerA;
+  late MockStateRevisionTracker<Object?> trackerB;
+  late MockStateRevisionTracker<Object?> trackerC;
+  late MockStateRevisionTracker<Object?> trackerD;
+  late MockStateRevisionTracker<Object?> trackerE;
   late IStateMessageHandler handler;
 
   setUpAll(() {
@@ -141,33 +141,33 @@ void main() {
 
   setUp(() {
     session = MockSessionService();
-    experience = MockStateDomainDefinition();
-    health = MockStateDomainDefinition();
-    magicka = MockStateDomainDefinition();
-    stamina = MockStateDomainDefinition();
-    level = MockStateDomainDefinition();
-    experienceTracker = MockStateRevisionTracker<Object?>();
-    healthTracker = MockStateRevisionTracker<Object?>();
-    magickaTracker = MockStateRevisionTracker<Object?>();
-    staminaTracker = MockStateRevisionTracker<Object?>();
-    levelTracker = MockStateRevisionTracker<Object?>();
-    when(() => experience.stateArea).thenReturn('character_xp');
-    when(() => health.stateArea).thenReturn('character_health');
-    when(() => magicka.stateArea).thenReturn('character_magicka');
-    when(() => stamina.stateArea).thenReturn('character_stamina');
-    when(() => level.stateArea).thenReturn('character_level');
-    when(() => experience.tracker).thenReturn(experienceTracker);
-    when(() => health.tracker).thenReturn(healthTracker);
-    when(() => magicka.tracker).thenReturn(magickaTracker);
-    when(() => stamina.tracker).thenReturn(staminaTracker);
-    when(() => level.tracker).thenReturn(levelTracker);
+    domainA = MockStateDomainDefinition();
+    domainB = MockStateDomainDefinition();
+    domainC = MockStateDomainDefinition();
+    domainD = MockStateDomainDefinition();
+    domainE = MockStateDomainDefinition();
+    trackerA = MockStateRevisionTracker<Object?>();
+    trackerB = MockStateRevisionTracker<Object?>();
+    trackerC = MockStateRevisionTracker<Object?>();
+    trackerD = MockStateRevisionTracker<Object?>();
+    trackerE = MockStateRevisionTracker<Object?>();
+    when(() => domainA.stateArea).thenReturn('area_a');
+    when(() => domainB.stateArea).thenReturn('area_b');
+    when(() => domainC.stateArea).thenReturn('area_c');
+    when(() => domainD.stateArea).thenReturn('area_d');
+    when(() => domainE.stateArea).thenReturn('area_e');
+    when(() => domainA.tracker).thenReturn(trackerA);
+    when(() => domainB.tracker).thenReturn(trackerB);
+    when(() => domainC.tracker).thenReturn(trackerC);
+    when(() => domainD.tracker).thenReturn(trackerD);
+    when(() => domainE.tracker).thenReturn(trackerE);
     for (final MockStateRevisionTracker<Object?> tracker
         in <MockStateRevisionTracker<Object?>>[
-          experienceTracker,
-          healthTracker,
-          magickaTracker,
-          staminaTracker,
-          levelTracker,
+          trackerA,
+          trackerB,
+          trackerC,
+          trackerD,
+          trackerE,
         ]) {
       when(() => tracker.beginRecovery()).thenAnswer((_) {});
       when(() => tracker.resetToNotSubscribed()).thenAnswer((_) {});
@@ -181,11 +181,11 @@ void main() {
     handler = buildStateMessageHandler(
       session: session,
       domains: <IStateDomainDefinition<Object?>>[
-        experience,
-        health,
-        magicka,
-        stamina,
-        level,
+        domainA,
+        domainB,
+        domainC,
+        domainD,
+        domainE,
       ],
     );
   });
@@ -194,35 +194,35 @@ void main() {
     test('Method handle routes every registered Snapshot by state area', () {
       handler.handle(
         buildSnapshotEnvelope(
-          area: 'character_xp',
+          area: 'area_a',
           revision: 1,
           data: const <String, dynamic>{'value': 42.5},
         ),
       );
       handler.handle(
         buildSnapshotEnvelope(
-          area: 'character_health',
+          area: 'area_b',
           revision: 2,
           data: const <String, dynamic>{'value': 87.5},
         ),
       );
       handler.handle(
         buildSnapshotEnvelope(
-          area: 'character_magicka',
+          area: 'area_c',
           revision: 3,
           data: const <String, dynamic>{'value': 31.25},
         ),
       );
       handler.handle(
         buildSnapshotEnvelope(
-          area: 'character_stamina',
+          area: 'area_d',
           revision: 4,
           data: const <String, dynamic>{'value': 15},
         ),
       );
       handler.handle(
         buildSnapshotEnvelope(
-          area: 'character_level',
+          area: 'area_e',
           revision: 5,
           data: const <String, dynamic>{'value': 10},
         ),
@@ -230,58 +230,58 @@ void main() {
 
       expect(
         (verify(
-                  () => experience.applySnapshot(
+                  () => domainA.applySnapshot(
                     envelope: any(named: 'envelope'),
                     payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
                 as StateSnapshotPayload)
             .stateArea,
-        'character_xp',
+        'area_a',
       );
       expect(
         (verify(
-                  () => health.applySnapshot(
+                  () => domainB.applySnapshot(
                     envelope: any(named: 'envelope'),
                     payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
                 as StateSnapshotPayload)
             .stateArea,
-        'character_health',
+        'area_b',
       );
       expect(
         (verify(
-                  () => magicka.applySnapshot(
+                  () => domainC.applySnapshot(
                     envelope: any(named: 'envelope'),
                     payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
                 as StateSnapshotPayload)
             .stateArea,
-        'character_magicka',
+        'area_c',
       );
       expect(
         (verify(
-                  () => stamina.applySnapshot(
+                  () => domainD.applySnapshot(
                     envelope: any(named: 'envelope'),
                     payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
                 as StateSnapshotPayload)
             .stateArea,
-        'character_stamina',
+        'area_d',
       );
       expect(
         (verify(
-                  () => level.applySnapshot(
+                  () => domainE.applySnapshot(
                     envelope: any(named: 'envelope'),
                     payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
                 as StateSnapshotPayload)
             .stateArea,
-        'character_level',
+        'area_e',
       );
       verifyNever(
         () => session.onProtocolViolation(
@@ -336,33 +336,33 @@ void main() {
     test(
       'Method handle ignores state messages for removed areas and resets their trackers',
       () {
-        handler.setSubscribedStateAreas(<String>{'character_health'});
+        handler.setSubscribedStateAreas(<String>{'area_b'});
 
         handler.handle(
           buildSnapshotEnvelope(
-            area: 'character_xp',
+            area: 'area_a',
             revision: 2,
             data: const <String, dynamic>{'value': 42.5},
           ),
         );
         handler.handle(
           buildEventEnvelope(
-            area: 'character_xp',
+            area: 'area_a',
             baseRevision: 1,
             revision: 2,
             data: const <String, dynamic>{'value': 42.5},
           ),
         );
 
-        verify(() => experienceTracker.resetToNotSubscribed()).called(1);
+        verify(() => trackerA.resetToNotSubscribed()).called(1);
         verifyNever(
-          () => experience.applySnapshot(
+          () => domainA.applySnapshot(
             envelope: any(named: 'envelope'),
             payload: any(named: 'payload'),
           ),
         );
         verifyNever(
-          () => experience.applyEvent(
+          () => domainA.applyEvent(
             envelope: any(named: 'envelope'),
             payload: any(named: 'payload'),
           ),
@@ -381,7 +381,7 @@ void main() {
       () {
         handler.handle(
           buildEventEnvelope(
-            area: 'character_level',
+            area: 'area_e',
             baseRevision: 1,
             revision: 2,
             data: const <String, dynamic>{'value': 11},
@@ -390,13 +390,13 @@ void main() {
 
         final StateEventPayload payload =
             verify(
-                  () => level.applyEvent(
+                  () => domainE.applyEvent(
                     envelope: any(named: 'envelope'),
                     payload: captureAny(named: 'payload'),
                   ),
                 ).captured.single
                 as StateEventPayload;
-        expect(payload.stateArea, 'character_level');
+        expect(payload.stateArea, 'area_e');
         verifyNever(
           () => session.onProtocolViolation(
             any(),
@@ -513,7 +513,7 @@ void main() {
           retryable: false,
         );
         when(
-          () => health.applyEvent(
+          () => domainB.applyEvent(
             envelope: any(named: 'envelope'),
             payload: any(named: 'payload'),
           ),
@@ -521,7 +521,7 @@ void main() {
 
         handler.handle(
           buildEventEnvelope(
-            area: 'character_health',
+            area: 'area_b',
             baseRevision: 1,
             revision: 2,
             data: const <String, dynamic>{'value': 10},
@@ -546,7 +546,7 @@ void main() {
           retryable: false,
         );
         when(
-          () => health.applySnapshot(
+          () => domainB.applySnapshot(
             envelope: any(named: 'envelope'),
             payload: any(named: 'payload'),
           ),
@@ -554,7 +554,7 @@ void main() {
 
         handler.handle(
           buildSnapshotEnvelope(
-            area: 'character_health',
+            area: 'area_b',
             revision: 1,
             data: const <String, dynamic>{'value': 10},
           ),
@@ -603,14 +603,14 @@ void main() {
     test(
       'Method setSubscribedStateAreas marks newly accepted areas as recovering',
       () {
-        clearInteractions(healthTracker);
-        clearInteractions(experienceTracker);
+        clearInteractions(trackerB);
+        clearInteractions(trackerA);
         handler.setSubscribedStateAreas(<String>{});
-        handler.setSubscribedStateAreas(<String>{'character_health'});
-        handler.setSubscribedStateAreas(<String>{'character_health'});
+        handler.setSubscribedStateAreas(<String>{'area_b'});
+        handler.setSubscribedStateAreas(<String>{'area_b'});
 
-        verify(() => healthTracker.beginRecovery()).called(1);
-        verifyNever(() => experienceTracker.beginRecovery());
+        verify(() => trackerB.beginRecovery()).called(1);
+        verifyNever(() => trackerA.beginRecovery());
       },
     );
   });

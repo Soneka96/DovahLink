@@ -5,6 +5,7 @@ library;
 
 export 'src/dovahlink_client.dart' show DovahLinkClient;
 export 'src/dovahlink_connections.dart' show IDovahLinkConnections;
+export 'src/dovahlink_character.dart' show IDovahLinkCharacter;
 export 'src/dovahlink_current_host.dart' show IDovahLinkCurrentHost;
 export 'src/dovahlink_compatibility_exception.dart'
     show DovahLinkCompatibilityException;
@@ -59,14 +60,8 @@ export 'src/persistence/client_storage.dart' show IClientStorage;
 export 'src/persistence/persisted_client_state.dart' show PersistedClientState;
 export 'src/persistence/unsupported_client_storage.dart'
     show UnsupportedClientStorage;
-export 'src/state/character_health_state.dart' show CharacterHealthState;
-export 'src/state/character_health_max_state.dart' show CharacterHealthMaxState;
 export 'src/state/character_level_state.dart' show CharacterLevelState;
-export 'src/state/character_magicka_state.dart' show CharacterMagickaState;
-export 'src/state/character_magicka_max_state.dart'
-    show CharacterMagickaMaxState;
-export 'src/state/character_stamina_state.dart' show CharacterStaminaState;
-export 'src/state/character_stamina_max_state.dart'
-    show CharacterStaminaMaxState;
+export 'src/state/character_vital.dart' show CharacterVital;
+export 'src/state/character_vitals_state.dart' show CharacterVitalsState;
 export 'src/state/character_xp_state.dart' show CharacterXpState;
 export 'src/state/state_synchronization.dart' show StateSynchronization;

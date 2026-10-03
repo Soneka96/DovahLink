@@ -63,16 +63,7 @@ void main() {
         DovahLinkStateArea.values.map(
           (DovahLinkStateArea area) => area.protocolValue,
         ),
-        <String>[
-          'character_xp',
-          'character_health',
-          'character_magicka',
-          'character_stamina',
-          'character_level',
-          'character_health_max',
-          'character_magicka_max',
-          'character_stamina_max',
-        ],
+        <String>['character_xp', 'character_vitals', 'character_level'],
       );
     });
 

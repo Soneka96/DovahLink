@@ -33,14 +33,14 @@ void main() {
       () {
         final StateSnapshotPayload payload = StateSnapshotPayload.fromJson(
           <String, dynamic>{
-            'stateArea': 'character_health',
+            'stateArea': 'synthetic_area',
             'revision': 1,
             'occurredAt': '2026-08-11T12:00:00Z',
             'data': <String, dynamic>{'value': 87.5},
           },
         );
 
-        expect(payload.stateArea, 'character_health');
+        expect(payload.stateArea, 'synthetic_area');
         expect(payload.data, <String, dynamic>{'value': 87.5});
       },
     );

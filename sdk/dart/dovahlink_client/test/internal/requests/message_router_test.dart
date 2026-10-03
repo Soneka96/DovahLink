@@ -158,7 +158,7 @@ void main() {
           rawEnvelope(
             messageType: 'state_snapshot',
             payload: const <String, dynamic>{
-              'stateArea': 'character_health',
+              'stateArea': 'area_a',
               'revision': 2,
               'occurredAt': '2026-09-23T12:00:00Z',
               'data': <String, dynamic>{'value': 90.0},
@@ -195,7 +195,7 @@ void main() {
           rawEnvelope(
             messageType: 'state_snapshot',
             payload: const <String, dynamic>{
-              'stateArea': 'character_health',
+              'stateArea': 'area_a',
               'revision': 2,
               'occurredAt': '2026-09-23T12:00:00Z',
               'data': <String, dynamic>{'value': 90.0},
