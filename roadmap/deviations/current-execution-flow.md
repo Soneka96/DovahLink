@@ -39,11 +39,12 @@ active deviations.
 
    Tapping an Offline Known Host opens an informational “Skyrim isn’t running” dialog from the real
    offline projection; it does not select the Host or start authentication.
-4. **Character Core Data Foundation — active.** Add maximum vitals, character name and identity
-   race, and typed supernatural traits through the existing Adapter, Host, protocol, and SDK
-   boundaries. This is a backend/data-contract phase; it adds no Flutter UI or playable-context
-   lifecycle. Identity-race and supernatural source semantics must be verified before those values
-   are captured. See the [Character Core Data Foundation deviation](character-core-data-foundation/README.md).
+4. **Character Core Data Foundation — active.** The current and effective maximum Health, Magicka,
+   and Stamina values now form one coherent `character_vitals` domain; XP and Level remain separate.
+   Character name, identity race, and supernatural traits are deferred until this architecture
+   correction is reviewed and their source semantics are verified. This remains backend/data-contract
+   work, with no Flutter UI or playable-context lifecycle. See the
+   [Character Core Data Foundation deviation](character-core-data-foundation/README.md).
 5. **Later — production LAN discovery and secure initial pairing.** Production LAN exposure and
    secure first contact remain gated by the security requirements and integration evidence. If an
    approved SAS profile preserves the current human interaction, pairing implementation changes

@@ -32,8 +32,10 @@ The fixed `CapturedPayload` capacity grows from 12 to 24 bytes because the coher
 now contains six float32 values; splitting those values into separate captures would lose the
 requested observation coherence.
 The Host continues to register and publish independently authoritative state areas through its
-existing machinery. The retired aggregate `character` state area stays retired, and existing
-`character_level` behavior is preserved.
+existing machinery. Current and effective maximum Health, Magicka, and Stamina form one coherent
+`character_vitals` domain. `character_xp` and `character_level` remain independent domains; the
+retired aggregate `character` area stays retired, and existing `character_level` behavior is
+preserved.
 
 No Flutter screens, location, game time, tracked quests, or gameplay-session/main-menu lifecycle
 are part of this deviation.
@@ -47,27 +49,24 @@ advance revisions only under the existing Host change/recovery rules.
 
 | State area | Meaning | Skyrim source / transformation rule | Cadence | Delivery | Unavailable behavior |
 | --- | --- | --- | --- | --- | --- |
-| `character_health_max` | Current effective maximum Health actor value, in Skyrim's raw single-precision units | The same player read as current Vitals; use CommonLibSSE-NG 9.0.0 `Actor::GetActorValueMax(kHealth)`. Its pinned implementation returns permanent actor value plus the temporary actor-value modifier. Keep the raw result, including values outside UI expectations. | Fast, same coherent capture as current Health/Magicka/Stamina | Snapshot | `value: null` when player or actor-value access is unavailable |
-| `character_magicka_max` | Current effective maximum Magicka actor value, in raw units | Same coherent player read; `Actor::GetActorValueMax(kMagicka)` | Fast, same coherent Vitals capture | Snapshot | `value: null` when player or actor-value access is unavailable |
-| `character_stamina_max` | Current effective maximum Stamina actor value, in raw units | Same coherent player read; `Actor::GetActorValueMax(kStamina)` | Fast, same coherent Vitals capture | Snapshot | `value: null` when player or actor-value access is unavailable |
-| `character_name` | Actual player character display name; JSON string in `value` | Read from the underlying player `TESNPC` identity record's full name, not Windows/device metadata or a synthesized label. A missing identity, null name, or empty name remains unavailable. | Requested slow behavior at approximately 1 Hz, using the existing Medium interval because the Host currently has no Slow `RateClass` | Snapshot | `value: null` when player identity/name is unavailable |
-| `character_race` | Localized race display name from the running game; JSON string in `value` | Candidate source is the identity/base `TESNPC` race's localized full name, not the current runtime race. CommonLibSSE-NG 9.0.0 `Actor::GetRace()` returns the actor's runtime race when set before falling back to base race, so it is not sufficient evidence. Confirm the base-record source across transformations and legitimate RaceMenu changes before publishing. | Requested slow behavior at approximately 1 Hz, using existing Medium interval; no Slow `RateClass` currently exists | Snapshot | `value: null` when authoritative player identity/race or usable display name is unavailable |
-| `character_supernatural_traits` | An object in `value` with required boolean fields `isVampire`, `hasVampireLordForm`, and `isWerewolf` | Traits mean character status/capability, not current transformation. They may combine; do not normalize one field from another. The exact authoritative Skyrim predicates for each field are an implementation gate and must be documented from source/API evidence before capture is added. | Requested slow behavior at approximately 1 Hz, using existing Medium interval; no Slow `RateClass` currently exists | Snapshot | `value: null` when authoritative player state is unavailable; available all-false is distinct |
+| `character_vitals` | Current and effective maximum Health, Magicka, and Stamina; each resource contains numeric `current` and `max` values | One coherent read from the same player observation. Current values use `ActorValueOwner::GetActorValue`; each maximum uses CommonLibSSE-NG 9.0.0 `Actor::GetActorValueMax`. Preserve raw single-precision values without UI clamping. | Fast, one coherent capture | Snapshot | `value: null` for the whole domain when the player or any required actor value is unavailable |
+| `character_identity` (future candidate; not implemented) | Candidate grouping for player name, identity race, and supernatural traits, if they share one authoritative capture and lifecycle | Name comes from the player identity record, not device metadata or a synthesized label. Identity race must not be inferred from the current runtime race. Traits mean independent character statuses/capabilities; they may combine and must not imply one another. Confirm every source and predicate from supported Skyrim/API evidence before publishing. | To be decided from verified source cadence and shared lifecycle; no Slow `RateClass` currently exists | Snapshot candidate only if shared semantics are established | To be defined from the authoritative capture; never synthesize plausible defaults |
 
 The public value shapes are:
 
 ```json
-{"value": 410.0}
+{"value": {"health": {"current": 327.0, "max": 410.0}, "magicka": {"current": 180.0, "max": 250.0}, "stamina": {"current": 120.0, "max": 190.0}}}
 {"value": "localized or modded display name"}
 {"value": {"isVampire": true, "hasVampireLordForm": true, "isWerewolf": false}}
 ```
 
-Maximum, name, and race areas use a JSON number or string respectively. The supernatural object
-requires all three booleans when available; it is never a single enum or a partially available
-object. Examples are value-shape illustrations only; the canonical public schema is updated when
-the corresponding implementation is added.
+The first object is the current `character_vitals` value. The following values illustrate possible
+identity members only; `character_identity` is not implemented or part of the current protocol
+schema. Its eventual grouping and value shape depend on verified shared capture and availability
+semantics. An available supernatural-traits value requires all three booleans; do not substitute a
+single enum or a partially available object.
 
-Maximum values are sent as Skyrim reports them: no percentage conversion, `0..100` clamp, or
+Vitals values are sent as Skyrim reports them: no percentage conversion, `0..100` clamp, or
 current-versus-maximum normalization. The pinned CommonLibSSE-NG 9.0.0 port is commit
 `5decf47b01dde5501b03afaa91cd4d182e793cca` in `tooling/vcpkg-ports/commonlibsse-ng-flatrim/`.
 Its `RE::Actor::GetActorValueMax` implementation is in `src/RE/A/Actor.cpp` and returns
@@ -101,13 +100,18 @@ the actual supported CommonLibSSE-NG / Skyrim APIs. In particular, the current a
 identity race. If a robust identity-race source or any of the three independent trait predicates
 cannot be established, omit that portion and report the ambiguity; do not ship guessed semantics.
 
-## Planned public areas
+## Current and future public areas
 
-Existing registered areas stay unchanged: `character_xp`, `character_health`, `character_magicka`,
-`character_stamina`, and `character_level`. Additive areas are `character_health_max`,
-`character_magicka_max`, `character_stamina_max`, `character_name`, `character_race`, and
-`character_supernatural_traits`. No aggregate `character` state area or duplicate level stream is
-introduced.
+The current protocol registers exactly `character_vitals`, `character_xp`, and `character_level`.
+The Vitals group shares one revision because all six values come from the same Fast capture and
+observation instant. XP remains independently authoritative, and Level retains its Event updates
+with an authoritative Snapshot baseline and recovery.
+
+Character name, identity race, and supernatural traits remain deferred. `character_identity` is a
+candidate domain only if repository and Skyrim-source investigation confirms they share capture
+source, observation coherence, cadence, authority, availability, revision, and recovery semantics.
+Otherwise split only the independently authoritative domains established by that evidence. Do not
+add a giant `character` state value or separate scalar areas for fields from one coherent capture.
 
 Each new area follows the same authority continuity, `playContextId`, revision, Snapshot recovery,
 subscription, stale-state, and invalidation semantics as existing state. The SDK exposes typed

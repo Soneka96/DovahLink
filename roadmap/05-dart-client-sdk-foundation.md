@@ -73,6 +73,11 @@ the explanation; the Host only advertises its version and does not reject SDK ve
 
 **Status:** Complete
 
+The initial per-scalar Vitals SDK streams were superseded before release by the Character data
+architecture correction. The current API groups domain streams under `client.currentHost.character`
+and exposes the coherent `character_vitals` state alongside independent XP and Level domains; the
+original acceptance description below records Phase 5.2's delivery at the time.
+
 Expose the Stage 4 synchronization kernel through curated typed models for the character Snapshot
 state areas (`character_xp`, `character_health`, `character_magicka`, and `character_stamina`) and
 `character_level` Event state. A state stream carries a typed value plus its domain
@@ -115,12 +120,12 @@ trusted connection
     -> UI reads AppState
 ```
 
-The proof surface shows the current XP, health, magicka, stamina, and level values, plus unavailable
-state, stale/recovering state, compatibility failure, connection lifecycle, and slow-consumer
-diagnostics without introducing the later theme system, dashboard customization, discovery, or
-mobile presentation work. The SDK may also expose a read-only composed resource view, but it must
-preserve the individual state-area synchronization statuses rather than claim an atomic combined
-revision.
+The proof surface shows current XP, the Health/Magicka/Stamina current and maximum values from one
+coherent Vitals Snapshot, and Level, plus unavailable state, stale/recovering state, compatibility
+failure, connection lifecycle, and slow-consumer diagnostics without introducing the later theme
+system, dashboard customization, discovery, or mobile presentation work. All six Vitals fields
+share the `character_vitals` domain's availability, synchronization status, and revision; do not
+model them as separate state areas or add a second composed resource view.
 
 #### 5.5 Version-Impact Audit and Stage 5 Closure
 
@@ -167,8 +172,8 @@ from the Dart SDK.
 - Shared protocol fixtures and Host/SDK tests prove complete-set subscription transitions, including
   adding and removing individual areas and clearing the set, and verify that removed areas stop
   publishing.
-- The minimal live-state proof demonstrates the character Snapshot domains and `character_level`
-  Event state, revision-gap recovery,
+- The minimal live-state proof demonstrates the coherent `character_vitals` Snapshot, independent
+  `character_xp` Snapshot, and `character_level` Event state, revision-gap recovery,
   ordinary reconnect restoration, administrative-invalidation dormancy, and incompatible-Host
   handling.
 - The manually invoked version-audit skill completes the phase's version/changelog/compatibility

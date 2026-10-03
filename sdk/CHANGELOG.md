@@ -29,6 +29,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Changed
 
+- Character gameplay streams now live under `client.currentHost.character`; coherent Vitals, XP,
+  and Level remain independent domains.
 - SDK client state v4 migrates v3 Known Hosts and defaults their new repair hint to false.
 - Known Host invalidation events carry the exact Host ID and administrative reason together for
   credential cleanup and SDK consumers.

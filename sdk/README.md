@@ -74,9 +74,9 @@ incompatible with the Phase 5.3 complete-set subscription API. The repository re
 Subscribe and unsubscribe calls update local desired intent before Host synchronization, so a failed
 request does not necessarily roll back the change; retained intent may be synchronized on a later
 trusted session, while intentional disconnect clears it.
-Phase 5.2 is complete: the public client exposes replayable typed
-state streams for XP, health, magicka, stamina, and level, backed by the SDK's state models,
-revision tracking, Snapshot handling, and level Event handling. Phase 5.3 is complete: callers have
+Phase 5.2 is complete: `client.currentHost.character` exposes replayable typed streams for coherent
+Vitals, XP, and Level domains, backed by the SDK's state models, revision tracking, Snapshot
+handling, and Level Event handling. Phase 5.3 is complete: callers have
 typed per-domain subscription intent, and the SDK restores the desired set after trusted recovery
 while keeping it dormant after administrative invalidation. Phase 5.4 wires SDK streams through
 Flutter middleware; Phase 5.5 audits version impact and closes Stage 5.

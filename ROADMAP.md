@@ -84,7 +84,8 @@ how progression resumes; they do not replace this roadmap or change its stage st
   2026-09-23, and a deterministic process-level test proves the Host/Adapter/public-client path using
   synthetic native captures. Phase 4.5 audited the complete Stage 4 range from the 0.3.2 baseline
   and recommends `0.4.0` for the incompatible Host/client contract changes; that release shipped on
-  2026-09-23.
+  2026-09-23. The current public grouping is `character_vitals` alongside independent Character XP
+  and Level domains.
 - **Security gate:** S2.2 ended **STOP**. The Pasini–Vaudenay SAS-AKE construction survives at the
   paper level, but no proof justifies composing it with DovahLink's Host/Client identity transcript,
   MACs, and pairing PoP; the exact KEM assumptions and lifetime retry bound also remain unresolved.

@@ -36,6 +36,6 @@ The main roadmap answers **“What is the normal product delivery order?”** De
   the production Flutter client with the approved prototype while preserving SDK/domain authority
   over real connection and pairing semantics.
 - [Character Core Data Foundation](character-core-data-foundation/README.md) — backend and
-  typed-contract work for trustworthy character identity, maximum vitals, and supernatural traits
-  before world-context and Overview convergence.
+  typed-contract work establishing coherent Character state domains before deferred identity,
+  world-context, and Overview convergence.
 - [Initial Pairing Security Investigation and Extraction](initial-pairing-security/README.md)
