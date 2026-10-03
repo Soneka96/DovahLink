@@ -15,19 +15,36 @@ class PairingDialog extends StatelessWidget {
   /// Whether [PairingSection] starts a new authentication when it is mounted.
   final bool startOnInit;
 
+  /// Whether a repair was already confirmed from the Connections card.
+  final bool requestCodeAfterConfirmedRepair;
+
   /// Creates the pairing dialog card.
   /// @param startOnInit Whether to start authentication when the dialog opens.
-  const PairingDialog({this.startOnInit = true, super.key});
+  /// @param requestCodeAfterConfirmedRepair Whether a previously confirmed repair skips its second
+  /// confirmation after authentication.
+  const PairingDialog({
+    this.startOnInit = true,
+    this.requestCodeAfterConfirmedRepair = false,
+    super.key,
+  });
 
   /// Shows the pairing dialog over [context]'s route, behind the shared blurred backdrop.
   /// @param context The route that hosts the dialog.
   /// @param startOnInit Whether to start authentication or reuse the active lifecycle.
+  /// @param requestCodeAfterConfirmedRepair Whether to continue a previously confirmed repair to
+  /// code request once the Host reports the rejected credential.
   /// @return Completes when the dialog is dismissed.
-  static Future<void> show(BuildContext context, {bool startOnInit = true}) =>
-      DovahDialog.showBuilder<void>(
-        context,
-        builder: (BuildContext _) => PairingDialog(startOnInit: startOnInit),
-      );
+  static Future<void> show(
+    BuildContext context, {
+    bool startOnInit = true,
+    bool requestCodeAfterConfirmedRepair = false,
+  }) => DovahDialog.showBuilder<void>(
+    context,
+    builder: (BuildContext _) => PairingDialog(
+      startOnInit: startOnInit,
+      requestCodeAfterConfirmedRepair: requestCodeAfterConfirmedRepair,
+    ),
+  );
 
   /// See [StatelessWidget.build].
   @override
@@ -39,7 +56,10 @@ class PairingDialog extends StatelessWidget {
       builder: (BuildContext context, PairingDialogViewModel viewModel) =>
           DovahDialog(
             title: viewModel.title,
-            child: PairingSection(startOnInit: startOnInit),
+            child: PairingSection(
+              startOnInit: startOnInit,
+              requestCodeAfterConfirmedRepair: requestCodeAfterConfirmedRepair,
+            ),
           ),
     );
   }

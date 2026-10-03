@@ -54,7 +54,7 @@ void main() {
   });
 
   Widget buildWidget({
-    String label = 'Send Code Again',
+    String label = 'Show code again in Skyrim',
     String? cooldownLabel,
   }) => MaterialApp(
     theme: dovahThemeDataFor(DovahThemePreset.dovah),
@@ -88,7 +88,7 @@ void main() {
         );
         expect(button.onPressed, isNotNull);
         expect(button.variant, DovahButtonVariant.quiet);
-        expect(find.text('Send Code Again'), findsOneWidget);
+        expect(find.text('Show code again in Skyrim'), findsOneWidget);
       },
     );
 
@@ -101,7 +101,7 @@ void main() {
           find.byType(DovahButton),
         );
         expect(button.onPressed, isNull);
-        expect(find.text('Send Code Again (3s)'), findsOneWidget);
+        expect(find.text('Show code again in Skyrim (3s)'), findsOneWidget);
       },
     );
 
@@ -114,7 +114,7 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
 
-        expect(find.text('Sent · try again in 3s'), findsOneWidget);
+        expect(find.text('Shown in Skyrim · 3s'), findsOneWidget);
         expect(
           tester.widget<DovahButton>(find.byType(DovahButton)).onPressed,
           isNull,
@@ -134,7 +134,7 @@ void main() {
 
         await tester.pumpWidget(buildWidget());
 
-        expect(find.text('Send Code Again · code sent'), findsOneWidget);
+        expect(find.text('Shown in Skyrim'), findsOneWidget);
         expect(
           tester.widget<DovahButton>(find.byType(DovahButton)).onPressed,
           isNotNull,
@@ -155,7 +155,7 @@ void main() {
           find.byType(DovahButton),
         );
         expect(button.onPressed, isNull);
-        expect(find.text('Sending to Skyrim…'), findsOneWidget);
+        expect(find.text('Showing in Skyrim…'), findsOneWidget);
       },
     );
 
@@ -251,7 +251,7 @@ void main() {
           tester.widget<DovahButton>(find.byType(DovahButton)).onPressed,
           isNotNull,
         );
-        expect(find.text('Send Code Again'), findsOneWidget);
+        expect(find.text('Show code again in Skyrim'), findsOneWidget);
       },
     );
   });

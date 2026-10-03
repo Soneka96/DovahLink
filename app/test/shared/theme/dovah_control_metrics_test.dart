@@ -65,6 +65,10 @@ void main() {
         DovahControlMetrics.liftDuration,
         const Duration(milliseconds: 180),
       );
+      expect(
+        DovahControlMetrics.materialHoverDuration,
+        const Duration(milliseconds: 250),
+      );
       expect(DovahControlMetrics.focusOutlineWidth, isA<double>());
       expect(DovahControlMetrics.focusOutlineWidth, 2);
       expect(DovahControlMetrics.focusOutlineOffset, isA<double>());

@@ -23,11 +23,19 @@ class PairingCodeForm extends StatefulWidget {
   /// Buttons laid out before the primary button in the action row, such as cancel.
   final List<Widget> secondaryActions;
 
+  /// A code-redisplay action shown between the message slot and the action row.
+  final Widget? renotifyAction;
+
+  /// Whether a retryable Host rejection clears the submitted code and restores focus to the field.
+  final bool clearCodeOnError;
+
   /// Creates a pairing code form.
   const PairingCodeForm({
     required this.onSubmit,
     this.errorMessage,
     this.secondaryActions = const <Widget>[],
+    this.renotifyAction,
+    this.clearCodeOnError = false,
     super.key,
   });
 
@@ -54,6 +62,9 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
   /// change, or `null`. Takes the message slot ahead of [PairingCodeForm.errorMessage].
   String? _incompleteCodeMessage;
 
+  /// Suppresses the input/focus listeners while a rejected code is being cleared.
+  bool _resettingForExternalError = false;
+
   /// Whether the entered code has all [pairingCodeLength] digits.
   bool get _isComplete => _codeController.text.length == pairingCodeLength;
 
@@ -64,6 +75,9 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
     // Rebuild for code/selection changes (boxes, button, and focus halo), clear local validation,
     // and hide an external error only after the text itself changes.
     _codeController.addListener(() {
+      if (_resettingForExternalError) {
+        return;
+      }
       final String currentText = _codeController.text;
       final bool textChanged = currentText != _lastText;
       _lastText = currentText;
@@ -74,15 +88,29 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
         }
       });
     });
-    _codeFocusNode.addListener(() => setState(() {}));
+    _codeFocusNode.addListener(() {
+      if (!_resettingForExternalError) {
+        setState(() {});
+      }
+    });
   }
 
   /// See [State.didUpdateWidget].
   @override
   void didUpdateWidget(covariant PairingCodeForm oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (widget.errorMessage != oldWidget.errorMessage) {
+    if (widget.errorMessage != oldWidget.errorMessage ||
+        widget.clearCodeOnError != oldWidget.clearCodeOnError) {
       _editedSinceError = false;
+      if (widget.clearCodeOnError && widget.errorMessage != null) {
+        _resettingForExternalError = true;
+        _codeController.clear();
+        _lastText = '';
+        _incompleteCodeMessage = null;
+        _codeFocusNode.requestFocus();
+        _editedSinceError = false;
+        _resettingForExternalError = false;
+      }
     }
   }
 
@@ -166,6 +194,10 @@ class _PairingCodeFormState extends State<PairingCodeForm> {
           key: const Key('pairing-code-message'),
           message: message,
         ),
+        if (widget.renotifyAction != null) ...[
+          SizedBox(height: metrics.renotifyTopGap),
+          UnconstrainedBox(child: widget.renotifyAction!),
+        ],
         SizedBox(height: metrics.actionsTopGap),
         Wrap(
           alignment: WrapAlignment.center,

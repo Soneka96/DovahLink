@@ -109,7 +109,10 @@ class DovahDialog extends StatelessWidget {
                       ),
                     ),
                     IconButton(
-                      icon: Icon(Icons.close, color: tokens.textMuted),
+                      icon: Text(
+                        '×',
+                        style: TextStyle(color: tokens.textMuted, fontSize: 25),
+                      ),
                       onPressed:
                           onClose ?? () => Navigator.of(context).maybePop(),
                       tooltip: 'Close',

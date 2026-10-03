@@ -65,6 +65,9 @@ class RootHeader extends StatelessWidget {
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: tokens.textPrimary,
+                            fontFamily: DovahThemeTokens.bodyFontFamily,
+                            fontFamilyFallback:
+                                DovahThemeTokens.bodyFontFamilyFallback,
                             fontSize: DovahRootMetrics.brandNameFontSize,
                             height: DovahThemeTokens.bodyLineHeight,
                             fontWeight: FontWeight.w800,
@@ -77,13 +80,13 @@ class RootHeader extends StatelessWidget {
                           height: DovahRootMetrics.brandTaglineTopGap,
                         ),
                         Text(
-                          'SKYRIM COMPANION',
+                          'LIVING LINK · SKYRIM COMPANION',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
                             color: tokens.brandTagline,
                             fontSize: DovahRootMetrics.brandTaglineFontSize,
-                            height: DovahThemeTokens.bodyLineHeight,
+                            height: DovahRootMetrics.brandTaglineLineHeight,
                             fontWeight: FontWeight.w700,
                             letterSpacing:
                                 metrics.brandTaglineLetterSpacingEm *

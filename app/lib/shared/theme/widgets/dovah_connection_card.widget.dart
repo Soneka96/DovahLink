@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_connection_card_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_connection_accent.dart';
@@ -73,6 +74,12 @@ class DovahConnectionCard extends StatelessWidget {
         : 0;
     final DovahConnectionAccent accent =
         context.dovahMaterials.connectionAccent;
+    final Color restingBorder =
+        accent.restingBorder ??
+        context.dovahMaterials.surface.borderColor ??
+        tokens.lineSubtle;
+    final Color raisedBorder =
+        context.dovahMaterials.raised.borderColor ?? tokens.accentPrimary;
     final bool available = state == DovahConnectionCardState.available;
     final bool uppercase = tokens.uppercaseLabels;
     final double? uppercaseSpacing = uppercase
@@ -112,7 +119,9 @@ class DovahConnectionCard extends StatelessWidget {
                   role: hovered
                       ? DovahMaterialRole.raised
                       : DovahMaterialRole.surface,
-                  borderColor: hovered ? null : accent.restingBorder,
+                  borderColor: hovered ? raisedBorder : restingBorder,
+                  borderTransitionDuration:
+                      DovahControlMetrics.materialHoverDuration,
                   underlay: accent.drawsNothing
                       ? null
                       : DovahConnectionAccentPainter(

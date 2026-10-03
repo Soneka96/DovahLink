@@ -17,6 +17,40 @@ class _UnknownErrorWithUnsafeToString implements Exception {
 
 /// Exercises stable labels for every enum declared in `shared/constants/enums.dart`.
 void main() {
+  group('PairingFailureOutcome exposes prototype copy', () {
+    test('invalid code includes the Host-reported attempts remaining', () {
+      expect(
+        PairingFailureOutcome.invalid.message(attemptsRemaining: 1),
+        'That code isn’t correct. 1 attempt remaining.',
+      );
+      expect(
+        PairingFailureOutcome.invalid.message(),
+        'That code isn’t correct.',
+      );
+    });
+
+    test('expired and attempt-limit outcomes use actionable copy', () {
+      expect(
+        PairingFailureOutcome.expired.message(),
+        'The code is no longer valid. Ask Skyrim for a new one to continue.',
+      );
+      expect(
+        PairingFailureOutcome.hardLimitReached.message(),
+        'This pairing code can no longer be used. Request a new code from Skyrim to try again.',
+      );
+    });
+  });
+
+  group('PairingRenotifyOutcome exposes prototype copy', () {
+    test('renotified outcome reports the Host-provided retry interval', () {
+      expect(
+        PairingRenotifyOutcome.renotified.message(retryAfterSeconds: 5),
+        'Shown in Skyrim · 5s',
+      );
+      expect(PairingRenotifyOutcome.renotified.message(), 'Shown in Skyrim');
+    });
+  });
+
   group(
     'Behavior values in PairingCredentialRejectionReason behave correctly',
     () {

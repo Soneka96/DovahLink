@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_control_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
@@ -46,6 +47,71 @@ DovahPanelClipper findSurfaceClipper(WidgetTester tester) =>
 /// Exercises [DovahSurface] across every DovahLink theme, material role, and representative
 /// landscape size.
 void main() {
+  testWidgets(
+    'DovahSurface animates border changes over the requested duration',
+    (WidgetTester tester) async {
+      late StateSetter setSurface;
+      bool hovered = false;
+      await pumpDovahThemedWidget(
+        tester,
+        StatefulBuilder(
+          builder: (BuildContext context, StateSetter setState) {
+            setSurface = setState;
+            return DovahSurface(
+              borderColor: hovered ? Colors.blue : Colors.red,
+              borderTransitionDuration:
+                  DovahControlMetrics.materialHoverDuration,
+              child: const Text('Animated border'),
+            );
+          },
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+      expect(findSurfacePainter(tester).material.borderColor, Colors.red);
+
+      setSurface(() => hovered = true);
+      await tester.pump();
+      expect(findSurfacePainter(tester).material.borderColor, Colors.red);
+      await tester.pump(DovahControlMetrics.materialHoverDuration);
+
+      expect(findSurfacePainter(tester).material.borderColor, Colors.blue);
+    },
+  );
+
+  testWidgets(
+    'DovahSurface applies border changes immediately for reduced motion',
+    (WidgetTester tester) async {
+      late StateSetter setSurface;
+      bool hovered = false;
+      await pumpDovahThemedWidget(
+        tester,
+        MediaQuery(
+          data: const MediaQueryData(disableAnimations: true),
+          child: StatefulBuilder(
+            builder: (BuildContext context, StateSetter setState) {
+              setSurface = setState;
+              return DovahSurface(
+                borderColor: hovered ? Colors.blue : Colors.red,
+                borderTransitionDuration:
+                    DovahControlMetrics.materialHoverDuration,
+                child: const Text('Reduced motion border'),
+              );
+            },
+          ),
+        ),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+      expect(findSurfacePainter(tester).material.borderColor, Colors.red);
+
+      setSurface(() => hovered = true);
+      await tester.pump();
+
+      expect(findSurfacePainter(tester).material.borderColor, Colors.blue);
+    },
+  );
+
   group('DovahSurface renders correctly', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final Size size in dovahTestSizes) {

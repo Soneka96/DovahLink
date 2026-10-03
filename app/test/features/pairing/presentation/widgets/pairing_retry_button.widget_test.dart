@@ -8,16 +8,27 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 
 /// Builds [PairingRetryButton] inside a themed app.
-Widget buildWidget({VoidCallback? onRetry}) => MaterialApp(
-  theme: dovahThemeDataFor(DovahThemePreset.dovah),
-  home: Scaffold(
-    body: Center(child: PairingRetryButton(onRetry: onRetry ?? () {})),
-  ),
-);
+Widget buildWidget({VoidCallback? onRetry, String label = 'Try Again'}) =>
+    MaterialApp(
+      theme: dovahThemeDataFor(DovahThemePreset.dovah),
+      home: Scaffold(
+        body: Center(
+          child: PairingRetryButton(onRetry: onRetry ?? () {}, label: label),
+        ),
+      ),
+    );
 
 /// Exercises PairingRetryButton rendering and interaction.
 void main() {
   group('PairingRetryButton displays', () {
+    testWidgets('PairingRetryButton displays a supplied action label', (
+      WidgetTester tester,
+    ) async {
+      await tester.pumpWidget(buildWidget(label: 'Get a new code'));
+
+      expect(find.text('Get a new code'), findsOneWidget);
+    });
+
     testWidgets(
       'PairingRetryButton displays the Try Again label keyed pairing-retry-button',
       (WidgetTester tester) async {

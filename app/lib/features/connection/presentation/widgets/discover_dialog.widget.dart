@@ -93,7 +93,7 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
             viewModel.status == ConnectionDiscoveryStatus.failed;
         final String retryMessage = isFailure
             ? (viewModel.failure ?? ConnectionFailureReason.unknown).message
-            : 'No new local Hosts found.';
+            : 'No other Skyrim PCs found.';
         final Widget content =
             selectedCandidate != null &&
                 viewModel.pairingPhase == PairingPhase.disconnected
@@ -143,16 +143,33 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
                   Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(
-                        'Local Host found.',
-                        style: TextStyle(
-                          color: tokens.success,
-                          fontSize: DovahThemeTokens.compactFontSize,
-                          height: DovahThemeTokens.bodyLineHeight,
+                      Semantics(
+                        label: 'Local Host found.',
+                        liveRegion: true,
+                        excludeSemantics: true,
+                        child: Row(
+                          children: [
+                            Icon(
+                              Icons.circle,
+                              size: DovahDialogMetrics.discoveryStatusDotSize,
+                              color: tokens.success,
+                            ),
+                            const SizedBox(
+                              width: DovahDialogMetrics.progressStatusGap,
+                            ),
+                            Text(
+                              'Local Host found.',
+                              style: TextStyle(
+                                color: tokens.textMuted,
+                                fontSize: DovahThemeTokens.compactFontSize,
+                                height: DovahThemeTokens.bodyLineHeight,
+                              ),
+                            ),
+                          ],
                         ),
                       ),
                       const SizedBox(
-                        height: DovahDialogMetrics.progressStatusGap,
+                        height: DovahDialogMetrics.discoveryFoundToAvailableGap,
                       ),
                       Row(
                         children: [
@@ -173,11 +190,13 @@ class _DiscoverDialogState extends State<DiscoverDialog> {
                           ),
                           Expanded(
                             child: DecoratedBox(
+                              key: const Key('discover-available-rule'),
                               decoration: BoxDecoration(
                                 gradient: LinearGradient(
                                   colors: [
-                                    tokens.lineSubtle,
-                                    tokens.lineSubtle.withValues(alpha: 0),
+                                    tokens.ember,
+                                    tokens.signal,
+                                    tokens.signal.withValues(alpha: 0),
                                   ],
                                 ),
                               ),

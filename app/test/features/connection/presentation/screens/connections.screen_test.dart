@@ -242,7 +242,7 @@ void main() {
             expect(tester.takeException(), isNull);
             expect(find.byType(DovahEnvironmentBackground), findsOneWidget);
             expect(find.text('DOVAHLINK'), findsOneWidget);
-            expect(find.text('SKYRIM COMPANION'), findsOneWidget);
+            expect(find.text('LIVING LINK · SKYRIM COMPANION'), findsOneWidget);
             expect(find.text('YOUR SKYRIM'), findsOneWidget);
             expect(
               find.text(tokens.uppercaseLabels ? 'CONNECTIONS' : 'Connections'),
@@ -462,7 +462,36 @@ void main() {
     });
 
     testWidgets(
-      'ConnectionsScreen starts the existing Known Host pairing flow when Pair again is tapped',
+      'ConnectionsScreen reopens the trusted state without starting pairing',
+      (WidgetTester tester) async {
+        final HostCardViewData connectedCard = Fixtures.buildHostCardViewData(
+          source: ConnectionHostSelectionSource.knownHost,
+          state: DovahConnectionCardState.connected,
+          subtitle: 'Known Host',
+        );
+        when(() => viewModel.hostCards).thenReturn([connectedCard]);
+        when(() => pairingViewModel.phase).thenReturn(PairingPhase.trusted);
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(
+          find.byKey(Key('host-card-${connectedCard.host.hostId}')),
+        );
+        await tester.pumpAndSettle();
+
+        expect(find.text('You’re connected'), findsOneWidget);
+        final PairingDialog dialog = tester.widget<PairingDialog>(
+          find.byType(PairingDialog),
+        );
+        expect(dialog.startOnInit, isA<bool>());
+        expect(dialog.startOnInit, isFalse);
+        expect(selectedHosts, isEmpty);
+        expect(pairingCalls, isEmpty);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen asks before starting pairing from a Pair again card',
       (WidgetTester tester) async {
         final Host host = Fixtures.buildHost(displayName: 'Living Room PC');
         when(() => viewModel.hostCards).thenReturn([
@@ -478,12 +507,67 @@ void main() {
         await tester.pumpWidget(buildWidget());
 
         await tester.tap(find.byKey(Key('host-card-${host.hostId}')));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Pairing required'), findsOneWidget);
+        expect(find.text('Pair Living Room PC again'), findsOneWidget);
+        expect(
+          find.text(
+            'Your connection changed in Skyrim. Pair again to restore automatic connections.',
+          ),
+          findsOneWidget,
+        );
+        expect(find.text('Cancel'), findsOneWidget);
+        expect(selectedHosts, isEmpty);
+        expect(pairingCalls, isEmpty);
+        expect(find.byType(PairingDialog), findsNothing);
+
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+
+        expect(selectedHosts, isEmpty);
+        expect(pairingCalls, isEmpty);
+        expect(find.byType(PairingDialog), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'ConnectionsScreen starts the existing Known Host pairing flow after confirmation',
+      (WidgetTester tester) async {
+        final Host host = Fixtures.buildHost(displayName: 'Living Room PC');
+        when(() => viewModel.hostCards).thenReturn([
+          Fixtures.buildHostCardViewData(
+            host: host,
+            source: ConnectionHostSelectionSource.knownHost,
+            title: 'Living Room PC',
+            subtitle: 'Known Host',
+            state: DovahConnectionCardState.repair,
+          ),
+        ]);
+        await useSurface(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        await tester.tap(find.byKey(Key('host-card-${host.hostId}')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(DovahButton, 'Pair again'));
         await tester.pump();
 
         expect(selectedHosts, [host]);
         expect(selectedSources, [ConnectionHostSelectionSource.knownHost]);
         expect(pairingCalls, ['start']);
         expect(find.byType(PairingDialog), findsOneWidget);
+        expect(
+          tester
+              .widget<PairingDialog>(find.byType(PairingDialog))
+              .requestCodeAfterConfirmedRepair,
+          isTrue,
+        );
+        expect(
+          tester
+              .widget<PairingSection>(find.byType(PairingSection))
+              .requestCodeAfterConfirmedRepair,
+          isTrue,
+        );
       },
     );
 

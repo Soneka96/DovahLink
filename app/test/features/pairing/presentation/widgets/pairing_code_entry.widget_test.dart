@@ -16,6 +16,7 @@ import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Mocks the store the nested connectors subscribe to.
@@ -137,6 +138,17 @@ void main() {
       await pumpEntry(tester);
 
       expect(find.text('Code expires in 4:32'), findsOneWidget);
+      final Text countdown = tester.widget(
+        find.descendant(
+          of: find.byKey(const Key('pairing-code-countdown')),
+          matching: find.byType(Text),
+        ),
+      );
+      final TextSpan countdownSpan = countdown.textSpan! as TextSpan;
+      expect(
+        (countdownSpan.children!.last as TextSpan).style?.fontWeight,
+        FontWeight.w700,
+      );
     });
 
     testWidgets('PairingCodeEntry displays the reassurance note', (
@@ -165,10 +177,79 @@ void main() {
         );
 
         expect(
-          find.text(
-            "That code isn't correct. Check Skyrim and try again. 2 attempts remaining.",
-          ),
+          find.text('That code isn’t correct. 2 attempts remaining.'),
           findsOneWidget,
+        );
+      },
+    );
+
+    testWidgets(
+      'PairingCodeEntry clears a rejected code and focuses the field for retry',
+      (WidgetTester tester) async {
+        await pumpEntry(tester);
+        await tester.enterText(
+          find.byKey(const Key('pairing-code-field')),
+          '123456',
+        );
+        await tester.pump();
+
+        await pumpEntry(
+          tester,
+          failureOutcome: PairingFailureOutcome.invalid,
+          attemptsRemaining: 4,
+        );
+
+        final TextField field = tester.widget(
+          find.byKey(const Key('pairing-code-field')),
+        );
+        expect(field.controller!.text, isEmpty);
+        expect(field.focusNode!.hasFocus, isTrue);
+        expect(
+          find.text('That code isn’t correct. 4 attempts remaining.'),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<DovahButton>(
+                find.byKey(const Key('pairing-confirm-button')),
+              )
+              .onPressed,
+          isNull,
+        );
+      },
+    );
+
+    testWidgets(
+      'PairingCodeEntry clears a pacing-limited code and focuses the field for retry',
+      (WidgetTester tester) async {
+        await pumpEntry(tester);
+        await tester.enterText(
+          find.byKey(const Key('pairing-code-field')),
+          '123456',
+        );
+        await tester.pump();
+
+        await pumpEntry(
+          tester,
+          failureOutcome: PairingFailureOutcome.pacingLimited,
+        );
+
+        final TextField field = tester.widget(
+          find.byKey(const Key('pairing-code-field')),
+        );
+        expect(field.controller!.text, isEmpty);
+        expect(field.focusNode!.hasFocus, isTrue);
+        expect(
+          find.text('Slow down a little, then try again.'),
+          findsOneWidget,
+        );
+        expect(
+          tester
+              .widget<DovahButton>(
+                find.byKey(const Key('pairing-confirm-button')),
+              )
+              .onPressed,
+          isNull,
         );
       },
     );
@@ -176,7 +257,7 @@ void main() {
 
   group('PairingCodeEntry contains widgets', () {
     testWidgets(
-      'PairingCodeEntry contains the code field, Cancel, Send Code Again, and Pair actions in that order',
+      'PairingCodeEntry contains the code field, redisplay action, Cancel, and Pair in prototype order',
       (WidgetTester tester) async {
         await pumpEntry(tester);
 
@@ -190,8 +271,18 @@ void main() {
         final double pair = tester
             .getTopLeft(find.byKey(const Key('pairing-confirm-button')))
             .dx;
-        expect(cancel, lessThan(renotify));
-        expect(renotify, lessThan(pair));
+        expect(renotify, lessThan(cancel));
+        expect(cancel, lessThan(pair));
+        expect(
+          tester
+              .getBottomLeft(find.byKey(const Key('pairing-renotify-button')))
+              .dy,
+          lessThan(
+            tester
+                .getTopLeft(find.byKey(const Key('pairing-cancel-button')))
+                .dy,
+          ),
+        );
       },
     );
   });
@@ -260,7 +351,7 @@ void main() {
     for (final Size size in dovahResponsiveTestSizes) {
       final bool isCompact = size.height <= 620;
       testWidgets(
-        'PairingCodeEntry spaces the code row ${isCompact ? 3 : 6} below the countdown and the note ${isCompact ? 8 : 17} below the form at $size',
+        'PairingCodeEntry spaces the code row 10 below the countdown and the note ${isCompact ? 8 : 17} below the form at $size',
         (WidgetTester tester) async {
           await pumpEntry(tester, size: size);
 
@@ -269,7 +360,7 @@ void main() {
           final Rect note = tester.getRect(
             find.text('You’ll only need to do this once.'),
           );
-          expect(form.top - countdown.bottom, isCompact ? 3 : 6);
+          expect(form.top - countdown.bottom, 10);
           expect(note.top - form.bottom, isCompact ? 8 : 17);
         },
       );

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import 'package:flutter_redux/flutter_redux.dart';
@@ -215,9 +217,7 @@ void main() {
         await pumpSection(tester);
 
         expect(
-          find.text(
-            "That code isn't correct. Check Skyrim and try again. 2 attempts remaining.",
-          ),
+          find.text('That code isn’t correct. 2 attempts remaining.'),
           findsOneWidget,
         );
       },
@@ -234,9 +234,12 @@ void main() {
         await pumpSection(tester);
 
         expect(
-          find.text('That pairing code has expired. Request a new one.'),
+          find.text(
+            'The code is no longer valid. Ask Skyrim for a new one to continue.',
+          ),
           findsOneWidget,
         );
+        expect(find.text('Code expired'), findsOneWidget);
       },
     );
 
@@ -278,6 +281,94 @@ void main() {
         expect(find.byType(PairingProgress), findsNothing);
         expect(find.text('Pair Bedroom PC again'), findsOneWidget);
         expect(find.text('This device was revoked.'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'PairingSection requests a code after a repair was confirmed in Connections',
+      (WidgetTester tester) async {
+        when(() => viewModel.phase).thenReturn(PairingPhase.unpaired);
+        when(() => viewModel.isRepair).thenReturn(true);
+
+        await pumpSection(
+          tester,
+          section: const PairingSection(
+            startOnInit: false,
+            requestCodeAfterConfirmedRepair: true,
+          ),
+        );
+
+        expect(find.byType(PairingProgress), findsOneWidget);
+        expect(find.byType(PairingRepair), findsNothing);
+        expect(find.text('Requesting a code'), findsOneWidget);
+        expect(calls, ['requestCode']);
+      },
+    );
+
+    testWidgets(
+      'PairingSection requests again for a new confirmed repair attempt',
+      (WidgetTester tester) async {
+        final StreamController<AppState> states =
+            StreamController<AppState>.broadcast();
+        addTearDown(states.close);
+        when(() => store.onChange).thenAnswer((_) => states.stream);
+
+        MockPairingSectionViewModel stateViewModel(
+          PairingPhase phase, {
+          required bool isRepair,
+        }) {
+          final MockPairingSectionViewModel result =
+              MockPairingSectionViewModel();
+          when(() => result.phase).thenReturn(phase);
+          when(() => result.support).thenReturn(PairingSupport.available);
+          when(() => result.hostName).thenReturn('Bedroom PC');
+          when(() => result.error).thenReturn(null);
+          when(() => result.pairingOutcome).thenReturn(null);
+          when(() => result.attemptsRemaining).thenReturn(null);
+          when(() => result.renotifyOutcome).thenReturn(null);
+          when(() => result.isRepair).thenReturn(isRepair);
+          when(() => result.isBlocked).thenReturn(false);
+          when(() => result.isReconnecting).thenReturn(false);
+          when(() => result.canDismiss).thenReturn(true);
+          when(() => result.onStart).thenReturn(() {});
+          when(
+            () => result.onRequestCode,
+          ).thenReturn(() => calls.add('requestCode'));
+          when(() => result.onSubmitCode).thenReturn((String _) {});
+          when(() => result.onDispose).thenReturn(() {});
+          return result;
+        }
+
+        when(() => viewModel.phase).thenReturn(PairingPhase.none);
+        viewModel = stateViewModel(PairingPhase.none, isRepair: false);
+        await pumpSection(
+          tester,
+          section: const PairingSection(
+            startOnInit: false,
+            requestCodeAfterConfirmedRepair: true,
+          ),
+        );
+
+        viewModel = stateViewModel(PairingPhase.connecting, isRepair: false);
+        states.add(AppState.initial());
+        await tester.pump();
+        viewModel = stateViewModel(PairingPhase.unpaired, isRepair: true);
+        states.add(AppState.initial());
+        await tester.pump();
+        expect(calls, ['requestCode']);
+
+        viewModel = stateViewModel(PairingPhase.unpaired, isRepair: true);
+        states.add(AppState.initial());
+        await tester.pump();
+        expect(calls, ['requestCode']);
+
+        viewModel = stateViewModel(PairingPhase.connecting, isRepair: false);
+        states.add(AppState.initial());
+        await tester.pump();
+        viewModel = stateViewModel(PairingPhase.unpaired, isRepair: true);
+        states.add(AppState.initial());
+        await tester.pump();
+        expect(calls, ['requestCode', 'requestCode']);
       },
     );
 

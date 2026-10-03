@@ -1,4 +1,4 @@
-import 'package:flutter/painting.dart' show Size;
+import 'package:flutter/painting.dart' show Color, Size;
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -107,11 +107,16 @@ void main() {
   group('Property discovery candidate measures behave correctly', () {
     test('Property discovery candidate measures match the prototype', () {
       expect(DovahDialogMetrics.discoveryCandidateCardPadding, 15);
-      expect(DovahDialogMetrics.discoveryCandidateCardCornerRadius, 8);
       expect(DovahDialogMetrics.discoveryCandidateContentGap, 12);
       expect(DovahDialogMetrics.discoveryCandidateTitleFontSize, 14);
       expect(DovahDialogMetrics.discoveryCandidateSubtitleFontSize, 12);
       expect(DovahDialogMetrics.discoveryCandidateArrowFontSize, 24);
+      expect(
+        DovahDialogThemeMetrics.frostbound.discoveryCandidateCornerCutSize,
+        9,
+      );
+      expect(DovahDialogThemeMetrics.dovah.discoveryCandidateCornerRadius, 3);
+      expect(DovahDialogThemeMetrics.hearth.discoveryCandidateCornerRadius, 14);
     });
   });
 
@@ -133,8 +138,9 @@ void main() {
       expect(metrics.bodyBottomGap, 20);
       expect(metrics.codeBoxWidth, 49);
       expect(metrics.codeBoxHeight, 56);
-      expect(metrics.codeRowTopGap, 6);
+      expect(metrics.codeRowTopGap, 10);
       expect(metrics.codeRowBottomGap, 12);
+      expect(metrics.renotifyTopGap, 5);
       expect(metrics.messageMinHeight, 18);
       expect(metrics.actionsTopGap, 18);
       expect(metrics.noteTopGap, 17);
@@ -159,8 +165,9 @@ void main() {
       expect(metrics.bodyBottomGap, 10);
       expect(metrics.codeBoxWidth, 45);
       expect(metrics.codeBoxHeight, 48);
-      expect(metrics.codeRowTopGap, 3);
+      expect(metrics.codeRowTopGap, 10);
       expect(metrics.codeRowBottomGap, 6);
+      expect(metrics.renotifyTopGap, 5);
       expect(metrics.messageMinHeight, 14);
       expect(metrics.actionsTopGap, 7);
       expect(metrics.noteTopGap, 8);
@@ -208,10 +215,18 @@ void main() {
       () {
         expect(DovahDialogMetrics.successMarkSize, isA<double>());
         expect(DovahDialogMetrics.successMarkSize, 62);
+        expect(DovahDialogMetrics.successMarkTopGap, isA<double>());
+        expect(DovahDialogMetrics.successMarkTopGap, 2);
         expect(DovahDialogMetrics.successMarkBottomGap, isA<double>());
         expect(DovahDialogMetrics.successMarkBottomGap, 17);
+        expect(DovahDialogMetrics.successMarkTopGap, isA<double>());
+        expect(DovahDialogMetrics.successMarkTopGap, 2);
         expect(DovahDialogMetrics.successGlyphSize, isA<double>());
         expect(DovahDialogMetrics.successGlyphSize, 29);
+        expect(
+          DovahDialogMetrics.successMarkBaseColor,
+          const Color(0xFF6BD7A1),
+        );
         expect(DovahDialogMetrics.statusMarkFillOpacity, isA<double>());
         expect(DovahDialogMetrics.statusMarkFillOpacity, 0.1);
         expect(DovahDialogMetrics.statusMarkBorderOpacity, isA<double>());
@@ -220,8 +235,20 @@ void main() {
         expect(DovahDialogMetrics.progressIndicatorSize, 15);
         expect(DovahDialogMetrics.progressIndicatorStrokeWidth, isA<double>());
         expect(DovahDialogMetrics.progressIndicatorStrokeWidth, 2);
+        expect(
+          DovahDialogMetrics.progressIndicatorTrackColor,
+          const Color(0xFF2C3A45),
+        );
+        expect(
+          DovahDialogMetrics.progressIndicatorRotationDuration,
+          const Duration(seconds: 1),
+        );
         expect(DovahDialogMetrics.progressStatusGap, isA<double>());
         expect(DovahDialogMetrics.progressStatusGap, 10);
+        expect(DovahDialogMetrics.discoveryStatusDotSize, isA<double>());
+        expect(DovahDialogMetrics.discoveryStatusDotSize, 8);
+        expect(DovahDialogMetrics.discoveryFoundToAvailableGap, isA<double>());
+        expect(DovahDialogMetrics.discoveryFoundToAvailableGap, 18);
       },
     );
   });

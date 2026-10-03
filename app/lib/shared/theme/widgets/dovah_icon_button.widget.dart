@@ -20,11 +20,15 @@ class DovahIconButton extends StatelessWidget {
   /// Called when the button is tapped, or `null` to render it disabled.
   final VoidCallback? onPressed;
 
+  /// The visible control's width and height. The accessible tap target remains at least 48px.
+  final double size;
+
   /// Creates a themed icon-only button.
   const DovahIconButton({
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.size = DovahControlMetrics.iconButtonSize,
     super.key,
   });
 
@@ -66,8 +70,8 @@ class DovahIconButton extends StatelessWidget {
                       focused: focused,
                       cornerRadius: tokens.cornerRadius,
                       child: SizedBox(
-                        width: DovahControlMetrics.iconButtonSize,
-                        height: DovahControlMetrics.iconButtonSize,
+                        width: size,
+                        height: size,
                         child: DovahSurface(
                           role: DovahMaterialRole.control,
                           child: Center(

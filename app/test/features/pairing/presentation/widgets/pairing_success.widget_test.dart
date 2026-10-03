@@ -5,6 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_success.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
 /// Pumps a [PairingSuccess], counting completions into [dones].
@@ -48,6 +50,37 @@ void main() {
       );
       expect(find.byIcon(Icons.check), findsOneWidget);
     });
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'PairingSuccess keeps the prototype fill and border while coloring its check for $preset',
+        (WidgetTester tester) async {
+          await pumpSuccess(tester, preset: preset);
+          final Container mark = tester.widget(
+            find.byKey(const Key('pairing-success-mark')),
+          );
+          final BoxDecoration decoration = mark.decoration! as BoxDecoration;
+          final Border border = decoration.border! as Border;
+          final Color success = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!.success;
+
+          expect(
+            decoration.color,
+            DovahDialogMetrics.successMarkBaseColor.withValues(
+              alpha: DovahDialogMetrics.statusMarkFillOpacity,
+            ),
+          );
+          expect(
+            border.top.color,
+            DovahDialogMetrics.successMarkBaseColor.withValues(
+              alpha: DovahDialogMetrics.statusMarkBorderOpacity,
+            ),
+          );
+          expect(tester.widget<Icon>(find.byIcon(Icons.check)).color, success);
+        },
+      );
+    }
   });
 
   group('PairingSuccess calls callbacks', () {
@@ -131,6 +164,38 @@ void main() {
             tester.getTopLeft(find.byKey(const Key('pairing-heading'))).dy -
                 mark.bottom,
             17,
+          );
+        },
+      );
+
+      testWidgets(
+        'PairingSuccess puts the mark ${DovahDialogMetrics.successMarkTopGap} below its slot top at $size',
+        (WidgetTester tester) async {
+          await pumpSuccess(tester, size: size);
+
+          final Finder mark = find.byKey(const Key('pairing-success-mark'));
+          final Finder padding = find
+              .ancestor(of: mark, matching: find.byType(Padding))
+              .first;
+          expect(
+            tester.getTopLeft(mark).dy - tester.getTopLeft(padding).dy,
+            DovahDialogMetrics.successMarkTopGap,
+          );
+        },
+      );
+
+      testWidgets(
+        'PairingSuccess places its mark ${DovahDialogMetrics.successMarkTopGap}px below the content top at $size',
+        (WidgetTester tester) async {
+          await pumpSuccess(tester, size: size);
+
+          final Finder mark = find.byKey(const Key('pairing-success-mark'));
+          final Finder padding = find
+              .ancestor(of: mark, matching: find.byType(Padding))
+              .first;
+          expect(
+            tester.getTopLeft(mark).dy - tester.getTopLeft(padding).dy,
+            DovahDialogMetrics.successMarkTopGap,
           );
         },
       );

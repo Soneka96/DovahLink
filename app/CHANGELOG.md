@@ -36,19 +36,25 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Connections uses the approved prototype tagline and Discover details.
+- Pair again cards show the prototype confirmation before starting the existing pairing flow.
+- Pairing matches the prototype’s code redisplay row, countdown emphasis, confirmation copy, and expired or attempt-limit actions.
+- Pairing matches the prototype's code spacing, focus border, retry reset, success marks, loading ring, and single repair confirmation while keeping expiry and cooldown Host-driven.
 - Pairing preserves Host-reported wrong-code attempts, terminal outcomes, and code-redisplay
   status through app state.
+- Discover marks a found Host with the prototype's success dot and uses concise,
+  user-facing empty-state copy (“No other Skyrim PCs found.”).
 - Known Host cards use the prototype's text chevron glyph for their entry affordance.
 - Offline Known Host cards open the prototype's status dialog without starting authentication.
-- Connections enables entry only for Online Known Hosts; Connected, Offline, Reconnecting, Checking,
-  and Unknown states remain visible without an entry affordance.
+- Connections routes Online and Pair again cards through authentication, while Connected cards
+  reopen the current pairing state without restarting authentication.
 - Connections lists durable Known Hosts separately from ephemeral discovery candidates.
 - Discover shows “Local Host found.” after real candidates arrive and keeps authentication and any
   required pairing inside the same modal flow.
 - Already trusted candidates close Discover without reopening Pairing; unpaired candidates continue
   into the existing pairing flow after the SDK outcome.
-- Discover candidate cards use the nearby-card shape, primary hover accent, compact icon metrics, and
-  disabled checking treatment.
+- Discover candidate cards use theme-specific prototype geometry and hover transitions, compact icon
+  metrics, and the disabled checking treatment.
 - Discover candidate cards are disabled while another pairing lifecycle is active.
 - Closing Discover during embedded pairing dispatches one cleanup, while Done preserves the trusted
   session.

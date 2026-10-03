@@ -7,14 +7,21 @@ class PairingRetryButton extends StatelessWidget {
   /// Called when the button is pressed.
   final VoidCallback onRetry;
 
+  /// The action label.
+  final String label;
+
   /// Creates a retry button.
-  const PairingRetryButton({required this.onRetry, super.key});
+  const PairingRetryButton({
+    required this.onRetry,
+    this.label = 'Try Again',
+    super.key,
+  });
 
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) => DovahButton(
     key: const Key('pairing-retry-button'),
-    label: 'Try Again',
+    label: label,
     onPressed: onRetry,
   );
 }

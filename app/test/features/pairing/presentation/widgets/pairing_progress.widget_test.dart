@@ -91,8 +91,13 @@ void main() {
     ) async {
       await pumpProgress(tester, phase: PairingPhase.confirming);
 
-      expect(find.text('Confirming'), findsOneWidget);
-      expect(find.text('Confirming…'), findsOneWidget);
+      expect(find.text('Finishing setup…'), findsOneWidget);
+      expect(
+        find.text('Saving this trusted connection securely.'),
+        findsOneWidget,
+      );
+      expect(find.byType(PairingLoadingIndicator), findsOneWidget);
+      expect(find.text('Confirming…'), findsNothing);
     });
 
     testWidgets(
