@@ -1,9 +1,10 @@
 # Prototype → Flutter Convergence
 
-**Status:** Active — design/material foundations are complete; canonical Connections / Discover
-convergence still has documented Session Shell and Known Host repair-state gaps. Broader historical
-connection/pairing slices remain paused for re-planning. Local Host discovery, Known Host lifecycle,
-and runtime availability foundations are established.
+**Status:** Partial — the approved Connections → Discover → Pairing → Session Shell journey is
+implemented and its documented SDK/app truth is projected into the UI. Pixel-level visual parity
+remains unverified because Flutter screenshots were not available for comparison with the external
+approved prototype. The final audit records split-stack local verification separately from historical
+results. Broader historical connection/pairing slices remain paused for re-planning.
 
 ## Why this deviation exists
 
@@ -29,10 +30,10 @@ not authorize the UI to invent connectivity, trust, or pairing outcomes. See
 | --- | --- | --- |
 | 01 — Design contract | Complete | [Design contract](01-design-contract.md) · [PR #90](https://github.com/Soneka96/DovahLink/pull/90) |
 | 02 — Visual/material foundation | Complete | [Visual foundation](02-visual-material-foundation.md) · [PR #93](https://github.com/Soneka96/DovahLink/pull/93) · [PR #94](https://github.com/Soneka96/DovahLink/pull/94) |
-| 03 — Connection/pairing convergence | Partial | [Step index](03-connection-pairing-convergence/README.md) |
+| 03 — Connection/pairing convergence | Historical slices remain paused; the separately approved current-journey UI pass is implemented, with screenshot audit pending | [Step index](03-connection-pairing-convergence/README.md) |
 | 03.1–03.3 | Complete | Host identity, local discovery, and Known Host persistence |
 | 03.4–03.10 | Paused / re-planning required | Client identity, lifecycle, discovery/trust UI, pairing state/UI, Settings, and handoff |
-| 04 — Final canonical audit | Paused | [Final audit](04-final-canonical-audit.md) |
+| 04 — Final canonical audit | Partial — automated checks and state mapping are recorded; pixel comparison remains unverified | [Final audit](04-final-canonical-audit.md) |
 
 ## Current position
 
@@ -45,10 +46,11 @@ identity-check race. That security detour is recorded separately in the
 generic SAS research continues in `Soneka96/sas-pairing`.
 
 Known Host lifecycle integration established SDK-owned observation and its app projection without
-resuming historical slices 03.4–03.10. Those remaining connection/pairing steps must still be
-reconciled with current DovahLink security architecture before implementation. Ordinary product
-work that does not depend on hostile-network first contact may continue from Phase 5.4. Stage 5A
-and production LAN pairing remain gated.
+resuming historical slices 03.4–03.10. Those historical slices remain paused for re-planning against
+current DovahLink security architecture; this branch's separately approved current-journey UI pass
+is recorded below and does not mark those historical slices complete. Ordinary product work that
+does not depend on hostile-network first contact may continue from Phase 5.4. Stage 5A and production
+LAN pairing remain gated.
 
 The Known Host availability foundation adds SDK-owned runtime reachability and its app projection.
 It remains separate from durable Known Host metadata, connection lifecycle, and trust.
@@ -139,12 +141,40 @@ behavior. A Known Host record does not represent live trust. The SDK's saved Hos
 its initial stream value; Flutter does not load and subscribe separately or reconcile a startup
 race.
 
-## Canonical Discovery / Connections UI Convergence — partial
+## Current approved journey pass — implementation complete, visual audit partial
+
+The current pass implements Connections → Discover → Pairing → real trusted-session handoff → a
+minimal Session Shell. It retains the prototype as the layout, copy, interaction, and responsive
+authority while using SDK/Redux state for connection and pairing truth.
+
+| Surface | Structure | Interaction | Visual comparison |
+| --- | --- | --- | --- |
+| Connections | Implemented for durable Known Hosts, checking/online/offline/connected/reconnecting/repair states, and the offline dialog. | Online selects; Offline and transient states do not start authentication; Pair again is gated by the saved SDK hint and Online availability. | Prototype metrics, card treatments, and copy are implemented. Screenshot comparison is unverified. |
+| Discover | Implemented for searching, available, empty, failed, candidate checking, and embedded pairing. | Real search/auth outcomes drive transitions; dismissing cleans up the owned lifecycle; trusted candidates enter the Session Shell only after SDK admission. | Prototype modal, candidate, status, and empty-state treatments are implemented. Screenshot comparison is unverified. |
+| Pairing | Implemented for code entry, redisplay, cooldown, confirming, success, failure, blocked, and repair states exposed by current typed app state. | Host-reported attempts, expiry, terminal outcomes, redisplay result, and retry timing drive the controls and copy. | Prototype spacing, copy, countdown emphasis, redisplay placement, and responsive metrics are implemented. Screenshot comparison is unverified. |
+| Session Shell | Implemented as real Host identity/status chrome and an empty body. | Entry requires the exact Known Host to be connected, including direct route navigation. The shell stays open during reconnecting/reauthenticating and returns to Connections only when that Host is administratively invalidated; Back preserves the admitted connection. | Theme-aware shell header and compact/regular metrics are implemented. Notifications remains a prototype-only control with a future-feature TODO. Screenshot comparison is unverified. |
+
+### Typed projection coverage
+
+| State | SDK truth available | Current app behavior |
+| --- | --- | --- |
+| Wrong-code attempts | The SDK reports remaining attempts for counted invalid outcomes. | The client preserves and displays the reported count; it does not calculate or hard-code attempts. |
+| Redisplay success versus cooldown | Typed `renotified`/`cooldown` outcomes and Host retry timing are available. | Redux preserves the distinction and timing; the button shows the prototype-aligned result and cooldown. |
+| Terminal pairing outcomes | Typed expired, invalid, pacing-limited, attempt-limit, pending-not-found, and invalidated outcomes are available. | App-owned messages and outcome-specific expired/attempt-limit actions are rendered from typed state. |
+| Known Host repair requirement | The SDK persists and emits the `pairingRequired` hint from real credential rejection or administrative invalidation. | The app maps the hint and shows Pair again only for Online Known Hosts; Offline remains informational. |
+
+No missing SDK-to-Flutter projection was found for these approved, implemented states. This is not a
+claim of full pixel parity: the full-app screenshot comparison could not be captured in this
+workspace, so visual parity remains unverified and the final canonical audit stays partial.
+
+## Canonical Discovery / Connections UI convergence — implemented, visual comparison unverified
 
 Connections presents durable Known Hosts separately from ephemeral discovery candidates. An Online
 Known Host is selectable and starts SDK authentication. Offline, Connected, Reconnecting, Checking,
-and Unknown cards remain visible and nonselectable; Unknown is neutral reachability evidence, not
-Offline or “Not connected.” Reconnecting is session recovery, not ordinary availability.
+and Unknown cards do not start authentication; Unknown is neutral reachability evidence, not Offline
+or “Not connected.” Reconnecting is session recovery, not ordinary availability. An Offline card
+may open the prototype's informational “Skyrim isn’t running” dialog; that action explains the real
+offline state without selecting the Host or starting authentication.
 
 Redux discovery status drives searching, available, empty, and failed feedback. A real candidate
 result shows “Local Host found.” followed by AVAILABLE and the candidate card. Selecting it starts
@@ -153,29 +183,62 @@ connecting. An already trusted outcome closes Discover without reopening Pairing
 failed outcome transitions to the existing pairing section within the same modal route. No fake
 delay or Flutter-owned pairing policy is used. Discovery alone does not add a Known Host.
 
-### Session Shell handoff — unresolved
+The available state pairs “Local Host found.” with the prototype's green status dot. The empty state
+says “No other Skyrim PCs found.” without referring to SDK candidate reconciliation or asserting
+that a filtered Known Host is unreachable.
 
-The SDK may establish a trusted, connected session, and product semantics normally hand that
-session into the Companion Session Shell. The Session Shell does not exist yet, so Connected may
-temporarily remain visible on the Connections root. This is a presentation/navigation limitation;
-do not add a fake Companion screen to this convergence work.
+### Session Shell handoff — implemented
 
-### Known Host “Pair again” / repair projection — unresolved
+The maintainer approved a minimal Session Shell in this convergence pass. It opens after a real
+trusted-session event and the selected Known Host's SDK session projection reports `connected`.
+Online availability, candidate discovery, opening Pairing, and trust without admitted connection are
+not sufficient. The router also rejects direct entry unless that exact route Host is connected. The
+shell receives the Host ID from the route, resolves the real Host context, and contains only
+theme-aware session header chrome and an empty body; it adds no game tabs, gameplay data, or pairing
+policy.
 
-The prototype has a durable root-card state such as “Trust changed in Skyrim” with a “Pair again”
-action, and Flutter has a visual repair state. The SDK's current Known Host projection exposes Host
-metadata, reachability, and session lifecycle, but no durable typed recovery/trust state to drive that
-card truthfully. A rejected credential reason exists only on an authentication outcome and does not
-provide a durable projection. Do not infer repair from Offline, Unknown, discovery, endpoint matching,
-or generic authentication failure. Leave the state unresolved until a focused SDK contract change
-exposes it; this branch does not add that change.
+Back returns to Connections without disconnecting or removing trust. This follows the existing
+trusted-flow disposal contract: `PairingDisposedAction(wasTrusted: true)` preserves the admitted
+connection. The new Back action changes navigation only. The SDK's typed Known Host invalidation
+event returns the shell to Connections only when its Host ID matches the current route; reconnecting
+and reauthenticating leave it open. The Notifications control remains visible for prototype parity
+but has no functionality; its implementation belongs to a future feature phase and is marked TODO
+in the screen.
 
-No SDK/state contract change or discovery persistence was required for the supported states in this
-slice.
+### Known Host “Pair again” / repair projection — implemented
 
-The current prototype artifact is not stored in the repository; exact pixel comparison of the
-candidate's nearby-card radius and hover outline remains subject to review against the approved
-`DovahLink-Prototype-final` reference.
+The SDK's per-Host `pairingRequired` hint is set only from a real Host credential rejection
+(`revoked` or `unrecognized`) or a typed administrative invalidation (`revoked`, `trust_reset`, or
+`factory_reset`) for an admitted Known Host session. A `blocked` response clears the hint and does
+not permit Pair again. The hint is a persisted last-known UI cue, not current trust or authorization;
+an Offline Host can make it stale. The root action re-authenticates through the SDK, and the Host's
+current response decides whether pairing can proceed. Offline, Unknown, discovery, endpoint
+matching, and generic failures never set it.
+
+The client SDK stores and emits the hint with Known Host state and the app maps that state to the
+Online-only Pair again action. No Host or protocol change was needed.
+
+This hint and its SDK/app projection were implemented in the preceding approved connection/lifecycle
+work in this branch. The current convergence pass does not infer repair from availability, endpoint
+matching, or a generic failure.
+
+The final prototype artifact is outside this repository. Its CSS and markup were used for code-level
+comparison; no Flutter screenshots were captured here, so exact pixel parity of the candidate cards,
+pairing states, and Session Shell remains unverified.
+
+### Pairing presentation projection — current typed states represented
+
+The SDK and Known Host projections carry the approved journey's pairing states into Redux. Flutter
+renders them without inventing policy, attempt counts, cooldowns, expiry, or trust.
+
+| Prototype state | SDK / app truth | Current presentation |
+| --- | --- | --- |
+| Wrong-code attempts remaining | Host-reported `attemptsRemaining` is typed on counted invalid outcomes. | Rendered in code-entry copy; the app does not decrement or hard-code a maximum. |
+| Redisplay success versus cooldown | Typed `renotified`/`cooldown` outcomes carry Host retry timing. | Redux preserves the distinction; the quiet redisplay action renders the result and availability countdown. |
+| Expired, attempt-limit, blocked, and repair states | Terminal outcomes, credential rejection, and per-Host repair hints are typed in SDK/app state. | Outcome-specific copy/actions, blocked state, and repair flow render without inferring trust. |
+
+No remaining SDK-to-Flutter projection blocker was identified for these approved states. This does
+not verify exact visual parity; screenshot comparison remains pending.
 
 Two visual behaviors intentionally follow production state: the candidate appears after the real
 discovery result instead of alongside the prototype's artificial search presentation, and the

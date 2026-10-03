@@ -109,6 +109,13 @@ runtime projection to `KnownHost`. `ConnectionMiddleware` reads Known Host snaps
 discovery does not remove saved Known Hosts, and a failed request preserves the SDK's last candidate
 collection.
 
+`ConnectionMiddleware` also maps the SDK's non-replayed `DovahLinkKnownHostInvalidation` event to a
+typed action that carries both the exact Known Host ID and administrative reason. The Session Shell
+middleware returns to Connections only when that ID matches the Host in the current session route.
+Ordinary `reconnecting` and `reauthenticating` projections do not emit this terminal event and keep
+the shell open. The Notifications control remains prototype-only; its UI has a TODO for the future
+feature that will implement behavior.
+
 Host selection records whether the selected `Host` is an ephemeral discovery candidate or durable
 Known Host intent. Selection refreshes and card keys use normalized Host IDs, so endpoint changes
 preserve the same Host selection and widget identity. When an SDK candidate disappears, its

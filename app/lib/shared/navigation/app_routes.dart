@@ -4,4 +4,11 @@
 abstract final class AppRoutes {
   /// The root/entry screen: the connections screen listing the Hosts available to select.
   static const String home = '/';
+
+  /// The minimal shell for an admitted Known Host session.
+  static const String session = '/session/:hostId';
+
+  /// Returns the shell route for [hostId].
+  static String sessionFor(String hostId) =>
+      '/session/${Uri.encodeComponent(hostId)}';
 }

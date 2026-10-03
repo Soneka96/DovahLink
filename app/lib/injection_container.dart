@@ -10,6 +10,7 @@ import 'package:dovahlink_client/app/app.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/appearance.injection_container.dart';
 import 'package:dovahlink_client/features/connection/connection.injection_container.dart';
 import 'package:dovahlink_client/features/pairing/pairing.injection_container.dart';
+import 'package:dovahlink_client/features/session/session.injection_container.dart';
 import 'package:dovahlink_client/platform/windows/windows_lifecycle_bridge.dart';
 import 'package:dovahlink_client/shared/navigation/app_router.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
@@ -62,6 +63,7 @@ Future<void> initDependencies() async {
   });
   initConnectionDependencies();
   initPairingDependencies();
+  initSessionDependencies();
   sl.registerLazySingleton<IAppShutdownService>(
     () => AppShutdownService(
       connectionMiddleware: sl(),

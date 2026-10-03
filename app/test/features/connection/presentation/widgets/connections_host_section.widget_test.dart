@@ -524,7 +524,7 @@ void main() {
     );
 
     testWidgets(
-      'ConnectionsHostSection sends a re-entry request for a Connected card',
+      'ConnectionsHostSection makes a Connected card a direct Session Shell entry',
       (WidgetTester tester) async {
         final HostCardViewData connectedCard = Fixtures.buildHostCardViewData(
           source: ConnectionHostSelectionSource.knownHost,

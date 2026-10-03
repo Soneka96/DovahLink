@@ -74,6 +74,7 @@ void main() {
   late List<String> pairingCalls;
   late List<String> discoveryCalls;
   late List<HostCardViewData> selectedCandidates;
+  late List<HostCardViewData> reenteredHosts;
   late List<Host> selectedHosts;
   late List<ConnectionHostSelectionSource> selectedSources;
   late List<DovahThemePreset> selectedPresets;
@@ -90,6 +91,7 @@ void main() {
     pairingCalls = [];
     discoveryCalls = [];
     selectedCandidates = [];
+    reenteredHosts = [];
     selectedHosts = [];
     selectedSources = [];
     selectedPresets = [];
@@ -136,6 +138,7 @@ void main() {
       selectedHosts.add(card.host);
       selectedSources.add(card.source);
     });
+    when(() => viewModel.onReenterConnectedHost).thenReturn(reenteredHosts.add);
     when(
       () => appearanceViewModel.activePreset,
     ).thenReturn(DovahThemePreset.dovah);
@@ -462,7 +465,7 @@ void main() {
     });
 
     testWidgets(
-      'ConnectionsScreen reopens the trusted state without starting pairing',
+      'ConnectionsScreen re-enters a Connected Host without starting pairing',
       (WidgetTester tester) async {
         final HostCardViewData connectedCard = Fixtures.buildHostCardViewData(
           source: ConnectionHostSelectionSource.knownHost,
@@ -470,23 +473,18 @@ void main() {
           subtitle: 'Known Host',
         );
         when(() => viewModel.hostCards).thenReturn([connectedCard]);
-        when(() => pairingViewModel.phase).thenReturn(PairingPhase.trusted);
         await useSurface(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget());
 
         await tester.tap(
           find.byKey(Key('host-card-${connectedCard.host.hostId}')),
         );
-        await tester.pumpAndSettle();
+        await tester.pump();
 
-        expect(find.text('You’re connected'), findsOneWidget);
-        final PairingDialog dialog = tester.widget<PairingDialog>(
-          find.byType(PairingDialog),
-        );
-        expect(dialog.startOnInit, isA<bool>());
-        expect(dialog.startOnInit, isFalse);
+        expect(reenteredHosts, [connectedCard]);
         expect(selectedHosts, isEmpty);
         expect(pairingCalls, isEmpty);
+        expect(find.byType(PairingDialog), findsNothing);
       },
     );
 

@@ -12,7 +12,11 @@ import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkClient, DovahLinkHost, DovahLinkKnownHostState;
+    show
+        DovahLinkClient,
+        DovahLinkHost,
+        DovahLinkKnownHostInvalidation,
+        DovahLinkKnownHostState;
 
 /// Defines the connection feature's Redux middleware contract.
 abstract interface class IConnectionMiddleware {
@@ -37,6 +41,7 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
     ({
       StreamSubscription<List<DovahLinkKnownHostState>> knownHosts,
       StreamSubscription<List<DovahLinkHost>> candidates,
+      StreamSubscription<DovahLinkKnownHostInvalidation> invalidations,
     })
   >
   _subscriptions = {};
@@ -127,7 +132,24 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
             );
           },
         );
-    _subscriptions[store] = (knownHosts: knownHosts, candidates: candidates);
+    final StreamSubscription<DovahLinkKnownHostInvalidation> invalidations =
+        client.connections.knownHostInvalidations.listen((
+          DovahLinkKnownHostInvalidation invalidation,
+        ) {
+          if (!_isShuttingDown) {
+            store.dispatch(
+              ConnectionKnownHostInvalidatedAction(
+                hostId: invalidation.hostId.value,
+                reason: invalidation.reason,
+              ),
+            );
+          }
+        });
+    _subscriptions[store] = (
+      knownHosts: knownHosts,
+      candidates: candidates,
+      invalidations: invalidations,
+    );
   }
 
   /// Implements [IConnectionMiddleware.shutdown].
@@ -138,11 +160,13 @@ class ConnectionMiddleware extends MiddlewareClass<AppState>
       for (final ({
             StreamSubscription<List<DovahLinkKnownHostState>> knownHosts,
             StreamSubscription<List<DovahLinkHost>> candidates,
+            StreamSubscription<DovahLinkKnownHostInvalidation> invalidations,
           })
           subscriptions
           in _subscriptions.values) ...[
         subscriptions.knownHosts.cancel(),
         subscriptions.candidates.cancel(),
+        subscriptions.invalidations.cancel(),
       ],
     ]).then((_) => _subscriptions.clear());
   }

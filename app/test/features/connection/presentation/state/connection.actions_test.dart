@@ -6,6 +6,9 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import '../../../../fixtures/fixtures.dart';
 
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show AdministrativeInvalidationReason;
+
 /// Exercises the values carried by connection discovery actions.
 void main() {
   group(
@@ -23,6 +26,48 @@ void main() {
           isNot(ConnectionHostSelectedAction(host, source: knownHost)),
         );
         expect(ConnectionHostSelectedAction(host).source, candidate);
+      });
+    },
+  );
+
+  group(
+    'Behavior equality in ConnectionHostReentryRequestedAction behaves correctly',
+    () {
+      test(
+        'ConnectionHostReentryRequestedAction carries its Known Host ID',
+        () {
+          const ConnectionHostReentryRequestedAction action =
+              ConnectionHostReentryRequestedAction('host-1');
+          const ConnectionHostReentryRequestedAction sameAction =
+              ConnectionHostReentryRequestedAction('host-1');
+
+          expect(action.hostId, 'host-1');
+          expect(action, sameAction);
+          expect(action.hashCode, sameAction.hashCode);
+        },
+      );
+    },
+  );
+
+  group(
+    'Behavior equality in ConnectionKnownHostInvalidatedAction behaves correctly',
+    () {
+      test('ConnectionKnownHostInvalidatedAction carries Host and reason', () {
+        const ConnectionKnownHostInvalidatedAction action =
+            ConnectionKnownHostInvalidatedAction(
+              hostId: 'host-a',
+              reason: AdministrativeInvalidationReason.trustReset,
+            );
+        const ConnectionKnownHostInvalidatedAction sameAction =
+            ConnectionKnownHostInvalidatedAction(
+              hostId: 'host-a',
+              reason: AdministrativeInvalidationReason.trustReset,
+            );
+
+        expect(action.hostId, 'host-a');
+        expect(action.reason, AdministrativeInvalidationReason.trustReset);
+        expect(action, sameAction);
+        expect(action.hashCode, sameAction.hashCode);
       });
     },
   );
