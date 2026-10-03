@@ -76,17 +76,15 @@ class PairingCodeAvailableAction extends Equatable {
 /// Submits the user-entered pairing code.
 class PairingCodeSubmittedAction extends Equatable {
   /// Creates a code-submission action.
-  const PairingCodeSubmittedAction({required this.code, this.displayName});
+  /// @param code The six-digit code read from Skyrim.
+  const PairingCodeSubmittedAction({required this.code});
 
   /// The six-digit code the user read from Skyrim.
   final String code;
 
-  /// An optional, presentation-only label for the resulting trusted client.
-  final String? displayName;
-
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [code, displayName];
+  List<Object?> get props => [code];
 }
 
 /// Marks pairing as complete and trusted.

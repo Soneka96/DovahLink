@@ -75,6 +75,9 @@ void main() {
     when(
       () => preferences.getString('dovahlink.appearance.themePreset'),
     ).thenAnswer((_) async => null);
+    when(
+      () => preferences.getString('dovahlink.identity.deviceName'),
+    ).thenAnswer((_) async => null);
     await sl.unregister<SharedPreferencesAsync>();
     sl.registerSingleton<SharedPreferencesAsync>(preferences);
   });
@@ -84,6 +87,46 @@ void main() {
   });
 
   group('Method createStore behaves correctly', () {
+    test(
+      'Method createStore loads the saved device name before creating state',
+      () async {
+        when(
+          () => preferences.getString('dovahlink.identity.deviceName'),
+        ).thenAnswer((_) async => 'Pairing Name');
+
+        final Store<AppState> store = await const AppCompositionRoot()
+            .createStore();
+
+        expect(store.state.deviceIdentity.displayName, 'Pairing Name');
+        expect(store.state.deviceIdentity.loadFailure, isNull);
+      },
+    );
+
+    test(
+      'Method createStore keeps the name unavailable when preferences fail',
+      () async {
+        when(
+          () => preferences.getString('dovahlink.identity.deviceName'),
+        ).thenAnswer(
+          (_) => Future<String?>.error(
+            PlatformException(
+              code: 'read-failed',
+              message: 'Identity storage unavailable.',
+            ),
+          ),
+        );
+
+        final Store<AppState> store = await const AppCompositionRoot()
+            .createStore();
+
+        expect(store.state.deviceIdentity.displayName, isNull);
+        expect(
+          store.state.deviceIdentity.loadFailure,
+          'Identity storage unavailable.',
+        );
+      },
+    );
+
     test('createStore dependencies register Session Shell navigation', () {
       expect(sl<ISessionShellMiddleware>(), isA<SessionShellMiddleware>());
     });

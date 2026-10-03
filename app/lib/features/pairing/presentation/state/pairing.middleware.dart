@@ -6,6 +6,7 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.selectors.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -304,7 +305,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
 
   /// Confirms the submitted code through [ConfirmPairingCodeUseCase].
   /// @param store The application store receiving the confirmation result.
-  /// @param action The submitted pairing code and display name.
+  /// @param action The submitted pairing code; the display name comes from app identity state.
   Future<void> _pairingCodeSubmitted(
     Store<AppState> store,
     PairingCodeSubmittedAction action,
@@ -330,7 +331,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     final result = await sl<ConfirmPairingCodeUseCase>()(
       ConfirmPairingCodeParams(
         code: action.code,
-        displayName: action.displayName,
+        displayName: DeviceIdentitySelectors.displayNameSelector(store.state),
       ),
     );
     if (_isShuttingDown || generation != _pairingFlowGeneration) {

@@ -21,6 +21,21 @@ void main() {
     });
   });
 
+  group('Property defaultDeviceName behaves correctly', () {
+    test(
+      'Property defaultDeviceName matches the prototype empty-name fallback',
+      () {
+        expect(defaultDeviceName, 'This device');
+      },
+    );
+  });
+
+  group('Property maxDeviceNameLengthBytes behaves correctly', () {
+    test('Property maxDeviceNameLengthBytes matches the Host trust limit', () {
+      expect(maxDeviceNameLengthBytes, 64);
+    });
+  });
+
   group('Property theme asset constants behave correctly', () {
     test(
       'Property theme asset constants point at the bundled theme images',

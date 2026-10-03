@@ -17,6 +17,14 @@ final Uri defaultHostUri = Uri.parse('ws://127.0.0.1:58231/');
 /// || 'dovah'`).
 const DovahThemePreset defaultThemePreset = DovahThemePreset.dovah;
 
+// ---- Device identity ----
+
+/// The display label used when neither a saved override nor an OS device name is available.
+const String defaultDeviceName = 'This device';
+
+/// The Host's trust-name ceiling in UTF-8 bytes.
+const int maxDeviceNameLengthBytes = 64;
+
 // ---- Theme assets ----
 
 /// The Frostbound preset's environment image, used by its canvas atmosphere and its appearance

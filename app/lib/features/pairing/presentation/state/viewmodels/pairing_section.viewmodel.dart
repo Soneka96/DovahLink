@@ -52,8 +52,8 @@ class PairingSectionViewModel extends Equatable {
   /// Dispatches [PairingCodeRequestedAction].
   final void Function() onRequestCode;
 
-  /// Dispatches [PairingCodeSubmittedAction] for the entered code, leaving the paired device's
-  /// display name unset.
+  /// Dispatches [PairingCodeSubmittedAction] for the entered code. Pairing middleware supplies the
+  /// saved device identity, so this presentation connector does not collect a second name input.
   final void Function(String code) onSubmitCode;
 
   /// Dispatches [PairingDisposedAction] with trust captured from the current store state.

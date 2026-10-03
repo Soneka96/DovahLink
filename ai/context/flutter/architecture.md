@@ -69,6 +69,7 @@ that derive that state.
 | State | Owner | Flutter role |
 | --- | --- | --- |
 | Known Host metadata; connection, current Host/session, and trust lifecycle; pairing challenge validity, expiry, attempts, cooldown, and trusted outcome | SDK, subject to Host authority | Observe typed SDK state, map to app-owned values, and render it |
+| Logical `clientId`; user-selected device-name override; operating-system device name | SDK owns `clientId`; Flutter persists the override; the platform supplies its OS name | Resolve the companion label as override → OS name → `This device`; pass it through the SDK pairing API, and let an explicit rename affect only the active Host's trust record |
 | Health, magicka, stamina, level/XP, and future live game state | Host authority, exposed through SDK typed domain streams | Mirror SDK values for presentation |
 | Theme, selected screen/tab, dialog visibility, typed code-entry text and focus, map zoom, search/filter values, and presentation animations | Flutter app | Own as local or shared presentation state |
 
