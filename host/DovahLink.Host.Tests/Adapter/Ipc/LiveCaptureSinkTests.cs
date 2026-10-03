@@ -20,6 +20,7 @@ public class LiveCaptureSinkTests
     private static readonly StateAreaId VitalsArea = new(Constants.CharacterVitalsStateArea);
     private static readonly StateAreaId XpArea = new(Constants.CharacterXpStateArea);
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
+    private static readonly StateAreaId TestArea = new("area_a");
 
     /// <summary>The sink and observable state collaborators used by capture-result tests.</summary>
     /// <param name="Sink">The capture sink under test.</param>
@@ -144,6 +145,28 @@ public class LiveCaptureSinkTests
         var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
         return new Fixture(sink, catalog, feed, vitalsPublisher, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
     }
+
+    /// <summary>Builds the sink over one synthetic area using the shared XP capture decoder.</summary>
+    /// <param name="coordinatorOverride">The resynchronization coordinator to use, or <see langword="null"/> for a real coordinator.</param>
+    /// <param name="applicationOverride">The shared application recorder to use, or <see langword="null"/> for the real application.</param>
+    /// <param name="clockOverride">The clock to use, or <see langword="null"/> for a fresh fake clock.</param>
+    /// <param name="handlerOverrides">The handlers to register, or <see langword="null"/> for the Character capture handler.</param>
+    /// <returns>A sink fixture whose registered area is synthetic.</returns>
+    private static Fixture CreateXpPipelineReady(
+        IResynchronizationTransactionCoordinator? coordinatorOverride = null,
+        ILiveStateApplication? applicationOverride = null,
+        FakeClock? clockOverride = null,
+        IReadOnlyCollection<ILiveCaptureHandler>? handlerOverrides = null) =>
+        CreateReady(
+            coordinatorOverride: coordinatorOverride,
+            applicationOverride: applicationOverride,
+            clockOverride: clockOverride,
+            catalogOverride: BuildSingleCaptureCatalog(
+                CaptureSourceKind.Sample,
+                (uint)CharacterSampleToken.CharacterXp,
+                TestArea,
+                UpdateMode.Snapshot),
+            handlerOverrides: handlerOverrides);
 
     /// <summary>Builds a one-unit catalog for generic handler-routing tests.</summary>
     /// <param name="source">The source namespace recognized by the catalog.</param>
@@ -620,21 +643,24 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_UnknownCaptureKey_DoesNothing()
     {
-        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
-        Fixture fixture = CreateReady(handlerOverrides: [handler]);
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 998);
+        Fixture fixture = CreateReady(
+            catalogOverride: BuildSingleCaptureCatalog(
+                CaptureSourceKind.Sample, 998, TestArea, UpdateMode.Snapshot),
+            handlerOverrides: [handler]);
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, CaptureKey: 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.Empty(handler.Contexts);
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
     }
 
     /// <summary>Verifies that a catalog-recognized capture without a handler fails closed without state or publication effects.</summary>
     [Fact]
     public void ApplyCaptureResult_RecognizedCaptureWithoutHandler_DropsWithoutMutationOrPublication()
     {
-        LiveStateCatalog catalog = BuildSingleCaptureCatalog(CaptureSourceKind.Sample, 999, XpArea, UpdateMode.Snapshot);
+        LiveStateCatalog catalog = BuildSingleCaptureCatalog(CaptureSourceKind.Sample, 999, TestArea, UpdateMode.Snapshot);
         var application = new RecordingLiveStateApplication();
         Fixture fixture = CreateReady(
             applicationOverride: application,
@@ -649,8 +675,8 @@ public class LiveCaptureSinkTests
         Exception? exception = Record.Exception(() => fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source));
 
         Assert.Null(exception);
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
         Assert.Empty(application.ApplyCalls);
         Assert.Equal(0, snapshotCount);
         Assert.Equal(0, eventCount);
@@ -660,7 +686,7 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_FutureCaptureHandler_ReceivesExactCaptureUnitAndContext()
     {
-        LiveStateCatalog catalog = BuildSingleCaptureCatalog(CaptureSourceKind.Sample, 999, XpArea, UpdateMode.Snapshot);
+        LiveStateCatalog catalog = BuildSingleCaptureCatalog(CaptureSourceKind.Sample, 999, TestArea, UpdateMode.Snapshot);
         var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
         Fixture fixture = CreateReady(catalogOverride: catalog, handlerOverrides: [handler]);
         CaptureUnitDefinition unit = fixture.Catalog.CaptureUnits[0];
@@ -682,7 +708,9 @@ public class LiveCaptureSinkTests
     [Fact]
     public void LiveCaptureSink_DuplicateHandlerIdentity_ThrowsClearCompositionFailure()
     {
-        Fixture fixture = CreateReady();
+        LiveStateCatalog catalog = BuildSingleCaptureCatalog(
+            CaptureSourceKind.Sample, 999, TestArea, UpdateMode.Snapshot);
+        Fixture fixture = CreateReady(catalogOverride: catalog);
         var first = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
         var second = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
 
@@ -706,9 +734,13 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_RaisesCaptureResultAppliedWithSourcesConnectionGeneration()
     {
-        Fixture fixture = CreateReady();
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 998);
+        Fixture fixture = CreateReady(
+            catalogOverride: BuildSingleCaptureCatalog(
+                CaptureSourceKind.Sample, 998, TestArea, UpdateMode.Snapshot),
+            handlerOverrides: [handler]);
         fixture.AdapterTracker.CurrentConnectionGeneration = 999;
-        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
+        var captureResult = new IpcCaptureResultMessage(3, CaptureSourceKind.Sample, 998, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
         var source = new AdapterCaptureSource(fixture.AdapterTracker.CurrentInstanceId!.Value, 7);
         List<(IpcCaptureResultMessage CaptureResult, long ConnectionGeneration)> raised = [];
         fixture.Sink.CaptureResultApplied += (result, generation) => raised.Add((result, generation));
@@ -722,14 +754,14 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_CurrentExactSource_AppliesNormally()
     {
-        Fixture fixture = CreateReady();
+        Fixture fixture = CreateXpPipelineReady();
         fixture.AdapterTracker.CurrentConnectionGeneration = 1;
         AdapterCaptureSource currentSource = new(fixture.Source.InstanceId, 1);
         var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, currentSource);
 
-        Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out StateSnapshotPublication? xp));
+        Assert.True(fixture.Feed.TryGetSnapshot(TestArea, out StateSnapshotPublication? xp));
         Assert.Equal(50.0f, ReadValue(xp!.Data));
     }
 
@@ -738,11 +770,15 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_OldConnectionGeneration_DropsWithoutMutation()
     {
         var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
-        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
-        Fixture fixture = CreateReady(coordinatorOverride: fakeCoordinator, handlerOverrides: [handler]);
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
+        Fixture fixture = CreateReady(
+            coordinatorOverride: fakeCoordinator,
+            catalogOverride: BuildSingleCaptureCatalog(
+                CaptureSourceKind.Sample, 999, TestArea, UpdateMode.Snapshot),
+            handlerOverrides: [handler]);
         fixture.AdapterTracker.CurrentConnectionGeneration = 2;
         AdapterCaptureSource staleSource = new(fixture.Source.InstanceId, 1);
-        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
         int snapshotPublicationCount = 0;
         int eventPublicationCount = 0;
         fixture.Feed.SnapshotChanged += _ => snapshotPublicationCount++;
@@ -750,8 +786,8 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult, staleSource);
 
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
         Assert.Equal(0, snapshotPublicationCount);
         Assert.Equal(0, eventPublicationCount);
         Assert.Empty(handler.Contexts);
@@ -763,17 +799,20 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_OldAdapterInstance_DropsWithoutMutation()
     {
-        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
-        Fixture fixture = CreateReady(handlerOverrides: [handler]);
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
+        Fixture fixture = CreateReady(
+            catalogOverride: BuildSingleCaptureCatalog(
+                CaptureSourceKind.Sample, 999, TestArea, UpdateMode.Snapshot),
+            handlerOverrides: [handler]);
         AdapterCaptureSource staleSource = new(AdapterInstanceId.NewId(), fixture.Source.ConnectionGeneration);
-        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+        var captureResult = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
         int snapshotPublicationCount = 0;
         fixture.Feed.SnapshotChanged += _ => snapshotPublicationCount++;
 
         fixture.Sink.ApplyCaptureResult(captureResult, staleSource);
 
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
         Assert.Equal(0, snapshotPublicationCount);
         Assert.Empty(handler.Contexts);
     }
@@ -782,7 +821,7 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_DelayedGenerationOneAfterReconnect_DropsWithoutMutation()
     {
-        Fixture fixture = CreateReady();
+        Fixture fixture = CreateXpPipelineReady();
         AdapterInstanceId instanceId = fixture.Source.InstanceId;
         fixture.AdapterTracker.CommitConnected(instanceId, 2);
         AdapterCaptureSource delayedSource = new(instanceId, 1);
@@ -790,8 +829,8 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult, delayedSource);
 
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
     }
 
     /// <summary>Verifies that a delayed baseline cannot claim resynchronization progress for a newer connection generation.</summary>
@@ -799,7 +838,7 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_DelayedBaselineFromOldGeneration_DoesNotRecordNewGenerationProgress()
     {
         var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
-        Fixture fixture = CreateReady(fakeCoordinator);
+        Fixture fixture = CreateXpPipelineReady(fakeCoordinator);
         fixture.AdapterTracker.CurrentConnectionGeneration = 2;
         fixture.AdapterTracker.NeedsResynchronization = true;
         AdapterCaptureSource delayedSource = new(fixture.Source.InstanceId, 1);
@@ -809,8 +848,8 @@ public class LiveCaptureSinkTests
 
         Assert.Empty(fakeCoordinator.AcquireTokenCalls);
         Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(XpArea));
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
     }
 
     /// <summary>
@@ -821,7 +860,11 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_UnknownCaptureKey_StillRaisesCaptureResultApplied()
     {
-        Fixture fixture = CreateReady();
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 998);
+        Fixture fixture = CreateReady(
+            catalogOverride: BuildSingleCaptureCatalog(
+                CaptureSourceKind.Sample, 998, TestArea, UpdateMode.Snapshot),
+            handlerOverrides: [handler]);
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, CaptureKey: 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(1.0f));
         int raisedCount = 0;
         fixture.Sink.CaptureResultApplied += (_, _) => raisedCount++;
@@ -835,14 +878,17 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_StalePlayContext_DoesNothing()
     {
-        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
-        Fixture fixture = CreateReady(handlerOverrides: [handler]);
-        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, PlayContextId.NewId(), EncodeFloat(1.0f));
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
+        Fixture fixture = CreateReady(
+            catalogOverride: BuildSingleCaptureCatalog(
+                CaptureSourceKind.Sample, 999, TestArea, UpdateMode.Snapshot),
+            handlerOverrides: [handler]);
+        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, 999, CaptureAvailability.Available, PlayContextId.NewId(), EncodeFloat(1.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.Empty(handler.Contexts);
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
     }
 
     /// <summary>Verifies that a Vitals capture with a non-finite value applies no partial domain value.</summary>
@@ -878,15 +924,15 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_WhileNeedsResynchronization_StillAppliesThroughBaselinePath()
     {
-        Fixture fixture = CreateReady();
+        Fixture fixture = CreateXpPipelineReady();
         fixture.AdapterTracker.NeedsResynchronization = true;
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
         fixture.AdapterTracker.NeedsResynchronization = false;
-        Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out StateSnapshotPublication? xp));
+        Assert.True(fixture.Feed.TryGetSnapshot(TestArea, out StateSnapshotPublication? xp));
         Assert.Equal(50.0f, ReadValue(xp!.Data));
     }
 
@@ -905,7 +951,7 @@ public class LiveCaptureSinkTests
     public void ApplyCaptureResult_OrdinarySampleWhileNeedsResynchronization_NeverRecordsAreaAccepted()
     {
         var fakeCoordinator = new FakeResynchronizationTransactionCoordinator();
-        Fixture fixture = CreateReady(fakeCoordinator);
+        Fixture fixture = CreateXpPipelineReady(fakeCoordinator);
         fixture.AdapterTracker.NeedsResynchronization = true;
         // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
         // resynchronization baseline (which always carries zero).
@@ -921,11 +967,11 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_SameValueTwice_PublishesOnlyOnce()
     {
-        Fixture fixture = CreateReady();
+        Fixture fixture = CreateXpPipelineReady();
         var raised = new List<StateSnapshotPublication>();
         fixture.Feed.SnapshotChanged += publication =>
         {
-            if (publication.StateArea == XpArea)
+            if (publication.StateArea == TestArea)
             {
                 raised.Add(publication);
             }
@@ -944,15 +990,18 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_AdapterUnavailable_DoesNothing()
     {
-        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp);
-        Fixture fixture = CreateReady(handlerOverrides: [handler]);
+        var handler = new RecordingLiveCaptureHandler(CaptureSourceKind.Sample, 999);
+        Fixture fixture = CreateReady(
+            catalogOverride: BuildSingleCaptureCatalog(
+                CaptureSourceKind.Sample, 999, TestArea, UpdateMode.Snapshot),
+            handlerOverrides: [handler]);
         fixture.AdapterTracker.Current = AdapterAvailability.Unavailable;
-        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
+        var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, 999, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
 
         fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source);
 
         Assert.Empty(handler.Contexts);
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
     }
 
     /// <summary>Verifies that an experience payload of the wrong length applies nothing, symmetric with the vitals case.</summary>
@@ -1021,12 +1070,12 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_ResynchronizationBaselineChanged_StillRaisesSnapshotChanged()
     {
-        Fixture fixture = CreateReady();
+        Fixture fixture = CreateXpPipelineReady();
         fixture.AdapterTracker.NeedsResynchronization = true;
         StateSnapshotPublication? raised = null;
         fixture.Feed.SnapshotChanged += publication =>
         {
-            if (publication.StateArea == XpArea)
+            if (publication.StateArea == TestArea)
             {
                 raised = publication;
             }
@@ -1050,18 +1099,18 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_ResynchronizationBaselineUnchangedAfterDisconnect_RestoresFeedSnapshot()
     {
-        Fixture fixture = CreateReady();
+        Fixture fixture = CreateXpPipelineReady();
         // A nonzero correlation id: an ordinary, scheduler-issued ReadSample reply, never a
         // resynchronization baseline (which always carries zero).
         var initialCapture = new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(100.0f));
         fixture.Sink.ApplyCaptureResult(initialCapture, fixture.Source);
-        Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.True(fixture.Feed.TryGetSnapshot(TestArea, out _));
 
         // A continuity loss unconditionally clears the feed's own pull-read cache, per
         // StatePublicationFeed's documented defense-in-depth clearing.
         fixture.AdapterTracker.PublishTransition(new AdapterAvailabilityTransition(
             AdapterAvailability.Available, AdapterAvailability.Unavailable, fixture.AdapterTracker.CurrentInstanceId, fixture.AdapterTracker.CurrentConnectionGeneration));
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
 
         // Reconnect and resynchronize the exact same value.
         fixture.AdapterTracker.Current = AdapterAvailability.Available;
@@ -1070,7 +1119,7 @@ public class LiveCaptureSinkTests
         fixture.Sink.ApplyCaptureResult(resyncCapture, fixture.Source);
         fixture.AdapterTracker.NeedsResynchronization = false;
 
-        Assert.True(fixture.Feed.TryGetSnapshot(XpArea, out StateSnapshotPublication? xp));
+        Assert.True(fixture.Feed.TryGetSnapshot(TestArea, out StateSnapshotPublication? xp));
         Assert.Equal(100.0f, ReadValue(xp!.Data));
     }
 
@@ -1078,7 +1127,7 @@ public class LiveCaptureSinkTests
     [Fact]
     public void ApplyCaptureResult_ResynchronizationTokenAlreadyClaimed_DoesNothingAndDoesNotThrow()
     {
-        Fixture fixture = CreateReady();
+        Fixture fixture = CreateXpPipelineReady();
         fixture.AdapterTracker.NeedsResynchronization = true;
         fixture.AdapterTracker.TryClaimResynchronizationToken(); // claimed by someone else first
         var captureResult = new IpcCaptureResultMessage(0, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp, CaptureAvailability.Available, fixture.Context, EncodeFloat(50.0f));
@@ -1086,6 +1135,6 @@ public class LiveCaptureSinkTests
         Exception? escaped = Record.Exception(() => fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source));
 
         Assert.Null(escaped);
-        Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
     }
 }

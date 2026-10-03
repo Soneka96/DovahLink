@@ -134,13 +134,13 @@ TEST_CASE("TryMakeCapturedPayload accepts runtime spans at and under the "
     std::vector<std::byte> twoBytes{std::byte{0x01}, std::byte{0x02}};
     std::vector<std::byte> fourBytes{
         std::byte{0x01}, std::byte{0x02}, std::byte{0x03}, std::byte{0x04}};
-    std::vector<std::byte> maximumSizeBytes(kMaxCapturedPayloadBytes);
-    for (std::size_t index = 0; index < maximumSizeBytes.size(); ++index) {
-        maximumSizeBytes[index] = static_cast<std::byte>(index);
+    std::vector<std::byte> maxSizedBytes(kMaxCapturedPayloadBytes);
+    for (std::size_t index = 0; index < maxSizedBytes.size(); ++index) {
+        maxSizedBytes[index] = static_cast<std::byte>(index);
     }
 
     for (const std::vector<std::byte>& source :
-         {empty, twoBytes, fourBytes, maximumSizeBytes}) {
+         {empty, twoBytes, fourBytes, maxSizedBytes}) {
         std::optional<CapturedPayload> payload =
             TryMakeCapturedPayload(std::span(source));
 

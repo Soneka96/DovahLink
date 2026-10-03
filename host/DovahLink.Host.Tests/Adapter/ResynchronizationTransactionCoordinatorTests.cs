@@ -14,12 +14,7 @@ public class ResynchronizationTransactionCoordinatorTests
     private static readonly StateAreaId AreaA = new("area-a");
     private static readonly StateAreaId AreaB = new("area-b");
     private static readonly StateAreaId AreaC = new("area-c");
-    private static readonly StateAreaId AreaD = new("area-d");
-    private static readonly StateAreaId AreaE = new("area-e");
-    private static readonly StateAreaId AreaF = new("area-f");
-    private static readonly StateAreaId AreaG = new("area-g");
-    private static readonly StateAreaId AreaH = new("area-h");
-    private static readonly StateAreaId[] AllAreas = [AreaA, AreaB, AreaC, AreaD, AreaE, AreaF, AreaG, AreaH];
+    private static readonly StateAreaId[] AllAreas = [AreaA, AreaB, AreaC];
 
     /// <summary>
     /// Verifies that a transaction completes -- notifying the tracker exactly once --
@@ -96,7 +91,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var coordinator = CreateCoordinator(BuildSyntheticCatalog(), tracker);
         PlayContextId context = PlayContextId.NewId();
 
-        foreach (StateAreaId area in AllAreas.Where(area => area != AreaH))
+        foreach (StateAreaId area in AllAreas.Where(area => area != AreaC))
         {
             coordinator.AcquireToken(instanceId, 1, context, 1);
             coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
@@ -177,7 +172,7 @@ public class ResynchronizationTransactionCoordinatorTests
         coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, contextA, 1);
 
         Assert.Null(staleToken);
-        // B's own Health area is still missing: the stale A-tagged Health accept did not count for it.
+        // B's own area A is still missing: the stale A-tagged accept did not count for it.
         Assert.True(tracker.NeedsResynchronization);
 
         coordinator.RecordAreaAccepted(AreaA, instanceId, 1, contextB, 2);
@@ -203,11 +198,11 @@ public class ResynchronizationTransactionCoordinatorTests
         coordinator.AcquireToken(instanceId, 1, contextA, 1);
         coordinator.RecordAreaAccepted(AreaA, instanceId, 1, contextA, 1);
 
-        // Context transitions to B before the remaining areas land; only three synthetic areas accept
-        // under B. The re-arm mints B's fresh token, the
+        // Context transitions to B while its first area remains outstanding; that old acceptance
+        // cannot count for B. The re-arm mints B's fresh token, the
         // same real call PlayContextResynchronizationTrigger makes on every play-context transition.
         tracker.RearmResynchronizationForPlayContextTransition();
-        foreach (StateAreaId area in new[] { AreaA, AreaG, AreaH })
+        foreach (StateAreaId area in new[] { AreaB })
         {
             coordinator.AcquireToken(instanceId, 1, contextB, 2);
             coordinator.RecordAreaAccepted(area, instanceId, 1, contextB, 2);
@@ -217,11 +212,8 @@ public class ResynchronizationTransactionCoordinatorTests
 
         Assert.True(tracker.NeedsResynchronization);
 
-        coordinator.RecordAreaAccepted(AreaB, instanceId, 1, contextB, 2);
         coordinator.RecordAreaAccepted(AreaC, instanceId, 1, contextB, 2);
-        coordinator.RecordAreaAccepted(AreaD, instanceId, 1, contextB, 2);
-        coordinator.RecordAreaAccepted(AreaE, instanceId, 1, contextB, 2);
-        coordinator.RecordAreaAccepted(AreaF, instanceId, 1, contextB, 2);
+        coordinator.RecordAreaAccepted(AreaA, instanceId, 1, contextB, 2);
 
         Assert.False(tracker.NeedsResynchronization);
     }
@@ -510,7 +502,7 @@ public class ResynchronizationTransactionCoordinatorTests
         var coordinator = CreateCoordinator(BuildSyntheticCatalog(), tracker, continuityRecovery, TimeSpan.FromMilliseconds(60));
         PlayContextId context = PlayContextId.NewId();
 
-        foreach (StateAreaId area in AllAreas.Where(area => area != AreaH))
+        foreach (StateAreaId area in AllAreas.Where(area => area != AreaC))
         {
             coordinator.AcquireToken(instanceId, 1, context, 1);
             coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);

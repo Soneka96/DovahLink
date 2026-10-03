@@ -375,7 +375,7 @@ namespace DovahLink.Host.Tests.State
             playContextTracker.NotifyTransition(context);
             var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
             var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
-            var otherAreaId = new StateAreaId("Inventory");
+            var otherAreaId = new StateAreaId("area_b");
 
             publisher.Apply(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration, context, playContextTracker.TransitionGeneration, AreaId, 42);
 

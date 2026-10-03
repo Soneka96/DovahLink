@@ -15,10 +15,10 @@ namespace dovahlink::adapter::capture {
 ///  handoff requirement.
 inline constexpr std::size_t kMaxAdapterCaptureQueueItems = 64;
 
-///  The largest captured value any current capture unit produces (the
-///  24-byte coherent current-and-maximum vitals sample), sizing
-///  `CapturedPayload`'s fixed buffer so no capture ever needs a heap allocation
-///  to hold its own value.
+///  The fixed per-capture byte capacity used by the adapter's bounded,
+///  allocation-free handoff buffer. Payloads above this infrastructure bound
+///  are rejected; increasing it requires a deliberate memory, performance,
+///  and security review.
 inline constexpr std::size_t kMaxCapturedPayloadBytes = 24;
 
 ///  The number of immediate, non-blocking lock attempts

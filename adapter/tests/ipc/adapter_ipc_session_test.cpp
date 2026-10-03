@@ -902,7 +902,7 @@ TEST_CASE("FakeAdapterNativeCaptureRouter::CaptureSample fails closed for a "
           "[ipc][adapter_ipc_session]") {
     FakeAdapterNativeCaptureRouter router;
     constexpr std::uint32_t sampleToken = 3001;
-    //  One byte beyond kMaxCapturedPayloadBytes (24), so
+    //  One byte beyond kMaxCapturedPayloadBytes, so
     //  TryMakeCapturedPayload rejects it.
     std::vector<std::byte> oversizedPayload(
         kMaxCapturedPayloadBytes + 1, std::byte{0xAB});
