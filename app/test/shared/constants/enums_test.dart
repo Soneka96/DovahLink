@@ -329,4 +329,28 @@ void main() {
       },
     );
   });
+
+  group('Property values in DeviceNameRenameStatus behave correctly', () {
+    test('Property values preserve each distinct Host rename outcome', () {
+      expect(DeviceNameRenameStatus.values, [
+        DeviceNameRenameStatus.notAttempted,
+        DeviceNameRenameStatus.renamed,
+        DeviceNameRenameStatus.invalidDisplayName,
+        DeviceNameRenameStatus.notTrusted,
+        DeviceNameRenameStatus.unconfirmed,
+      ]);
+    });
+  });
+
+  group('Property values in DeviceNameRenameStatus behave correctly', () {
+    test('Property values preserve every Host rename outcome', () {
+      expect(DeviceNameRenameStatus.values, [
+        DeviceNameRenameStatus.notAttempted,
+        DeviceNameRenameStatus.renamed,
+        DeviceNameRenameStatus.invalidDisplayName,
+        DeviceNameRenameStatus.notTrusted,
+        DeviceNameRenameStatus.unconfirmed,
+      ]);
+    });
+  });
 }

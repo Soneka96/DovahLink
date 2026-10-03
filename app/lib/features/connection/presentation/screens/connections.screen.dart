@@ -5,7 +5,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/appearance/presentation/sections/appearance.section.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/connections_footer.widget.dart';
@@ -16,6 +15,7 @@ import 'package:dovahlink_client/features/connection/presentation/widgets/root_h
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_dialog.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_mark.widget.dart';
 import 'package:dovahlink_client/features/pairing/presentation/widgets/pairing_state_layout.widget.dart';
+import 'package:dovahlink_client/features/settings/presentation/widgets/settings_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -29,7 +29,7 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_backgrou
 /// action, and durable Known Hosts over the theme's atmosphere. Online and Pair again cards open
 /// authentication; Pair again asks for confirmation first, and Connected cards re-enter their
 /// admitted Session Shell directly. Discovery candidates are presented separately by the Discover
-/// flow. The header's appearance action opens the theme picker. Content is capped at a comfortable
+/// flow. The header's Settings action opens the shared settings dialog. Content is capped at a comfortable
 /// reading width and scrolls both ways below its minimum width.
 class ConnectionsScreen extends StatelessWidget {
   /// Creates the connections screen.
@@ -70,12 +70,8 @@ class ConnectionsScreen extends StatelessWidget {
                               crossAxisAlignment: CrossAxisAlignment.stretch,
                               children: [
                                 RootHeader(
-                                  onOpenAppearance: () =>
-                                      DovahDialog.show<void>(
-                                        context,
-                                        title: 'Appearance',
-                                        child: const AppearanceSection(),
-                                      ),
+                                  onOpenSettings: () =>
+                                      SettingsDialog.show(context),
                                 ),
                                 SizedBox(height: metrics.contentTopPadding),
                                 ConnectionsHero(

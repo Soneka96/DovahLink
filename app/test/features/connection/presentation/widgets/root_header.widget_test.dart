@@ -22,7 +22,7 @@ void main() {
           (WidgetTester tester) async {
             await pumpDovahThemedWidget(
               tester,
-              SingleChildScrollView(child: RootHeader(onOpenAppearance: () {})),
+              SingleChildScrollView(child: RootHeader(onOpenSettings: () {})),
               preset: preset,
               size: size,
             );
@@ -55,7 +55,7 @@ void main() {
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
-            SingleChildScrollView(child: RootHeader(onOpenAppearance: () {})),
+            SingleChildScrollView(child: RootHeader(onOpenSettings: () {})),
             preset: preset,
             size: dovahTestSizes.first,
           );
@@ -89,7 +89,7 @@ void main() {
               context,
             ).copyWith(textScaler: const TextScaler.linear(2)),
             child: SingleChildScrollView(
-              child: RootHeader(onOpenAppearance: () {}),
+              child: RootHeader(onOpenSettings: () {}),
             ),
           ),
         ),
@@ -101,14 +101,14 @@ void main() {
     });
   });
 
-  group('RootHeader calls onOpenAppearance', () {
-    testWidgets('RootHeader calls onOpenAppearance when the action is tapped', (
+  group('RootHeader calls onOpenSettings', () {
+    testWidgets('RootHeader calls onOpenSettings when the action is tapped', (
       WidgetTester tester,
     ) async {
       int callCount = 0;
       await pumpDovahThemedWidget(
         tester,
-        RootHeader(onOpenAppearance: () => callCount++),
+        RootHeader(onOpenSettings: () => callCount++),
         preset: DovahThemePreset.dovah,
         size: dovahTestSizes.first,
       );
@@ -119,13 +119,13 @@ void main() {
       expect(callCount, 1);
     });
 
-    testWidgets('RootHeader does not call onOpenAppearance before a tap', (
+    testWidgets('RootHeader does not call onOpenSettings before a tap', (
       WidgetTester tester,
     ) async {
       int callCount = 0;
       await pumpDovahThemedWidget(
         tester,
-        RootHeader(onOpenAppearance: () => callCount++),
+        RootHeader(onOpenSettings: () => callCount++),
         preset: DovahThemePreset.dovah,
         size: dovahTestSizes.first,
       );
@@ -136,18 +136,18 @@ void main() {
 
   group('RootHeader exposes sensible semantics', () {
     testWidgets(
-      'RootHeader labels the appearance action and meets tap-target size',
+      'RootHeader labels the Settings action and meets tap-target size',
       (WidgetTester tester) async {
         final SemanticsHandle semantics = tester.ensureSemantics();
         try {
           await pumpDovahThemedWidget(
             tester,
-            RootHeader(onOpenAppearance: () {}),
+            RootHeader(onOpenSettings: () {}),
             preset: DovahThemePreset.dovah,
             size: dovahTestSizes.first,
           );
 
-          expect(find.bySemanticsLabel('Appearance settings'), findsOneWidget);
+          expect(find.bySemanticsLabel('Settings'), findsOneWidget);
           await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
           await expectLater(tester, meetsGuideline(androidTapTargetGuideline));
         } finally {
@@ -172,7 +172,7 @@ void main() {
       ) async {
         await pumpDovahThemedWidget(
           tester,
-          SingleChildScrollView(child: RootHeader(onOpenAppearance: () {})),
+          SingleChildScrollView(child: RootHeader(onOpenSettings: () {})),
           preset: preset,
           size: size,
         );
@@ -188,7 +188,7 @@ void main() {
         (WidgetTester tester) async {
           await pumpDovahThemedWidget(
             tester,
-            SingleChildScrollView(child: RootHeader(onOpenAppearance: () {})),
+            SingleChildScrollView(child: RootHeader(onOpenSettings: () {})),
             preset: preset,
             size: const Size(1280, 720),
           );

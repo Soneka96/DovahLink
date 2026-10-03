@@ -45,6 +45,82 @@ void main() {
     });
   });
 
+  group('Selector admittedHostIdSelector behaves correctly', () {
+    test(
+      'Selector admittedHostIdSelector uses the SDK-connected Host, not selection or availability',
+      () {
+        final Host admittedHost = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final Host selectedHost = Fixtures.buildHost(
+          hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        );
+
+        expect(
+          ConnectionSelectors.admittedHostIdSelector(
+            stateWith(
+              [selectedHost],
+              selectedHost: selectedHost,
+              knownHosts: [
+                Fixtures.buildKnownHost(
+                  host: admittedHost,
+                  availability: HostAvailability.offline,
+                  sessionState: KnownHostSessionState.connected,
+                ),
+              ],
+            ),
+          ),
+          admittedHost.hostId,
+        );
+      },
+    );
+
+    test(
+      'Selector admittedHostIdSelector returns null without one connected session',
+      () {
+        final Host firstHost = Fixtures.buildHost(
+          hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
+        );
+        final Host secondHost = Fixtures.buildHost(
+          hostId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+        );
+
+        expect(
+          ConnectionSelectors.admittedHostIdSelector(
+            stateWith(
+              const <Host>[],
+              knownHosts: [
+                Fixtures.buildKnownHost(
+                  host: firstHost,
+                  availability: HostAvailability.online,
+                ),
+              ],
+            ),
+          ),
+          isNull,
+        );
+        expect(
+          ConnectionSelectors.admittedHostIdSelector(
+            stateWith(
+              const <Host>[],
+              knownHosts: [
+                Fixtures.buildKnownHost(
+                  host: firstHost,
+                  sessionState: KnownHostSessionState.connected,
+                ),
+                Fixtures.buildKnownHost(
+                  host: secondHost,
+                  sessionState: KnownHostSessionState.connected,
+                ),
+              ],
+            ),
+          ),
+          isNull,
+        );
+      },
+    );
+  });
+
   group('Selector discoveryStatusSelector behaves correctly', () {
     test(
       'discoveryStatusSelector selects the current Host discovery state',

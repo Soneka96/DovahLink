@@ -8,10 +8,17 @@ import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_
     show IAuthenticationService;
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart'
     show IReconnectService;
+import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart'
+    show IRequestService;
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart'
     show ISessionService;
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart'
     show ISubscriptionService;
+import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
+import 'package:dovahlink_client_sdk/src/request_policy.dart';
+import 'package:dovahlink_client_sdk/src/shared/enums.dart'
+    show ProtocolErrorCode, ProtocolMessageType, TimeoutClass;
 import 'fixtures/fixtures.dart';
 
 /// Mocks the existing session lifecycle owner.
@@ -29,8 +36,23 @@ class MockConnectionsReconnectService extends Mock
 class MockConnectionsSubscriptionService extends Mock
     implements ISubscriptionService {}
 
+/// Mocks the shared correlated request owner.
+class MockConnectionsRequestService extends Mock implements IRequestService {}
+
 /// Builds a fallback successful handshake for the mocked retry callback.
 Future<HelloResult> buildRetryFallback() async => Fixtures.buildHelloResult();
+
+/// Builds a typed `rename_outcome` envelope for connection-operation tests.
+/// @param outcome The canonical wire result.
+/// @param displayName The resulting name, or `null` when the name was cleared or rejected.
+/// @return A representative rename reply envelope.
+Envelope buildRenameOutcomeEnvelope({
+  required String outcome,
+  required String? displayName,
+}) => Fixtures.buildEnvelope(
+  messageType: ProtocolMessageType.renameOutcome,
+  payload: <String, dynamic>{'outcome': outcome, 'displayName': displayName},
+);
 
 /// Tests the grouped connection view over the existing SDK engine.
 void main() {
@@ -38,10 +60,27 @@ void main() {
   late MockConnectionsAuthenticationService authenticationService;
   late MockConnectionsReconnectService reconnectService;
   late MockConnectionsSubscriptionService subscriptionService;
+  late MockConnectionsRequestService requestService;
   late DovahLinkConnections connections;
 
   setUpAll(() {
     registerFallbackValue(buildRetryFallback);
+    registerFallbackValue(const <String, dynamic>{});
+    registerFallbackValue(ProtocolMessageType.renameRequest);
+    registerFallbackValue(
+      Fixtures.buildRequestPolicy(
+        retrySafe: false,
+        requiredTrustState: DovahLinkTrustState.trusted,
+        timeoutClass: TimeoutClass.normal,
+      ),
+    );
+    registerFallbackValue(
+      const DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: 'test fallback',
+        retryable: false,
+      ),
+    );
   });
 
   setUp(() {
@@ -49,6 +88,7 @@ void main() {
     authenticationService = MockConnectionsAuthenticationService();
     reconnectService = MockConnectionsReconnectService();
     subscriptionService = MockConnectionsSubscriptionService();
+    requestService = MockConnectionsRequestService();
     when(() => reconnectService.connectWithInitialRetry(any())).thenAnswer((
       Invocation invocation,
     ) {
@@ -65,6 +105,7 @@ void main() {
       authenticationService: authenticationService,
       reconnectService: reconnectService,
       subscriptionService: subscriptionService,
+      requestService: requestService,
     );
   });
 
@@ -134,6 +175,164 @@ void main() {
 
       await expectLater(
         connections.connectKnownHost(hostId),
+        throwsA(same(failure)),
+      );
+    });
+  });
+
+  group('Method renameDevice behaves correctly', () {
+    test('Method renameDevice preserves the Host rename outcome', () async {
+      when(
+        () => requestService.sendAndAwait(
+          messageType: any(named: 'messageType'),
+          payload: any(named: 'payload'),
+          expectedType: any(named: 'expectedType'),
+          policy: any(named: 'policy'),
+        ),
+      ).thenAnswer(
+        (_) async => buildRenameOutcomeEnvelope(
+          outcome: 'renamed',
+          displayName: 'Living Room PC',
+        ),
+      );
+
+      expect(
+        await connections.renameDevice('Living Room PC'),
+        RenameOutcome.renamed,
+      );
+      final List<Object?> captured = verify(
+        () => requestService.sendAndAwait(
+          messageType: ProtocolMessageType.renameRequest,
+          payload: captureAny(named: 'payload'),
+          expectedType: ProtocolMessageType.renameOutcome,
+          policy: const RequestPolicy(
+            retrySafe: false,
+            requiredTrustState: DovahLinkTrustState.trusted,
+            timeoutClass: TimeoutClass.normal,
+          ),
+        ),
+      ).captured;
+      expect((captured.single! as JsonMap)['displayName'], 'Living Room PC');
+    });
+
+    test(
+      'Method renameDevice preserves invalid and untrusted outcomes',
+      () async {
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer(
+          (_) async => buildRenameOutcomeEnvelope(
+            outcome: 'invalid_display_name',
+            displayName: null,
+          ),
+        );
+
+        expect(
+          await connections.renameDevice('bad name'),
+          RenameOutcome.invalidDisplayName,
+        );
+
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer(
+          (_) async => buildRenameOutcomeEnvelope(
+            outcome: 'not_trusted',
+            displayName: null,
+          ),
+        );
+
+        expect(
+          await connections.renameDevice('New Name'),
+          RenameOutcome.notTrusted,
+        );
+      },
+    );
+
+    test(
+      'Method renameDevice sends an empty name to clear the Host label',
+      () async {
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer(
+          (_) async =>
+              buildRenameOutcomeEnvelope(outcome: 'renamed', displayName: null),
+        );
+
+        expect(await connections.renameDevice(''), RenameOutcome.renamed);
+        final List<Object?> captured = verify(
+          () => requestService.sendAndAwait(
+            messageType: ProtocolMessageType.renameRequest,
+            payload: captureAny(named: 'payload'),
+            expectedType: ProtocolMessageType.renameOutcome,
+            policy: const RequestPolicy(
+              retrySafe: false,
+              requiredTrustState: DovahLinkTrustState.trusted,
+              timeoutClass: TimeoutClass.normal,
+            ),
+          ),
+        ).captured;
+        expect((captured.single! as JsonMap)['displayName'], '');
+      },
+    );
+
+    test(
+      'Method renameDevice reports malformed outcomes as protocol failures',
+      () async {
+        when(
+          () => requestService.sendAndAwait(
+            messageType: any(named: 'messageType'),
+            payload: any(named: 'payload'),
+            expectedType: any(named: 'expectedType'),
+            policy: any(named: 'policy'),
+          ),
+        ).thenAnswer(
+          (_) async =>
+              buildRenameOutcomeEnvelope(outcome: 'unknown', displayName: null),
+        );
+
+        await expectLater(
+          connections.renameDevice('New Name'),
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+        verify(
+          () => sessionService.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: false,
+          ),
+        ).called(1);
+      },
+    );
+
+    test('Method renameDevice propagates transport failures', () async {
+      const DovahLinkConnectionException failure = DovahLinkConnectionException(
+        'connection lost during rename',
+      );
+      when(
+        () => requestService.sendAndAwait(
+          messageType: any(named: 'messageType'),
+          payload: any(named: 'payload'),
+          expectedType: any(named: 'expectedType'),
+          policy: any(named: 'policy'),
+        ),
+      ).thenAnswer((_) async => throw failure);
+
+      await expectLater(
+        connections.renameDevice('New Name'),
         throwsA(same(failure)),
       );
     });

@@ -13,6 +13,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Added
 
+- Connections and Session Shell share one Settings dialog with the existing Appearance picker and a persisted device-name editor; pairing uses the resolved name and active trusted-Host rename outcomes stay separate.
 - Known Host cards show Checking during startup and endpoint checks while retaining stable availability
   during periodic refresh.
 - Known Host cards distinguish Online presence from admitted, connecting, and reconnecting sessions.
@@ -91,6 +92,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Invalid operating-system device names now fall back safely before pairing.
 - Disposing pairing while secure storage is unavailable still cancels retry observation and ignores
   pending authentication results.
 - Discover now disposes a candidate pairing lifecycle after the selected Host becomes a Known Host.

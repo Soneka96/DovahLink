@@ -9,6 +9,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -67,11 +68,20 @@ class MockPairingDovahLinkConnections extends Mock
 /// whatever a test stubs.
 class MockStore extends Mock implements Store<AppState> {}
 
-/// Builds an [AppState] with the given pairing [phase] and the selected [host] (the representative
-/// Host when omitted) -- the two things [PairingMiddleware] itself reads from the Store.
+/// Builds an [AppState] with the requested pairing phase, selected Host, and identity load result.
+/// @param phase The pairing lifecycle phase.
+/// @param host The selected Host, or a representative Host by default.
+/// @param deviceName The resolved device name, or `null` if unavailable.
+/// @param deviceNameLoadFailure The load error, or `null` if loading succeeded.
+/// @param pendingPairingHostId The selected candidate pairing identity, if any.
+/// @param source Whether [host] is a candidate or saved Known Host.
+/// @param support Whether pairing storage is available.
+/// @return A fresh application state for the requested pairing scenario.
 AppState _stateWithPhase(
   PairingPhase phase, {
   Host? host,
+  String? deviceName,
+  String? deviceNameLoadFailure,
   String? pendingPairingHostId,
   ConnectionHostSelectionSource source =
       ConnectionHostSelectionSource.candidate,
@@ -89,6 +99,10 @@ AppState _stateWithPhase(
     error: null,
     codeExpiresAt: null,
     renotifyAvailableAt: null,
+  ),
+  deviceIdentity: DeviceIdentityState(
+    displayName: deviceName,
+    loadFailure: deviceNameLoadFailure,
   ),
 );
 
@@ -1378,6 +1392,9 @@ void main() {
     test(
       'PairingCodeSubmittedAction dispatches PairingConfirmedAction and forwards code/displayName when confirmation succeeds',
       () async {
+        when(() => store.state).thenReturn(
+          _stateWithPhase(PairingPhase.confirming, deviceName: 'Desktop'),
+        );
         when(
           () => mockConfirmPairingCode(
             const ConfirmPairingCodeParams(
@@ -1392,19 +1409,13 @@ void main() {
 
         middleware.call(
           store,
-          const PairingCodeSubmittedAction(
-            code: '123456',
-            displayName: 'Desktop',
-          ),
+          const PairingCodeSubmittedAction(code: '123456'),
           next,
         );
         await Future<void>.delayed(Duration.zero);
 
         expect(actionLog, [
-          const PairingCodeSubmittedAction(
-            code: '123456',
-            displayName: 'Desktop',
-          ),
+          const PairingCodeSubmittedAction(code: '123456'),
           ConnectionCandidatePairingStartedAction(Fixtures.buildHost().hostId),
           const PairingConfirmedAction(),
           const PairingSessionTrustedAction(),
@@ -1417,6 +1428,43 @@ void main() {
             ),
           ),
         ).called(1);
+      },
+    );
+
+    test(
+      'PairingCodeSubmittedAction passes null when the saved name failed to load',
+      () async {
+        when(() => store.state).thenReturn(
+          _stateWithPhase(
+            PairingPhase.confirming,
+            deviceNameLoadFailure: 'Preferences unavailable.',
+          ),
+        );
+        when(
+          () => mockConfirmPairingCode(
+            const ConfirmPairingCodeParams(code: '123456'),
+          ),
+        ).thenAnswer((_) async => const Right(unit));
+        when(
+          () => mockObserveConnectionStatus(any()),
+        ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
+
+        middleware.call(
+          store,
+          const PairingCodeSubmittedAction(code: '123456'),
+          next,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        verify(
+          () => mockConfirmPairingCode(
+            const ConfirmPairingCodeParams(code: '123456'),
+          ),
+        ).called(1);
+        expect(
+          actionLog.whereType<PairingCodeSubmittedAction>().single.code,
+          '123456',
+        );
       },
     );
 

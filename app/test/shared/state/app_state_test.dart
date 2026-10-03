@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -67,5 +68,23 @@ void main() {
         expect(state.appearance.activePreset, defaultThemePreset);
       },
     );
+  });
+
+  group('Property deviceIdentity behaves correctly', () {
+    test('Property deviceIdentity defaults to the initial local name', () {
+      final AppState state = AppState.initial();
+
+      expect(state.deviceIdentity, DeviceIdentityState.initial());
+    });
+
+    test('Property deviceIdentity uses the loaded value when supplied', () {
+      const DeviceIdentityState deviceIdentity = DeviceIdentityState(
+        displayName: 'Saved Device',
+      );
+
+      final AppState state = AppState.initial(deviceIdentity: deviceIdentity);
+
+      expect(state.deviceIdentity, deviceIdentity);
+    });
   });
 }

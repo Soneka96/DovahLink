@@ -354,6 +354,7 @@ class DovahLinkClient {
       authenticationService: _authenticationService,
       reconnectService: _reconnectService,
       subscriptionService: _subscriptionService,
+      requestService: _requestService,
     );
     currentHost = DovahLinkCurrentHost(
       sessionService: _sessionService,

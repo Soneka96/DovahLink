@@ -25,12 +25,16 @@ class DovahButton extends StatefulWidget {
   /// An optional icon shown before the label, in the label's color.
   final IconData? icon;
 
+  /// An optional label-size override for a component-specific prototype control.
+  final double? labelFontSize;
+
   /// Creates a themed button.
   const DovahButton({
     required this.label,
     required this.onPressed,
     this.variant = DovahButtonVariant.primary,
     this.icon,
+    this.labelFontSize,
     super.key,
   });
 
@@ -75,9 +79,11 @@ class _DovahButtonState extends State<DovahButton> {
       widget.label,
       style: TextStyle(
         color: foreground,
-        fontSize: quiet
-            ? DovahControlMetrics.quietButtonFontSize
-            : DovahControlMetrics.buttonFontSize,
+        fontSize:
+            widget.labelFontSize ??
+            (quiet
+                ? DovahControlMetrics.quietButtonFontSize
+                : DovahControlMetrics.buttonFontSize),
         fontWeight: primary ? FontWeight.w800 : FontWeight.w700,
         height: DovahThemeTokens.bodyLineHeight,
       ),

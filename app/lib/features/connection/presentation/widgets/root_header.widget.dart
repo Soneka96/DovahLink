@@ -9,15 +9,15 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_brand_mark.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
 
-/// The root screen's header bar: the DovahLink brand mark and wordmark on the left and the appearance
+/// The root screen's header bar: the DovahLink brand mark and wordmark on the left and the Settings
 /// action on the right, over a translucent blurred surface with a gradient rule along its bottom
 /// edge. Takes its one callback as a prop.
 class RootHeader extends StatelessWidget {
-  /// Called when the appearance action is tapped.
-  final VoidCallback onOpenAppearance;
+  /// Called when Settings is tapped.
+  final VoidCallback onOpenSettings;
 
   /// Creates the root header.
-  const RootHeader({required this.onOpenAppearance, super.key});
+  const RootHeader({required this.onOpenSettings, super.key});
 
   /// See [StatelessWidget.build].
   @override
@@ -107,8 +107,8 @@ class RootHeader extends StatelessWidget {
                     ),
                     child: DovahIconButton(
                       icon: Icons.settings_outlined,
-                      label: 'Appearance settings',
-                      onPressed: onOpenAppearance,
+                      label: 'Settings',
+                      onPressed: onOpenSettings,
                     ),
                   ),
                 ],

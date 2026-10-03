@@ -2,6 +2,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.actions.dart';
+import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_reducer.dart';
@@ -123,5 +125,40 @@ void main() {
 
       expect(identical(result.connection, state.connection), isTrue);
     });
+  });
+
+  group('Action DeviceNameSavedAction behaves correctly', () {
+    test('DeviceNameSavedAction delegates to the identity reducer', () {
+      final AppState state = AppState.initial(
+        deviceIdentity: const DeviceIdentityState(
+          displayName: null,
+          loadFailure: 'Preferences unavailable.',
+        ),
+      );
+
+      final AppState result = appReducer(
+        state,
+        const DeviceNameSavedAction(displayName: 'Saved Device'),
+      );
+
+      expect(result.deviceIdentity.displayName, 'Saved Device');
+      expect(result.deviceIdentity.loadFailure, isNull);
+    });
+
+    test(
+      'DeviceNameSavedAction leaves connection and pairing state unchanged',
+      () {
+        final AppState state = AppState.initial();
+
+        final AppState result = appReducer(
+          state,
+          const DeviceNameSavedAction(displayName: 'Saved Device'),
+        );
+
+        expect(identical(result.connection, state.connection), isTrue);
+        expect(identical(result.pairing, state.pairing), isTrue);
+        expect(identical(result.appearance, state.appearance), isTrue);
+      },
+    );
   });
 }

@@ -16,6 +16,19 @@ void main() {
     );
   });
 
+  group(
+    'Behavior equality in PairingCodeSubmittedAction behaves correctly',
+    () {
+      test('Behavior equality contains only the entered pairing code', () {
+        const PairingCodeSubmittedAction action = PairingCodeSubmittedAction(
+          code: '123456',
+        );
+
+        expect(action.props, ['123456']);
+      });
+    },
+  );
+
   group('Behavior equality in PairingAuthenticatedAction behaves correctly', () {
     test(
       'Behavior equality in PairingAuthenticatedAction includes the typed rejection reason',

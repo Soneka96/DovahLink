@@ -13,6 +13,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Added
 
+- `client.connections.renameDevice(displayName)` exposes the active Host's typed trusted-device rename outcome.
 - The SDK checks restored Known Host presence on startup and refreshes it while the client remains open, separately from session connection state.
 - `client.hosts.knownHostsChanges` emits the complete persisted Known Hosts view after commits.
 - The SDK keeps each Host's current bearer credential and pending pairing recovery scoped to that Host ID.

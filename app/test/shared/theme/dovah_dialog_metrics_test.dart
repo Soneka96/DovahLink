@@ -144,6 +144,11 @@ void main() {
       expect(metrics.messageMinHeight, 18);
       expect(metrics.actionsTopGap, 18);
       expect(metrics.noteTopGap, 17);
+      expect(metrics.settingsSharedTopGap, 14);
+      expect(metrics.settingsSharedVerticalPadding, 11);
+      expect(metrics.settingsSharedHorizontalPadding, 13);
+      expect(metrics.settingsOrientationTopGap, 11);
+      expect(metrics.settingsOrientationTopPadding, 11);
     });
   });
 
@@ -171,6 +176,11 @@ void main() {
       expect(metrics.messageMinHeight, 14);
       expect(metrics.actionsTopGap, 7);
       expect(metrics.noteTopGap, 8);
+      expect(metrics.settingsSharedTopGap, 9);
+      expect(metrics.settingsSharedVerticalPadding, 8);
+      expect(metrics.settingsSharedHorizontalPadding, 10);
+      expect(metrics.settingsOrientationTopGap, 7);
+      expect(metrics.settingsOrientationTopPadding, 7);
     });
   });
 
@@ -208,6 +218,25 @@ void main() {
       expect(DovahDialogMetrics.bodyFontSize, 14);
       expect(DovahDialogMetrics.noteFontSize, isA<double>());
       expect(DovahDialogMetrics.noteFontSize, 12);
+    });
+
+    test('Property Settings constants keep the prototype values', () {
+      expect(DovahDialogMetrics.settingsDeviceRowVerticalPadding, 13);
+      expect(DovahDialogMetrics.settingsDeviceRowGap, 20);
+      expect(DovahDialogMetrics.settingsDeviceNameInputWidth, 180);
+      expect(DovahDialogMetrics.settingsDeviceControlGap, 8);
+      expect(DovahDialogMetrics.settingsDeviceLabelFontSize, 14);
+      expect(DovahDialogMetrics.settingsDeviceCopyFontSize, 12);
+      expect(DovahDialogMetrics.settingsDeviceCopyGap, 4);
+      expect(DovahDialogMetrics.settingsSaveButtonFontSize, 13);
+      expect(DovahDialogMetrics.settingsDeviceFeedbackTopGap, 8);
+      expect(DovahDialogMetrics.settingsSharedMarkSize, 32);
+      expect(DovahDialogMetrics.settingsSharedSigilSize, 28);
+      expect(DovahDialogMetrics.settingsSharedContentGap, 11);
+      expect(DovahDialogMetrics.settingsSharedTitleFontSize, 12);
+      expect(DovahDialogMetrics.settingsSharedDetailFontSize, 11);
+      expect(DovahDialogMetrics.settingsSharedDetailGap, 2);
+      expect(DovahDialogMetrics.settingsOrientationFontSize, 11);
     });
 
     test(

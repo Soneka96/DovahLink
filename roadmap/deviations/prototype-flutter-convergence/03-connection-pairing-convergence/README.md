@@ -1,6 +1,6 @@
 # 03 — Connection / Pairing Convergence
 
-**Status:** Partial — 03.1–03.3 complete; 03.4–03.10 paused and require re-planning.
+**Status:** Partial — 03.1–03.3 complete; the separately re-planned current 03.9 Settings/device-identity phase is implemented; historical 03.4–03.8 and 03.10 remain paused for re-planning.
 
 > **Numbering warning:** 03.1–03.10 are historical identifiers inside this deviation. They are not
 > official Stage 3 roadmap phases. Official Stage 3.1 is “Live Pairing Challenge UX”; official 3.2
@@ -25,7 +25,7 @@ Host behavior. The UI presents application truth; it does not create trust or in
 | 03.6 Discovery / trust UI | Paused / re-planning required | [Step record](03.6-discovery-trust-ui.md) |
 | 03.7 Typed pairing state | Paused / re-planning required | [Step record](03.7-typed-pairing-state.md) |
 | 03.8 Pairing UI | Paused / re-planning required | [Step record](03.8-pairing-ui.md) |
-| 03.9 Settings / device name | Paused / re-planning required | [Step record](03.9-settings-device-name.md) |
+| 03.9 Settings / device name | Re-planned current Settings/device-identity phase implemented; screenshot audit pending | [Step record](03.9-settings-device-name.md) |
 | 03.10 Connection cards / handoff | Paused / re-planning required | [Step record](03.10-connection-cards-handoff.md) |
 
 ## PR #100 security detour
@@ -55,13 +55,16 @@ typed-state coverage, and remaining screenshot limitation are tracked in the par
 pixel-level visual parity.
 
 This separately scheduled UI convergence does not complete historical slice 03.6, which remains
-paused with 03.4–03.10 for re-planning against the current architecture and security boundaries.
+paused with 03.4–03.8 and 03.10 for re-planning against the current architecture and security
+boundaries. Slice 03.9 has been re-planned as the current Settings / device-identity phase and is
+implemented as a separately approved current-journey change. It does not resume or complete
+historical 03.4–03.8 or 03.10.
 
 Production LAN discovery and an approved SAS/secure initial-pairing ceremony remain later work. SAS
 is intended to replace the initial pairing ceremony only; it should not require rebuilding discovery,
 Known Host lifecycle, or the Connections UI. Production security remains gated by its reviewed
 profile and integration evidence.
 
-Re-plan 03.4–03.10 against current DovahLink security and SDK architecture before resuming those
-slices. The exact schedule belongs to future reviewed work; this historical index assigns no new
-milestones.
+Re-plan remaining paused slices 03.4–03.8 and 03.10 against current DovahLink security and SDK
+architecture before resuming them. The exact schedule belongs to future reviewed work; this
+historical index assigns no new milestones.

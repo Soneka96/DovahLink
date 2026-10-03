@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/appearance/presentation/sections/appearance.section.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_shell.viewmodel.dart';
+import 'package:dovahlink_client/features/settings/presentation/widgets/settings_dialog.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -14,7 +14,6 @@ import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
-import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
@@ -166,13 +165,10 @@ class SessionShellScreen extends StatelessWidget {
                                   ],
                                   DovahIconButton(
                                     icon: Icons.settings_outlined,
-                                    label: 'Appearance settings',
+                                    label: 'Settings',
                                     size: DovahSessionMetrics.actionButtonSize,
-                                    onPressed: () => DovahDialog.show<void>(
-                                      context,
-                                      title: 'Appearance',
-                                      child: const AppearanceSection(),
-                                    ),
+                                    onPressed: () =>
+                                        SettingsDialog.show(context),
                                   ),
                                 ],
                               ),

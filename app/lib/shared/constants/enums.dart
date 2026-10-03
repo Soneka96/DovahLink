@@ -443,3 +443,23 @@ enum DovahPreviewSigilShape {
   /// A full circle (Hearth).
   circle,
 }
+
+// ---- Device identity ----
+
+/// The outcome of attempting to rename the active Host's trust record after saving locally.
+enum DeviceNameRenameStatus {
+  /// No trusted Host session was active, so only the local preference was updated.
+  notAttempted,
+
+  /// The active Host acknowledged the rename.
+  renamed,
+
+  /// The Host rejected the name against its display-name contract.
+  invalidDisplayName,
+
+  /// The active Host no longer considers this client trusted.
+  notTrusted,
+
+  /// The request failed before its Host outcome could be confirmed.
+  unconfirmed,
+}

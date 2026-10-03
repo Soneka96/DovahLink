@@ -32,7 +32,8 @@ not authorize the UI to invent connectivity, trust, or pairing outcomes. See
 | 02 — Visual/material foundation | Complete | [Visual foundation](02-visual-material-foundation.md) · [PR #93](https://github.com/Soneka96/DovahLink/pull/93) · [PR #94](https://github.com/Soneka96/DovahLink/pull/94) |
 | 03 — Connection/pairing convergence | Historical slices remain paused; the separately approved current-journey UI pass is implemented, with screenshot audit pending | [Step index](03-connection-pairing-convergence/README.md) |
 | 03.1–03.3 | Complete | Host identity, local discovery, and Known Host persistence |
-| 03.4–03.10 | Paused / re-planning required | Client identity, lifecycle, discovery/trust UI, pairing state/UI, Settings, and handoff |
+| 03.4–03.8, 03.10 | Paused / re-planning required | Historical client identity, lifecycle, discovery/trust UI, pairing state/UI, and handoff |
+| 03.9 | Re-planned current Settings/device-identity phase implemented; screenshot audit pending | [Settings / device name](03-connection-pairing-convergence/03.9-settings-device-name.md) |
 | 04 — Final canonical audit | Partial — automated checks and state mapping are recorded; pixel comparison remains unverified | [Final audit](04-final-canonical-audit.md) |
 
 ## Current position

@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dovahlink_client/app/app.viewmodel.dart';
 import 'package:dovahlink_client/features/appearance/appearance.injection_container.dart';
 import 'package:dovahlink_client/features/connection/connection.injection_container.dart';
+import 'package:dovahlink_client/features/device_identity/device_identity.injection_container.dart';
 import 'package:dovahlink_client/features/pairing/pairing.injection_container.dart';
 import 'package:dovahlink_client/features/session/session.injection_container.dart';
 import 'package:dovahlink_client/platform/windows/windows_lifecycle_bridge.dart';
@@ -72,6 +73,7 @@ Future<void> initDependencies() async {
     ),
   );
   initAppearanceDependencies();
+  initDeviceIdentityDependencies();
   if (defaultTargetPlatform == TargetPlatform.windows) {
     sl.registerLazySingleton<IWindowsLifecycleBridge>(
       () => WindowsLifecycleBridge(
