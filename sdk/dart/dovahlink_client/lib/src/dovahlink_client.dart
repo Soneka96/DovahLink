@@ -42,9 +42,12 @@ import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/state/character_health_max_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_health_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_level_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_magicka_max_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_magicka_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_stamina_max_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_stamina_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
@@ -190,6 +193,32 @@ class DovahLinkClient {
     _characterStaminaTracker = StateRevisionTracker<CharacterStaminaState>(
       state: characterStaminaStream,
     );
+    final CurrentValueStream<StateSynchronization<CharacterHealthMaxState>>
+    characterHealthMaxStream =
+        CurrentValueStream<StateSynchronization<CharacterHealthMaxState>>(
+          const StateSynchronization<CharacterHealthMaxState>.notSubscribed(),
+        );
+    _characterHealthMaxTracker = StateRevisionTracker<CharacterHealthMaxState>(
+      state: characterHealthMaxStream,
+    );
+    final CurrentValueStream<StateSynchronization<CharacterMagickaMaxState>>
+    characterMagickaMaxStream =
+        CurrentValueStream<StateSynchronization<CharacterMagickaMaxState>>(
+          const StateSynchronization<CharacterMagickaMaxState>.notSubscribed(),
+        );
+    _characterMagickaMaxTracker =
+        StateRevisionTracker<CharacterMagickaMaxState>(
+          state: characterMagickaMaxStream,
+        );
+    final CurrentValueStream<StateSynchronization<CharacterStaminaMaxState>>
+    characterStaminaMaxStream =
+        CurrentValueStream<StateSynchronization<CharacterStaminaMaxState>>(
+          const StateSynchronization<CharacterStaminaMaxState>.notSubscribed(),
+        );
+    _characterStaminaMaxTracker =
+        StateRevisionTracker<CharacterStaminaMaxState>(
+          state: characterStaminaMaxStream,
+        );
     final CurrentValueStream<StateSynchronization<CharacterLevelState>>
     characterLevelStream =
         CurrentValueStream<StateSynchronization<CharacterLevelState>>(
@@ -233,6 +262,26 @@ class DovahLinkClient {
           decode: CharacterStaminaState.fromJson,
           tracker: _characterStaminaTracker,
           isUnavailable: (CharacterStaminaState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterHealthMaxState>(
+          stateArea: DovahLinkStateArea.characterHealthMax.protocolValue,
+          decode: CharacterHealthMaxState.fromJson,
+          tracker: _characterHealthMaxTracker,
+          isUnavailable: (CharacterHealthMaxState state) => state.value == null,
+        ),
+        StateDomainDefinition<CharacterMagickaMaxState>(
+          stateArea: DovahLinkStateArea.characterMagickaMax.protocolValue,
+          decode: CharacterMagickaMaxState.fromJson,
+          tracker: _characterMagickaMaxTracker,
+          isUnavailable: (CharacterMagickaMaxState state) =>
+              state.value == null,
+        ),
+        StateDomainDefinition<CharacterStaminaMaxState>(
+          stateArea: DovahLinkStateArea.characterStaminaMax.protocolValue,
+          decode: CharacterStaminaMaxState.fromJson,
+          tracker: _characterStaminaMaxTracker,
+          isUnavailable: (CharacterStaminaMaxState state) =>
+              state.value == null,
         ),
         characterLevelDomain,
       ],
@@ -363,6 +412,9 @@ class DovahLinkClient {
       characterHealthChanges: _characterHealthTracker.changes,
       characterMagickaChanges: _characterMagickaTracker.changes,
       characterStaminaChanges: _characterStaminaTracker.changes,
+      characterHealthMaxChanges: _characterHealthMaxTracker.changes,
+      characterMagickaMaxChanges: _characterMagickaMaxTracker.changes,
+      characterStaminaMaxChanges: _characterStaminaMaxTracker.changes,
       characterLevelChanges: _characterLevelTracker.changes,
     );
     pairing = DovahLinkPairing(
@@ -439,6 +491,18 @@ class DovahLinkClient {
   /// Owns the current character stamina value and revisions.
   late final IStateRevisionTracker<CharacterStaminaState>
   _characterStaminaTracker;
+
+  /// Owns the current maximum Health value and revisions.
+  late final IStateRevisionTracker<CharacterHealthMaxState>
+  _characterHealthMaxTracker;
+
+  /// Owns the current maximum Magicka value and revisions.
+  late final IStateRevisionTracker<CharacterMagickaMaxState>
+  _characterMagickaMaxTracker;
+
+  /// Owns the current maximum Stamina value and revisions.
+  late final IStateRevisionTracker<CharacterStaminaMaxState>
+  _characterStaminaMaxTracker;
 
   /// Owns the current character level value and revisions.
   late final IStateRevisionTracker<CharacterLevelState> _characterLevelTracker;

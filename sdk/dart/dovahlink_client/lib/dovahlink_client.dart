@@ -60,8 +60,13 @@ export 'src/persistence/persisted_client_state.dart' show PersistedClientState;
 export 'src/persistence/unsupported_client_storage.dart'
     show UnsupportedClientStorage;
 export 'src/state/character_health_state.dart' show CharacterHealthState;
+export 'src/state/character_health_max_state.dart' show CharacterHealthMaxState;
 export 'src/state/character_level_state.dart' show CharacterLevelState;
 export 'src/state/character_magicka_state.dart' show CharacterMagickaState;
+export 'src/state/character_magicka_max_state.dart'
+    show CharacterMagickaMaxState;
 export 'src/state/character_stamina_state.dart' show CharacterStaminaState;
+export 'src/state/character_stamina_max_state.dart'
+    show CharacterStaminaMaxState;
 export 'src/state/character_xp_state.dart' show CharacterXpState;
 export 'src/state/state_synchronization.dart' show StateSynchronization;

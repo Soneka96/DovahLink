@@ -334,6 +334,8 @@ String _rawStateSnapshot({
   required int revision,
   required Object? value,
   String? correlationId,
+  String stateAuthorityId = 'authority-1',
+  String? playContextId = 'context-1',
 }) => jsonEncode(<String, dynamic>{
   'messageType': 'state_snapshot',
   'messageId': 'snapshot-$stateArea-$revision',
@@ -345,8 +347,8 @@ String _rawStateSnapshot({
     'occurredAt': '2026-09-23T12:00:00Z',
     'data': <String, dynamic>{'value': value},
   },
-  'stateAuthorityId': 'authority-1',
-  'playContextId': 'context-1',
+  'stateAuthorityId': stateAuthorityId,
+  'playContextId': playContextId,
   'clientId': null,
 });
 
@@ -1922,6 +1924,18 @@ void main() {
           DovahLinkStateStatus.notSubscribed,
         );
         expect(
+          (await client.currentHost.characterHealthMaxChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(
+          (await client.currentHost.characterMagickaMaxChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(
+          (await client.currentHost.characterStaminaMaxChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(
           (await client.currentHost.characterLevelChanges.first).status,
           DovahLinkStateStatus.notSubscribed,
         );
@@ -1978,6 +1992,40 @@ void main() {
             ),
           ),
         );
+        final Future<void> healthMaxReceived = expectLater(
+          client.currentHost.characterHealthMaxChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterHealthMaxState>>(
+              (StateSynchronization<CharacterHealthMaxState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.stateAuthorityId == 'authority-1' &&
+                  state.playContextId == 'context-1' &&
+                  state.value?.value == 410.0,
+            ),
+          ),
+        );
+        final Future<void> magickaMaxReceived = expectLater(
+          client.currentHost.characterMagickaMaxChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterMagickaMaxState>>(
+              (StateSynchronization<CharacterMagickaMaxState> state) =>
+                  state.status == DovahLinkStateStatus.unavailable &&
+                  state.revision == 1 &&
+                  state.value?.value == null,
+            ),
+          ),
+        );
+        final Future<void> staminaMaxReceived = expectLater(
+          client.currentHost.characterStaminaMaxChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterStaminaMaxState>>(
+              (StateSynchronization<CharacterStaminaMaxState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.value?.value == 320.0,
+            ),
+          ),
+        );
         final Future<void> levelReceived = expectLater(
           client.currentHost.characterLevelChanges,
           emitsThrough(
@@ -2019,6 +2067,27 @@ void main() {
         );
         transport.queueRawResponse(
           _rawStateSnapshot(
+            stateArea: 'character_health_max',
+            revision: 1,
+            value: 410.0,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_magicka_max',
+            revision: 1,
+            value: null,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_stamina_max',
+            revision: 1,
+            value: 320.0,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
             stateArea: 'character_level',
             revision: 1,
             value: 10,
@@ -2030,8 +2099,68 @@ void main() {
           healthReceived,
           magickaReceived,
           staminaReceived,
+          healthMaxReceived,
+          magickaMaxReceived,
+          staminaMaxReceived,
           levelReceived,
         ]);
+
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_health_max',
+            revision: 0,
+            value: -1.0,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_magicka_max',
+            revision: 0,
+            value: 0.0,
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_stamina_max',
+            revision: 0,
+            value: 0.0,
+          ),
+        );
+        await pumpEventQueue();
+        final StateSynchronization<CharacterHealthMaxState> healthMax =
+            await client.currentHost.characterHealthMaxChanges.first;
+        expect(healthMax.status, DovahLinkStateStatus.synchronized);
+        expect(healthMax.revision, 1);
+        expect(healthMax.value?.value, 410.0);
+        final StateSynchronization<CharacterMagickaMaxState> magickaMax =
+            await client.currentHost.characterMagickaMaxChanges.first;
+        expect(magickaMax.status, DovahLinkStateStatus.unavailable);
+        expect(magickaMax.revision, 1);
+        expect(magickaMax.value?.value, isNull);
+        final StateSynchronization<CharacterStaminaMaxState> staminaMax =
+            await client.currentHost.characterStaminaMaxChanges.first;
+        expect(staminaMax.status, DovahLinkStateStatus.synchronized);
+        expect(staminaMax.revision, 1);
+        expect(staminaMax.value?.value, 320.0);
+
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_health_max',
+            revision: 1,
+            value: 405.0,
+            stateAuthorityId: 'authority-2',
+            playContextId: 'context-2',
+          ),
+        );
+        await pumpEventQueue();
+        final StateSynchronization<CharacterHealthMaxState>
+        newHealthMaxBaseline =
+            await client.currentHost.characterHealthMaxChanges.first;
+        expect(newHealthMaxBaseline.status, DovahLinkStateStatus.synchronized);
+        expect(newHealthMaxBaseline.stateAuthorityId, 'authority-2');
+        expect(newHealthMaxBaseline.playContextId, 'context-2');
+        expect(newHealthMaxBaseline.revision, 1);
+        expect(newHealthMaxBaseline.value?.value, 405.0);
 
         final Future<void> levelEventReceived = expectLater(
           client.currentHost.characterLevelChanges,
@@ -2218,19 +2347,20 @@ void main() {
 
           transport.queueResponse(
             _rawSubscriptionAck(
-              accepted: <String>['character_xp', 'character_health'],
+              accepted: <String>['character_xp', 'character_health_max'],
             ),
           );
           expect(
             await client.currentHost.subscribeStateArea(
-              DovahLinkStateArea.characterHealth,
+              DovahLinkStateArea.characterHealthMax,
             ),
             isEmpty,
           );
           expect(
             (jsonDecode(transport.sent.last) as JsonMap)['payload'],
-            (jsonDecode(_rawFixture('subscriptions/subscribe-add-area.json'))
-                as JsonMap)['payload'],
+            <String, dynamic>{
+              'stateAreas': <String>['character_xp', 'character_health_max'],
+            },
           );
 
           transport.queueRawResponse(
@@ -2242,9 +2372,9 @@ void main() {
           );
           transport.queueRawResponse(
             _rawStateSnapshot(
-              stateArea: 'character_health',
+              stateArea: 'character_health_max',
               revision: 1,
-              value: 100,
+              value: 410.0,
             ),
           );
           await pumpEventQueue();
@@ -2253,12 +2383,12 @@ void main() {
             DovahLinkStateStatus.synchronized,
           );
           expect(
-            (await client.currentHost.characterHealthChanges.first).status,
+            (await client.currentHost.characterHealthMaxChanges.first).status,
             DovahLinkStateStatus.synchronized,
           );
 
           transport.queueResponse(
-            _rawSubscriptionAck(accepted: <String>['character_health']),
+            _rawSubscriptionAck(accepted: <String>['character_health_max']),
           );
           expect(
             await client.currentHost.unsubscribeStateArea(
@@ -2268,8 +2398,9 @@ void main() {
           );
           expect(
             (jsonDecode(transport.sent.last) as JsonMap)['payload'],
-            (jsonDecode(_rawFixture('subscriptions/subscribe-replacement.json'))
-                as JsonMap)['payload'],
+            <String, dynamic>{
+              'stateAreas': <String>['character_health_max'],
+            },
           );
           expect(
             (await client.currentHost.characterXpChanges.first).status,
@@ -2303,7 +2434,7 @@ void main() {
           );
           expect(
             await client.currentHost.unsubscribeStateArea(
-              DovahLinkStateArea.characterHealth,
+              DovahLinkStateArea.characterHealthMax,
             ),
             isEmpty,
           );
@@ -2313,7 +2444,7 @@ void main() {
                 as JsonMap)['payload'],
           );
           expect(
-            (await client.currentHost.characterHealthChanges.first).status,
+            (await client.currentHost.characterHealthMaxChanges.first).status,
             DovahLinkStateStatus.notSubscribed,
           );
         },
@@ -2489,26 +2620,26 @@ void main() {
           reconnectClient,
           <DovahLinkStateArea>[
             DovahLinkStateArea.characterXp,
-            DovahLinkStateArea.characterHealth,
+            DovahLinkStateArea.characterHealthMax,
           ],
         );
 
         reconnectTransport.queueResponse(
-          _rawSubscriptionAck(accepted: <String>['character_health']),
+          _rawSubscriptionAck(accepted: <String>['character_health_max']),
         );
         await reconnectClient.currentHost.unsubscribeStateArea(
           DovahLinkStateArea.characterXp,
         );
         reconnectTransport.queueRawResponse(
           _rawStateSnapshot(
-            stateArea: 'character_health',
+            stateArea: 'character_health_max',
             revision: 7,
             value: 87.5,
           ),
         );
         await pumpEventQueue();
         expect(
-          (await reconnectClient.currentHost.characterHealthChanges.first)
+          (await reconnectClient.currentHost.characterHealthMaxChanges.first)
               .status,
           DovahLinkStateStatus.synchronized,
         );
@@ -2520,7 +2651,7 @@ void main() {
           _rawFixture('capabilities/capabilities-host.json'),
         );
         reconnectTransport.queueResponse(
-          _rawSubscriptionAck(accepted: <String>['character_health']),
+          _rawSubscriptionAck(accepted: <String>['character_health_max']),
         );
         reconnectTransport.failMessagesWith(const SocketException('dropped'));
 
@@ -2538,10 +2669,10 @@ void main() {
         );
         expect(updates, hasLength(4));
         expect(updates.last['payload'], <String, dynamic>{
-          'stateAreas': <String>['character_health'],
+          'stateAreas': <String>['character_health_max'],
         });
         expect(
-          (await reconnectClient.currentHost.characterHealthChanges.first)
+          (await reconnectClient.currentHost.characterHealthMaxChanges.first)
               .status,
           DovahLinkStateStatus.recovering,
         );
@@ -2552,7 +2683,7 @@ void main() {
 
         reconnectTransport.queueRawResponse(
           _rawStateSnapshot(
-            stateArea: 'character_health',
+            stateArea: 'character_health_max',
             revision: 1,
             value: 75,
             correlationId:
@@ -2561,8 +2692,8 @@ void main() {
           ),
         );
         await pumpEventQueue();
-        final StateSynchronization<CharacterHealthState> recovered =
-            await reconnectClient.currentHost.characterHealthChanges.first;
+        final StateSynchronization<CharacterHealthMaxState> recovered =
+            await reconnectClient.currentHost.characterHealthMaxChanges.first;
         expect(recovered.status, DovahLinkStateStatus.synchronized);
         expect(recovered.revision, 1);
         expect(recovered.value?.value, 75);

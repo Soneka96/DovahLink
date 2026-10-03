@@ -28,6 +28,12 @@ void main() {
   characterMagickaChanges;
   late Stream<StateSynchronization<CharacterStaminaState>>
   characterStaminaChanges;
+  late Stream<StateSynchronization<CharacterHealthMaxState>>
+  characterHealthMaxChanges;
+  late Stream<StateSynchronization<CharacterMagickaMaxState>>
+  characterMagickaMaxChanges;
+  late Stream<StateSynchronization<CharacterStaminaMaxState>>
+  characterStaminaMaxChanges;
   late Stream<StateSynchronization<CharacterLevelState>> characterLevelChanges;
   late DovahLinkCurrentHost currentHost;
 
@@ -42,6 +48,12 @@ void main() {
         const Stream<StateSynchronization<CharacterMagickaState>>.empty();
     characterStaminaChanges =
         const Stream<StateSynchronization<CharacterStaminaState>>.empty();
+    characterHealthMaxChanges =
+        const Stream<StateSynchronization<CharacterHealthMaxState>>.empty();
+    characterMagickaMaxChanges =
+        const Stream<StateSynchronization<CharacterMagickaMaxState>>.empty();
+    characterStaminaMaxChanges =
+        const Stream<StateSynchronization<CharacterStaminaMaxState>>.empty();
     characterLevelChanges =
         const Stream<StateSynchronization<CharacterLevelState>>.empty();
     currentHost = DovahLinkCurrentHost(
@@ -51,6 +63,9 @@ void main() {
       characterHealthChanges: characterHealthChanges,
       characterMagickaChanges: characterMagickaChanges,
       characterStaminaChanges: characterStaminaChanges,
+      characterHealthMaxChanges: characterHealthMaxChanges,
+      characterMagickaMaxChanges: characterMagickaMaxChanges,
+      characterStaminaMaxChanges: characterStaminaMaxChanges,
       characterLevelChanges: characterLevelChanges,
     );
   });
@@ -133,6 +148,51 @@ void main() {
     });
   });
 
+  group('Property characterHealthMaxChanges behaves correctly', () {
+    test(
+      'Property characterHealthMaxChanges exposes its typed tracker stream',
+      () {
+        expect(
+          identical(
+            currentHost.characterHealthMaxChanges,
+            characterHealthMaxChanges,
+          ),
+          isTrue,
+        );
+      },
+    );
+  });
+
+  group('Property characterMagickaMaxChanges behaves correctly', () {
+    test(
+      'Property characterMagickaMaxChanges exposes its typed tracker stream',
+      () {
+        expect(
+          identical(
+            currentHost.characterMagickaMaxChanges,
+            characterMagickaMaxChanges,
+          ),
+          isTrue,
+        );
+      },
+    );
+  });
+
+  group('Property characterStaminaMaxChanges behaves correctly', () {
+    test(
+      'Property characterStaminaMaxChanges exposes its typed tracker stream',
+      () {
+        expect(
+          identical(
+            currentHost.characterStaminaMaxChanges,
+            characterStaminaMaxChanges,
+          ),
+          isTrue,
+        );
+      },
+    );
+  });
+
   group('Method subscribeStateArea behaves correctly', () {
     test('Method subscribeStateArea delegates the requested domain', () async {
       const Set<DovahLinkStateArea> rejected = <DovahLinkStateArea>{};
@@ -152,6 +212,25 @@ void main() {
         ),
       ).called(1);
     });
+
+    test(
+      'Method subscribeStateArea delegates each maximum-vitals domain',
+      () async {
+        const Set<DovahLinkStateArea> rejected = <DovahLinkStateArea>{};
+        for (final DovahLinkStateArea area in <DovahLinkStateArea>[
+          DovahLinkStateArea.characterHealthMax,
+          DovahLinkStateArea.characterMagickaMax,
+          DovahLinkStateArea.characterStaminaMax,
+        ]) {
+          when(
+            () => subscriptionService.subscribeStateArea(area),
+          ).thenAnswer((_) async => rejected);
+
+          expect(await currentHost.subscribeStateArea(area), rejected);
+          verify(() => subscriptionService.subscribeStateArea(area)).called(1);
+        }
+      },
+    );
 
     test(
       'Method subscribeStateArea propagates typed protocol failures',
@@ -197,6 +276,27 @@ void main() {
             DovahLinkStateArea.characterXp,
           ),
         ).called(1);
+      },
+    );
+
+    test(
+      'Method unsubscribeStateArea delegates each maximum-vitals domain',
+      () async {
+        const Set<DovahLinkStateArea> rejected = <DovahLinkStateArea>{};
+        for (final DovahLinkStateArea area in <DovahLinkStateArea>[
+          DovahLinkStateArea.characterHealthMax,
+          DovahLinkStateArea.characterMagickaMax,
+          DovahLinkStateArea.characterStaminaMax,
+        ]) {
+          when(
+            () => subscriptionService.unsubscribeStateArea(area),
+          ).thenAnswer((_) async => rejected);
+
+          expect(await currentHost.unsubscribeStateArea(area), rejected);
+          verify(
+            () => subscriptionService.unsubscribeStateArea(area),
+          ).called(1);
+        }
       },
     );
 

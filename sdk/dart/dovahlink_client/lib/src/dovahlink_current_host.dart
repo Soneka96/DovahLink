@@ -4,9 +4,12 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/state/character_health_max_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_health_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_level_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_magicka_max_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_magicka_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_stamina_max_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_stamina_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
@@ -38,6 +41,18 @@ abstract interface class IDovahLinkCurrentHost {
   /// Emits the current character stamina synchronization view and later changes.
   Stream<StateSynchronization<CharacterStaminaState>>
   get characterStaminaChanges;
+
+  /// Emits the effective maximum Health synchronization view and later changes.
+  Stream<StateSynchronization<CharacterHealthMaxState>>
+  get characterHealthMaxChanges;
+
+  /// Emits the effective maximum Magicka synchronization view and later changes.
+  Stream<StateSynchronization<CharacterMagickaMaxState>>
+  get characterMagickaMaxChanges;
+
+  /// Emits the effective maximum Stamina synchronization view and later changes.
+  Stream<StateSynchronization<CharacterStaminaMaxState>>
+  get characterStaminaMaxChanges;
 
   /// Emits the current character level synchronization view and later changes.
   Stream<StateSynchronization<CharacterLevelState>> get characterLevelChanges;
@@ -80,6 +95,18 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   final Stream<StateSynchronization<CharacterStaminaState>>
   _characterStaminaChanges;
 
+  /// Emits maximum Health synchronization changes.
+  final Stream<StateSynchronization<CharacterHealthMaxState>>
+  _characterHealthMaxChanges;
+
+  /// Emits maximum Magicka synchronization changes.
+  final Stream<StateSynchronization<CharacterMagickaMaxState>>
+  _characterMagickaMaxChanges;
+
+  /// Emits maximum Stamina synchronization changes.
+  final Stream<StateSynchronization<CharacterStaminaMaxState>>
+  _characterStaminaMaxChanges;
+
   /// Emits character level synchronization changes.
   final Stream<StateSynchronization<CharacterLevelState>>
   _characterLevelChanges;
@@ -91,6 +118,9 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   /// @param characterHealthChanges The existing health tracker stream.
   /// @param characterMagickaChanges The existing magicka tracker stream.
   /// @param characterStaminaChanges The existing stamina tracker stream.
+  /// @param characterHealthMaxChanges The maximum Health tracker stream.
+  /// @param characterMagickaMaxChanges The maximum Magicka tracker stream.
+  /// @param characterStaminaMaxChanges The maximum Stamina tracker stream.
   /// @param characterLevelChanges The existing level tracker stream.
   DovahLinkCurrentHost({
     required ISessionService sessionService,
@@ -102,6 +132,12 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
     characterMagickaChanges,
     required Stream<StateSynchronization<CharacterStaminaState>>
     characterStaminaChanges,
+    required Stream<StateSynchronization<CharacterHealthMaxState>>
+    characterHealthMaxChanges,
+    required Stream<StateSynchronization<CharacterMagickaMaxState>>
+    characterMagickaMaxChanges,
+    required Stream<StateSynchronization<CharacterStaminaMaxState>>
+    characterStaminaMaxChanges,
     required Stream<StateSynchronization<CharacterLevelState>>
     characterLevelChanges,
   }) : _sessionService = sessionService,
@@ -110,6 +146,9 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
        _characterHealthChanges = characterHealthChanges,
        _characterMagickaChanges = characterMagickaChanges,
        _characterStaminaChanges = characterStaminaChanges,
+       _characterHealthMaxChanges = characterHealthMaxChanges,
+       _characterMagickaMaxChanges = characterMagickaMaxChanges,
+       _characterStaminaMaxChanges = characterStaminaMaxChanges,
        _characterLevelChanges = characterLevelChanges;
 
   /// Implements [IDovahLinkCurrentHost.host].
@@ -143,6 +182,21 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   @override
   Stream<StateSynchronization<CharacterStaminaState>>
   get characterStaminaChanges => _characterStaminaChanges;
+
+  /// Implements [IDovahLinkCurrentHost.characterHealthMaxChanges].
+  @override
+  Stream<StateSynchronization<CharacterHealthMaxState>>
+  get characterHealthMaxChanges => _characterHealthMaxChanges;
+
+  /// Implements [IDovahLinkCurrentHost.characterMagickaMaxChanges].
+  @override
+  Stream<StateSynchronization<CharacterMagickaMaxState>>
+  get characterMagickaMaxChanges => _characterMagickaMaxChanges;
+
+  /// Implements [IDovahLinkCurrentHost.characterStaminaMaxChanges].
+  @override
+  Stream<StateSynchronization<CharacterStaminaMaxState>>
+  get characterStaminaMaxChanges => _characterStaminaMaxChanges;
 
   /// Implements [IDovahLinkCurrentHost.characterLevelChanges].
   @override
