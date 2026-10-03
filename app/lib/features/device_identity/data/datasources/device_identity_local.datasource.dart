@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/services.dart' show PlatformException;
 
 import 'package:fpdart/fpdart.dart';
@@ -20,6 +22,11 @@ abstract interface class IDeviceIdentityLocalDataSource {
 
 /// The Shared Preferences key for the device-name override.
 const String _deviceNamePreferenceKey = 'dovahlink.identity.deviceName';
+
+/// The control-character range rejected by Host display-name validation.
+final RegExp _deviceNameControlCharacterPattern = RegExp(
+  r'[\x00-\x1F\x7F-\x9F]',
+);
 
 /// A safe generic failure for unexpected device-name persistence errors.
 const DatabaseFailure _unexpectedDeviceNameFailure = DatabaseFailure(
@@ -65,7 +72,11 @@ class DeviceIdentityLocalDataSource implements IDeviceIdentityLocalDataSource {
 
     try {
       final String platformName = _platformDeviceName().trim();
-      return Right(platformName.isEmpty ? defaultDeviceName : platformName);
+      return Right(
+        _isValidPlatformDeviceName(platformName)
+            ? platformName
+            : defaultDeviceName,
+      );
     } on Object {
       return const Right(defaultDeviceName);
     }
@@ -87,4 +98,13 @@ class DeviceIdentityLocalDataSource implements IDeviceIdentityLocalDataSource {
       return const Left(_unexpectedDeviceNameFailure);
     }
   }
+
+  /// Checks that [platformName] fits the Host's device-name bounds.
+  /// @param platformName The trimmed operating-system device name.
+  /// @return `true` when the name is non-empty, within the UTF-8 byte limit,
+  /// and contains no control characters.
+  bool _isValidPlatformDeviceName(String platformName) =>
+      platformName.isNotEmpty &&
+      utf8.encode(platformName).length <= maxDeviceNameLengthBytes &&
+      !_deviceNameControlCharacterPattern.hasMatch(platformName);
 }

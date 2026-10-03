@@ -56,6 +56,44 @@ void main() {
     );
 
     test(
+      'Method loadDisplayName accepts an OS name at the 64-byte limit',
+      () async {
+        final String platformName = List<String>.filled(32, 'é').join();
+
+        expect(
+          await _buildDataSource(platformName: platformName).loadDisplayName(),
+          Right(platformName),
+        );
+      },
+    );
+
+    test(
+      'Method loadDisplayName uses the default when the OS name exceeds the UTF-8 byte limit',
+      () async {
+        final String platformName = List<String>.filled(33, 'é').join();
+
+        expect(
+          await _buildDataSource(platformName: platformName).loadDisplayName(),
+          const Right(defaultDeviceName),
+        );
+      },
+    );
+
+    test(
+      'Method loadDisplayName uses the default when the OS name contains control characters',
+      () async {
+        for (final String controlCharacter in ['\u0001', '\u0085']) {
+          expect(
+            await _buildDataSource(
+              platformName: 'BAD${controlCharacter}NAME',
+            ).loadDisplayName(),
+            const Right(defaultDeviceName),
+          );
+        }
+      },
+    );
+
+    test(
       'Method loadDisplayName trims and returns the stored override',
       () async {
         final DeviceIdentityLocalDataSource dataSource = _buildDataSource(
@@ -65,6 +103,20 @@ void main() {
         expect(
           await dataSource.loadDisplayName(),
           const Right('Living Room PC'),
+        );
+      },
+    );
+
+    test(
+      'Method loadDisplayName keeps an over-limit stored override unchanged',
+      () async {
+        final String storedOverride = List<String>.filled(33, 'é').join();
+
+        expect(
+          await _buildDataSource(
+            storedOverride: storedOverride,
+          ).loadDisplayName(),
+          Right(storedOverride),
         );
       },
     );

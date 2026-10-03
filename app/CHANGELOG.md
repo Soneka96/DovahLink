@@ -92,6 +92,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Invalid operating-system device names now fall back safely before pairing.
 - Disposing pairing while secure storage is unavailable still cancels retry observation and ignores
   pending authentication results.
 - Discover now disposes a candidate pairing lifecycle after the selected Host becomes a Known Host.
