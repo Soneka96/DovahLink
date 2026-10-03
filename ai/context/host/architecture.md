@@ -108,6 +108,20 @@ from a capture the adapter sent over the private IPC channel; the host never fab
 game state on its own. See `ai/context/adapter/architecture.md` for the adapter's matching
 boundary against client-facing behavior.
 
+## State-domain boundaries
+
+A public state area is the smallest independently authoritative domain, not automatically one
+scalar field and not an entire feature. Before splitting or combining fields, evaluate whether they
+share a capture source and observation instant, cadence, authority, availability, revision lifecycle,
+delivery mode, and recovery semantics. Fields that share those properties form one typed state value
+and one revision; fields with meaningfully different properties remain separate areas. For example,
+current and effective maximum Health, Magicka, and Stamina belong to one `character_vitals`
+Snapshot when they are read together in one coherent Fast capture. XP remains separate from
+Vitals, and Level remains separate when its Event plus Snapshot-baseline behavior differs.
+
+This rule does not combine unrelated state into a whole-character object. Each area must remain
+independently authoritative and recoverable under its own lifecycle.
+
 ## Public contract ownership
 
 The public SDK-to-host contract and the private host-to-adapter contract are separate contracts;

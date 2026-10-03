@@ -124,6 +124,10 @@ Cover:
 
 ## Test boundaries
 
+- Generic bounded-payload tests use the declared capacity constant to test empty, small, maximum,
+  and maximum-plus-one payloads, and verify byte preservation; they do not name the feature that
+  currently occupies the most bytes or encode its size as history. Changing the capacity requires
+  an intentional infrastructure review of memory, transport, and security limits.
 - Do not test CommonLib or Skyrim internals as if they were DovahLink code.
 - Do not use a real game process for tests that only verify mapping or application logic.
 - Do not rely on timing sleeps to prove concurrency; use controllable fakes, barriers, or explicit state transitions.
