@@ -1540,6 +1540,49 @@ void main() {
     );
 
     test(
+      'PairingDisposedAction invalidates pending work when secure storage becomes unavailable',
+      () async {
+        final Completer<Either<Failure, PairingHandshake>> authentication =
+            Completer<Either<Failure, PairingHandshake>>();
+        when(
+          () => mockAuthenticate(any()),
+        ).thenAnswer((_) => authentication.future);
+
+        middleware.call(store, const PairingStartedAction(), next);
+        await pumpEventQueue();
+        expect(initialRetryStatusController.hasListener, isTrue);
+
+        when(() => store.state).thenReturn(
+          _stateWithPhase(
+            PairingPhase.none,
+            support: PairingSupport.secureStorageUnavailable,
+          ),
+        );
+        middleware.call(
+          store,
+          const PairingDisposedAction(wasTrusted: false),
+          next,
+        );
+        await pumpEventQueue();
+
+        authentication.complete(
+          Right(Fixtures.buildPairingHandshake(trusted: true)),
+        );
+        initialRetryStatusController.add(
+          DovahLinkInitialConnectionRetryStatus.retrying,
+        );
+        await pumpEventQueue();
+
+        expect(actionLog, [
+          const PairingStartedAction(),
+          const PairingDisposedAction(wasTrusted: false),
+        ]);
+        expect(initialRetryStatusController.hasListener, isFalse);
+        verifyNever(() => mockDisconnect(any()));
+      },
+    );
+
+    test(
       'PairingDisposedAction does not call DisconnectUseCase when pairing had already succeeded',
       () async {
         final Host knownHost = Fixtures.buildHost();
