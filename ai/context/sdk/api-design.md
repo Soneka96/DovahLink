@@ -36,7 +36,7 @@ The public operations are:
 | Group | Public surface | Owner and semantics |
 | --- | --- | --- |
 | `hosts` | `loadKnownHosts()`, `knownHostsChanges`, `knownHostStatesChanges` | `ClientStateService` and `HostAvailabilityService`; durable metadata and runtime availability/session projection remain distinct. |
-| `connections` | `connectCandidate(uri)`, `connectKnownHost(hostId)`, `disconnect()`, `state`, `stateChanges`, `initialConnectionRetryChanges`, `invalidationReason`, `knownHostInvalidations` | `SessionService`, `AuthenticationService`, and `ReconnectService`; each discrete invalidation event carries the exact Known Host ID and Host-reported reason together. Events are not replayed. Each connect operation includes authentication and session admission. Initial retries do not enter established-session `reconnecting` state. |
+| `connections` | `connectCandidate(uri)`, `connectKnownHost(hostId)`, `renameDevice(displayName)`, `disconnect()`, `state`, `stateChanges`, `initialConnectionRetryChanges`, `invalidationReason`, `knownHostInvalidations` | `SessionService`, `AuthenticationService`, `ReconnectService`, and `RequestService`; each discrete invalidation event carries the exact Known Host ID and Host-reported reason together. Events are not replayed. Each connect operation includes authentication and session admission. Initial retries do not enter established-session `reconnecting` state. `renameDevice` requires the active trusted session and affects only the Client trust record on that Host. |
 | `pairing` | `candidates`, `discoverHosts()`, `authenticateCandidate(uri)`, `authenticateKnownHost(hostId)`, `requestCode()`, `renotify()`, `cancel()`, `confirmCode(...)`, `recoverPendingPairing()` | `PairingService` composes connection admission with pending-confirmation recovery and sequences confirmation plus credential acknowledgement. Candidates remain runtime-only. |
 | `currentHost` | Admitted Host/session context, typed game-state streams, and subscription operations | Existing session, state trackers, and `SubscriptionService`; retain per-domain replay, synchronization, error, and recovery behavior. |
 
@@ -45,6 +45,18 @@ the SDK's active transport/session lifecycle; `currentHost` refers to the Host a
 session. A candidate or a UI selection is not an admitted Host. No grouped operation may infer
 trust from discovery metadata or use a Known Host credential based only on a candidate's Host-ID
 claim.
+
+`connections.renameDevice(displayName)` sends the typed `rename_request` for the current trusted
+session and returns the Host's typed `RenameOutcome`. It cannot rename an offline Known Host or
+fan a change out across saved Hosts; each trust record belongs to its own Host. The operation is
+not retried after an ambiguous transport failure because the Host persists the trust mutation and
+advances its security fence. An empty name follows the protocol's clear-name behavior.
+
+`connections.renameDevice(displayName)` sends the typed `rename_request` for the current trusted
+session and returns the Host's typed `RenameOutcome`. It cannot rename an offline Known Host or
+fan a change out across saved Hosts; each trust record belongs to its own Host. The operation is
+not retried after an ambiguous transport failure because the Host persists the trust mutation and
+advances its security fence. An empty name follows the protocol's clear-name behavior.
 
 The Flutter app maps these grouped values into Redux and retains navigation, dialog lifetime, user
 input, and display decisions. `ReconnectService` owns the three-second initial retry schedule and

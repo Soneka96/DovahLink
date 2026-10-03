@@ -24,9 +24,9 @@ export 'src/dovahlink_host_identity_mismatch_exception.dart'
     show DovahLinkHostIdentityMismatchException;
 export 'src/dovahlink_pairing.dart' show IDovahLinkPairing;
 export 'src/dovahlink_pairing_handshake.dart' show DovahLinkPairingHandshake;
-// PairingOutcome is exported alongside the other domain enums, not hidden as a purely internal
-// wire-decode detail: DovahLinkPairingException.outcome exposes it directly, so a consumer must be
-// able to name and compare against it without reaching into src/.
+// PairingOutcome and RenameOutcome are exported alongside the other domain enums, not hidden as
+// purely internal wire-decode details: their public operations expose them directly, so a consumer
+// can name and compare every typed result without reaching into src/.
 export 'src/shared/enums.dart'
     show
         AdministrativeInvalidationReason,
@@ -42,6 +42,7 @@ export 'src/shared/enums.dart'
         PairingAvailability,
         PairingCancelStatus,
         PairingOutcome,
+        RenameOutcome,
         PairingRecoveryState,
         PairingRenotifyStatus,
         ProtocolErrorCode;

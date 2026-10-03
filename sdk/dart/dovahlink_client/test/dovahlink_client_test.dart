@@ -617,6 +617,31 @@ void main() {
     );
 
     test(
+      'Behavior grouped API composition routes rename through the active trusted session',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        transport.queueResponse(
+          _rawFixture('rename/rename-outcome-renamed.json'),
+        );
+
+        expect(
+          await client.connections.renameDevice('Living Room PC'),
+          RenameOutcome.renamed,
+        );
+        final List<JsonMap> sentMessages = transport.sent
+            .map((String frame) => jsonDecode(frame) as JsonMap)
+            .toList(growable: false);
+        final JsonMap request = sentMessages.singleWhere(
+          (JsonMap message) => message['messageType'] == 'rename_request',
+        );
+        expect(
+          (request['payload'] as JsonMap)['displayName'],
+          'Living Room PC',
+        );
+      },
+    );
+
+    test(
       'Behavior grouped API composition stops an initial retry on deliberate disconnect',
       () async {
         final FakeDovahLinkTransport retryTransport = FakeDovahLinkTransport()
