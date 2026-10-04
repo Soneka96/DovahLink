@@ -1,12 +1,17 @@
 #include "capture/character_identity_capture.hpp"
+#include "capture/character_supernatural_traits_capture.hpp"
 #include "test_support/source_text_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <algorithm>
+#include <array>
 #include <string>
 #include <string_view>
 
 using dovahlink::adapter::capture::CharacterIdentityCapture;
+using dovahlink::adapter::capture::CharacterSupernaturalTraitsCapture;
+using dovahlink::adapter::capture::EncodeCharacterSupernaturalTraitsPayload;
 using dovahlink::adapter::capture::kMaxCharacterIdentityStringBytes;
 using dovahlink::adapter::capture::TryEncodeCharacterIdentityPayload;
 using dovahlink::adapter::capture::TryMakeCharacterIdentityCapture;
@@ -204,4 +209,76 @@ TEST_CASE("Character identity capture rejects empty or malformed UTF-8 text "
     auto invalidUtf8Race = *validIdentity;
     invalidUtf8Race.race[0] = static_cast<char>(0x80);
     CHECK_FALSE(TryEncodeCharacterIdentityPayload(invalidUtf8Race).has_value());
+}
+
+TEST_CASE("Supernatural traits capture uses the approved independent sources "
+          "and fails closed when any required source is missing",
+          "[runtime][commonlib_adapter_character_capture][structural]") {
+    std::string source = NormalizeWhitespace(
+        ReadSource(DOVAHLINK_ADAPTER_CHARACTER_CAPTURE_SOURCE_FILE));
+    const auto traitsStart = source.find(NormalizeWhitespace(
+        "CaptureCharacterSupernaturalTraits() {"));
+    REQUIRE(traitsStart != std::string::npos);
+    const std::string_view traitsSource = std::string_view(source).substr(traitsStart);
+
+    CHECK(traitsSource.find("RE::PlayerCharacter::GetSingleton()") !=
+          std::string_view::npos);
+    CHECK(traitsSource.find(NormalizeWhitespace(
+              "if (player == nullptr) { return std::nullopt; }")) !=
+          std::string_view::npos);
+    CHECK(traitsSource.find("RE::BGSDefaultObjectManager::GetSingleton()") !=
+          std::string_view::npos);
+    CHECK(traitsSource.find("RE::TESDataHandler::GetSingleton()") !=
+          std::string_view::npos);
+    CHECK(traitsSource.find(NormalizeWhitespace(
+              "if (defaultObjects == nullptr || dataHandler == nullptr) { return std::nullopt; }")) !=
+          std::string_view::npos);
+    CHECK(traitsSource.find("RE::DefaultObjectID::kPlayerIsVampireVariable") !=
+          std::string_view::npos);
+    CHECK(traitsSource.find(NormalizeWhitespace(
+              "auto** vampireGlobalSlot = defaultObjects->GetObject<RE::TESGlobal>(RE::DefaultObjectID::kPlayerIsVampireVariable);")) !=
+          std::string_view::npos);
+    CHECK(traitsSource.find("*vampireGlobalSlot") != std::string_view::npos);
+    CHECK(traitsSource.find(NormalizeWhitespace("vampireGlobal->value != 0.0f")) !=
+          std::string_view::npos);
+    CHECK(traitsSource.find("LookupForm<RE::SpellItem>(0x0283B,\"Dawnguard.esm\")") !=
+          std::string_view::npos);
+    CHECK(traitsSource.find(NormalizeWhitespace(
+              "auto** werewolfSpellSlot = defaultObjects->GetObject<RE::SpellItem>(RE::DefaultObjectID::kWerewolfSpell);")) !=
+          std::string_view::npos);
+    CHECK(traitsSource.find("*werewolfSpellSlot") != std::string_view::npos);
+    CHECK(traitsSource.find("player->HasSpell(vampireLordSpell)") !=
+          std::string_view::npos);
+    CHECK(traitsSource.find("player->HasSpell(werewolfSpell)") !=
+          std::string_view::npos);
+    CHECK(traitsSource.find("kPlayerIsWerewolfVariable") == std::string_view::npos);
+    CHECK(traitsSource.find(NormalizeWhitespace(
+              "if (vampireGlobal == nullptr || vampireLordSpell == nullptr || werewolfSpell == nullptr) { return std::nullopt; }")) !=
+          std::string_view::npos);
+}
+
+TEST_CASE("Supernatural traits encode all eight independent boolean "
+          "combinations in public field order",
+          "[runtime][character_supernatural_traits_capture]") {
+    const std::array<CharacterSupernaturalTraitsCapture, 8> combinations{{
+        {.isVampire = false, .hasVampireLordForm = false, .hasWerewolfForm = false},
+        {.isVampire = true, .hasVampireLordForm = false, .hasWerewolfForm = false},
+        {.isVampire = false, .hasVampireLordForm = true, .hasWerewolfForm = false},
+        {.isVampire = false, .hasVampireLordForm = false, .hasWerewolfForm = true},
+        {.isVampire = true, .hasVampireLordForm = true, .hasWerewolfForm = false},
+        {.isVampire = true, .hasVampireLordForm = false, .hasWerewolfForm = true},
+        {.isVampire = false, .hasVampireLordForm = true, .hasWerewolfForm = true},
+        {.isVampire = true, .hasVampireLordForm = true, .hasWerewolfForm = true},
+    }};
+
+    for (const CharacterSupernaturalTraitsCapture& traits : combinations) {
+        const auto payload = EncodeCharacterSupernaturalTraitsPayload(traits);
+        REQUIRE(payload.size == 3);
+        CHECK(std::ranges::equal(
+            payload.AsSpan(),
+            std::array<std::byte, 3>{
+                static_cast<std::byte>(traits.isVampire ? 1 : 0),
+                static_cast<std::byte>(traits.hasVampireLordForm ? 1 : 0),
+                static_cast<std::byte>(traits.hasWerewolfForm ? 1 : 0)}));
+    }
 }

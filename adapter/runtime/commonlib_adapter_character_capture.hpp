@@ -4,6 +4,7 @@
 #include <optional>
 
 #include "capture/character_identity_capture.hpp"
+#include "capture/character_supernatural_traits_capture.hpp"
 
 namespace dovahlink::adapter::runtime {
 
@@ -64,5 +65,14 @@ std::optional<std::uint16_t> CaptureCharacterLevel();
 ///  @return The complete identity, or `std::nullopt` if the player, display
 ///  name, `charGenRace`, or race display name is unavailable or unusable.
 std::optional<capture::CharacterIdentityCapture> CaptureCharacterIdentity();
+
+///  Reads the vampire global and both transformation spell capabilities as
+///  one complete observation. Must be called already on the Skyrim game
+///  thread.
+///  @return All three independent predicates, or `std::nullopt` if the player,
+///  required global, plugin-qualified form, or Beast Form default object is
+///  unavailable.
+std::optional<capture::CharacterSupernaturalTraitsCapture>
+CaptureCharacterSupernaturalTraits();
 
 } //  namespace dovahlink::adapter::runtime

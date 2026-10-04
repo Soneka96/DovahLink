@@ -351,6 +351,9 @@ public enum CharacterSampleToken : uint
 
     /// <summary>One complete player display-name and identity-race observation.</summary>
     CharacterIdentity = 4,
+
+    /// <summary>One complete independent supernatural-traits observation.</summary>
+    CharacterSupernaturalTraits = 5,
 }
 
 /// <summary>A host-owned <see cref="Adapter.Ipc.IpcListenEventMessage.EventKey"/>.</summary>

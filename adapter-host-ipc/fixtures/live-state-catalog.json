@@ -3,7 +3,8 @@
     "characterVitals": 1,
     "characterXp": 2,
     "characterLevelBaseline": 3,
-    "characterIdentity": 4
+    "characterIdentity": 4,
+    "characterSupernaturalTraits": 5
   },
   "eventKeys": {
     "characterLevelChanged": 1

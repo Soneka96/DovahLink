@@ -1,5 +1,9 @@
 #include "RE/Skyrim.h"
 
+#ifdef GetObject
+#undef GetObject
+#endif
+
 #include "runtime/commonlib_adapter_character_capture.hpp"
 
 #include <optional>
@@ -88,6 +92,39 @@ std::optional<capture::CharacterIdentityCapture> CaptureCharacterIdentity() {
         return std::nullopt;
     }
     return capture::TryMakeCharacterIdentityCapture(*name, *raceName);
+}
+
+std::optional<capture::CharacterSupernaturalTraitsCapture>
+CaptureCharacterSupernaturalTraits() {
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    if (player == nullptr) {
+        return std::nullopt;
+    }
+
+    auto* defaultObjects = RE::BGSDefaultObjectManager::GetSingleton();
+    auto* dataHandler = RE::TESDataHandler::GetSingleton();
+    if (defaultObjects == nullptr || dataHandler == nullptr) {
+        return std::nullopt;
+    }
+
+    auto** vampireGlobalSlot = defaultObjects->GetObject<RE::TESGlobal>(
+        RE::DefaultObjectID::kPlayerIsVampireVariable);
+    auto* vampireLordSpell = dataHandler->LookupForm<RE::SpellItem>(
+        0x0283B, "Dawnguard.esm");
+    auto** werewolfSpellSlot = defaultObjects->GetObject<RE::SpellItem>(
+        RE::DefaultObjectID::kWerewolfSpell);
+    auto* vampireGlobal = vampireGlobalSlot == nullptr ? nullptr : *vampireGlobalSlot;
+    auto* werewolfSpell = werewolfSpellSlot == nullptr ? nullptr : *werewolfSpellSlot;
+    if (vampireGlobal == nullptr || vampireLordSpell == nullptr ||
+        werewolfSpell == nullptr) {
+        return std::nullopt;
+    }
+
+    return capture::CharacterSupernaturalTraitsCapture{
+        .isVampire = vampireGlobal->value != 0.0f,
+        .hasVampireLordForm = player->HasSpell(vampireLordSpell),
+        .hasWerewolfForm = player->HasSpell(werewolfSpell),
+    };
 }
 
 } //  namespace dovahlink::adapter::runtime

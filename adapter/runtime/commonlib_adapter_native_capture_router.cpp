@@ -130,6 +130,17 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
             .status = dispatch::SampleCaptureStatus::kAvailable,
             .payload = *payload};
     }
+    case capture::CharacterSampleToken::kCharacterSupernaturalTraits: {
+        std::optional<capture::CharacterSupernaturalTraitsCapture> traits =
+            CaptureCharacterSupernaturalTraits();
+        if (!traits) {
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
+        }
+        return dispatch::SampleCaptureResult{
+            .status = dispatch::SampleCaptureStatus::kAvailable,
+            .payload = capture::EncodeCharacterSupernaturalTraitsPayload(*traits)};
+    }
     default:
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kUnsupported};
