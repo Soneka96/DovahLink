@@ -8,7 +8,6 @@
 #include "capture/live_state_sample_codec.hpp"
 #include "enums.hpp"
 #include "runtime/commonlib_adapter_character_capture.hpp"
-#include "runtime/commonlib_world_context_diagnostics.hpp"
 
 namespace dovahlink::adapter::runtime {
 
@@ -67,9 +66,6 @@ CommonLibAdapterNativeCaptureRouter::~CommonLibAdapterNativeCaptureRouter() = de
 
 dispatch::SampleCaptureResult
 CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
-#if !defined(NDEBUG)
-    CaptureWorldContextDiagnostics();
-#endif
     switch (static_cast<capture::CharacterSampleToken>(sampleToken)) {
     case capture::CharacterSampleToken::kCharacterVitals: {
         std::optional<CharacterVitalsCapture> vitals = CaptureCharacterVitals();

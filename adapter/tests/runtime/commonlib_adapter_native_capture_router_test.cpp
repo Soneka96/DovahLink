@@ -16,6 +16,14 @@ std::string RouterSource() {
 
 } //  namespace
 
+TEST_CASE("CommonLibAdapterNativeCaptureRouter does not emit temporary World Context diagnostics",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    const std::string source = RouterSource();
+
+    CHECK(source.find("commonlib_world_context_diagnostics") == std::string::npos);
+    CHECK(source.find("CaptureWorldContextDiagnostics") == std::string::npos);
+}
+
 TEST_CASE("CommonLibAdapterNativeCaptureRouter maps each known sample token "
           "to its one approved capture read",
           "[runtime][commonlib_adapter_native_capture_router][structural]") {
