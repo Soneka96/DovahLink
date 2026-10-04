@@ -5,6 +5,7 @@
 
 #include "capture/character_identity_capture.hpp"
 #include "capture/character_supernatural_traits_capture.hpp"
+#include "capture/player_location_capture.hpp"
 
 namespace dovahlink::adapter::runtime {
 
@@ -65,6 +66,12 @@ std::optional<std::uint16_t> CaptureCharacterLevel();
 ///  @return The complete identity, or `std::nullopt` if the player, display
 ///  name, `charGenRace`, or race display name is unavailable or unusable.
 std::optional<capture::CharacterIdentityCapture> CaptureCharacterIdentity();
+
+///  Copies the player's current cell, both location sources, and its worldspace.
+///  The returned value owns all strings and may cross the bounded capture handoff.
+///  Must be called on the Skyrim game thread.
+///  @return The complete required cell context, or `std::nullopt` when it is unavailable.
+std::optional<capture::PlayerLocationCapture> CapturePlayerLocation();
 
 ///  Reads the vampire global and both transformation spell capabilities as
 ///  one complete observation. Must be called already on the Skyrim game

@@ -79,6 +79,15 @@ This research does not settle the full target-resolution contract, objective ord
 mod, localization and malformed-data behavior, or main-menu/save-switch lifecycle. Those require
 their own source and runtime validation during the corresponding implementation phases.
 
+## Frozen implementation decisions
+
+- `player_location` captures the current cell, `PlayerCharacter.currentLocation`,
+  `TESObjectCELL.GetLocation()`, and the cell's worldspace as distinct bounded engine facts. The
+  Host selects `currentLocation` when present and falls back to the cell location only when it is
+  absent. A valid cell remains available when its location name or worldspace is absent. Runtime
+  FormIDs identify these values only for the active loaded runtime. Optional names that are invalid
+  UTF-8 or exceed the Adapter's 52-byte bound are omitted without truncating or invalidating the cell capture.
+
 ## Sources
 
 - Repository-pinned CommonLibSSE-NG 9.0.0 (`5decf47b01dde5501b03afaa91cd4d182e793cca`):

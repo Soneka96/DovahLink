@@ -141,6 +141,22 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
             .status = dispatch::SampleCaptureStatus::kAvailable,
             .payload = capture::EncodeCharacterSupernaturalTraitsPayload(*traits)};
     }
+    case capture::CharacterSampleToken::kPlayerLocation: {
+        std::optional<capture::PlayerLocationCapture> location = CapturePlayerLocation();
+        if (!location) {
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
+        }
+        std::optional<capture::CapturedPayload> payload =
+            capture::TryEncodePlayerLocationPayload(*location);
+        if (!payload) {
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
+        }
+        return dispatch::SampleCaptureResult{
+            .status = dispatch::SampleCaptureStatus::kAvailable,
+            .payload = *payload};
+    }
     default:
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kUnsupported};

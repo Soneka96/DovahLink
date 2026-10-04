@@ -93,6 +93,7 @@ The Character contract defines five independently authoritative state areas:
 | `character_identity` | Player display name and identity race | Complete object with string `name` and string `race` | Snapshot | One complete identity observation, sampled at Slow cadence | `"value": null` if either member is unavailable; partial objects are invalid |
 | `character_supernatural_traits` | Independent vampire status and Vampire Lord / Werewolf transformation capabilities | Complete object with boolean `isVampire`, `hasVampireLordForm`, and `hasWerewolfForm` | Snapshot | One complete observation of all three source predicates, sampled at Slow cadence | `"value": null` if any required source is unavailable; all-false is a valid available value |
 | `character_level` | Current level | JSON number (integer-valued, 0-65535) | Event | Its initial/recovery baseline is established by a dedicated resynchronization-only sample, delivered as a `state_snapshot`; native level-up occurrences then publish as `state_event` | `"value": null` |
+| `player_location` | Current cell, selected location, and current worldspace | Complete object with required 32-bit runtime `cellId`, string `cellKind` (`interior` or `exterior`), and nullable runtime FormIDs and localized names (each name at most 52 UTF-8 bytes) for cell, location, and worldspace | Snapshot | One coherent Slow capture of cell, both location sources, and worldspace | `"value": null` when the authoritative player/cell context cannot be captured; absent names and locations are valid |
 
 Snapshot `data` objects use a `value` field. Scalar areas carry their scalar there; Vitals carries
 all three resource values together, Identity carries both strings together, and Supernatural Traits
@@ -113,8 +114,16 @@ The new domain values have these complete shapes:
 ```json
 {"value": {"name": "Gonçalo", "race": "Nord"}}
 {"value": {"isVampire": false, "hasVampireLordForm": false, "hasWerewolfForm": false}}
+{"value": {"cellId": 123456, "cellKind": "exterior", "cellName": "WhiterunWorld", "locationId": 98765, "locationName": "Whiterun", "worldspaceId": 1, "worldspaceName": "Skyrim"}}
 {"value": null}
 ```
+
+`player_location` keeps the cell, location, and worldspace distinct. `cellId` is a nonzero unsigned
+32-bit runtime FormID; optional runtime FormIDs use the same range or `null` when absent. A display
+name cannot be present without its corresponding FormID; each name is `null` when the game has no
+usable name. The Host selects `PlayerCharacter.currentLocation` when present and otherwise uses
+`TESObjectCELL.GetLocation()`. The Adapter returns both source facts; this deterministic Host rule
+does not turn an unnamed wilderness cell into an unavailable location.
 
 Identity is unavailable unless both name and race are usable; never send a partial object. The
 supernatural booleans are independent: preserve every observed combination, including all-false and

@@ -553,6 +553,103 @@ void main() {
     addTearDown(client.close);
   });
 
+  group('Behavior Player Location state composition behaves correctly', () {
+    test(
+      'Behavior Player Location state composes a typed stream across subscribe, Snapshot, unavailable, and unsubscribe',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        expect(
+          (await client.currentHost.playerLocationChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['player_location']),
+        );
+        expect(
+          await client.currentHost.subscribeStateArea(
+            DovahLinkStateArea.playerLocation,
+          ),
+          isEmpty,
+        );
+        expect(
+          (await client.currentHost.playerLocationChanges.first).status,
+          DovahLinkStateStatus.recovering,
+        );
+
+        final Future<void> synchronized = expectLater(
+          client.currentHost.playerLocationChanges,
+          emitsThrough(
+            predicate<StateSynchronization<PlayerLocationState?>>(
+              (StateSynchronization<PlayerLocationState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.stateAuthorityId == 'authority-1' &&
+                  state.playContextId == 'context-1' &&
+                  state.value?.cellId == 123456 &&
+                  state.value?.cellKind == PlayerLocationCellKind.exterior &&
+                  state.value?.cellName == 'WhiterunWorld' &&
+                  state.value?.locationId == 98765 &&
+                  state.value?.locationName == 'Whiterun' &&
+                  state.value?.worldspaceId == 1 &&
+                  state.value?.worldspaceName == 'Skyrim',
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'player_location',
+            revision: 1,
+            value: <String, dynamic>{
+              'cellId': 123456,
+              'cellKind': 'exterior',
+              'cellName': 'WhiterunWorld',
+              'locationId': 98765,
+              'locationName': 'Whiterun',
+              'worldspaceId': 1,
+              'worldspaceName': 'Skyrim',
+            },
+          ),
+        );
+        await synchronized;
+
+        final Future<void> unavailable = expectLater(
+          client.currentHost.playerLocationChanges,
+          emitsThrough(
+            predicate<StateSynchronization<PlayerLocationState?>>(
+              (StateSynchronization<PlayerLocationState?> state) =>
+                  state.status == DovahLinkStateStatus.unavailable &&
+                  state.value == null &&
+                  state.revision == 2,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'player_location',
+            revision: 2,
+            value: null,
+          ),
+        );
+        await unavailable;
+
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: const <String>[]),
+        );
+        expect(
+          await client.currentHost.unsubscribeStateArea(
+            DovahLinkStateArea.playerLocation,
+          ),
+          isEmpty,
+        );
+        expect(
+          (await client.currentHost.playerLocationChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+      },
+    );
+  });
+
   group('Behavior grouped API composition behaves correctly', () {
     test(
       'Behavior grouped API pairing authentication recovers pending confirmation in the SDK',

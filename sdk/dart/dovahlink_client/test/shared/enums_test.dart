@@ -71,8 +71,21 @@ void main() {
             'character_level',
             'character_identity',
             'character_supernatural_traits',
+            'player_location',
           ],
         );
+      },
+    );
+  });
+
+  group('Property values in PlayerLocationCellKind behaves correctly', () {
+    test(
+      'Property values in PlayerLocationCellKind preserves its wire vocabulary',
+      () {
+        expect(PlayerLocationCellKind.values, <PlayerLocationCellKind>[
+          PlayerLocationCellKind.interior,
+          PlayerLocationCellKind.exterior,
+        ]);
       },
     );
   });

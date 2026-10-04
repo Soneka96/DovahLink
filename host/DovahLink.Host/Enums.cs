@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace DovahLink.Host;
 
 // ---- Trust ----
@@ -354,6 +356,22 @@ public enum CharacterSampleToken : uint
 
     /// <summary>One complete independent supernatural-traits observation.</summary>
     CharacterSupernaturalTraits = 5,
+
+    /// <summary>One complete cell, location, and worldspace observation.</summary>
+    PlayerLocation = 6,
+}
+
+/// <summary>The runtime cell kind reported for the player location.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<PlayerLocationCellKind>))]
+public enum PlayerLocationCellKind
+{
+    /// <summary>The player is in an interior cell.</summary>
+    [JsonStringEnumMemberName("interior")]
+    Interior,
+
+    /// <summary>The player is in an exterior cell.</summary>
+    [JsonStringEnumMemberName("exterior")]
+    Exterior,
 }
 
 /// <summary>A host-owned <see cref="Adapter.Ipc.IpcListenEventMessage.EventKey"/>.</summary>

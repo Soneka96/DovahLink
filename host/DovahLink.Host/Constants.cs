@@ -583,11 +583,17 @@ public static class Constants
     /// <summary>The <c>stateArea</c> id for the independent supernatural-traits value.</summary>
     public const string CharacterSupernaturalTraitsStateArea = "character_supernatural_traits";
 
+    /// <summary>The <c>stateArea</c> id for the current cell, location, and worldspace.</summary>
+    public const string PlayerLocationStateArea = "player_location";
+
     /// <summary>The maximum UTF-8 byte length for either private Character Identity string.</summary>
     public const int MaxCharacterIdentityStringBytes = 126;
 
     /// <summary>The fixed private payload length for three supernatural-traits bytes.</summary>
     public const int CharacterSupernaturalTraitsPayloadLength = 3;
+
+    /// <summary>The maximum UTF-8 byte length for each private player-location display name.</summary>
+    public const int MaxPlayerLocationNameBytes = 52;
 
     /// <summary>
     /// The maximum sampling frequency for a <see cref="RateClass.Fast"/> capture unit, per

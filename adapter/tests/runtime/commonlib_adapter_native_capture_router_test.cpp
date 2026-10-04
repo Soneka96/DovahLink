@@ -49,6 +49,11 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter maps each known sample token "
           std::string::npos);
     CHECK(source.find(NormalizeWhitespace("CaptureCharacterSupernaturalTraits()")) !=
           std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              "case capture::CharacterSampleToken::kPlayerLocation: {")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("CapturePlayerLocation()")) !=
+          std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kUnsupported for an "
@@ -82,6 +87,10 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kUnavailable, never a "
           "if (!payload) {\nreturn dispatch::SampleCaptureResult{\n"
           ".status = dispatch::SampleCaptureStatus::kUnavailable};",
           "if (!traits) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!location) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!payload) {\nreturn dispatch::SampleCaptureResult{\n"
           ".status = dispatch::SampleCaptureStatus::kUnavailable};"}) {
         CHECK(source.find(NormalizeWhitespace(needle)) != std::string::npos);
     }
@@ -129,6 +138,21 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kAvailable with the "
               ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
               ".payload = capture::EncodeCharacterSupernaturalTraitsPayload(*traits)};")) !=
           std::string_view::npos);
+
+    const auto locationStart = source.find(
+        NormalizeWhitespace("case capture::CharacterSampleToken::kPlayerLocation: {"));
+    REQUIRE(locationStart != std::string::npos);
+    const auto locationEnd = source.find("default:", locationStart);
+    REQUIRE(locationEnd != std::string::npos);
+    const std::string_view locationCase =
+        std::string_view(source).substr(locationStart, locationEnd - locationStart);
+    CHECK(locationCase.find(NormalizeWhitespace("CapturePlayerLocation()")) !=
+          std::string_view::npos);
+    CHECK(locationCase.find(NormalizeWhitespace(
+              "TryEncodePlayerLocationPayload(*location)")) != std::string_view::npos);
+    CHECK(locationCase.find(NormalizeWhitespace(
+              ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
+              ".payload = *payload};")) != std::string_view::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes each token's payload "

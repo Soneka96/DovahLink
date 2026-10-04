@@ -26,6 +26,9 @@ inline constexpr std::size_t kMaxCharacterIdentityStringBytes = 126;
 inline constexpr std::size_t kMaxCharacterIdentityPayloadBytes =
     2 * (1 + kMaxCharacterIdentityStringBytes);
 
+///  Maximum UTF-8 byte length copied for each optional player-location name.
+inline constexpr std::size_t kMaxPlayerLocationNameBytes = 52;
+
 ///  The fixed per-capture byte capacity used by the adapter's bounded,
 ///  allocation-free handoff buffer. Its bound is the largest byte count
 ///  representable by `CapturedPayload::size`.

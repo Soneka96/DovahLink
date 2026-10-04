@@ -34,6 +34,24 @@ std::optional<std::string_view> TryMakeIdentityStringView(const char* value) {
     return std::nullopt;
 }
 
+///  Makes a bounded view over an optional player-location display name.
+///  @param value The runtime-owned NUL-terminated name.
+///  @return A non-empty name within the location byte limit, or `std::nullopt` when absent or too long.
+std::optional<std::string_view> TryMakePlayerLocationStringView(const char* value) {
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    for (std::size_t length = 0; length <= capture::kMaxPlayerLocationNameBytes; ++length) {
+        if (value[length] == '\0') {
+            if (length == 0) {
+                return std::nullopt;
+            }
+            return std::string_view(value, length);
+        }
+    }
+    return std::nullopt;
+}
+
 } //  namespace
 
 std::optional<CharacterVitalsCapture> CaptureCharacterVitals() {
@@ -92,6 +110,28 @@ std::optional<capture::CharacterIdentityCapture> CaptureCharacterIdentity() {
         return std::nullopt;
     }
     return capture::TryMakeCharacterIdentityCapture(*name, *raceName);
+}
+
+std::optional<capture::PlayerLocationCapture> CapturePlayerLocation() {
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    auto* cell = player == nullptr ? nullptr : player->GetParentCell();
+    if (cell == nullptr) {
+        return std::nullopt;
+    }
+
+    auto* playerLocation = player->GetPlayerRuntimeData().currentLocation;
+    auto* cellLocation = cell->GetLocation();
+    auto* worldspace = cell->GetRuntimeData().worldSpace;
+    return capture::TryMakePlayerLocationCapture(
+        cell->GetFormID(),
+        cell->IsInteriorCell(),
+        TryMakePlayerLocationStringView(cell->GetFullName()),
+        playerLocation == nullptr ? 0 : playerLocation->GetFormID(),
+        playerLocation == nullptr ? std::nullopt : TryMakePlayerLocationStringView(playerLocation->GetFullName()),
+        cellLocation == nullptr ? 0 : cellLocation->GetFormID(),
+        cellLocation == nullptr ? std::nullopt : TryMakePlayerLocationStringView(cellLocation->GetFullName()),
+        worldspace == nullptr ? 0 : worldspace->GetFormID(),
+        worldspace == nullptr ? std::nullopt : TryMakePlayerLocationStringView(worldspace->GetFullName()));
 }
 
 std::optional<capture::CharacterSupernaturalTraitsCapture>

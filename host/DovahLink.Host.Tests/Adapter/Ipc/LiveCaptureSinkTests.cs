@@ -23,6 +23,7 @@ public class LiveCaptureSinkTests
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
     private static readonly StateAreaId IdentityArea = new(Constants.CharacterIdentityStateArea);
     private static readonly StateAreaId SupernaturalTraitsArea = new(Constants.CharacterSupernaturalTraitsStateArea);
+    private static readonly StateAreaId PlayerLocationArea = new(Constants.PlayerLocationStateArea);
     private static readonly StateAreaId TestArea = new("area_a");
 
     /// <summary>The sink and observable state collaborators used by capture-result tests.</summary>
@@ -113,7 +114,7 @@ public class LiveCaptureSinkTests
     /// <param name="applicationOverride">The application service to pass through the Character handler, or <see langword="null"/> for the real implementation.</param>
     /// <param name="clockOverride">The clock to use for accepted dispatch timestamps, or <see langword="null"/> for a new fake clock.</param>
     /// <param name="catalogOverride">The capture catalog to recognize, or <see langword="null"/> for the production catalog.</param>
-    /// <param name="handlerOverrides">The explicit capture handlers to register, or <see langword="null"/> for the production Character handler.</param>
+    /// <param name="handlerOverrides">The explicit capture handlers to register, or <see langword="null"/> for the production live-state handlers.</param>
     private static Fixture CreateReady(
         IResynchronizationTransactionCoordinator? coordinatorOverride = null,
         ILiveStateApplication? applicationOverride = null,
@@ -139,13 +140,18 @@ public class LiveCaptureSinkTests
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
         var identityPublisher = new StatePublisher<CharacterIdentity?>(revisionTracker, playContextTracker, adapterTracker);
         var supernaturalTraitsPublisher = new StatePublisher<CharacterSupernaturalTraits?>(revisionTracker, playContextTracker, adapterTracker);
+        var playerLocationPublisher = new StatePublisher<PlayerLocation?>(revisionTracker, playContextTracker, adapterTracker);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
         IResynchronizationTransactionCoordinator coordinator = coordinatorOverride
             ?? new ResynchronizationTransactionCoordinator(catalog, adapterTracker, continuityRecovery, TimeSpan.FromSeconds(30));
         FakeClock clock = clockOverride ?? new FakeClock();
         ILiveStateApplication application = applicationOverride ?? new LiveStateApplication(coordinator, continuityRecovery, feed);
         IReadOnlyCollection<ILiveCaptureHandler> handlers = handlerOverrides
-            ?? new ILiveCaptureHandler[] { new CharacterCaptureHandler(vitalsPublisher, floatPublisher, levelPublisher, identityPublisher, supernaturalTraitsPublisher, application) };
+            ?? new ILiveCaptureHandler[]
+            {
+                new CharacterCaptureHandler(vitalsPublisher, floatPublisher, levelPublisher, identityPublisher, supernaturalTraitsPublisher, application),
+                new PlayerLocationCaptureHandler(playerLocationPublisher, application),
+            };
         var sink = new LiveCaptureSink(catalog, handlers, adapterTracker, playContextTracker, clock);
         var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
         return new Fixture(sink, catalog, feed, vitalsPublisher, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
@@ -318,6 +324,51 @@ public class LiveCaptureSinkTests
             []), fixture.Source);
 
         Assert.True(fixture.Feed.TryGetSnapshot(IdentityArea, out StateSnapshotPublication? unavailable));
+        Assert.Equal(available.Revision.Next(), unavailable!.Revision);
+        Assert.Equal(JsonValueKind.Null, unavailable.Data.GetProperty("value").ValueKind);
+    }
+
+    /// <summary>Verifies that a complete Adapter location capture becomes a public Snapshot and an unavailable capture remains explicit.</summary>
+    [Fact]
+    public void ApplyCaptureResult_PlayerLocation_PublishesCompleteValueAndUnavailable()
+    {
+        Fixture fixture = CreateReady();
+        byte[] payload =
+        [
+            10, 0, 0, 0, 0, 0,
+            20, 0, 0, 0, 8, (byte)'W', (byte)'h', (byte)'i', (byte)'t', (byte)'e', (byte)'r', (byte)'u', (byte)'n',
+            30, 0, 0, 0, 0,
+            40, 0, 0, 0, 6, (byte)'S', (byte)'k', (byte)'y', (byte)'r', (byte)'i', (byte)'m',
+        ];
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            1,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.PlayerLocation,
+            CaptureAvailability.Available,
+            fixture.Context,
+            payload), fixture.Source);
+
+        Assert.True(fixture.Feed.TryGetSnapshot(PlayerLocationArea, out StateSnapshotPublication? available));
+        Assert.Equal(RevisionNumber.Initial.Next(), available!.Revision);
+        Assert.Equal(fixture.Context, available.PlayContextId);
+        JsonElement location = available.Data.GetProperty("value");
+        Assert.Equal(10u, location.GetProperty("cellId").GetUInt32());
+        Assert.Equal("exterior", location.GetProperty("cellKind").GetString());
+        Assert.Equal(JsonValueKind.Null, location.GetProperty("cellName").ValueKind);
+        Assert.Equal(20u, location.GetProperty("locationId").GetUInt32());
+        Assert.Equal("Whiterun", location.GetProperty("locationName").GetString());
+        Assert.Equal(40u, location.GetProperty("worldspaceId").GetUInt32());
+        Assert.Equal("Skyrim", location.GetProperty("worldspaceName").GetString());
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            2,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.PlayerLocation,
+            CaptureAvailability.Unavailable,
+            fixture.Context,
+            []), fixture.Source);
+
+        Assert.True(fixture.Feed.TryGetSnapshot(PlayerLocationArea, out StateSnapshotPublication? unavailable));
         Assert.Equal(available.Revision.Next(), unavailable!.Revision);
         Assert.Equal(JsonValueKind.Null, unavailable.Data.GetProperty("value").ValueKind);
     }

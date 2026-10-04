@@ -4,7 +4,8 @@
     "characterXp": 2,
     "characterLevelBaseline": 3,
     "characterIdentity": 4,
-    "characterSupernaturalTraits": 5
+    "characterSupernaturalTraits": 5,
+    "playerLocation": 6
   },
   "eventKeys": {
     "characterLevelChanged": 1

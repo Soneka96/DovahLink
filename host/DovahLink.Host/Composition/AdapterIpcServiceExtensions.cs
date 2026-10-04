@@ -51,6 +51,7 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IStatePublisher<ushort?>, StatePublisher<ushort?>>();
         services.AddSingleton<IStatePublisher<CharacterIdentity?>, StatePublisher<CharacterIdentity?>>();
         services.AddSingleton<IStatePublisher<CharacterSupernaturalTraits?>, StatePublisher<CharacterSupernaturalTraits?>>();
+        services.AddSingleton<IStatePublisher<PlayerLocation?>, StatePublisher<PlayerLocation?>>();
         services.AddSingleton<IResynchronizationTransactionCoordinator>(sp => new ResynchronizationTransactionCoordinator(
             sp.GetRequiredService<LiveStateCatalog>(),
             sp.GetRequiredService<IAdapterAvailabilityTracker>(),
@@ -59,6 +60,8 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<ILiveStateApplication, LiveStateApplication>();
         services.AddSingleton<CharacterCaptureHandler>();
         services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<CharacterCaptureHandler>());
+        services.AddSingleton<PlayerLocationCaptureHandler>();
+        services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<PlayerLocationCaptureHandler>());
         services.AddSingleton<ILiveCaptureSink, LiveCaptureSink>();
         services.AddSingleton<LiveStateScheduler>();
         services.AddSingleton<ILiveStateScheduler>(sp => sp.GetRequiredService<LiveStateScheduler>());

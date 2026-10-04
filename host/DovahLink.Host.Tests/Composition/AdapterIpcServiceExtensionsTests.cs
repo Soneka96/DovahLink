@@ -48,9 +48,12 @@ public class AdapterIpcServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IAdapterIpcListener>());
         Assert.NotNull(provider.GetRequiredService<IPairingAdapterNotifier>());
         Assert.IsType<LiveStateApplication>(provider.GetRequiredService<ILiveStateApplication>());
-        ILiveCaptureHandler captureHandler = Assert.Single(provider.GetServices<ILiveCaptureHandler>());
-        Assert.IsType<CharacterCaptureHandler>(captureHandler);
-        Assert.Same(captureHandler, provider.GetRequiredService<CharacterCaptureHandler>());
+        ILiveCaptureHandler[] captureHandlers = provider.GetServices<ILiveCaptureHandler>().ToArray();
+        Assert.Equal(2, captureHandlers.Length);
+        CharacterCaptureHandler characterCaptureHandler = Assert.Single(captureHandlers.OfType<CharacterCaptureHandler>());
+        PlayerLocationCaptureHandler playerLocationCaptureHandler = Assert.Single(captureHandlers.OfType<PlayerLocationCaptureHandler>());
+        Assert.Same(characterCaptureHandler, provider.GetRequiredService<CharacterCaptureHandler>());
+        Assert.Same(playerLocationCaptureHandler, provider.GetRequiredService<PlayerLocationCaptureHandler>());
         Assert.NotNull(provider.GetRequiredService<ILiveCaptureSink>());
         Assert.NotNull(provider.GetRequiredService<LiveStateScheduler>());
     }

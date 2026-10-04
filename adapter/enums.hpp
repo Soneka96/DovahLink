@@ -48,6 +48,8 @@ enum class CharacterSampleToken : std::uint32_t {
     kCharacterIdentity = 4,
     ///  One complete independent supernatural-traits observation.
     kCharacterSupernaturalTraits = 5,
+    ///  One complete cell, location, and worldspace observation.
+    kPlayerLocation = 6,
 };
 
 ///  A host-owned `IAdapterNativeCaptureRouter::RegisterEvent` key.

@@ -5,6 +5,8 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/state/player_location_state.dart';
+import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
 /// Exposes the admitted session's Host context and grouped domain views.
 ///
@@ -22,6 +24,9 @@ abstract interface class IDovahLinkCurrentHost {
 
   /// The typed game-state views grouped by owning domain.
   IDovahLinkCharacter get character;
+
+  /// Replays the player-location Snapshot and its synchronization status.
+  Stream<StateSynchronization<PlayerLocationState?>> get playerLocationChanges;
 
   /// Adds [area] to the desired state domains and synchronizes the complete set with the Host.
   /// @param area The state domain to request.
@@ -49,6 +54,10 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   /// Owns desired state-area subscriptions.
   final ISubscriptionService _subscriptionService;
 
+  /// The current player's location synchronization stream.
+  final Stream<StateSynchronization<PlayerLocationState?>>
+  _playerLocationChanges;
+
   /// Creates the current Host view over the existing session and domain owners.
   /// @param sessionService Owns the admitted session context.
   /// @param character Exposes the existing Character domain streams.
@@ -56,9 +65,12 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   DovahLinkCurrentHost({
     required ISessionService sessionService,
     required IDovahLinkCharacter character,
+    required Stream<StateSynchronization<PlayerLocationState?>>
+    playerLocationChanges,
     required ISubscriptionService subscriptionService,
   }) : _sessionService = sessionService,
        _character = character,
+       _playerLocationChanges = playerLocationChanges,
        _subscriptionService = subscriptionService;
 
   /// Implements [IDovahLinkCurrentHost.host].
@@ -76,6 +88,11 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   /// Implements [IDovahLinkCurrentHost.character].
   @override
   IDovahLinkCharacter get character => _character;
+
+  /// Implements [IDovahLinkCurrentHost.playerLocationChanges].
+  @override
+  Stream<StateSynchronization<PlayerLocationState?>>
+  get playerLocationChanges => _playerLocationChanges;
 
   /// Implements [IDovahLinkCurrentHost.subscribeStateArea].
   @override

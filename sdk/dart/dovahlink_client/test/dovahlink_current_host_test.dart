@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
@@ -25,15 +27,21 @@ void main() {
   late MockCurrentHostSessionService sessionService;
   late MockCurrentHostSubscriptionService subscriptionService;
   late MockCurrentHostCharacter character;
+  late Stream<StateSynchronization<PlayerLocationState?>> playerLocationChanges;
   late DovahLinkCurrentHost currentHost;
 
   setUp(() {
     sessionService = MockCurrentHostSessionService();
     subscriptionService = MockCurrentHostSubscriptionService();
     character = MockCurrentHostCharacter();
+    playerLocationChanges =
+        Stream<StateSynchronization<PlayerLocationState?>>.value(
+          const StateSynchronization<PlayerLocationState?>.notSubscribed(),
+        );
     currentHost = DovahLinkCurrentHost(
       sessionService: sessionService,
       character: character,
+      playerLocationChanges: playerLocationChanges,
       subscriptionService: subscriptionService,
     );
   });
@@ -60,6 +68,15 @@ void main() {
     test('Property character exposes the grouped Character view', () {
       expect(currentHost.character, same(character));
     });
+  });
+
+  group('Property playerLocationChanges behaves correctly', () {
+    test(
+      'Property playerLocationChanges exposes the synchronization-aware stream',
+      () {
+        expect(currentHost.playerLocationChanges, same(playerLocationChanges));
+      },
+    );
   });
 
   group('Method subscribeStateArea behaves correctly', () {

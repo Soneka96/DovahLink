@@ -6,7 +6,7 @@ namespace DovahLink.Host.Tests.State;
 /// <summary>Verifies the production state-area and capture catalog.</summary>
 public class LiveStateCatalogTests
 {
-    /// <summary>Verifies that production exposes five independent Character areas with their canonical modes.</summary>
+    /// <summary>Verifies that production exposes independent areas with their canonical modes.</summary>
     [Fact]
     public void Default_RegistersOnlyCanonicalCharacterAreas()
     {
@@ -18,6 +18,7 @@ public class LiveStateCatalogTests
             [Constants.CharacterXpStateArea] = UpdateMode.Snapshot,
             [Constants.CharacterIdentityStateArea] = UpdateMode.Snapshot,
             [Constants.CharacterSupernaturalTraitsStateArea] = UpdateMode.Snapshot,
+            [Constants.PlayerLocationStateArea] = UpdateMode.Snapshot,
             [Constants.CharacterLevelStateArea] = UpdateMode.Event,
         };
 
@@ -50,14 +51,15 @@ public class LiveStateCatalogTests
         Assert.Equal([new StateAreaId(Constants.CharacterXpStateArea)], xp.StateAreas);
     }
 
-    /// <summary>Verifies both metadata domains use independent Slow baseline samples and Snapshot areas.</summary>
+    /// <summary>Verifies metadata and location use independent Slow baseline samples and Snapshot areas.</summary>
     [Fact]
-    public void Default_CharacterMetadataCaptureUnits_UseSlowSnapshotAreas()
+    public void Default_SlowCaptureUnits_UseIndependentSnapshotAreas()
     {
         (CharacterSampleToken Token, string StateArea)[] metadataSamples =
         [
             (CharacterSampleToken.CharacterIdentity, Constants.CharacterIdentityStateArea),
             (CharacterSampleToken.CharacterSupernaturalTraits, Constants.CharacterSupernaturalTraitsStateArea),
+            (CharacterSampleToken.PlayerLocation, Constants.PlayerLocationStateArea),
         ];
 
         foreach ((CharacterSampleToken token, string stateArea) in metadataSamples)
@@ -106,6 +108,7 @@ public class LiveStateCatalogTests
             (uint)CharacterSampleToken.CharacterXp,
             (uint)CharacterSampleToken.CharacterIdentity,
             (uint)CharacterSampleToken.CharacterSupernaturalTraits,
+            (uint)CharacterSampleToken.PlayerLocation,
             (uint)CharacterSampleToken.CharacterLevelBaseline,
         ];
         Assert.Equal(expectedSamples.Order(), plan.BaselineSampleTokens.Order());
