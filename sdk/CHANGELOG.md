@@ -29,6 +29,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Changed
 
+- The Character API exposes synchronization-aware Identity and Supernatural Traits streams alongside Vitals, XP, and Level.
 - Character gameplay streams now live under `client.currentHost.character`; coherent Vitals, XP,
   and Level remain independent domains.
 - SDK client state v4 migrates v3 Known Hosts and defaults their new repair hint to false.

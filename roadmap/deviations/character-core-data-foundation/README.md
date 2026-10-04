@@ -1,6 +1,6 @@
 # Character Core Data Foundation
 
-**Status:** Active
+**Status:** Backend foundation implemented; ordered follow-on work remains.
 
 This deviation adds the production character data needed by the approved DovahLink prototype
 before the currently ordered client presentation work. It leaves the main roadmap's stage numbering
@@ -27,10 +27,23 @@ Dart SDK synchronization-aware state streams
 
 The Adapter's generic request dispatch, IPC architecture, scheduling framework, queue semantics,
 transport, backpressure, Host/Adapter routing, and generic response handling are unchanged. Native
-work is limited to specific capture leaves, including extending the existing coherent Vitals read.
+work is limited to specific capture leaves, including extending the existing coherent Vitals read
+and adding the two approved metadata observations.
 The fixed `CapturedPayload` capacity grows from 12 to 24 bytes because the coherent Vitals result
 now contains six float32 values; splitting those values into separate captures would lose the
-requested observation coherence.
+requested observation coherence. Character Identity then increases the capacity from 24 to 254
+bytes: each string has a 126-byte UTF-8 limit and a one-byte length prefix, so the maximum is
+`1 + 126 + 1 + 126 = 254` bytes. The encoder validates both strings as UTF-8 and rejects empty,
+invalid, or over-limit values; it never truncates. The three-byte Supernatural Traits payload also
+fits this bound. Its layout is `[nameLength:u8][name:utf8][raceLength:u8][race:utf8]`. The
+Supernatural Traits layout is `[isVampire:u8][hasVampireLordForm:u8][hasWerewolfForm:u8]`, with
+each byte restricted to `0` or `1`.
+
+`CapturedPayload` is an inline fixed buffer. Its byte array grows by 230 bytes. On the supported
+x64 ABI, alignment grows each `AdapterCaptureWorkItem` from 64 to 296 bytes, a 232-byte increase;
+the existing 64-slot handoff ring therefore adds 14,848 bytes (about 14.5 KiB) of fixed storage.
+It does not add per-capture heap allocation. This bounded memory cost was reviewed as part of the
+payload-capacity change.
 The Host continues to register and publish independently authoritative state areas through its
 existing machinery. Current and effective maximum Health, Magicka, and Stamina form one coherent
 `character_vitals` domain. `character_xp` and `character_level` remain independent domains; the
@@ -145,12 +158,13 @@ from a name string. No reliable active character-creation flag was identified in
 
 ## Current and future public areas
 
-The current protocol registers `character_vitals`, `character_xp`, and `character_level`.
-The Vitals group shares one revision because all six values come from the same Fast capture and
-observation instant. XP remains independently authoritative, and Level retains its Event updates
-with an authoritative Snapshot baseline and recovery.
+The protocol registers five independently authoritative Character areas: `character_vitals`,
+`character_xp`, `character_level`, `character_identity`, and
+`character_supernatural_traits`. The Vitals group shares one revision because all six values come
+from the same Fast capture and observation instant. XP remains independent, and Level retains its
+Event updates with an authoritative Snapshot baseline and recovery.
 
-The approved production additions are two independently authoritative domains:
+The two metadata domains are independently authoritative:
 `character_identity` groups name and identity race into one complete identity observation, while
 `character_supernatural_traits` groups the three independently reported capability/status values.
 Do not combine them into one identity object, one giant `character` state value, or five scalar
