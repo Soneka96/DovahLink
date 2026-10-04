@@ -167,7 +167,7 @@ jobs:
 
       - name: Build Debug
         working-directory: adapter
-        run: cmake --build --preset windows-x64-debug
+        run: cmake --build --preset windows-x64-debug --parallel 2 --verbose
 
       - name: Test Debug
         # Runs the complete native Adapter suite -- IPC, pairing notification, trust-admin,
@@ -186,7 +186,7 @@ jobs:
 
       - name: Build Release
         working-directory: adapter
-        run: cmake --build --preset windows-x64-release
+        run: cmake --build --preset windows-x64-release --parallel 2 --verbose
 
       - name: Test real assembled-package layout (Release)
         # Repeat package integration in Release without duplicating the full Debug suite.
