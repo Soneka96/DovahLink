@@ -215,7 +215,12 @@ public class DovahLinkHostRuntimeTests
         var adapterListener = new FakeAdapterIpcListener();
         var connection = new FakeAdapterIpcConnection(new MemoryStream()) { TrySendReadSampleResult = true, ConnectionGeneration = 1 };
         adapterListener.CurrentConnection = connection;
-        var tinyIntervals = new Dictionary<RateClass, TimeSpan> { [RateClass.Fast] = TimeSpan.FromMilliseconds(5), [RateClass.Medium] = TimeSpan.FromMilliseconds(5) };
+        var tinyIntervals = new Dictionary<RateClass, TimeSpan>
+        {
+            [RateClass.Fast] = TimeSpan.FromMilliseconds(5),
+            [RateClass.Medium] = TimeSpan.FromMilliseconds(5),
+            [RateClass.Slow] = TimeSpan.FromMilliseconds(5),
+        };
         // The scheduler sends only with an active play context and an available, synchronized
         // Adapter; without either condition this test's expected send never happens.
         var playContextTracker = new FakePlayContextTracker();

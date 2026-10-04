@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
@@ -20,6 +21,8 @@ public class LiveCaptureSinkTests
     private static readonly StateAreaId VitalsArea = new(Constants.CharacterVitalsStateArea);
     private static readonly StateAreaId XpArea = new(Constants.CharacterXpStateArea);
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
+    private static readonly StateAreaId IdentityArea = new(Constants.CharacterIdentityStateArea);
+    private static readonly StateAreaId SupernaturalTraitsArea = new(Constants.CharacterSupernaturalTraitsStateArea);
     private static readonly StateAreaId TestArea = new("area_a");
 
     /// <summary>The sink and observable state collaborators used by capture-result tests.</summary>
@@ -134,13 +137,15 @@ public class LiveCaptureSinkTests
         var vitalsPublisher = new StatePublisher<CharacterVitals?>(revisionTracker, playContextTracker, adapterTracker);
         var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
         var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
+        var identityPublisher = new StatePublisher<CharacterIdentity?>(revisionTracker, playContextTracker, adapterTracker);
+        var supernaturalTraitsPublisher = new StatePublisher<CharacterSupernaturalTraits?>(revisionTracker, playContextTracker, adapterTracker);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
         IResynchronizationTransactionCoordinator coordinator = coordinatorOverride
             ?? new ResynchronizationTransactionCoordinator(catalog, adapterTracker, continuityRecovery, TimeSpan.FromSeconds(30));
         FakeClock clock = clockOverride ?? new FakeClock();
         ILiveStateApplication application = applicationOverride ?? new LiveStateApplication(coordinator, continuityRecovery, feed);
         IReadOnlyCollection<ILiveCaptureHandler> handlers = handlerOverrides
-            ?? new ILiveCaptureHandler[] { new CharacterCaptureHandler(vitalsPublisher, floatPublisher, levelPublisher, application) };
+            ?? new ILiveCaptureHandler[] { new CharacterCaptureHandler(vitalsPublisher, floatPublisher, levelPublisher, identityPublisher, supernaturalTraitsPublisher, application) };
         var sink = new LiveCaptureSink(catalog, handlers, adapterTracker, playContextTracker, clock);
         var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
         return new Fixture(sink, catalog, feed, vitalsPublisher, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
@@ -228,6 +233,35 @@ public class LiveCaptureSinkTests
         return bytes;
     }
 
+    /// <summary>Encodes two private length-prefixed UTF-8 Identity strings.</summary>
+    /// <param name="name">The player display name.</param>
+    /// <param name="race">The identity-race display name.</param>
+    /// <returns>The private Identity payload.</returns>
+    private static byte[] EncodeIdentity(string name, string race)
+    {
+        byte[] nameBytes = Encoding.UTF8.GetBytes(name);
+        byte[] raceBytes = Encoding.UTF8.GetBytes(race);
+        var payload = new byte[2 + nameBytes.Length + raceBytes.Length];
+        payload[0] = checked((byte)nameBytes.Length);
+        nameBytes.AsSpan().CopyTo(payload.AsSpan(1));
+        int raceLengthOffset = 1 + nameBytes.Length;
+        payload[raceLengthOffset] = checked((byte)raceBytes.Length);
+        raceBytes.AsSpan().CopyTo(payload.AsSpan(raceLengthOffset + 1));
+        return payload;
+    }
+
+    /// <summary>Encodes three private boolean bytes in supernatural-traits contract order.</summary>
+    /// <param name="isVampire">The vampire status value.</param>
+    /// <param name="hasVampireLordForm">The Vampire Lord capability value.</param>
+    /// <param name="hasWerewolfForm">The Beast Form capability value.</param>
+    /// <returns>The three-byte private payload.</returns>
+    private static byte[] EncodeSupernaturalTraits(bool isVampire, bool hasVampireLordForm, bool hasWerewolfForm) =>
+        [
+            isVampire ? (byte)1 : (byte)0,
+            hasVampireLordForm ? (byte)1 : (byte)0,
+            hasWerewolfForm ? (byte)1 : (byte)0,
+        ];
+
     /// <summary>Reads the nullable float <c>value</c> from a state publication.</summary>
     /// <param name="data">The publication payload.</param>
     /// <returns>The decoded float value, or <see langword="null"/>.</returns>
@@ -253,6 +287,72 @@ public class LiveCaptureSinkTests
         Assert.Equal(220.0f, value.GetProperty("magicka").GetProperty("max").GetSingle());
         Assert.Equal(100.0f, value.GetProperty("stamina").GetProperty("current").GetSingle());
         Assert.Equal(300.0f, value.GetProperty("stamina").GetProperty("max").GetSingle());
+    }
+
+    /// <summary>Verifies Identity reaches the public Snapshot feed with its complete JSON shape and unavailable transition.</summary>
+    [Fact]
+    public void ApplyCaptureResult_Identity_PublishesCompleteValueAndUnavailable()
+    {
+        Fixture fixture = CreateReady();
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            1,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.CharacterIdentity,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeIdentity("Gonçalo", "Nord")), fixture.Source);
+
+        Assert.True(fixture.Feed.TryGetSnapshot(IdentityArea, out StateSnapshotPublication? available));
+        Assert.Equal(RevisionNumber.Initial.Next(), available!.Revision);
+        Assert.Equal(fixture.Context, available.PlayContextId);
+        JsonElement identity = available.Data.GetProperty("value");
+        Assert.Equal("Gonçalo", identity.GetProperty("name").GetString());
+        Assert.Equal("Nord", identity.GetProperty("race").GetString());
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            2,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.CharacterIdentity,
+            CaptureAvailability.Unavailable,
+            fixture.Context,
+            []), fixture.Source);
+
+        Assert.True(fixture.Feed.TryGetSnapshot(IdentityArea, out StateSnapshotPublication? unavailable));
+        Assert.Equal(available.Revision.Next(), unavailable!.Revision);
+        Assert.Equal(JsonValueKind.Null, unavailable.Data.GetProperty("value").ValueKind);
+    }
+
+    /// <summary>Verifies supernatural traits reach the public feed unchanged, including all-false and later unavailable.</summary>
+    [Fact]
+    public void ApplyCaptureResult_SupernaturalTraits_PublishesIndependentValueAndUnavailable()
+    {
+        Fixture fixture = CreateReady();
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            1,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.CharacterSupernaturalTraits,
+            CaptureAvailability.Available,
+            fixture.Context,
+            EncodeSupernaturalTraits(false, true, true)), fixture.Source);
+
+        Assert.True(fixture.Feed.TryGetSnapshot(SupernaturalTraitsArea, out StateSnapshotPublication? available));
+        JsonElement traits = available!.Data.GetProperty("value");
+        Assert.False(traits.GetProperty("isVampire").GetBoolean());
+        Assert.True(traits.GetProperty("hasVampireLordForm").GetBoolean());
+        Assert.True(traits.GetProperty("hasWerewolfForm").GetBoolean());
+        Assert.Equal(fixture.Context, available.PlayContextId);
+
+        fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(
+            2,
+            CaptureSourceKind.Sample,
+            (uint)CharacterSampleToken.CharacterSupernaturalTraits,
+            CaptureAvailability.Unavailable,
+            fixture.Context,
+            []), fixture.Source);
+
+        Assert.True(fixture.Feed.TryGetSnapshot(SupernaturalTraitsArea, out StateSnapshotPublication? unavailable));
+        Assert.Equal(available.Revision.Next(), unavailable!.Revision);
+        Assert.Equal(JsonValueKind.Null, unavailable.Data.GetProperty("value").ValueKind);
     }
 
     /// <summary>Verifies that an unavailable Vitals capture publishes a null value for the whole domain.</summary>

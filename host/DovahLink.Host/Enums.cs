@@ -375,6 +375,9 @@ public enum RateClass
 
     /// <summary>Sampled at most once every <see cref="Constants.LiveStateMediumSampleInterval"/>.</summary>
     Medium,
+
+    /// <summary>Sampled at most once every <see cref="Constants.LiveStateSlowSampleInterval"/>.</summary>
+    Slow,
 }
 
 /// <summary>

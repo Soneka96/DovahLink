@@ -1,4 +1,5 @@
 using System.Buffers.Binary;
+using System.Text;
 using DovahLink.Host.State;
 
 namespace DovahLink.Host.Adapter.Ipc;
@@ -6,12 +7,17 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// <summary>Decodes Character captures and applies them through shared Host authority rules.</summary>
 public sealed class CharacterCaptureHandler : ILiveCaptureHandler
 {
+    /// <summary>The strict decoder matching the Adapter's UTF-8 identity payload policy.</summary>
+    private static readonly UTF8Encoding StrictUtf8 = new(false, true);
+
     /// <summary>The Character capture identities owned by this handler.</summary>
     private static readonly IReadOnlyCollection<(CaptureSourceKind Source, uint CaptureKey)> supportedCaptures =
         Array.AsReadOnly<(CaptureSourceKind Source, uint CaptureKey)>(
         [
             (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals),
             (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp),
+            (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity),
+            (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits),
             (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline),
             (CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged),
         ]);
@@ -25,6 +31,12 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
     /// <summary>Backs the Character level area.</summary>
     private readonly IStatePublisher<ushort?> levelPublisher;
 
+    /// <summary>Backs the complete Character Identity area.</summary>
+    private readonly IStatePublisher<CharacterIdentity?> identityPublisher;
+
+    /// <summary>Backs the independent supernatural-traits area.</summary>
+    private readonly IStatePublisher<CharacterSupernaturalTraits?> supernaturalTraitsPublisher;
+
     /// <summary>Applies decoded values through shared authority and publication rules.</summary>
     private readonly ILiveStateApplication liveStateApplication;
 
@@ -32,16 +44,22 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
     /// <param name="vitalsPublisher">The typed publisher for coherent Vitals.</param>
     /// <param name="xpPublisher">The typed publisher for XP.</param>
     /// <param name="levelPublisher">The typed publisher for level.</param>
+    /// <param name="identityPublisher">The typed publisher for complete Character Identity.</param>
+    /// <param name="supernaturalTraitsPublisher">The typed publisher for supernatural traits.</param>
     /// <param name="liveStateApplication">The shared Host authority and publication service.</param>
     public CharacterCaptureHandler(
         IStatePublisher<CharacterVitals?> vitalsPublisher,
         IStatePublisher<float?> xpPublisher,
         IStatePublisher<ushort?> levelPublisher,
+        IStatePublisher<CharacterIdentity?> identityPublisher,
+        IStatePublisher<CharacterSupernaturalTraits?> supernaturalTraitsPublisher,
         ILiveStateApplication liveStateApplication)
     {
         this.vitalsPublisher = vitalsPublisher;
         this.xpPublisher = xpPublisher;
         this.levelPublisher = levelPublisher;
+        this.identityPublisher = identityPublisher;
+        this.supernaturalTraitsPublisher = supernaturalTraitsPublisher;
         this.liveStateApplication = liveStateApplication;
     }
 
@@ -61,6 +79,14 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         else if (unit.Source == CaptureSourceKind.Sample && unit.CaptureKey == (uint)CharacterSampleToken.CharacterXp)
         {
             ApplyXp(captureResult, context);
+        }
+        else if (unit.Source == CaptureSourceKind.Sample && unit.CaptureKey == (uint)CharacterSampleToken.CharacterIdentity)
+        {
+            ApplyIdentity(captureResult, context);
+        }
+        else if (unit.Source == CaptureSourceKind.Sample && unit.CaptureKey == (uint)CharacterSampleToken.CharacterSupernaturalTraits)
+        {
+            ApplySupernaturalTraits(captureResult, context);
         }
         else if ((unit.Source == CaptureSourceKind.Sample && unit.CaptureKey == (uint)CharacterSampleToken.CharacterLevelBaseline)
             || (unit.Source == CaptureSourceKind.Event && unit.CaptureKey == (uint)CharacterEventKey.CharacterLevelChanged))
@@ -135,6 +161,63 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         Apply(xpPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], value, captureResult.CorrelationId == 0, context);
     }
 
+    /// <summary>Decodes and applies one complete Identity observation or its unavailable value.</summary>
+    /// <param name="captureResult">The Identity capture result.</param>
+    /// <param name="context">The validated provenance and play-context metadata.</param>
+    private void ApplyIdentity(IpcCaptureResultMessage captureResult, LiveCaptureContext context)
+    {
+        if (context.CaptureUnit.StateAreas.Count != 1)
+        {
+            return;
+        }
+
+        CharacterIdentity? identity = null;
+        if (captureResult.Availability == CaptureAvailability.Available)
+        {
+            if (!TryDecodeIdentity(captureResult.Payload, out identity))
+            {
+                return;
+            }
+        }
+        else if (captureResult.Payload.Length != 0)
+        {
+            return;
+        }
+
+        Apply(identityPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], identity, captureResult.CorrelationId == 0, context);
+    }
+
+    /// <summary>Decodes and applies all three independent supernatural-traits predicates.</summary>
+    /// <param name="captureResult">The supernatural-traits capture result.</param>
+    /// <param name="context">The validated provenance and play-context metadata.</param>
+    private void ApplySupernaturalTraits(IpcCaptureResultMessage captureResult, LiveCaptureContext context)
+    {
+        if (context.CaptureUnit.StateAreas.Count != 1)
+        {
+            return;
+        }
+
+        CharacterSupernaturalTraits? traits = null;
+        if (captureResult.Availability == CaptureAvailability.Available)
+        {
+            if (captureResult.Payload.Length != Constants.CharacterSupernaturalTraitsPayloadLength
+                || !TryDecodeBoolean(captureResult.Payload[0], out bool isVampire)
+                || !TryDecodeBoolean(captureResult.Payload[1], out bool hasVampireLordForm)
+                || !TryDecodeBoolean(captureResult.Payload[2], out bool hasWerewolfForm))
+            {
+                return;
+            }
+
+            traits = new CharacterSupernaturalTraits(isVampire, hasVampireLordForm, hasWerewolfForm);
+        }
+        else if (captureResult.Payload.Length != 0)
+        {
+            return;
+        }
+
+        Apply(supernaturalTraitsPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], traits, captureResult.CorrelationId == 0, context);
+    }
+
     /// <summary>Decodes and applies the level baseline Sample or level-changed Event.</summary>
     /// <param name="captureResult">The Level capture result.</param>
     /// <param name="context">The validated provenance and play-context metadata.</param>
@@ -200,5 +283,65 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
     {
         value = BinaryPrimitives.ReadSingleLittleEndian(bytes);
         return float.IsFinite(value);
+    }
+
+    /// <summary>Decodes the bounded length-prefixed UTF-8 Identity payload without partial values.</summary>
+    /// <param name="payload">The private payload bytes.</param>
+    /// <param name="identity">The complete decoded identity when successful.</param>
+    /// <returns><see langword="true"/> only for two non-empty, bounded, valid UTF-8 strings with no trailing bytes.</returns>
+    private static bool TryDecodeIdentity(byte[] payload, out CharacterIdentity? identity)
+    {
+        identity = null;
+        if (payload.Length < 4)
+        {
+            return false;
+        }
+
+        int nameLength = payload[0];
+        if (nameLength == 0 || nameLength > Constants.MaxCharacterIdentityStringBytes)
+        {
+            return false;
+        }
+
+        int raceLengthOffset = 1 + nameLength;
+        if (raceLengthOffset >= payload.Length)
+        {
+            return false;
+        }
+
+        int raceLength = payload[raceLengthOffset];
+        if (raceLength == 0
+            || raceLength > Constants.MaxCharacterIdentityStringBytes
+            || payload.Length != raceLengthOffset + 1 + raceLength)
+        {
+            return false;
+        }
+
+        try
+        {
+            string name = StrictUtf8.GetString(payload.AsSpan(1, nameLength));
+            string race = StrictUtf8.GetString(payload.AsSpan(raceLengthOffset + 1, raceLength));
+            if (name.Contains('\0') || race.Contains('\0'))
+            {
+                return false;
+            }
+
+            identity = new CharacterIdentity(name, race);
+            return true;
+        }
+        catch (DecoderFallbackException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>Decodes one private payload boolean and rejects byte values other than zero or one.</summary>
+    /// <param name="encoded">The encoded boolean byte.</param>
+    /// <param name="value">The decoded value when the byte is valid.</param>
+    /// <returns><see langword="true"/> when <paramref name="encoded"/> is zero or one.</returns>
+    private static bool TryDecodeBoolean(byte encoded, out bool value)
+    {
+        value = encoded == 1;
+        return encoded <= 1;
     }
 }
