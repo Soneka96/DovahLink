@@ -2,7 +2,8 @@
   "sampleTokens": {
     "characterVitals": 1,
     "characterXp": 2,
-    "characterLevelBaseline": 3
+    "characterLevelBaseline": 3,
+    "characterIdentity": 4
   },
   "eventKeys": {
     "characterLevelChanged": 1

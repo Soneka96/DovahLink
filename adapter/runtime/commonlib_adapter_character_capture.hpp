@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <optional>
 
+#include "capture/character_identity_capture.hpp"
+
 namespace dovahlink::adapter::runtime {
 
 ///  One coherent player-vitals read: current and maximum health, magicka, and
@@ -55,5 +57,12 @@ std::optional<float> CaptureCharacterXp();
 ///  @return The level, or `std::nullopt` if the player is not currently
 ///  available.
 std::optional<std::uint16_t> CaptureCharacterLevel();
+
+///  Reads the player's display name and identity race as one complete
+///  observation. The strings are copied into bounded owned UTF-8 storage.
+///  Must be called already on the Skyrim game thread.
+///  @return The complete identity, or `std::nullopt` if the player, display
+///  name, `charGenRace`, or race display name is unavailable or unusable.
+std::optional<capture::CharacterIdentityCapture> CaptureCharacterIdentity();
 
 } //  namespace dovahlink::adapter::runtime

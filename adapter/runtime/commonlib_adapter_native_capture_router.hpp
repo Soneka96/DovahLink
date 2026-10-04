@@ -18,7 +18,9 @@ namespace dovahlink::adapter::runtime {
 ///  into the little-endian wire payload the host's own `LiveCaptureSink`
 ///  decodes: 24 bytes (six float32 current/maximum vitals values),
 ///  4 bytes (one float32) for XP, 2 bytes (one uint16) for the level
-///  baseline. An unknown token reports `SampleCaptureStatus::kUnsupported`; a
+///  baseline, and up to 254 bytes for identity encoded as one-byte name
+///  length/name UTF-8/one-byte race length/race UTF-8. An unknown token reports
+///  `SampleCaptureStatus::kUnsupported`; a
 ///  known token whose underlying read is currently unavailable reports
 ///  `kUnavailable` -- distinct outcomes, per
 ///  `IAdapterNativeCaptureRouter::CaptureSample`'s own contract.

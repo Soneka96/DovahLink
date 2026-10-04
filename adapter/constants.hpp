@@ -15,11 +15,22 @@ namespace dovahlink::adapter::capture {
 ///  handoff requirement.
 inline constexpr std::size_t kMaxAdapterCaptureQueueItems = 64;
 
+///  Maximum UTF-8 byte length accepted for the Character Identity name and
+///  race fields. The shared bound keeps the private payload within its
+///  one-byte length fields.
+inline constexpr std::size_t kMaxCharacterIdentityStringBytes = 126;
+
+///  The identity payload has two one-byte lengths and two bounded UTF-8
+///  strings; `2 * (1 + kMaxCharacterIdentityStringBytes)` is 254 bytes.
+inline constexpr std::size_t kMaxCharacterIdentityPayloadBytes =
+    2 * (1 + kMaxCharacterIdentityStringBytes);
+
 ///  The fixed per-capture byte capacity used by the adapter's bounded,
 ///  allocation-free handoff buffer. Payloads above this infrastructure bound
 ///  are rejected; increasing it requires a deliberate memory, performance,
-///  and security review.
-inline constexpr std::size_t kMaxCapturedPayloadBytes = 24;
+///  and security review. The largest current domain is Character Identity.
+inline constexpr std::size_t kMaxCapturedPayloadBytes =
+    kMaxCharacterIdentityPayloadBytes;
 
 ///  The number of immediate, non-blocking lock attempts
 ///  `AdapterCaptureHandoffQueue::TryEnqueue` makes before treating an item as

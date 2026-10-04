@@ -1,6 +1,6 @@
-#include "runtime/commonlib_adapter_native_capture_router.hpp"
-
 #include "RE/Skyrim.h"
+
+#include "runtime/commonlib_adapter_native_capture_router.hpp"
 
 #include <algorithm>
 #include <array>
@@ -112,6 +112,23 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kAvailable,
             .payload = capture::MakeCapturedPayload(encoded)};
+    }
+    case capture::CharacterSampleToken::kCharacterIdentity: {
+        std::optional<capture::CharacterIdentityCapture> identity =
+            CaptureCharacterIdentity();
+        if (!identity) {
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
+        }
+        std::optional<capture::CapturedPayload> payload =
+            capture::TryEncodeCharacterIdentityPayload(*identity);
+        if (!payload) {
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
+        }
+        return dispatch::SampleCaptureResult{
+            .status = dispatch::SampleCaptureStatus::kAvailable,
+            .payload = *payload};
     }
     default:
         return dispatch::SampleCaptureResult{

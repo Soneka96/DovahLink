@@ -348,6 +348,9 @@ public enum CharacterSampleToken : uint
     /// value is otherwise delivered by <see cref="CharacterEventKey.CharacterLevelChanged"/>.
     /// </summary>
     CharacterLevelBaseline = 3,
+
+    /// <summary>One complete player display-name and identity-race observation.</summary>
+    CharacterIdentity = 4,
 }
 
 /// <summary>A host-owned <see cref="Adapter.Ipc.IpcListenEventMessage.EventKey"/>.</summary>

@@ -44,6 +44,8 @@ enum class CharacterSampleToken : std::uint32_t {
     ///  resynchronization baseline; the live value is otherwise delivered by
     ///  `CharacterEventKey::kCharacterLevelChanged`.
     kCharacterLevelBaseline = 3,
+    ///  One complete player display-name and identity-race observation.
+    kCharacterIdentity = 4,
 };
 
 ///  A host-owned `IAdapterNativeCaptureRouter::RegisterEvent` key.
