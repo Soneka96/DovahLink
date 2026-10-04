@@ -26,6 +26,7 @@
 #include "plugin/adapter_runtime.hpp"
 #include "plugin/adapter_startup_context.hpp"
 #include "plugin/commonlib_adapter_main_menu_sink.hpp"
+#include "plugin/warning_rate_limit.hpp"
 #include "process/adapter_host_rendezvous_reader.hpp"
 #include "process/adapter_host_shutdown_requester.hpp"
 #include "process/adapter_owner_lifetime_id.hpp"
@@ -45,7 +46,10 @@
 #include <spdlog/sinks/basic_file_sink.h>
 
 #include <array>
+#include <atomic>
+#include <chrono>
 #include <cstddef>
+#include <cstdint>
 #include <exception>
 #include <filesystem>
 #include <optional>
@@ -53,6 +57,9 @@
 #include <utility>
 
 namespace {
+
+///  Minimum interval between repeated capacity warnings from one callback.
+constexpr auto kCapacityWarningInterval = std::chrono::milliseconds(30'000);
 
 ///  Configures asynchronous file logging to the SKSE log directory so no
 ///  `SKSE::log::` call inside a raw SKSE callback (the messaging listener)
@@ -95,6 +102,68 @@ void EmitStartupFailure(const char* stage, const char* detail) noexcept {
         //  The logger itself may be the failing startup stage; the debugger
         //  output above must remain the last-resort diagnostic path.
     }
+}
+
+///  Logs capture-queue loss at a bounded rate without blocking its caller.
+///  @param intentKey The sample or event key that could not be queued.
+void LogCaptureQueueRejection(std::uint32_t intentKey) {
+    using clock = std::chrono::steady_clock;
+    static std::atomic<std::int64_t> lastWarningMilliseconds{};
+    static std::atomic<std::uint64_t> suppressedRejections{};
+
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         clock::now().time_since_epoch())
+                         .count();
+    auto last = lastWarningMilliseconds.load(std::memory_order_relaxed);
+    if (!dovahlink::adapter::plugin::HasWarningIntervalElapsed(
+            last, now, kCapacityWarningInterval.count()) ||
+        !lastWarningMilliseconds.compare_exchange_strong(
+            last, now, std::memory_order_relaxed)) {
+        suppressedRejections.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+
+    const auto suppressed =
+        suppressedRejections.exchange(0, std::memory_order_relaxed);
+    if (suppressed == 0) {
+        SKSE::log::warn("Adapter capture queue rejected intent key {}.",
+                        intentKey);
+        return;
+    }
+    SKSE::log::warn("Adapter capture queue rejected intent key {}; {} further "
+                    "rejections were suppressed in the last 30 seconds.",
+                    intentKey, suppressed);
+}
+
+///  Logs deferred game-thread dispatch pressure at a bounded rate.
+void LogGameThreadDispatchRejection() {
+    using clock = std::chrono::steady_clock;
+    static std::atomic<std::int64_t> lastWarningMilliseconds{};
+    static std::atomic<std::uint64_t> suppressedRejections{};
+
+    const auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         clock::now().time_since_epoch())
+                         .count();
+    auto last = lastWarningMilliseconds.load(std::memory_order_relaxed);
+    if (!dovahlink::adapter::plugin::HasWarningIntervalElapsed(
+            last, now, kCapacityWarningInterval.count()) ||
+        !lastWarningMilliseconds.compare_exchange_strong(
+            last, now, std::memory_order_relaxed)) {
+        suppressedRejections.fetch_add(1, std::memory_order_relaxed);
+        return;
+    }
+
+    const auto suppressed =
+        suppressedRejections.exchange(0, std::memory_order_relaxed);
+    if (suppressed == 0) {
+        SKSE::log::warn("Adapter deferred game-thread dispatch was rejected "
+                        "at capacity.");
+        return;
+    }
+    SKSE::log::warn("Adapter deferred game-thread dispatch was rejected at "
+                    "capacity; {} further rejections were suppressed in the "
+                    "last 30 seconds.",
+                    suppressed);
 }
 
 ///  Resolves the packaged host executable's path relative to this adapter
@@ -259,10 +328,10 @@ SKSEPluginInfo(
         dovahlink::adapter::runtime::ReadAdapterGameBehaviorConfig(
             gameBehaviorConfigReader,
             dovahlink::adapter::runtime::kAdapterGameBehaviorConfigPath);
-    SKSE::log::info("Always-active mode: {}",
-                    behaviorConfig.alwaysActive ? "enabled" : "disabled");
-    SKSE::log::info("Achievement compatibility: {}",
-                    behaviorConfig.achievementCompat ? "enabled" : "disabled");
+    SKSE::log::debug("Always-active mode: {}",
+                     behaviorConfig.alwaysActive ? "enabled" : "disabled");
+    SKSE::log::debug("Achievement compatibility: {}",
+                     behaviorConfig.achievementCompat ? "enabled" : "disabled");
     startupStage = "Always-active compatibility";
     EmitStartupMarker(startupStage);
     if (behaviorConfig.alwaysActive) {
@@ -320,16 +389,14 @@ SKSEPluginInfo(
                 queue, playContextState);
         },
         [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
-            SKSE::log::info("Adapter capture drained for intent key {}.",
-                            item.intentKey);
+            SKSE::log::debug("Adapter capture drained for intent key {}.",
+                             item.intentKey);
         },
         [](const dovahlink::adapter::capture::AdapterCaptureWorkItem& item) {
-            SKSE::log::warn("Adapter capture queue rejected intent key {}.",
-                            item.intentKey);
+            LogCaptureQueueRejection(item.intentKey);
         },
         [] {
-            SKSE::log::warn("Adapter IPC session rejected a deferred "
-                            "game-thread dispatch at capacity.");
+            LogGameThreadDispatchRejection();
         });
 
     startupStage = "Papyrus adapter installation";

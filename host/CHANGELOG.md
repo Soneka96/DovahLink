@@ -22,6 +22,7 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Changed
 
+- Adapter logs now suppress routine capture and successful setup messages while retaining one startup status, Debug World Context samples, and 30-second rate-limited capacity warnings.
 - Host publishes current and effective maximum Health, Magicka, and Stamina as one coherent
   `character_vitals` snapshot instead of three scalar state areas.
 - Pairing outcomes now expose Host-calculated attempts remaining and the committed renotify cooldown.

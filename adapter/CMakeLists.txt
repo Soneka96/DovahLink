@@ -67,6 +67,7 @@ add_library(dovahlink_adapter_runtime STATIC
     runtime/commonlib_adapter_task_marshaller.cpp
     runtime/commonlib_adapter_game_behavior_compatibility.cpp
     runtime/commonlib_adapter_native_capture_router.cpp
+    runtime/commonlib_world_context_diagnostics.cpp
     runtime/commonlib_adapter_character_capture.cpp
     papyrus/commonlib_adapter_status_papyrus_adapter.cpp
     papyrus/commonlib_adapter_trust_admin_papyrus_adapter.cpp
@@ -178,6 +179,8 @@ add_executable(dovahlink_adapter_tests
     tests/identity/adapter_play_context_state_test.cpp
     tests/runtime/commonlib_adapter_task_marshaller_test.cpp
     tests/runtime/commonlib_adapter_native_capture_router_test.cpp
+    tests/runtime/commonlib_adapter_game_behavior_compatibility_test.cpp
+    tests/runtime/commonlib_world_context_diagnostics_test.cpp
     tests/runtime/commonlib_adapter_character_capture_test.cpp
     tests/runtime/game_thread_completion_test.cpp
     tests/runtime/adapter_game_behavior_config_file_reader_test.cpp
@@ -186,6 +189,7 @@ add_executable(dovahlink_adapter_tests
     tests/papyrus/commonlib_adapter_trust_admin_papyrus_adapter_test.cpp
     tests/plugin/dovahlink_adapter_plugin_test.cpp
     tests/plugin/dovahlink_adapter_plugin_compatibility_test.cpp
+    tests/plugin/warning_rate_limit_test.cpp
     tests/plugin/adapter_startup_context_test.cpp
     tests/plugin/adapter_runtime_test.cpp
     tests/plugin/adapter_runtime_structural_test.cpp
@@ -202,6 +206,8 @@ target_compile_definitions(dovahlink_adapter_tests PRIVATE
     DOVAHLINK_ADAPTER_TASK_MARSHALLER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_task_marshaller.cpp"
     DOVAHLINK_ADAPTER_CHARACTER_CAPTURE_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_character_capture.cpp"
     DOVAHLINK_ADAPTER_NATIVE_CAPTURE_ROUTER_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_native_capture_router.cpp"
+    DOVAHLINK_ADAPTER_WORLD_CONTEXT_DIAGNOSTICS_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_world_context_diagnostics.cpp"
+    DOVAHLINK_ADAPTER_GAME_BEHAVIOR_COMPATIBILITY_SOURCE_FILE="${CMAKE_CURRENT_SOURCE_DIR}/runtime/commonlib_adapter_game_behavior_compatibility.cpp"
     DOVAHLINK_ADAPTER_PAPYRUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/papyrus"
     DOVAHLINK_PRIVATE_IPC_LIMIT_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../adapter-host-ipc/fixtures/private-ipc-limits.json"
     DOVAHLINK_LIVE_STATE_CATALOG_FIXTURE="${CMAKE_CURRENT_SOURCE_DIR}/../adapter-host-ipc/fixtures/live-state-catalog.json"

@@ -393,3 +393,74 @@ TEST_CASE("the adapter plugin constructs exactly one process-lifetime "
     CHECK(CountOccurrences(
               source, "new dovahlink::adapter::plugin::AdapterRuntime(") == 1);
 }
+
+TEST_CASE("routine capture logging is Debug-only and one startup status remains at Info",
+          "[plugin][logging][structural]") {
+    const std::string source = NormalizeWhitespace(
+        ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE));
+
+    CHECK(source.find(NormalizeWhitespace(
+              "SKSE::log::debug(\"Adapter capture drained for intent key {}.\"")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              "SKSE::log::info(\"Adapter capture drained for intent key {}.\"")) ==
+          std::string::npos);
+    CHECK(CountOccurrences(source, "SKSE::log::info(") == 1);
+    CHECK(source.find(NormalizeWhitespace(
+              "SKSE::log::info(\"DovahLink Adapter connecting to the private "
+              "host IPC channel.\")")) != std::string::npos);
+}
+
+TEST_CASE("adapter capacity warnings use bounded atomic rate limiting",
+          "[plugin][logging][structural]") {
+    const std::string source = NormalizeWhitespace(
+        ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE));
+    const auto captureStart = source.find("voidLogCaptureQueueRejection(");
+    const auto dispatchStart =
+        source.find("voidLogGameThreadDispatchRejection(");
+    const auto pathResolverStart = source.find(
+        "std::optional<std::filesystem::path>ResolveAdapterHostExecutablePath(",
+        dispatchStart);
+
+    REQUIRE(captureStart != std::string::npos);
+    REQUIRE(dispatchStart != std::string::npos);
+    REQUIRE(pathResolverStart != std::string::npos);
+    const std::string captureThrottle =
+        source.substr(captureStart, dispatchStart - captureStart);
+    const std::string dispatchThrottle =
+        source.substr(dispatchStart, pathResolverStart - dispatchStart);
+
+    CHECK(CountOccurrences(source, "compare_exchange_strong(") == 2);
+    CHECK(CountOccurrences(source, "HasWarningIntervalElapsed(") == 2);
+    CHECK(CountOccurrences(source,
+                           "std::atomic<std::int64_t>lastWarningMilliseconds{}") ==
+          2);
+    CHECK(CountOccurrences(source,
+                           "std::atomic<std::uint64_t>suppressedRejections{}") ==
+          2);
+    CHECK(CountOccurrences(source, "suppressedRejections.fetch_add(1,") == 2);
+    CHECK(CountOccurrences(source, "suppressedRejections.exchange(0,") == 2);
+    CHECK(source.find("kCapacityWarningInterval=std::chrono::milliseconds(30'000)") !=
+          std::string::npos);
+    CHECK(source.find("LogCaptureQueueRejection(item.intentKey);") !=
+          std::string::npos);
+    CHECK(source.find("LogGameThreadDispatchRejection();") !=
+          std::string::npos);
+    CHECK(source.find("further") != std::string::npos);
+    for (const std::string* throttle : {&captureThrottle, &dispatchThrottle}) {
+        CHECK(throttle->find(
+                  "staticstd::atomic<std::int64_t>lastWarningMilliseconds{}") !=
+              std::string::npos);
+        CHECK(throttle->find(
+                  "staticstd::atomic<std::uint64_t>suppressedRejections{}") !=
+              std::string::npos);
+        CHECK(throttle->find("suppressedRejections.exchange(0,") !=
+              std::string::npos);
+        CHECK(throttle->find("SKSE::log::warn(") != std::string::npos);
+        CHECK(throttle->find("rejectionsweresuppressed") !=
+              std::string::npos);
+        CHECK(throttle->find("30seconds") != std::string::npos);
+    }
+    CHECK(captureThrottle.find("intentKey,suppressed)") != std::string::npos);
+    CHECK(dispatchThrottle.find("suppressed)") != std::string::npos);
+}

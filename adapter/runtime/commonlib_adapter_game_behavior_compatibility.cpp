@@ -53,7 +53,7 @@ void ApplyAlwaysActiveSetting() {
         return;
     }
     setting->data.b = true;
-    SKSE::log::info(
+    SKSE::log::debug(
         "Always-active mode applied (bAlwaysActive:General set to true).");
 }
 
@@ -78,7 +78,7 @@ void InstallAchievementCompatibilityPatch() {
     REL::safe_write(target.address(), patch.getCode<const void*>(),
                     patch.getSize());
 
-    SKSE::log::info("Achievement compatibility patch installed.");
+    SKSE::log::debug("Achievement compatibility patch installed.");
 }
 
 } //  namespace dovahlink::adapter::runtime
