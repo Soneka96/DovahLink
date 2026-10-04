@@ -38,4 +38,7 @@ The main roadmap answers **“What is the normal product delivery order?”** De
 - [Character Core Data Foundation](character-core-data-foundation/README.md) — backend and
   typed-contract work establishing coherent Character state domains before deferred identity,
   world-context, and Overview convergence.
+- [World Context Data Foundation Research](world-context-data-foundation/README.md) — completed
+  runtime and source research for location, game time, and quest tracking/objective semantics;
+  production contract and implementation remain follow-on work.
 - [Initial Pairing Security Investigation and Extraction](initial-pairing-security/README.md)
