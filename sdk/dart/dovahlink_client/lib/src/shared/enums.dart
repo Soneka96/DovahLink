@@ -500,7 +500,13 @@ enum DovahLinkStateArea {
   characterVitals('character_vitals'),
 
   /// The character's current level.
-  characterLevel('character_level');
+  characterLevel('character_level'),
+
+  /// The player's complete display-name and identity-race observation.
+  characterIdentity('character_identity'),
+
+  /// The independent vampire and transformation-capability observations.
+  characterSupernaturalTraits('character_supernatural_traits');
 
   /// The canonical protocol value for this area.
   final String protocolValue;
