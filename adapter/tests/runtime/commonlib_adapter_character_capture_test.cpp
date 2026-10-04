@@ -18,6 +18,8 @@ using dovahlink::adapter::capture::TryMakeCharacterIdentityCapture;
 using dovahlink::adapter::test_support::NormalizeWhitespace;
 using dovahlink::adapter::test_support::ReadSource;
 
+static_assert(kMaxCharacterIdentityStringBytes == 126);
+
 TEST_CASE("CommonLibAdapterCharacterCapture's vitals read current values and "
           "effective maximums from one coherent player capture",
           "[runtime][commonlib_adapter_character_capture][structural]") {
@@ -163,7 +165,7 @@ TEST_CASE("Character identity fields accept the exact byte limit and reject "
     CHECK(exact->raceLength == kMaxCharacterIdentityStringBytes);
     const auto payload = TryEncodeCharacterIdentityPayload(*exact);
     REQUIRE(payload.has_value());
-    CHECK(payload->size == 254);
+    CHECK(payload->size == 2 * (1 + kMaxCharacterIdentityStringBytes));
 
     CHECK_FALSE(TryMakeCharacterIdentityCapture(oversized, "Nord").has_value());
     CHECK_FALSE(TryMakeCharacterIdentityCapture("Goncalo", oversized).has_value());

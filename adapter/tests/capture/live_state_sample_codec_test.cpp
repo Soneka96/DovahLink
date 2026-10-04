@@ -19,8 +19,6 @@ using dovahlink::adapter::capture::kMaxCapturedPayloadBytes;
 using dovahlink::adapter::capture::MakeCapturedPayload;
 using dovahlink::adapter::capture::TryMakeCapturedPayload;
 
-static_assert(kMaxCapturedPayloadBytes == 254);
-
 TEST_CASE("EncodeFloatLittleEndian matches the host's little-endian float decode",
           "[capture][live_state_sample_codec]") {
     //  1.5f's IEEE-754 bit pattern is 0x3FC00000; little-endian byte order
