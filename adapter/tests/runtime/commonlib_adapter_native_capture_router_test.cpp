@@ -33,6 +33,14 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter maps each known sample token "
     CHECK(source.find(NormalizeWhitespace(
               "case capture::CharacterSampleToken::kCharacterLevelBaseline: {")) != std::string::npos);
     CHECK(source.find(NormalizeWhitespace("CaptureCharacterLevel()")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              "case capture::CharacterSampleToken::kCharacterIdentity: {")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("CaptureCharacterIdentity()")) != std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              "case capture::CharacterSampleToken::kCharacterSupernaturalTraits: {")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("CaptureCharacterSupernaturalTraits()")) !=
+          std::string::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kUnsupported for an "
@@ -60,6 +68,12 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kUnavailable, never a "
           "if (!xp) {\nreturn dispatch::SampleCaptureResult{\n"
           ".status = dispatch::SampleCaptureStatus::kUnavailable};",
           "if (!level) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!identity) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!payload) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!traits) {\nreturn dispatch::SampleCaptureResult{\n"
           ".status = dispatch::SampleCaptureStatus::kUnavailable};"}) {
         CHECK(source.find(NormalizeWhitespace(needle)) != std::string::npos);
     }
@@ -69,6 +83,13 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kAvailable with the "
           "encoded payload for each known token's successful read",
           "[runtime][commonlib_adapter_native_capture_router][structural]") {
     std::string source = NormalizeWhitespace(RouterSource());
+    const auto identityStart = source.find(
+        NormalizeWhitespace("case capture::CharacterSampleToken::kCharacterIdentity: {"));
+    REQUIRE(identityStart != std::string::npos);
+    const auto identityEnd = source.find("default:", identityStart);
+    REQUIRE(identityEnd != std::string::npos);
+    const std::string_view identityCase =
+        std::string_view(source).substr(identityStart, identityEnd - identityStart);
 
     CHECK(source.find(NormalizeWhitespace(
               ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
@@ -77,6 +98,29 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kAvailable with the "
               ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
               ".payload = capture::MakeCapturedPayload(encoded)};")) !=
           std::string::npos);
+    CHECK(identityCase.find(NormalizeWhitespace(
+              "CaptureCharacterIdentity()")) != std::string_view::npos);
+    CHECK(identityCase.find(NormalizeWhitespace(
+              "TryEncodeCharacterIdentityPayload(*identity)")) != std::string_view::npos);
+    CHECK(identityCase.find(NormalizeWhitespace(
+              ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
+              ".payload = *payload};")) != std::string::npos);
+    const auto traitsStart = source.find(NormalizeWhitespace(
+        "case capture::CharacterSampleToken::kCharacterSupernaturalTraits: {"));
+    REQUIRE(traitsStart != std::string::npos);
+    const auto traitsEnd = source.find("default:", traitsStart);
+    REQUIRE(traitsEnd != std::string::npos);
+    const std::string_view traitsCase =
+        std::string_view(source).substr(traitsStart, traitsEnd - traitsStart);
+    CHECK(traitsCase.find(NormalizeWhitespace(
+              "CaptureCharacterSupernaturalTraits()")) != std::string_view::npos);
+    CHECK(traitsCase.find(NormalizeWhitespace(
+              "EncodeCharacterSupernaturalTraitsPayload(*traits)")) !=
+          std::string_view::npos);
+    CHECK(traitsCase.find(NormalizeWhitespace(
+              ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
+              ".payload = capture::EncodeCharacterSupernaturalTraitsPayload(*traits)};")) !=
+          std::string_view::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes each token's payload "

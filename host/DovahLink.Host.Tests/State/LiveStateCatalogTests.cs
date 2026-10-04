@@ -6,7 +6,7 @@ namespace DovahLink.Host.Tests.State;
 /// <summary>Verifies the production state-area and capture catalog.</summary>
 public class LiveStateCatalogTests
 {
-    /// <summary>Verifies that production exposes one Vitals Snapshot, XP Snapshot, and Level Event.</summary>
+    /// <summary>Verifies that production exposes five independent Character areas with their canonical modes.</summary>
     [Fact]
     public void Default_RegistersOnlyCanonicalCharacterAreas()
     {
@@ -16,6 +16,8 @@ public class LiveStateCatalogTests
         {
             [Constants.CharacterVitalsStateArea] = UpdateMode.Snapshot,
             [Constants.CharacterXpStateArea] = UpdateMode.Snapshot,
+            [Constants.CharacterIdentityStateArea] = UpdateMode.Snapshot,
+            [Constants.CharacterSupernaturalTraitsStateArea] = UpdateMode.Snapshot,
             [Constants.CharacterLevelStateArea] = UpdateMode.Event,
         };
 
@@ -46,6 +48,29 @@ public class LiveStateCatalogTests
         Assert.Equal(RateClass.Medium, xp.RateClass);
         Assert.Equal(SynchronizationRole.BaselineSample, xp.SynchronizationRole);
         Assert.Equal([new StateAreaId(Constants.CharacterXpStateArea)], xp.StateAreas);
+    }
+
+    /// <summary>Verifies both metadata domains use independent Slow baseline samples and Snapshot areas.</summary>
+    [Fact]
+    public void Default_CharacterMetadataCaptureUnits_UseSlowSnapshotAreas()
+    {
+        (CharacterSampleToken Token, string StateArea)[] metadataSamples =
+        [
+            (CharacterSampleToken.CharacterIdentity, Constants.CharacterIdentityStateArea),
+            (CharacterSampleToken.CharacterSupernaturalTraits, Constants.CharacterSupernaturalTraitsStateArea),
+        ];
+
+        foreach ((CharacterSampleToken token, string stateArea) in metadataSamples)
+        {
+            CaptureUnitDefinition unit = LiveStateCatalog.Default.CaptureUnits.Single(
+                candidate => candidate.Source == CaptureSourceKind.Sample
+                    && candidate.CaptureKey == (uint)token);
+            Assert.Equal(RateClass.Slow, unit.RateClass);
+            Assert.Equal(SynchronizationRole.BaselineSample, unit.SynchronizationRole);
+            Assert.Equal([new StateAreaId(stateArea)], unit.StateAreas);
+            Assert.Equal(UpdateMode.Snapshot, LiveStateCatalog.Default.StateAreas
+                .Single(area => area.Id == new StateAreaId(stateArea)).UpdateMode);
+        }
     }
 
     /// <summary>Verifies that Level keeps its baseline sample and persistent Event sources.</summary>
@@ -79,6 +104,8 @@ public class LiveStateCatalogTests
         [
             (uint)CharacterSampleToken.CharacterVitals,
             (uint)CharacterSampleToken.CharacterXp,
+            (uint)CharacterSampleToken.CharacterIdentity,
+            (uint)CharacterSampleToken.CharacterSupernaturalTraits,
             (uint)CharacterSampleToken.CharacterLevelBaseline,
         ];
         Assert.Equal(expectedSamples.Order(), plan.BaselineSampleTokens.Order());

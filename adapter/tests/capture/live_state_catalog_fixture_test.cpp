@@ -49,6 +49,11 @@ TEST_CASE("Adapter live-state capture enums match the shared catalog fixture",
     CHECK(static_cast<std::uint32_t>(
               CharacterSampleToken::kCharacterLevelBaseline) ==
           ReadLiveStateToken("characterLevelBaseline"));
+    CHECK(static_cast<std::uint32_t>(CharacterSampleToken::kCharacterIdentity) ==
+          ReadLiveStateToken("characterIdentity"));
+    CHECK(static_cast<std::uint32_t>(
+              CharacterSampleToken::kCharacterSupernaturalTraits) ==
+          ReadLiveStateToken("characterSupernaturalTraits"));
     CHECK(static_cast<std::uint32_t>(
               CharacterEventKey::kCharacterLevelChanged) ==
           ReadLiveStateToken("characterLevelChanged"));

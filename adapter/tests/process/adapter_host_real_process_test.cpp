@@ -1,4 +1,6 @@
 #include "capture/adapter_capture_handoff_queue.hpp"
+#include "capture/character_identity_capture.hpp"
+#include "capture/character_supernatural_traits_capture.hpp"
 #include "capture/live_state_sample_codec.hpp"
 #include "constants.hpp"
 #include "dispatch/adapter_native_capture_router.hpp"
@@ -60,10 +62,14 @@ using dovahlink::adapter::capture::CapturedPayload;
 using dovahlink::adapter::capture::CaptureSourceKind;
 using dovahlink::adapter::capture::CharacterEventKey;
 using dovahlink::adapter::capture::CharacterSampleToken;
+using dovahlink::adapter::capture::CharacterSupernaturalTraitsCapture;
+using dovahlink::adapter::capture::EncodeCharacterSupernaturalTraitsPayload;
 using dovahlink::adapter::capture::EncodeFloatLittleEndian;
 using dovahlink::adapter::capture::EncodeUInt16LittleEndian;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::capture::MakeCapturedPayload;
+using dovahlink::adapter::capture::TryEncodeCharacterIdentityPayload;
+using dovahlink::adapter::capture::TryMakeCharacterIdentityCapture;
 using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::dispatch::SampleCaptureResult;
@@ -353,6 +359,27 @@ class DeterministicBaselineCaptureRouter final
             return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
                                        .payload = MakeCapturedPayload(encoded)};
         }
+        case CharacterSampleToken::kCharacterIdentity: {
+            const auto identity =
+                TryMakeCharacterIdentityCapture("Gonçalo", "Nord");
+            if (!identity.has_value()) {
+                return SampleCaptureResult{
+                    .status = SampleCaptureStatus::kUnavailable};
+            }
+            const auto payload = TryEncodeCharacterIdentityPayload(*identity);
+            if (!payload.has_value()) {
+                return SampleCaptureResult{
+                    .status = SampleCaptureStatus::kUnavailable};
+            }
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = *payload};
+        }
+        case CharacterSampleToken::kCharacterSupernaturalTraits:
+            return SampleCaptureResult{
+                .status = SampleCaptureStatus::kAvailable,
+                .payload = EncodeCharacterSupernaturalTraitsPayload(
+                    CharacterSupernaturalTraitsCapture{}),
+            };
         case CharacterSampleToken::kCharacterLevelBaseline: {
             std::array<std::byte, 2> encoded = EncodeUInt16LittleEndian(10);
             return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,

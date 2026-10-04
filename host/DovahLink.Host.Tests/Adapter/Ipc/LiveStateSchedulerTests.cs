@@ -10,11 +10,12 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
     /// <summary>Tests for <see cref="LiveStateScheduler"/>.</summary>
     public class LiveStateSchedulerTests
     {
-        /// <summary>A tiny interval map so tests run fast instead of waiting on production Fast/Medium cadences.</summary>
+        /// <summary>A tiny interval map so tests run fast instead of waiting on production capture cadences.</summary>
         private static readonly IReadOnlyDictionary<RateClass, TimeSpan> FastIntervals = new Dictionary<RateClass, TimeSpan>
         {
             [RateClass.Fast] = TimeSpan.FromMilliseconds(10),
             [RateClass.Medium] = TimeSpan.FromMilliseconds(25),
+            [RateClass.Slow] = TimeSpan.FromSeconds(10),
         };
 
         /// <summary>Verifies that a Fast-classed capture unit is sent repeatedly while an adapter is connected.</summary>
@@ -49,6 +50,94 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
             await run;
 
             Assert.True(connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterXp) >= 1);
+        }
+
+        /// <summary>Verifies the production Slow interval delays its first sample until one second has elapsed.</summary>
+        [Fact]
+        public async Task RunAsync_ProductionSlowInterval_IsOneSecond()
+        {
+            FakeAdapterIpcConnection connection = new(new MemoryStream()) { ConnectionGeneration = 1 };
+            FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+            LiveStateScheduler scheduler = new(
+                listener,
+                SingleSlowIdentityCatalog(),
+                new FakeLiveCaptureSink(),
+                Fixtures.BuildActivePlayContextTracker(),
+                BuildAvailableAdapterAvailabilityTracker());
+            using CancellationTokenSource cancellation = new();
+
+            Assert.Equal(TimeSpan.FromSeconds(1), Constants.LiveStateSlowSampleInterval);
+            Task run = scheduler.RunAsync(cancellation.Token);
+            await Task.Delay(TimeSpan.FromMilliseconds(750));
+            Assert.Empty(connection.ReadSampleCalls);
+            await WaitUntilAsync(
+                () => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterIdentity),
+                run);
+
+            cancellation.Cancel();
+            await run;
+        }
+
+        /// <summary>Verifies tests can inject a faster Slow cadence without changing its production interval.</summary>
+        [Fact]
+        public async Task RunAsync_SlowIntervalCanBeInjectedForFastTests()
+        {
+            FakeAdapterIpcConnection connection = new(new MemoryStream()) { ConnectionGeneration = 1 };
+            FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+            IReadOnlyDictionary<RateClass, TimeSpan> intervals = new Dictionary<RateClass, TimeSpan>
+            {
+                [RateClass.Slow] = TimeSpan.FromMilliseconds(15),
+            };
+            LiveStateScheduler scheduler = new(
+                listener,
+                SingleSlowIdentityCatalog(),
+                new FakeLiveCaptureSink(),
+                Fixtures.BuildActivePlayContextTracker(),
+                BuildAvailableAdapterAvailabilityTracker(),
+                intervals);
+            using CancellationTokenSource cancellation = new();
+
+            Task run = scheduler.RunAsync(cancellation.Token);
+            await WaitUntilAsync(
+                () => connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterIdentity) >= 2,
+                run);
+            cancellation.Cancel();
+            await run;
+        }
+
+        /// <summary>Verifies a Slow unit retains its one-outstanding-request protection.</summary>
+        [Fact]
+        public async Task RunAsync_SlowRequestOutstanding_SkipsSubsequentTicks()
+        {
+            FakeAdapterIpcConnection connection = new(new MemoryStream())
+            {
+                TrySendReadSampleResult = true,
+                TrySendReadSampleCorrelationId = 42,
+                ConnectionGeneration = 1,
+            };
+            FakeAdapterIpcListener listener = new() { CurrentConnection = connection };
+            IReadOnlyDictionary<RateClass, TimeSpan> intervals = new Dictionary<RateClass, TimeSpan>
+            {
+                [RateClass.Slow] = TimeSpan.FromMilliseconds(20),
+            };
+            LiveStateScheduler scheduler = new(
+                listener,
+                SingleSlowIdentityCatalog(),
+                new FakeLiveCaptureSink(),
+                Fixtures.BuildActivePlayContextTracker(),
+                BuildAvailableAdapterAvailabilityTracker(),
+                intervals);
+            using CancellationTokenSource cancellation = new();
+
+            Task run = scheduler.RunAsync(cancellation.Token);
+            await WaitUntilAsync(
+                () => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterIdentity),
+                run);
+            await Task.Delay(TimeSpan.FromMilliseconds(60));
+            cancellation.Cancel();
+            await run;
+
+            Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterIdentity));
         }
 
         /// <summary>Verifies that only rate-classed capture units are ever sent -- never the event-sourced or baseline-only units, which the adapter's own resynchronization sequence handles instead.</summary>
@@ -529,6 +618,7 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
         {
             [RateClass.Fast] = TimeSpan.FromMilliseconds(50),
             [RateClass.Medium] = TimeSpan.FromMilliseconds(100),
+            [RateClass.Slow] = TimeSpan.FromSeconds(10),
         };
 
         /// <summary>Verifies that a unit with an outstanding, unanswered request skips every subsequent tick rather than sending a second, overlapping request.</summary>
@@ -959,6 +1049,17 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
                     && unit.CaptureKey == (uint)CharacterSampleToken.CharacterVitals);
             return new LiveStateCatalog([vitals], LiveStateCatalog.Default.StateAreas);
         }
+
+        /// <summary>Creates a single Slow Identity sample catalog for focused cadence tests.</summary>
+        /// <returns>A catalog with only the Character Identity Snapshot sample.</returns>
+        private static LiveStateCatalog SingleSlowIdentityCatalog() => new(
+            [new CaptureUnitDefinition(
+                CaptureSourceKind.Sample,
+                (uint)CharacterSampleToken.CharacterIdentity,
+                RateClass.Slow,
+                SynchronizationRole.BaselineSample,
+                [new StateAreaId(Constants.CharacterIdentityStateArea)])],
+            [new StateAreaDefinition(new StateAreaId(Constants.CharacterIdentityStateArea), UpdateMode.Snapshot)]);
 
         /// <summary>Creates connected Adapter state with a pending resynchronization.</summary>
         /// <returns>Availability state that suppresses ordinary scheduled samples.</returns>

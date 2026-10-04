@@ -42,9 +42,9 @@ public sealed class LiveStateCatalog
     public IReadOnlyList<StateAreaDefinition> StateAreas { get; }
 
     /// <summary>
-    /// The production catalog: one fast coherent Vitals sample, one medium XP sample, and one
-    /// Level event with its own baseline sample. The public Vitals state area has one revision for
-    /// all six captured resource values.
+    /// The production catalog: one fast coherent Vitals sample, one medium XP sample, two slow
+    /// metadata samples, and one Level event with its own baseline sample. Each sample feeds one
+    /// independently authoritative Snapshot area.
     /// </summary>
     public static LiveStateCatalog Default { get; } = new(
         captureUnits:
@@ -63,6 +63,18 @@ public sealed class LiveStateCatalog
                 [new StateAreaId(Constants.CharacterXpStateArea)]),
             new CaptureUnitDefinition(
                 CaptureSourceKind.Sample,
+                (uint)CharacterSampleToken.CharacterIdentity,
+                RateClass.Slow,
+                SynchronizationRole.BaselineSample,
+                [new StateAreaId(Constants.CharacterIdentityStateArea)]),
+            new CaptureUnitDefinition(
+                CaptureSourceKind.Sample,
+                (uint)CharacterSampleToken.CharacterSupernaturalTraits,
+                RateClass.Slow,
+                SynchronizationRole.BaselineSample,
+                [new StateAreaId(Constants.CharacterSupernaturalTraitsStateArea)]),
+            new CaptureUnitDefinition(
+                CaptureSourceKind.Sample,
                 (uint)CharacterSampleToken.CharacterLevelBaseline,
                 RateClass: null,
                 SynchronizationRole: SynchronizationRole.BaselineSample,
@@ -78,6 +90,8 @@ public sealed class LiveStateCatalog
         [
             new StateAreaDefinition(new StateAreaId(Constants.CharacterVitalsStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterXpStateArea), UpdateMode.Snapshot),
+            new StateAreaDefinition(new StateAreaId(Constants.CharacterIdentityStateArea), UpdateMode.Snapshot),
+            new StateAreaDefinition(new StateAreaId(Constants.CharacterSupernaturalTraitsStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterLevelStateArea), UpdateMode.Event),
         ]);
 

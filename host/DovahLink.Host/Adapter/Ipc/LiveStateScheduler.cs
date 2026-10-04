@@ -68,7 +68,7 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
     /// <summary>Every rate-classed capture unit's own outstanding-request slot, keyed by its sample token.</summary>
     private readonly Dictionary<uint, OutstandingSlot> slotsBySampleToken;
 
-    /// <summary>Creates a scheduler using the production Fast/Medium intervals from <see cref="Constants"/>.</summary>
+    /// <summary>Creates a scheduler using the production Fast/Medium/Slow intervals from <see cref="Constants"/>.</summary>
     /// <param name="listener">Whichever adapter connection is currently active is where every sample send goes.</param>
     /// <param name="catalog">The catalog naming every capture unit and its rate class.</param>
     /// <param name="liveCaptureSink">Raises <see cref="ILiveCaptureSink.CaptureResultApplied"/> for every arriving capture result, releasing this scheduler's own outstanding-request slots.</param>
@@ -100,11 +100,12 @@ public sealed class LiveStateScheduler : ILiveStateScheduler
         liveCaptureSink.CaptureResultApplied += HandleCaptureResultApplied;
     }
 
-    /// <summary>The production Fast/Medium sampling intervals, per <see cref="Constants"/>.</summary>
+    /// <summary>The production Fast/Medium/Slow sampling intervals, per <see cref="Constants"/>.</summary>
     private static IReadOnlyDictionary<RateClass, TimeSpan> ProductionIntervals { get; } = new Dictionary<RateClass, TimeSpan>
     {
         [RateClass.Fast] = Constants.LiveStateFastSampleInterval,
         [RateClass.Medium] = Constants.LiveStateMediumSampleInterval,
+        [RateClass.Slow] = Constants.LiveStateSlowSampleInterval,
     };
 
     /// <inheritdoc/>

@@ -1,0 +1,21 @@
+{
+  "messageType": "state_snapshot",
+  "messageId": "message-character-supernatural-traits-1",
+  "sessionId": "session-1",
+  "correlationId": "message-subscribe-1",
+  "payload": {
+    "stateArea": "character_supernatural_traits",
+    "revision": 1,
+    "occurredAt": "2026-08-11T12:00:00Z",
+    "data": {
+      "value": {
+        "isVampire": false,
+        "hasVampireLordForm": false,
+        "hasWerewolfForm": false
+      }
+    }
+  },
+  "stateAuthorityId": "state-authority-1",
+  "playContextId": null,
+  "clientId": null
+}

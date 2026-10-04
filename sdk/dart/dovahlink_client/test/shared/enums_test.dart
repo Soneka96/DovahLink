@@ -57,18 +57,29 @@ void main() {
     },
   );
 
-  group('DovahLinkStateArea behaves correctly', () {
-    test('protocolValue maps every typed state area to its canonical name', () {
-      expect(
-        DovahLinkStateArea.values.map(
-          (DovahLinkStateArea area) => area.protocolValue,
-        ),
-        <String>['character_xp', 'character_vitals', 'character_level'],
-      );
-    });
-
+  group('Property protocolValue behaves correctly', () {
     test(
-      'fromProtocolValue round-trips each known area and rejects unknown names',
+      'Property protocolValue maps every typed state area to its canonical name',
+      () {
+        expect(
+          DovahLinkStateArea.values.map(
+            (DovahLinkStateArea area) => area.protocolValue,
+          ),
+          <String>[
+            'character_xp',
+            'character_vitals',
+            'character_level',
+            'character_identity',
+            'character_supernatural_traits',
+          ],
+        );
+      },
+    );
+  });
+
+  group('Method fromProtocolValue behaves correctly', () {
+    test(
+      'Method fromProtocolValue round-trips known areas and rejects unknown names',
       () {
         for (final DovahLinkStateArea area in DovahLinkStateArea.values) {
           expect(

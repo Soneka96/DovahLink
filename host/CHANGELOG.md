@@ -16,6 +16,7 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Added
 
+- Host publishes Character Identity and Supernatural Traits as independently synchronized Snapshot state areas.
 - The connection handshake now exposes the stable Host installation ID and current OS computer name.
 - The loopback listener exposes a bounded, sessionless Host metadata probe for discovery and presence checks.
 

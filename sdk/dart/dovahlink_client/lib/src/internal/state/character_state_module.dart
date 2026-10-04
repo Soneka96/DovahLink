@@ -3,7 +3,9 @@ import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.
 import 'package:dovahlink_client_sdk/src/internal/state/state_revision_tracker.dart';
 import 'package:dovahlink_client_sdk/src/shared/current_value_stream.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import 'package:dovahlink_client_sdk/src/state/character_identity_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_level_state.dart';
+import 'package:dovahlink_client_sdk/src/state/character_supernatural_traits_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_vitals_state.dart';
 import 'package:dovahlink_client_sdk/src/state/character_xp_state.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
@@ -20,7 +22,7 @@ abstract interface class ICharacterStateModule {
   IStateDomainDefinition<CharacterLevelState> get levelDomain;
 }
 
-/// Composes Vitals, XP, and Level over the SDK's generic state machinery.
+/// Composes the independently synchronized Character state domains over the shared generic state machinery.
 class CharacterStateModule implements ICharacterStateModule {
   /// Tracks the coherent Vitals Snapshot state.
   final IStateRevisionTracker<CharacterVitalsState> _vitalsTracker;
@@ -30,6 +32,13 @@ class CharacterStateModule implements ICharacterStateModule {
 
   /// Tracks the Level baseline and Event state.
   final IStateRevisionTracker<CharacterLevelState> _levelTracker;
+
+  /// Tracks the complete Identity Snapshot or explicit unavailability.
+  final IStateRevisionTracker<CharacterIdentityState?> _identityTracker;
+
+  /// Tracks the complete supernatural-traits Snapshot or explicit unavailability.
+  final IStateRevisionTracker<CharacterSupernaturalTraitsState?>
+  _supernaturalTraitsTracker;
 
   /// The public Character projection over the module's tracker streams.
   late final IDovahLinkCharacter _character;
@@ -56,7 +65,26 @@ class CharacterStateModule implements ICharacterStateModule {
         state: CurrentValueStream<StateSynchronization<CharacterLevelState>>(
           const StateSynchronization<CharacterLevelState>.notSubscribed(),
         ),
-      ) {
+      ),
+      _identityTracker = StateRevisionTracker<CharacterIdentityState?>(
+        state:
+            CurrentValueStream<StateSynchronization<CharacterIdentityState?>>(
+              const StateSynchronization<
+                CharacterIdentityState?
+              >.notSubscribed(),
+            ),
+      ),
+      _supernaturalTraitsTracker =
+          StateRevisionTracker<CharacterSupernaturalTraitsState?>(
+            state:
+                CurrentValueStream<
+                  StateSynchronization<CharacterSupernaturalTraitsState?>
+                >(
+                  const StateSynchronization<
+                    CharacterSupernaturalTraitsState?
+                  >.notSubscribed(),
+                ),
+          ) {
     final StateDomainDefinition<CharacterVitalsState> vitalsDomain =
         StateDomainDefinition<CharacterVitalsState>(
           stateArea: DovahLinkStateArea.characterVitals.protocolValue,
@@ -71,6 +99,23 @@ class CharacterStateModule implements ICharacterStateModule {
           tracker: _xpTracker,
           isUnavailable: (CharacterXpState state) => state.value == null,
         );
+    final StateDomainDefinition<CharacterIdentityState?> identityDomain =
+        StateDomainDefinition<CharacterIdentityState?>(
+          stateArea: DovahLinkStateArea.characterIdentity.protocolValue,
+          decode: decodeCharacterIdentityState,
+          tracker: _identityTracker,
+          isUnavailable: (CharacterIdentityState? state) => state == null,
+        );
+    final StateDomainDefinition<CharacterSupernaturalTraitsState?>
+    supernaturalTraitsDomain =
+        StateDomainDefinition<CharacterSupernaturalTraitsState?>(
+          stateArea:
+              DovahLinkStateArea.characterSupernaturalTraits.protocolValue,
+          decode: decodeCharacterSupernaturalTraitsState,
+          tracker: _supernaturalTraitsTracker,
+          isUnavailable: (CharacterSupernaturalTraitsState? state) =>
+              state == null,
+        );
     _levelDomain = StateDomainDefinition<CharacterLevelState>(
       stateArea: DovahLinkStateArea.characterLevel.protocolValue,
       decode: CharacterLevelState.fromJson,
@@ -79,12 +124,20 @@ class CharacterStateModule implements ICharacterStateModule {
       supportsEvents: true,
     );
     _domains = List<IStateDomainDefinition<Object?>>.unmodifiable(
-      <IStateDomainDefinition<Object?>>[vitalsDomain, xpDomain, _levelDomain],
+      <IStateDomainDefinition<Object?>>[
+        vitalsDomain,
+        xpDomain,
+        identityDomain,
+        supernaturalTraitsDomain,
+        _levelDomain,
+      ],
     );
     _character = DovahLinkCharacter(
       vitalsChanges: _vitalsTracker.changes,
       xpChanges: _xpTracker.changes,
       levelChanges: _levelTracker.changes,
+      identityChanges: _identityTracker.changes,
+      supernaturalTraitsChanges: _supernaturalTraitsTracker.changes,
     );
   }
 

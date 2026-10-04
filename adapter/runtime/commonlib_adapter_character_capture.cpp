@@ -1,8 +1,40 @@
-#include "runtime/commonlib_adapter_character_capture.hpp"
-
 #include "RE/Skyrim.h"
 
+#ifdef GetObject
+#undef GetObject
+#endif
+
+#include "runtime/commonlib_adapter_character_capture.hpp"
+
+#include <optional>
+#include <string_view>
+
+#include "constants.hpp"
+
 namespace dovahlink::adapter::runtime {
+
+namespace {
+
+///  Makes a bounded view over a runtime-owned NUL-terminated name.
+///  @param value The runtime string pointer.
+///  @return A non-empty view of at most the approved byte limit, or
+///  `std::nullopt` for a null, empty, or oversized string.
+std::optional<std::string_view> TryMakeIdentityStringView(const char* value) {
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    for (std::size_t length = 0; length <= capture::kMaxCharacterIdentityStringBytes; ++length) {
+        if (value[length] == '\0') {
+            if (length == 0) {
+                return std::nullopt;
+            }
+            return std::string_view(value, length);
+        }
+    }
+    return std::nullopt;
+}
+
+} //  namespace
 
 std::optional<CharacterVitalsCapture> CaptureCharacterVitals() {
     auto* player = RE::PlayerCharacter::GetSingleton();
@@ -41,6 +73,58 @@ std::optional<std::uint16_t> CaptureCharacterLevel() {
         return std::nullopt;
     }
     return player->GetLevel();
+}
+
+std::optional<capture::CharacterIdentityCapture> CaptureCharacterIdentity() {
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    if (player == nullptr) {
+        return std::nullopt;
+    }
+
+    const auto name = TryMakeIdentityStringView(player->GetDisplayFullName());
+    auto* identityRace = player->GetRaceData().charGenRace;
+    if (!name || identityRace == nullptr) {
+        return std::nullopt;
+    }
+
+    const auto raceName = TryMakeIdentityStringView(identityRace->GetFullName());
+    if (!raceName) {
+        return std::nullopt;
+    }
+    return capture::TryMakeCharacterIdentityCapture(*name, *raceName);
+}
+
+std::optional<capture::CharacterSupernaturalTraitsCapture>
+CaptureCharacterSupernaturalTraits() {
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    if (player == nullptr) {
+        return std::nullopt;
+    }
+
+    auto* defaultObjects = RE::BGSDefaultObjectManager::GetSingleton();
+    auto* dataHandler = RE::TESDataHandler::GetSingleton();
+    if (defaultObjects == nullptr || dataHandler == nullptr) {
+        return std::nullopt;
+    }
+
+    auto** vampireGlobalSlot = defaultObjects->GetObject<RE::TESGlobal>(
+        RE::DefaultObjectID::kPlayerIsVampireVariable);
+    auto* vampireLordSpell = dataHandler->LookupForm<RE::SpellItem>(
+        0x0283B, "Dawnguard.esm");
+    auto** werewolfSpellSlot = defaultObjects->GetObject<RE::SpellItem>(
+        RE::DefaultObjectID::kWerewolfSpell);
+    auto* vampireGlobal = vampireGlobalSlot == nullptr ? nullptr : *vampireGlobalSlot;
+    auto* werewolfSpell = werewolfSpellSlot == nullptr ? nullptr : *werewolfSpellSlot;
+    if (vampireGlobal == nullptr || vampireLordSpell == nullptr ||
+        werewolfSpell == nullptr) {
+        return std::nullopt;
+    }
+
+    return capture::CharacterSupernaturalTraitsCapture{
+        .isVampire = vampireGlobal->value != 0.0f,
+        .hasVampireLordForm = player->HasSpell(vampireLordSpell),
+        .hasWerewolfForm = player->HasSpell(werewolfSpell),
+    };
 }
 
 } //  namespace dovahlink::adapter::runtime

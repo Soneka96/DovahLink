@@ -1,6 +1,6 @@
 # Character Core Data Foundation
 
-**Status:** Active
+**Status:** Backend foundation implemented; ordered follow-on work remains.
 
 This deviation adds the production character data needed by the approved DovahLink prototype
 before the currently ordered client presentation work. It leaves the main roadmap's stage numbering
@@ -27,10 +27,24 @@ Dart SDK synchronization-aware state streams
 
 The Adapter's generic request dispatch, IPC architecture, scheduling framework, queue semantics,
 transport, backpressure, Host/Adapter routing, and generic response handling are unchanged. Native
-work is limited to specific capture leaves, including extending the existing coherent Vitals read.
+work is limited to specific capture leaves, including extending the existing coherent Vitals read
+and adding the two approved metadata observations.
 The fixed `CapturedPayload` capacity grows from 12 to 24 bytes because the coherent Vitals result
 now contains six float32 values; splitting those values into separate captures would lose the
-requested observation coherence.
+requested observation coherence. The generic `CapturedPayload` infrastructure capacity then grows
+from 24 to 255 bytes, the maximum representable by its `uint8_t` `size` field. Character Identity's
+feature-specific maximum payload remains 254 bytes: each string has a 126-byte UTF-8 limit and a
+one-byte length prefix, for `1 + 126 + 1 + 126 = 254` bytes. It does not use the full generic
+capacity. The encoder validates both strings as UTF-8 and rejects empty, invalid, or over-limit
+values; it never truncates. The three-byte Supernatural Traits payload also fits this bound. The
+Character Identity layout is `[nameLength:u8][name:utf8][raceLength:u8][race:utf8]`. The
+Supernatural Traits layout is `[isVampire:u8][hasVampireLordForm:u8][hasWerewolfForm:u8]`, with
+each byte restricted to `0` or `1`.
+
+`CapturedPayload` is an inline fixed buffer. Its byte array grows by 231 bytes from 24 to 255.
+This increases the fixed storage in each `AdapterCaptureWorkItem` and the existing 64-slot handoff
+ring, without adding per-capture heap allocation. Exact x64 struct and queue storage totals are not
+stated here without a current recorded size measurement.
 The Host continues to register and publish independently authoritative state areas through its
 existing machinery. Current and effective maximum Health, Magicka, and Stamina form one coherent
 `character_vitals` domain. `character_xp` and `character_level` remain independent domains; the
@@ -50,21 +64,22 @@ advance revisions only under the existing Host change/recovery rules.
 | State area | Meaning | Skyrim source / transformation rule | Cadence | Delivery | Unavailable behavior |
 | --- | --- | --- | --- | --- | --- |
 | `character_vitals` | Current and effective maximum Health, Magicka, and Stamina; each resource contains numeric `current` and `max` values | One coherent read from the same player observation. Current values use `ActorValueOwner::GetActorValue`; each maximum uses CommonLibSSE-NG 9.0.0 `Actor::GetActorValueMax`. Preserve raw single-precision values without UI clamping. | Fast, one coherent capture | Snapshot | `value: null` for the whole domain when the player or any required actor value is unavailable |
-| `character_identity` (future candidate; not implemented) | Candidate grouping for player name, identity race, and supernatural traits, if they share one authoritative capture and lifecycle | Name comes from the player identity record, not device metadata or a synthesized label. Identity race must not be inferred from the current runtime race. Traits mean independent character statuses/capabilities; they may combine and must not imply one another. Confirm every source and predicate from supported Skyrim/API evidence before publishing. | To be decided from verified source cadence and shared lifecycle; no Slow `RateClass` currently exists | Snapshot candidate only if shared semantics are established | To be defined from the authoritative capture; never synthesize plausible defaults |
+| `character_identity` | Player display name and identity race from one complete identity observation | Display name uses `PlayerCharacter::GetDisplayFullName()`. Identity race uses `PlayerCharacter::GetRaceData().charGenRace`, then the race's game-provided full display name. `Actor::GetRace()`, ActorBase race, and `RaceData.race2` are rejected. | Slow, one complete capture | Snapshot | `value: null` when the player, usable display name, `charGenRace`, or usable race display name is unavailable; never publish a partial object |
+| `character_supernatural_traits` | Independent vampire status and Vampire Lord / Werewolf transformation capabilities | `isVampire` uses the `kPlayerIsVampireVariable` `TESGlobal`; `hasVampireLordForm` uses possession of Dawnguard's `DLC1VampireChange`; `hasWerewolfForm` uses possession of the canonical Beast Form spell. `PlayerIsWerewolf` is not the public predicate. | Slow, one complete capture | Snapshot | `value: null` if the player or any required global/form lookup is unavailable; never publish partial or fabricated booleans |
 
 The public value shapes are:
 
 ```json
 {"value": {"health": {"current": 327.0, "max": 410.0}, "magicka": {"current": 180.0, "max": 250.0}, "stamina": {"current": 120.0, "max": 190.0}}}
-{"value": "localized or modded display name"}
-{"value": {"isVampire": true, "hasVampireLordForm": true, "isWerewolf": false}}
+{"value": {"name": "Goncalo", "race": "Nord"}}
+{"value": {"isVampire": true, "hasVampireLordForm": true, "hasWerewolfForm": false}}
 ```
 
-The first object is the current `character_vitals` value. The following values illustrate possible
-identity members only; `character_identity` is not implemented or part of the current protocol
-schema. Its eventual grouping and value shape depend on verified shared capture and availability
-semantics. An available supernatural-traits value requires all three booleans; do not substitute a
-single enum or a partially available object.
+These are the `character_vitals`, `character_identity`, and
+`character_supernatural_traits` values. For either new domain, unavailable is `{"value": null}`.
+Identity is atomic: do not publish a name without its race or a race without its name. An available
+supernatural-traits value contains all three booleans; all-false is a valid synchronized value and
+is distinct from unavailable.
 
 Vitals values are sent as Skyrim reports them: no percentage conversion, `0..100` clamp, or
 current-versus-maximum normalization. The pinned CommonLibSSE-NG 9.0.0 port is commit
@@ -82,41 +97,97 @@ Host/session admission; playable-context lifecycle remains a later phase.
 
 The prototype's singular `Faction` concept is intentionally replaced by
 `character_supernatural_traits`. Faction is not an adequate model for these independent character
-conditions: vampirism, possession of Vampire Lord form, and lycanthropy are not guaranteed mutually
-exclusive. Vampire Lord capability does not mean currently transformed, and lycanthropy does not
-mean currently in Beast Form. No English display-string detection or forced implications between
-fields are allowed. Known vanilla/Dawnguard-specific predicate limits and mod compatibility must be
-recorded when authoritative predicates are selected.
+conditions: vampirism, possession of Vampire Lord form, and possession of Beast Form are not
+guaranteed mutually exclusive. Vampire Lord capability does not mean currently transformed, and
+Beast Form capability does not mean currently transformed. No English display-string detection or
+forced implications between fields are allowed. These domains report the selected Skyrim sources;
+they do not normalize unusual mod, bug, or console-created combinations.
 
-## Source-verification gates
+## Approved sources and runtime evidence
 
 The effective maximum source is established by the pinned CommonLib headers/source and the native
 implementation of `Actor::GetActorValueMax`: `GetPermanentActorValue(a_value) +
 GetActorValueModifier(kTemporary, a_value)`. The implementation must use this API in the existing
 coherent Vitals leaf and must not turn six values into separate scheduled reads.
 
-Identity race and supernatural trait implementation remain gated on confirming semantics against
-the actual supported CommonLibSSE-NG / Skyrim APIs. In particular, the current actor race is not
-identity race. If a robust identity-race source or any of the three independent trait predicates
-cannot be established, omit that portion and report the ambiguity; do not ship guessed semantics.
+Runtime verification and pinned CommonLibSSE-NG inspection are sufficient to approve the exact
+production sources and public semantics below. The implementation gate is open for the two
+independent domains `character_identity` and `character_supernatural_traits`; the remaining limits
+are compatibility notes, not blockers for this approved scope.
+
+### Character Identity source verification
+
+The static CommonLib cross-check used the repository-pinned revision
+`5decf47b01dde5501b03afaa91cd4d182e793cca` from
+`tooling/vcpkg-ports/commonlibsse-ng-flatrim/`. Links below are pinned to that revision so later
+CommonLib changes do not silently rewrite what this investigation established.
+
+| Semantic | Evidence | Runtime observation | Approved production source / rejected source | Known limit |
+| --- | --- | --- | --- | --- |
+| Player display name | `GetDisplayFullName()` is the player display-name API; the observed `ç` and `á` bytes were valid UTF-8. `TESFullName::fullName` uses `BSFixedString` character storage, which does not itself promise UTF-8. [Pinned `TESObjectREFR.cpp`](https://github.com/alandtse/CommonLibSSE-NG/blob/5decf47b01dde5501b03afaa91cd4d182e793cca/src/RE/T/TESObjectREFR.cpp), [pinned `TESFullName.h`](https://github.com/alandtse/CommonLibSSE-NG/blob/5decf47b01dde5501b03afaa91cd4d182e793cca/include/RE/T/TESFullName.h), [pinned `BSFixedString.h`](https://github.com/alandtse/CommonLibSSE-NG/blob/5decf47b01dde5501b03afaa91cd4d182e793cca/include/RE/B/BSFixedString.h). | The accepted RaceMenu name remained correct through Werewolf and Vampire Lord transformations and after save/load. The tested `ç` and `á` bytes were `C3 A7` and `C3 A1`. | Use `PlayerCharacter::GetDisplayFullName()`. Reject missing, empty, oversized, or invalid UTF-8 names as an unavailable whole `character_identity`; do not use device metadata or synthesize a fallback. | The non-ASCII runtime sample covered the player name, not a modded/localized race name. Validate both strings strictly at the capture boundary. |
+| Identity race | Pinned `Actor::GetRace()` prefers runtime race when available and otherwise uses ActorBase race. `PlayerCharacter::RaceData` exposes `charGenRace` and `race2`. [Pinned `Actor.cpp`](https://github.com/alandtse/CommonLibSSE-NG/blob/5decf47b01dde5501b03afaa91cd4d182e793cca/src/RE/A/Actor.cpp), [pinned `PlayerCharacter.h`](https://github.com/alandtse/CommonLibSSE-NG/blob/5decf47b01dde5501b03afaa91cd4d182e793cca/include/RE/P/PlayerCharacter.h). | After a RaceMenu change from High Elf to Nord, `charGenRace` became Nord. It stayed Nord during Werewolf and Vampire Lord forms and after reversion/save/load. `race2` remained High Elf during the live post-RaceMenu session and was stale. | Use `PlayerCharacter::GetRaceData().charGenRace`. Resolve its actual game display/full name through the pinned race `TESFullName` API; localization and modded display text are authoritative. Reject `Actor::GetRace()`, ActorBase current race, `race2`, English FormID maps, and partial identity values. | Tested vanilla/Dawnguard setup; other RaceMenu replacements, race overhauls, and transformation implementations were not surveyed. |
+| Vampire status | The pinned default-object manager provides `kPlayerIsVampireVariable`, resolved as `TESGlobal`. [Pinned default-object definitions](https://github.com/alandtse/CommonLibSSE-NG/blob/5decf47b01dde5501b03afaa91cd4d182e793cca/include/RE/B/BGSDefaultObjectManager.h). | The global was nonzero in humanoid vampire and Vampire Lord forms, became zero immediately after the observed cure, and remained independent from the werewolf signals in the tested hybrid setup. | Resolve `BGSDefaultObjectManager::DefaultObjectID::kPlayerIsVampireVariable` as `TESGlobal`; `isVampire` is `global value != 0`. Missing global means the whole supernatural domain is unavailable. Do not infer from race, display string, Vampire Lord spell possession, or visual form. | Cure persistence was not conclusive in the later quick-save/load log; overhaul behavior was not surveyed. |
+| Werewolf capability | The pinned CommonLib default-object definitions provide `kWerewolfSpell` and the typed `GetObject<T>` lookup. | The selected default object resolved as Beast Form (`0x00092C48`); observed possession tracks access to the transformation capability rather than current transformed race. | Use `BGSDefaultObjectManager::DefaultObjectID::kWerewolfSpell`, resolved as `SpellItem`, and `player.HasSpell(...)` for `hasWerewolfForm`. Do not use `PlayerIsWerewolf`: it remained true in an observed state without Beast Form and can serve as a compatibility signal. Missing spell lookup means the whole supernatural domain is unavailable. | A successful vanilla cure was not observed. The public field intentionally means capability possession, not a cure-aware species/status predicate. Mod and overhaul changes can alter spell ownership. |
+| Vampire Lord capability | Dawnguard's `DLC1VampireChange` is the transformation spell. The pinned API provides plugin-qualified `TESDataHandler::LookupForm`. [Pinned `TESDataHandler.h`](https://github.com/alandtse/CommonLibSSE-NG/blob/5decf47b01dde5501b03afaa91cd4d182e793cca/include/RE/T/TESDataHandler.h). | The spell was present in Vampire Lord-capable humanoid state, during transformation, after reversion/save-load, and absent after the observed cure. | Resolve local form `0x0283B` from `Dawnguard.esm` and use player spell possession for `hasVampireLordForm`. Never hardcode observed runtime ID `0x0200283B`. A failed lookup means the whole supernatural domain is unavailable. | Natural quest acquisition was not tested; overhauls may change spell/cure behavior. |
+
+The observations came from the temporary `IDENTITY_DIAG` game-thread diagnostic in
+`adapter/runtime/commonlib_adapter_character_capture.cpp`. That diagnostic hook was removed after
+the session and the ordinary Release Adapter was rebuilt; no diagnostic source change remains.
+The observations establish the tested setup only, not a guarantee for every Skyrim runtime or mod
+list. No automated mock test is evidence for these engine semantics.
+
+The supernatural fields must remain independent. A console-assisted state was observed with both
+`PlayerIsVampire=1` and `PlayerIsWerewolf=1`, with both Vampire Lord and Beast Form spells present;
+the subsequent cure experiment also showed that one status may change while another persists.
+Preserve such combinations if capture observes them. Do not impose mutual exclusion or infer
+Vampire Lord capability from vampirism, or werewolf status from current beast race.
+
+For future native-to-private-payload copying, a RaceMenu name containing `ç` and `á` produced
+valid UTF-8 bytes and survived the observed name changes and save/load. This is sample-level runtime
+evidence, not a universal encoding guarantee for every game/mod string. Validate UTF-8 strictly at
+the native boundary and copy the text into owned storage before crossing the capture boundary; do
+not retain a borrowed engine string beyond its valid lifetime. No non-ASCII race display string was
+tested.
+
+The tested runtime does not establish behavior for every Skyrim overhaul or mod list. A successful
+vanilla Werewolf cure and natural Vampire Lord acquisition were not observed, and the later vampire
+quick-save/load observation did not establish whether the cure persisted. These limits do not
+change the approved capability predicates. Capture still treats absent player/source data and
+character-creation/menu states with unusable identity as unavailable; it does not infer menu state
+from a name string. No reliable active character-creation flag was identified in the inspected
+`PlayerCharacter::ByCharGenFlag` declarations.
 
 ## Current and future public areas
 
-The current protocol registers exactly `character_vitals`, `character_xp`, and `character_level`.
-The Vitals group shares one revision because all six values come from the same Fast capture and
-observation instant. XP remains independently authoritative, and Level retains its Event updates
-with an authoritative Snapshot baseline and recovery.
+The protocol registers five independently authoritative Character areas: `character_vitals`,
+`character_xp`, `character_level`, `character_identity`, and
+`character_supernatural_traits`. The Vitals group shares one revision because all six values come
+from the same Fast capture and observation instant. XP remains independent, and Level retains its
+Event updates with an authoritative Snapshot baseline and recovery.
 
-Character name, identity race, and supernatural traits remain deferred. `character_identity` is a
-candidate domain only if repository and Skyrim-source investigation confirms they share capture
-source, observation coherence, cadence, authority, availability, revision, and recovery semantics.
-Otherwise split only the independently authoritative domains established by that evidence. Do not
-add a giant `character` state value or separate scalar areas for fields from one coherent capture.
+The two metadata domains are independently authoritative:
+`character_identity` groups name and identity race into one complete identity observation, while
+`character_supernatural_traits` groups the three independently reported capability/status values.
+Do not combine them into one identity object, one giant `character` state value, or five scalar
+areas. `character_identity` is unavailable unless both members are usable. The supernatural domain
+is unavailable unless all three source values are established; its booleans are otherwise
+independent and all eight Boolean combinations are valid data shapes.
 
 Each new area follows the same authority continuity, `playContextId`, revision, Snapshot recovery,
 subscription, stale-state, and invalidation semantics as existing state. The SDK exposes typed
 values through the existing synchronization-aware API; supernatural traits are an immutable value,
 not a raw map.
+
+### Future Flutter Overview presentation note
+
+The backend retains `isVampire`, `hasVampireLordForm`, and `hasWerewolfForm`. The later Flutter
+Overview derives display metadata: show “Vampire Lord” when `hasVampireLordForm` is true, otherwise
+show “Vampire” when `isVampire` is true; independently include “Werewolf” when `hasWerewolfForm` is
+true. When no supported supernatural trait is active, omit the supernatural segment entirely; do
+not display “Mortal” or “None” or leave a dangling separator. Examples include `Nord · Level 43`,
+`Nord · Level 43 · Vampire`, `Nord · Level 43 · Vampire Lord`, `Nord · Level 43 · Werewolf`,
+`Nord · Level 43 · Vampire, Werewolf`, and `Nord · Level 43 · Vampire Lord, Werewolf`. This is a
+presentation contract only; no Flutter code belongs to this deviation.
 
 ## Follow-on order
 

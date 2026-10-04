@@ -577,6 +577,18 @@ public static class Constants
     /// <summary>The <c>stateArea</c> id for the current level value.</summary>
     public const string CharacterLevelStateArea = "character_level";
 
+    /// <summary>The <c>stateArea</c> id for the complete player identity value.</summary>
+    public const string CharacterIdentityStateArea = "character_identity";
+
+    /// <summary>The <c>stateArea</c> id for the independent supernatural-traits value.</summary>
+    public const string CharacterSupernaturalTraitsStateArea = "character_supernatural_traits";
+
+    /// <summary>The maximum UTF-8 byte length for either private Character Identity string.</summary>
+    public const int MaxCharacterIdentityStringBytes = 126;
+
+    /// <summary>The fixed private payload length for three supernatural-traits bytes.</summary>
+    public const int CharacterSupernaturalTraitsPayloadLength = 3;
+
     /// <summary>
     /// The maximum sampling frequency for a <see cref="RateClass.Fast"/> capture unit, per
     /// <c>roadmap/04-live-state-synchronization-foundation.md</c>'s initial profiling hypothesis (5
@@ -591,6 +603,13 @@ public static class Constants
     /// Hz).
     /// </summary>
     public static readonly TimeSpan LiveStateMediumSampleInterval = TimeSpan.FromSeconds(1);
+
+    /// <summary>
+    /// The maximum sampling frequency for a <see cref="RateClass.Slow"/> capture unit.
+    /// Controls how often the host directs the adapter to sample, not revision or message
+    /// frequency; not itself a wire field.
+    /// </summary>
+    public static readonly TimeSpan LiveStateSlowSampleInterval = TimeSpan.FromSeconds(1);
 
     /// <summary>
     /// How many consecutive ticks of a capture unit's own cadence a <c>LiveStateScheduler</c> sample

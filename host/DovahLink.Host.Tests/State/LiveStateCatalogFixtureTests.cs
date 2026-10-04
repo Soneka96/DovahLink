@@ -30,6 +30,8 @@ namespace DovahLink.Host.Tests.State
             Assert.Equal((uint)CharacterSampleToken.CharacterVitals, sampleTokens.GetProperty("characterVitals").GetUInt32());
             Assert.Equal((uint)CharacterSampleToken.CharacterXp, sampleTokens.GetProperty("characterXp").GetUInt32());
             Assert.Equal((uint)CharacterSampleToken.CharacterLevelBaseline, sampleTokens.GetProperty("characterLevelBaseline").GetUInt32());
+            Assert.Equal((uint)CharacterSampleToken.CharacterIdentity, sampleTokens.GetProperty("characterIdentity").GetUInt32());
+            Assert.Equal((uint)CharacterSampleToken.CharacterSupernaturalTraits, sampleTokens.GetProperty("characterSupernaturalTraits").GetUInt32());
         }
 
         /// <summary>Verifies that the host's hardcoded event-key enum values remain synchronized with the shared contract fixture.</summary>

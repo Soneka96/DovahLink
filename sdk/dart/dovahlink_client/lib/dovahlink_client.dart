@@ -60,7 +60,10 @@ export 'src/persistence/client_storage.dart' show IClientStorage;
 export 'src/persistence/persisted_client_state.dart' show PersistedClientState;
 export 'src/persistence/unsupported_client_storage.dart'
     show UnsupportedClientStorage;
+export 'src/state/character_identity_state.dart' show CharacterIdentityState;
 export 'src/state/character_level_state.dart' show CharacterLevelState;
+export 'src/state/character_supernatural_traits_state.dart'
+    show CharacterSupernaturalTraitsState;
 export 'src/state/character_vital.dart' show CharacterVital;
 export 'src/state/character_vitals_state.dart' show CharacterVitalsState;
 export 'src/state/character_xp_state.dart' show CharacterXpState;

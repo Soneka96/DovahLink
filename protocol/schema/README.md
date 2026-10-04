@@ -52,7 +52,7 @@ independent protocol-generation number carried on every message — see
 ```
 
 - `stateArea` is a canonical identifier assigned when a state area is registered; see "Registered
-  state areas" below for the three areas currently registered.
+  state areas" below for the areas defined by the current Character contract.
 - `revision` is a non-negative integer, monotonically increasing within one
   `(stateAuthorityId, playContextId, stateArea)`.
 - A revision belongs to that authority continuity epoch, play context, and state area rather
@@ -84,16 +84,19 @@ area.
 
 ## Registered state areas
 
-The Host currently registers three independently authoritative Character state areas:
+The Character contract defines five independently authoritative state areas:
 
 | State area | Value meaning | Public `data` value type | Delivery mode | Capture policy | Unavailable behavior |
 |---|---|---|---|---|---|
 | `character_xp` | Current character experience/progression value | JSON number (single-precision reading) | Snapshot | Sampled on its own, at Medium cadence | `"value": null` |
 | `character_vitals` | Current and effective maximum Health, Magicka, and Stamina | `value` is a complete object containing three resource objects; each has numeric `current` and `max` | Snapshot | One coherent Fast capture from the same player observation | `"value": null` for the whole domain |
+| `character_identity` | Player display name and identity race | Complete object with string `name` and string `race` | Snapshot | One complete identity observation, sampled at Slow cadence | `"value": null` if either member is unavailable; partial objects are invalid |
+| `character_supernatural_traits` | Independent vampire status and Vampire Lord / Werewolf transformation capabilities | Complete object with boolean `isVampire`, `hasVampireLordForm`, and `hasWerewolfForm` | Snapshot | One complete observation of all three source predicates, sampled at Slow cadence | `"value": null` if any required source is unavailable; all-false is a valid available value |
 | `character_level` | Current level | JSON number (integer-valued, 0-65535) | Event | Its initial/recovery baseline is established by a dedicated resynchronization-only sample, delivered as a `state_snapshot`; native level-up occurrences then publish as `state_event` | `"value": null` |
 
 Snapshot `data` objects use a `value` field. Scalar areas carry their scalar there; Vitals carries
-all three resource values together:
+all three resource values together, Identity carries both strings together, and Supernatural Traits
+carries all three booleans together:
 
 ```json
 {
@@ -105,6 +108,18 @@ all three resource values together:
 }
 ```
 
+The new domain values have these complete shapes:
+
+```json
+{"value": {"name": "Gonçalo", "race": "Nord"}}
+{"value": {"isVampire": false, "hasVampireLordForm": false, "hasWerewolfForm": false}}
+{"value": null}
+```
+
+Identity is unavailable unless both name and race are usable; never send a partial object. The
+supernatural booleans are independent: preserve every observed combination, including all-false and
+unusual modded or console-created combinations. Unavailable is distinct from all-false.
+
 `value` is `null` when the state is legitimately unavailable -- the fail-closed default; capture
 never substitutes a plausible default such as `0`, full health, or level `1`. A malformed or
 unrecognized private capture is a distinct case from a legitimate unavailable reading: it never
@@ -112,9 +127,10 @@ reaches the public contract as a null value either, and instead produces no publ
 that update. Vitals availability is unit-wide: the coherent capture either supplies all six current
 and maximum readings or publishes `"value": null`; partial Vitals objects are not valid.
 
-`character_xp` and `character_vitals` are Snapshot-only:
-the Host has no Event-domain update for them, and only ever revises their value at a new `revision`
-via `state_snapshot`, through the normal subscribe/snapshot_request/recovery rules above.
+`character_xp`, `character_vitals`, `character_identity`, and
+`character_supernatural_traits` are Snapshot-only: the Host has no Event-domain update for them,
+and only revises their values at a new `revision` via `state_snapshot`, through the normal
+subscribe/snapshot_request/recovery rules above.
 
 `character_vitals` is one revisioned domain because current and effective maximum values for all
 three resources are read from the same `PlayerCharacter`, captured together in one Fast observation,
@@ -123,8 +139,8 @@ revision therefore describes one coherent observation instant rather than six in
 revisioned values from the same capture.
 
 `character_level`'s canonical delivery mode is Event, but native level changes are not its only
-source of state: its initial or recovery value is established the same way as the two Snapshot-only
-areas above, as a `state_snapshot`, before any Event is delivered. This baseline delivery does not
+source of state: its initial or recovery value is established as a `state_snapshot`, like each
+Snapshot-only area above, before any Event is delivered. This baseline delivery does not
 change the area's canonical Event mode -- it is how an Event-mode area still gives a client a
 starting value to apply Events against. Once established, subsequent native level changes are
 delivered as `state_event`: `revision` equals `baseRevision + 1`, and `data` carries the complete
@@ -133,15 +149,16 @@ post-change value, not a delta, per the general event rule above. A client must 
 not a valid starting point.
 
 The retired `character` aggregate (player level and three resource pools bundled into one state
-area) is not revived by this. `character_vitals`, `character_xp`, and `character_level` remain
-separate state areas because their capture cadence, delivery, and lifecycle semantics differ.
+area) is not revived by this. The five state areas remain separate according to their independent
+capture authority and lifecycle. Identity groups name and race; supernatural traits are a distinct
+domain because their source predicates can change independently.
 
 Host/Adapter resynchronization establishes a fresh authoritative baseline for these areas after
 continuity recovery or an active play-context transition; this is why a `state_snapshot` for an
 already-subscribed area can arrive without a client-initiated `snapshot_request`. The client always
 receives an authoritative Snapshot from the Host -- it never reads Skyrim state directly.
 
-An area requested by `subscribe` or `snapshot_request` that is not one of these three remains
+An area requested by `subscribe` or `snapshot_request` that is not one of these five remains
 explicitly rejected (see their sections below).
 
 ### Registered state area examples
@@ -611,7 +628,7 @@ available yet is never a dead end: its baseline is delivered automatically, stil
 `error` if none does before a bounded deadline elapses.
 
 Required payload field: `stateAreas`. The Host responds with `subscription_ack`. A requested area
-that is one of the three registered state areas above is accepted; any other requested area is
+that is one of the five registered state areas above is accepted; any other requested area is
 rejected into `subscription_ack.rejectedStateAreas`. The resulting active set is exactly the
 accepted areas from this request, so omitted previously accepted areas and areas rejected in this
 request are removed from the active set. Duplicate entries are treated as one requested area.
@@ -628,7 +645,7 @@ Confirms accepted and rejected state areas:
 ```
 
 Both arrays are required. The host sends snapshots only for accepted areas. A requested area among
-the three registered state areas above appears in `acceptedStateAreas`; any other requested area
+the five registered state areas above appears in `acceptedStateAreas`; any other requested area
 appears in `rejectedStateAreas`.
 
 `subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. An accepted

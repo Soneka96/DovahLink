@@ -348,6 +348,12 @@ public enum CharacterSampleToken : uint
     /// value is otherwise delivered by <see cref="CharacterEventKey.CharacterLevelChanged"/>.
     /// </summary>
     CharacterLevelBaseline = 3,
+
+    /// <summary>One complete player display-name and identity-race observation.</summary>
+    CharacterIdentity = 4,
+
+    /// <summary>One complete independent supernatural-traits observation.</summary>
+    CharacterSupernaturalTraits = 5,
 }
 
 /// <summary>A host-owned <see cref="Adapter.Ipc.IpcListenEventMessage.EventKey"/>.</summary>
@@ -369,6 +375,9 @@ public enum RateClass
 
     /// <summary>Sampled at most once every <see cref="Constants.LiveStateMediumSampleInterval"/>.</summary>
     Medium,
+
+    /// <summary>Sampled at most once every <see cref="Constants.LiveStateSlowSampleInterval"/>.</summary>
+    Slow,
 }
 
 /// <summary>

@@ -49,6 +49,8 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IStatePublisher<CharacterVitals?>, StatePublisher<CharacterVitals?>>();
         services.AddSingleton<IStatePublisher<float?>, StatePublisher<float?>>();
         services.AddSingleton<IStatePublisher<ushort?>, StatePublisher<ushort?>>();
+        services.AddSingleton<IStatePublisher<CharacterIdentity?>, StatePublisher<CharacterIdentity?>>();
+        services.AddSingleton<IStatePublisher<CharacterSupernaturalTraits?>, StatePublisher<CharacterSupernaturalTraits?>>();
         services.AddSingleton<IResynchronizationTransactionCoordinator>(sp => new ResynchronizationTransactionCoordinator(
             sp.GetRequiredService<LiveStateCatalog>(),
             sp.GetRequiredService<IAdapterAvailabilityTracker>(),

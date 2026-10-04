@@ -55,6 +55,18 @@
     <None Include="..\..\protocol\fixtures\state\state-snapshot-character-vitals-unavailable.json"
           Link="protocol\fixtures\state\state-snapshot-character-vitals-unavailable.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-character-identity.json"
+          Link="protocol\fixtures\state\state-snapshot-character-identity.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-character-identity-unavailable.json"
+          Link="protocol\fixtures\state\state-snapshot-character-identity-unavailable.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-character-supernatural-traits.json"
+          Link="protocol\fixtures\state\state-snapshot-character-supernatural-traits.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-character-supernatural-traits-unavailable.json"
+          Link="protocol\fixtures\state\state-snapshot-character-supernatural-traits-unavailable.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

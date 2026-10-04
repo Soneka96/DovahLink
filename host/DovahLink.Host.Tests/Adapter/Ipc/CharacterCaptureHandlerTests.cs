@@ -4,6 +4,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Linq;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using System.Text.Json;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
@@ -20,6 +21,8 @@ public class CharacterCaptureHandlerTests
     private static readonly StateAreaId VitalsArea = new(Constants.CharacterVitalsStateArea);
     private static readonly StateAreaId XpArea = new(Constants.CharacterXpStateArea);
     private static readonly StateAreaId LevelArea = new(Constants.CharacterLevelStateArea);
+    private static readonly StateAreaId IdentityArea = new(Constants.CharacterIdentityStateArea);
+    private static readonly StateAreaId SupernaturalTraitsArea = new(Constants.CharacterSupernaturalTraitsStateArea);
 
     /// <summary>Records one value sent to the shared application service.</summary>
     /// <param name="StateType">The generic publisher state type.</param>
@@ -127,12 +130,16 @@ public class CharacterCaptureHandlerTests
     /// <param name="VitalsPublisher">The strict publisher for coherent Vitals.</param>
     /// <param name="XpPublisher">The strict publisher for XP.</param>
     /// <param name="LevelPublisher">The strict publisher for level.</param>
+    /// <param name="IdentityPublisher">The strict publisher for Character Identity.</param>
+    /// <param name="SupernaturalTraitsPublisher">The strict publisher for supernatural traits.</param>
     private sealed record Fixture(
         CharacterCaptureHandler Handler,
         RecordingLiveStateApplication Application,
         IStatePublisher<CharacterVitals?> VitalsPublisher,
         IStatePublisher<float?> XpPublisher,
-        IStatePublisher<ushort?> LevelPublisher);
+        IStatePublisher<ushort?> LevelPublisher,
+        IStatePublisher<CharacterIdentity?> IdentityPublisher,
+        IStatePublisher<CharacterSupernaturalTraits?> SupernaturalTraitsPublisher);
 
     /// <summary>Builds a handler with strict publishers and an application-call recorder.</summary>
     private static Fixture CreateReady()
@@ -141,8 +148,23 @@ public class CharacterCaptureHandlerTests
         IStatePublisher<CharacterVitals?> vitalsPublisher = new UnusedStatePublisher<CharacterVitals?>();
         IStatePublisher<float?> xpPublisher = new UnusedStatePublisher<float?>();
         IStatePublisher<ushort?> levelPublisher = new UnusedStatePublisher<ushort?>();
-        var handler = new CharacterCaptureHandler(vitalsPublisher, xpPublisher, levelPublisher, application);
-        return new Fixture(handler, application, vitalsPublisher, xpPublisher, levelPublisher);
+        IStatePublisher<CharacterIdentity?> identityPublisher = new UnusedStatePublisher<CharacterIdentity?>();
+        IStatePublisher<CharacterSupernaturalTraits?> supernaturalTraitsPublisher = new UnusedStatePublisher<CharacterSupernaturalTraits?>();
+        var handler = new CharacterCaptureHandler(
+            vitalsPublisher,
+            xpPublisher,
+            levelPublisher,
+            identityPublisher,
+            supernaturalTraitsPublisher,
+            application);
+        return new Fixture(
+            handler,
+            application,
+            vitalsPublisher,
+            xpPublisher,
+            levelPublisher,
+            identityPublisher,
+            supernaturalTraitsPublisher);
     }
 
     /// <summary>Builds validated dispatch metadata for a capture in the production catalog.</summary>
@@ -243,6 +265,35 @@ public class CharacterCaptureHandlerTests
         return bytes;
     }
 
+    /// <summary>Encodes two length-prefixed UTF-8 strings using the Adapter's private identity layout.</summary>
+    /// <param name="name">The player display name.</param>
+    /// <param name="race">The identity-race display name.</param>
+    /// <returns>The two-string private payload.</returns>
+    private static byte[] EncodeIdentity(string name, string race)
+    {
+        byte[] nameBytes = Encoding.UTF8.GetBytes(name);
+        byte[] raceBytes = Encoding.UTF8.GetBytes(race);
+        var payload = new byte[2 + nameBytes.Length + raceBytes.Length];
+        payload[0] = checked((byte)nameBytes.Length);
+        nameBytes.AsSpan().CopyTo(payload.AsSpan(1));
+        int raceLengthOffset = 1 + nameBytes.Length;
+        payload[raceLengthOffset] = checked((byte)raceBytes.Length);
+        raceBytes.AsSpan().CopyTo(payload.AsSpan(raceLengthOffset + 1));
+        return payload;
+    }
+
+    /// <summary>Encodes three private boolean bytes in contract field order.</summary>
+    /// <param name="isVampire">The vampire status value.</param>
+    /// <param name="hasVampireLordForm">The Vampire Lord capability value.</param>
+    /// <param name="hasWerewolfForm">The Beast Form capability value.</param>
+    /// <returns>The three-byte supernatural-traits payload.</returns>
+    private static byte[] EncodeSupernaturalTraits(bool isVampire, bool hasVampireLordForm, bool hasWerewolfForm) =>
+        [
+            isVampire ? (byte)1 : (byte)0,
+            hasVampireLordForm ? (byte)1 : (byte)0,
+            hasWerewolfForm ? (byte)1 : (byte)0,
+        ];
+
     /// <summary>Reads a canonical public state fixture copied beside the test assembly.</summary>
     /// <param name="fileName">The fixture file under <c>protocol/fixtures/state</c>.</param>
     /// <returns>The parsed complete public message.</returns>
@@ -252,7 +303,7 @@ public class CharacterCaptureHandlerTests
         return JsonDocument.Parse(File.ReadAllText(path));
     }
 
-    /// <summary>Verifies that the handler advertises exactly its four Character capture identities.</summary>
+    /// <summary>Verifies that the handler advertises all six Character capture identities.</summary>
     [Fact]
     public void SupportedCaptures_ListsTheCharacterCaptureSet()
     {
@@ -263,6 +314,8 @@ public class CharacterCaptureHandlerTests
             {
                 (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals),
                 (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp),
+                (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity),
+                (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits),
                 (CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline),
                 (CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged),
             },
@@ -402,6 +455,186 @@ public class CharacterCaptureHandlerTests
         }
     }
 
+    /// <summary>Verifies a complete Unicode Identity observation maps to one typed Snapshot with its capture authority.</summary>
+    [Fact]
+    public void Handle_IdentityAvailable_AppliesCompleteUtf8Snapshot()
+    {
+        using JsonDocument protocolFixture = ReadStateFixture("state-snapshot-character-identity.json");
+        JsonElement fixturePayload = protocolFixture.RootElement.GetProperty("payload");
+        Assert.Equal(Constants.CharacterIdentityStateArea, fixturePayload.GetProperty("stateArea").GetString());
+        Assert.Equal("Gonçalo", fixturePayload.GetProperty("data").GetProperty("value").GetProperty("name").GetString());
+        Fixture fixture = CreateReady();
+        var captureResult = new IpcCaptureResultMessage(
+            1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity,
+            CaptureAvailability.Available, PlayContextId.NewId(), EncodeIdentity("Gonçalo", "Nord"));
+        LiveCaptureContext context = BuildContext(captureResult);
+
+        fixture.Handler.Handle(context);
+
+        var expected = new CharacterIdentity("Gonçalo", "Nord");
+        Assert.Collection(
+            fixture.Application.ApplyCalls,
+            call => AssertApplyCall(call, fixture.IdentityPublisher, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, expected, false, context));
+    }
+
+    /// <summary>Verifies missing Identity sources map to null for the whole Snapshot domain.</summary>
+    [Fact]
+    public void Handle_IdentityUnavailable_AppliesNullToTheWholeArea()
+    {
+        using JsonDocument protocolFixture = ReadStateFixture("state-snapshot-character-identity-unavailable.json");
+        JsonElement fixturePayload = protocolFixture.RootElement.GetProperty("payload");
+        Assert.Equal(Constants.CharacterIdentityStateArea, fixturePayload.GetProperty("stateArea").GetString());
+        Assert.Equal(JsonValueKind.Null, fixturePayload.GetProperty("data").GetProperty("value").ValueKind);
+        Fixture fixture = CreateReady();
+        var captureResult = new IpcCaptureResultMessage(
+            1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity,
+            CaptureAvailability.Unavailable, PlayContextId.NewId(), []);
+        LiveCaptureContext context = BuildContext(captureResult);
+
+        fixture.Handler.Handle(context);
+
+        Assert.Collection(
+            fixture.Application.ApplyCalls,
+            call => AssertApplyCall(call, fixture.IdentityPublisher, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, null, false, context));
+    }
+
+    /// <summary>Verifies both Identity strings are accepted exactly at their byte limit without truncation.</summary>
+    [Fact]
+    public void Handle_IdentityAtMaximumByteLength_AppliesBothFullStrings()
+    {
+        string maximum = new('x', Constants.MaxCharacterIdentityStringBytes);
+        string maximumUtf8 = string.Concat(Enumerable.Repeat("é", Constants.MaxCharacterIdentityStringBytes / 2));
+        Fixture fixture = CreateReady();
+        var captureResult = new IpcCaptureResultMessage(
+            1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity,
+            CaptureAvailability.Available, PlayContextId.NewId(), EncodeIdentity(maximum, maximum));
+        LiveCaptureContext context = BuildContext(captureResult);
+
+        fixture.Handler.Handle(context);
+
+        Assert.Collection(
+            fixture.Application.ApplyCalls,
+            call => AssertApplyCall(call, fixture.IdentityPublisher, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, new CharacterIdentity(maximum, maximum), false, context));
+
+        Fixture unicodeFixture = CreateReady();
+        var unicodeCapture = new IpcCaptureResultMessage(
+            1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity,
+            CaptureAvailability.Available, PlayContextId.NewId(), EncodeIdentity(maximumUtf8, maximumUtf8));
+        LiveCaptureContext unicodeContext = BuildContext(unicodeCapture);
+        unicodeFixture.Handler.Handle(unicodeContext);
+
+        Assert.Collection(
+            unicodeFixture.Application.ApplyCalls,
+            call => AssertApplyCall(call, unicodeFixture.IdentityPublisher, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, new CharacterIdentity(maximumUtf8, maximumUtf8), false, unicodeContext));
+    }
+
+    /// <summary>Verifies malformed lengths, text, truncation, trailing bytes, and unavailable payloads never apply Identity.</summary>
+    [Fact]
+    public void Handle_IdentityMalformedCapture_AppliesNothing()
+    {
+        IpcCaptureResultMessage[] invalidCaptures =
+        [
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), []),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), [0, (byte)'N', 1, (byte)'N']),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), EncodeIdentity(new string('n', Constants.MaxCharacterIdentityStringBytes + 1), "Nord")),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), EncodeIdentity("Name", new string('r', Constants.MaxCharacterIdentityStringBytes + 1))),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), EncodeIdentity(new string('é', Constants.MaxCharacterIdentityStringBytes / 2 + 1), "Nord")),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), [2, (byte)'N']),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), [1, (byte)'N']),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), [1, (byte)'N', 0, 0]),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), [1, (byte)'N', 2, (byte)'N']),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), [1, 0xC3, 1, (byte)'N']),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), [1, (byte)'N', 1, 0xC3]),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Available, PlayContextId.NewId(), [1, (byte)'N', 1, (byte)'N', 0]),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity, CaptureAvailability.Unavailable, PlayContextId.NewId(), EncodeIdentity("Name", "Nord")),
+        ];
+
+        foreach (IpcCaptureResultMessage captureResult in invalidCaptures)
+        {
+            Fixture fixture = CreateReady();
+            fixture.Handler.Handle(BuildContext(captureResult));
+
+            Assert.Empty(fixture.Application.ApplyCalls);
+        }
+    }
+
+    /// <summary>Verifies available all-false supernatural traits are distinct from an unavailable Snapshot.</summary>
+    [Fact]
+    public void Handle_SupernaturalTraitsAvailableAndUnavailable_DistinguishesAllFalseFromNull()
+    {
+        using JsonDocument availableFixture = ReadStateFixture("state-snapshot-character-supernatural-traits.json");
+        using JsonDocument unavailableFixture = ReadStateFixture("state-snapshot-character-supernatural-traits-unavailable.json");
+        JsonElement availablePayload = availableFixture.RootElement.GetProperty("payload");
+        JsonElement unavailablePayload = unavailableFixture.RootElement.GetProperty("payload");
+        Assert.Equal(Constants.CharacterSupernaturalTraitsStateArea, availablePayload.GetProperty("stateArea").GetString());
+        Assert.Equal(Constants.CharacterSupernaturalTraitsStateArea, unavailablePayload.GetProperty("stateArea").GetString());
+        Fixture fixture = CreateReady();
+        var available = new IpcCaptureResultMessage(
+            1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits,
+            CaptureAvailability.Available, PlayContextId.NewId(), EncodeSupernaturalTraits(false, false, false));
+        var unavailable = new IpcCaptureResultMessage(
+            2, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits,
+            CaptureAvailability.Unavailable, available.PlayContextId, []);
+        LiveCaptureContext availableContext = BuildContext(available);
+        LiveCaptureContext unavailableContext = BuildContext(unavailable);
+
+        fixture.Handler.Handle(availableContext);
+        fixture.Handler.Handle(unavailableContext);
+
+        Assert.Collection(
+            fixture.Application.ApplyCalls,
+            call => AssertApplyCall(call, fixture.SupernaturalTraitsPublisher, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, new CharacterSupernaturalTraits(false, false, false), false, availableContext),
+            call => AssertApplyCall(call, fixture.SupernaturalTraitsPublisher, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, null, false, unavailableContext));
+    }
+
+    /// <summary>Verifies hybrid supernatural combinations preserve every independent predicate.</summary>
+    /// <param name="isVampire">The encoded vampire status.</param>
+    /// <param name="hasVampireLordForm">The encoded Vampire Lord capability.</param>
+    /// <param name="hasWerewolfForm">The encoded Beast Form capability.</param>
+    [Theory]
+    [InlineData(true, false, true)]
+    [InlineData(false, true, true)]
+    [InlineData(true, true, true)]
+    public void Handle_SupernaturalTraitsHybrid_PreservesIndependentValues(bool isVampire, bool hasVampireLordForm, bool hasWerewolfForm)
+    {
+        Fixture fixture = CreateReady();
+        var captureResult = new IpcCaptureResultMessage(
+            1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits,
+            CaptureAvailability.Available, PlayContextId.NewId(), EncodeSupernaturalTraits(isVampire, hasVampireLordForm, hasWerewolfForm));
+        LiveCaptureContext context = BuildContext(captureResult);
+
+        fixture.Handler.Handle(context);
+
+        var expected = new CharacterSupernaturalTraits(isVampire, hasVampireLordForm, hasWerewolfForm);
+        Assert.Collection(
+            fixture.Application.ApplyCalls,
+            call => AssertApplyCall(call, fixture.SupernaturalTraitsPublisher, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, expected, false, context));
+    }
+
+    /// <summary>Verifies malformed boolean encodings and unavailable captures carrying bytes never apply supernatural state.</summary>
+    [Fact]
+    public void Handle_SupernaturalTraitsMalformedCapture_AppliesNothing()
+    {
+        IpcCaptureResultMessage[] invalidCaptures =
+        [
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits, CaptureAvailability.Available, PlayContextId.NewId(), []),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits, CaptureAvailability.Available, PlayContextId.NewId(), [0, 0]),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits, CaptureAvailability.Available, PlayContextId.NewId(), [0, 0, 0, 0]),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits, CaptureAvailability.Available, PlayContextId.NewId(), [2, 0, 0]),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits, CaptureAvailability.Available, PlayContextId.NewId(), [0, 255, 0]),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits, CaptureAvailability.Available, PlayContextId.NewId(), [0, 0, 2]),
+            new(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits, CaptureAvailability.Unavailable, PlayContextId.NewId(), [0, 0, 0]),
+        ];
+
+        foreach (IpcCaptureResultMessage captureResult in invalidCaptures)
+        {
+            Fixture fixture = CreateReady();
+            fixture.Handler.Handle(BuildContext(captureResult));
+
+            Assert.Empty(fixture.Application.ApplyCalls);
+        }
+    }
+
     /// <summary>Verifies ordinary Level samples, resynchronization baselines, and native Events keep distinct modes.</summary>
     [Fact]
     public void Handle_LevelSampleAndEvent_PreserveSnapshotBaselineAndEventSemantics()
@@ -457,7 +690,7 @@ public class CharacterCaptureHandlerTests
         Assert.Empty(fixture.Application.ApplyCalls);
     }
 
-    /// <summary>Verifies that mismatched state-area counts fail closed for Vitals, XP, and Level units.</summary>
+    /// <summary>Verifies that mismatched state-area counts fail closed for every Character capture unit.</summary>
     [Fact]
     public void Handle_CaptureUnitWithInvalidAreaMapping_AppliesNothing()
     {
@@ -468,6 +701,12 @@ public class CharacterCaptureHandlerTests
         CaptureUnitDefinition defaultXp = LiveStateCatalog.Default.CaptureUnits.Single(
             unit => unit.Source == CaptureSourceKind.Sample
                 && unit.CaptureKey == (uint)CharacterSampleToken.CharacterXp);
+        CaptureUnitDefinition defaultIdentity = LiveStateCatalog.Default.CaptureUnits.Single(
+            unit => unit.Source == CaptureSourceKind.Sample
+                && unit.CaptureKey == (uint)CharacterSampleToken.CharacterIdentity);
+        CaptureUnitDefinition defaultTraits = LiveStateCatalog.Default.CaptureUnits.Single(
+            unit => unit.Source == CaptureSourceKind.Sample
+                && unit.CaptureKey == (uint)CharacterSampleToken.CharacterSupernaturalTraits);
         CaptureUnitDefinition defaultLevel = LiveStateCatalog.Default.CaptureUnits.Single(
             unit => unit.Source == CaptureSourceKind.Sample
                 && unit.CaptureKey == (uint)CharacterSampleToken.CharacterLevelBaseline);
@@ -483,6 +722,16 @@ public class CharacterCaptureHandlerTests
                     1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterXp,
                     CaptureAvailability.Available, PlayContextId.NewId(), EncodeFloat(50.0f)),
                 defaultXp with { StateAreas = [] }),
+            (
+                new IpcCaptureResultMessage(
+                    1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterIdentity,
+                    CaptureAvailability.Available, PlayContextId.NewId(), EncodeIdentity("Name", "Nord")),
+                defaultIdentity with { StateAreas = [] }),
+            (
+                new IpcCaptureResultMessage(
+                    1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterSupernaturalTraits,
+                    CaptureAvailability.Available, PlayContextId.NewId(), EncodeSupernaturalTraits(false, false, false)),
+                defaultTraits with { StateAreas = [] }),
             (
                 new IpcCaptureResultMessage(
                     1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterLevelBaseline,
