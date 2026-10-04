@@ -30,7 +30,7 @@ inline constexpr std::size_t kMaxCharacterIdentityPayloadBytes =
 ///  allocation-free handoff buffer. Its bound is the largest byte count
 ///  representable by `CapturedPayload::size`.
 inline constexpr std::size_t kMaxCapturedPayloadBytes =
-    std::numeric_limits<std::uint8_t>::max();
+    (std::numeric_limits<std::uint8_t>::max)();
 
 ///  The number of immediate, non-blocking lock attempts
 ///  `AdapterCaptureHandoffQueue::TryEnqueue` makes before treating an item as

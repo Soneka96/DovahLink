@@ -12,7 +12,7 @@
 namespace dovahlink::adapter::capture {
 
 static_assert(kMaxCapturedPayloadBytes <=
-              std::numeric_limits<std::uint8_t>::max());
+              (std::numeric_limits<std::uint8_t>::max)());
 
 ///  An owned captured value in a fixed, preallocated buffer bounded by
 ///  `kMaxCapturedPayloadBytes`, so building one -- on the Skyrim game thread,
