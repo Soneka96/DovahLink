@@ -31,19 +31,20 @@ work is limited to specific capture leaves, including extending the existing coh
 and adding the two approved metadata observations.
 The fixed `CapturedPayload` capacity grows from 12 to 24 bytes because the coherent Vitals result
 now contains six float32 values; splitting those values into separate captures would lose the
-requested observation coherence. Character Identity then increases the capacity from 24 to 254
-bytes: each string has a 126-byte UTF-8 limit and a one-byte length prefix, so the maximum is
-`1 + 126 + 1 + 126 = 254` bytes. The encoder validates both strings as UTF-8 and rejects empty,
-invalid, or over-limit values; it never truncates. The three-byte Supernatural Traits payload also
-fits this bound. Its layout is `[nameLength:u8][name:utf8][raceLength:u8][race:utf8]`. The
+requested observation coherence. The generic `CapturedPayload` infrastructure capacity then grows
+from 24 to 255 bytes, the maximum representable by its `uint8_t` `size` field. Character Identity's
+feature-specific maximum payload remains 254 bytes: each string has a 126-byte UTF-8 limit and a
+one-byte length prefix, for `1 + 126 + 1 + 126 = 254` bytes. It does not use the full generic
+capacity. The encoder validates both strings as UTF-8 and rejects empty, invalid, or over-limit
+values; it never truncates. The three-byte Supernatural Traits payload also fits this bound. The
+Character Identity layout is `[nameLength:u8][name:utf8][raceLength:u8][race:utf8]`. The
 Supernatural Traits layout is `[isVampire:u8][hasVampireLordForm:u8][hasWerewolfForm:u8]`, with
 each byte restricted to `0` or `1`.
 
-`CapturedPayload` is an inline fixed buffer. Its byte array grows by 230 bytes. On the supported
-x64 ABI, alignment grows each `AdapterCaptureWorkItem` from 64 to 296 bytes, a 232-byte increase;
-the existing 64-slot handoff ring therefore adds 14,848 bytes (about 14.5 KiB) of fixed storage.
-It does not add per-capture heap allocation. This bounded memory cost was reviewed as part of the
-payload-capacity change.
+`CapturedPayload` is an inline fixed buffer. Its byte array grows by 231 bytes from 24 to 255.
+This increases the fixed storage in each `AdapterCaptureWorkItem` and the existing 64-slot handoff
+ring, without adding per-capture heap allocation. Exact x64 struct and queue storage totals are not
+stated here without a current recorded size measurement.
 The Host continues to register and publish independently authoritative state areas through its
 existing machinery. Current and effective maximum Health, Magicka, and Stamina form one coherent
 `character_vitals` domain. `character_xp` and `character_level` remain independent domains; the
