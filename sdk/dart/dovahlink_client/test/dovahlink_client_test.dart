@@ -1917,6 +1917,15 @@ void main() {
         (await client.currentHost.character.levelChanges.first).status,
         DovahLinkStateStatus.notSubscribed,
       );
+      expect(
+        (await client.currentHost.character.identityChanges.first).status,
+        DovahLinkStateStatus.notSubscribed,
+      );
+      expect(
+        (await client.currentHost.character.supernaturalTraitsChanges.first)
+            .status,
+        DovahLinkStateStatus.notSubscribed,
+      );
     });
 
     test(
@@ -1952,6 +1961,35 @@ void main() {
               (StateSynchronization<CharacterXpState> state) =>
                   state.status == DovahLinkStateStatus.synchronized &&
                   state.value?.value == 42.5,
+            ),
+          ),
+        );
+        final Future<void> identityReceived = expectLater(
+          client.currentHost.character.identityChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterIdentityState?>>(
+              (StateSynchronization<CharacterIdentityState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.value?.name == 'Gonçalo' &&
+                  state.value?.race == 'Nord' &&
+                  state.stateAuthorityId == 'authority-1' &&
+                  state.playContextId == 'context-1',
+            ),
+          ),
+        );
+        final Future<void> supernaturalTraitsReceived = expectLater(
+          client.currentHost.character.supernaturalTraitsChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterSupernaturalTraitsState?>>(
+              (StateSynchronization<CharacterSupernaturalTraitsState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.value?.isVampire == false &&
+                  state.value?.hasVampireLordForm == false &&
+                  state.value?.hasWerewolfForm == false &&
+                  state.stateAuthorityId == 'authority-1' &&
+                  state.playContextId == 'context-1',
             ),
           ),
         );
@@ -1997,6 +2035,24 @@ void main() {
         );
         transport.queueRawResponse(
           _rawStateSnapshot(
+            stateArea: 'character_identity',
+            revision: 1,
+            value: <String, dynamic>{'name': 'Gonçalo', 'race': 'Nord'},
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_supernatural_traits',
+            revision: 1,
+            value: <String, dynamic>{
+              'isVampire': false,
+              'hasVampireLordForm': false,
+              'hasWerewolfForm': false,
+            },
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
             stateArea: 'character_level',
             revision: 1,
             value: 10,
@@ -2013,6 +2069,8 @@ void main() {
         await Future.wait<void>(<Future<void>>[
           vitalsReceived,
           xpReceived,
+          identityReceived,
+          supernaturalTraitsReceived,
           levelReceived,
           levelEventReceived,
         ]);
