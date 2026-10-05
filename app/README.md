@@ -16,9 +16,12 @@ and navigation while mirroring the SDK's Known Host and candidate streams. Candi
 identity reconciliation stay in the SDK. Initial connection retries, bounded established-session
 recovery, protocol handling, and live-state synchronization also remain SDK-owned.
 
-The `features/live_state/` boundary maps the eight public gameplay streams into app-owned typed
-values and projects them through Redux actions, reducers, selectors, and the Session Overview
-ViewModel. It preserves synchronization status and authority/context metadata, nullable Location
+The `features/live_state/` boundary consumes the SDK's eight public gameplay streams. SDK public
+domain models remain canonical, and `StateSynchronization<T>` remains the canonical synchronization
+truth. Redux carries those values unchanged without redefining or copying their domain fields.
+Presentation-specific models may be derived later only when they add real UI semantics. Typed Redux
+actions, reducers, selectors, and the Session Overview ViewModel carry those values to presentation.
+The integration preserves synchronization status and authority/context metadata, nullable Location
 facts, independent Supernatural Traits, Skyrim calendar fields, and the complete plural quest list.
 The middleware requests desired state only after SDK trust is established and keeps observation tied
 to the admitted session rather than the Session Shell route. Returning to Connections leaves the

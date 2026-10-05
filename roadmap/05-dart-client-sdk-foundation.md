@@ -132,13 +132,15 @@ model them as separate state areas or add a second composed resource view.
 PR #120 implements the SDK-to-Redux pipeline for the eight currently available Overview domains:
 `character_vitals`, `character_xp`, `character_level`, `character_identity`,
 `character_supernatural_traits`, `player_location`, `game_time`, and `tracked_quests`. The focused
-`features/live_state/` boundary owns typed actions, reducers, selectors, and app-owned value
-projections. `LiveStateMiddleware` owns the public SDK stream listeners and expresses all required
-subscription areas only after SDK trust is established. It remains active when the Session Shell
-route returns to Connections; routes do not own subscription lifetime. The middleware keeps those
-listeners through ordinary reconnect so the SDK can restore desired intent and publish stale,
-recovering, and fresh-baseline statuses. It cancels gameplay listeners and resets the Redux slice on
-disconnection or administrative invalidation.
+`features/live_state/` boundary owns typed Redux actions, reducers, selectors, and the
+`SessionOverviewViewModel`. It consumes the public SDK gameplay streams and passes SDK public domain
+models and `StateSynchronization<T>` directly through Redux without app-owned duplicate domain
+models or field redefinitions. `LiveStateMiddleware` owns the public SDK stream listeners and
+expresses all required subscription areas only after SDK trust is established. It remains active
+when the Session Shell route returns to Connections; routes do not own subscription lifetime. The
+middleware keeps those listeners through ordinary reconnect so the SDK can restore desired intent
+and publish stale, recovering, and fresh-baseline statuses. It cancels gameplay listeners and resets
+the Redux slice on disconnection or administrative invalidation.
 
 The integration preserves each domain's status, authority/context IDs, and revision alongside its
 typed value. It retains all independent Supernatural Traits predicates, all Location facts, Skyrim

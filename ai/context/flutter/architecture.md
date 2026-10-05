@@ -174,8 +174,11 @@ objective instance. An empty tracked-quest list, unavailable nullable values, al
 stale retained values remain distinguishable through synchronization status.
 
 `SessionOverviewViewModel` exposes these selector results to the future Overview owner. Widgets must
-not read SDK streams or raw SDK values directly. The current Session Shell remains a navigation
-surface; the separate Overview convergence work owns its later presentation.
+not subscribe directly to SDK streams, call SDK live-state subscription APIs, or bypass the approved
+Redux, selector, and ViewModel boundary. Widgets may consume SDK public domain models after those
+values reach presentation through that boundary. Presentation-specific derived models remain allowed
+when they add real UI semantics. The current Session Shell remains a navigation surface; the separate
+Overview convergence work owns its later presentation.
 
 ## Feature structure
 

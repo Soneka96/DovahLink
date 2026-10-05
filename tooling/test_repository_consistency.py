@@ -2485,10 +2485,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn(
             "live-state synchronization also remain SDK-owned.", normalized_app_readme
         )
-        self.assertIn(
-            "The `features/live_state/` boundary maps the eight public gameplay streams into app-owned typed values",
-            normalized_app_readme,
-        )
+        for integration_rule in (
+            "boundary consumes the SDK's eight public gameplay streams",
+            "SDK public domain models remain canonical",
+            "`StateSynchronization<T>` remains the canonical synchronization truth",
+            "Redux carries those values unchanged without redefining or copying their domain fields",
+            "Presentation-specific models may be derived later only when they add real UI semantics",
+        ):
+            self.assertIn(integration_rule, normalized_app_readme)
         self.assertIn(
             "Returning to Connections leaves the admitted session and its state observation active.",
             normalized_app_readme,
@@ -2506,7 +2510,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             protocol_readme,
         )
 
-    def test_phase_5_4_app_projection_and_follow_on_are_documented(self) -> None:
+    def test_phase_5_4_app_passthrough_and_follow_on_are_documented(self) -> None:
         """Keep Phase 5.4's delivered pipeline and incomplete proof boundary explicit."""
         phase_5 = self._read("roadmap/05-dart-client-sdk-foundation.md")
         roadmap = self._read("ROADMAP.md")
@@ -2543,6 +2547,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_phase_54,
         )
         self.assertIn("authority/context IDs, and revision", normalized_phase_54)
+        for integration_rule in (
+            "typed Redux actions, reducers, selectors, and the `SessionOverviewViewModel`",
+            "passes SDK public domain models and `StateSynchronization<T>` directly through Redux",
+            "without app-owned duplicate domain models or field redefinitions",
+        ):
+            self.assertIn(integration_rule, normalized_phase_54)
         self.assertIn(
             "route returns to Connections; routes do not own subscription lifetime",
             normalized_phase_54,
@@ -2646,6 +2656,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Ordinary reconnect keeps those listeners attached under the same observation token",
             "Each admitted observation has an app-local token captured by its stream callbacks",
             "A later trusted session receives a new token",
+            "Widgets must not subscribe directly to SDK streams, call SDK live-state subscription APIs",
+            "bypass the approved Redux, selector, and ViewModel boundary",
+            "Widgets may consume SDK public domain models after those values reach presentation",
+            "Presentation-specific derived models remain allowed when they add real UI semantics",
         ):
             self.assertIn(required_rule, architecture)
 
@@ -2677,12 +2691,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 "ProtocolMessageType",
             ):
                 self.assertNotIn(protocol_type, source, str(source_path))
-            if source_path.relative_to(REPOSITORY_ROOT).as_posix() != middleware_path:
-                self.assertNotRegex(
-                    source,
-                    r"\.listen\s*\(",
-                    f"Live-state stream subscriptions escaped their middleware: {source_path}",
-                )
             if source_path.name.endswith(".reducer.dart"):
                 self.assertNotIn("DovahLinkClient", source, str(source_path))
                 self.assertNotIn("subscribeStateArea", source, str(source_path))
@@ -2742,6 +2750,39 @@ class RepositoryConsistencyTests(unittest.TestCase):
             r"supernaturalTraitsChanges|playerLocationChanges|gameTimeChanges|"
             r"trackedQuestsChanges|subscribeStateArea)\b"
         )
+        sdk_gameplay_stream_type = re.compile(
+            r"\bStream\s*<\s*StateSynchronization\s*<"
+        )
+        sdk_gameplay_subscription_type = re.compile(
+            r"\bStreamSubscription\s*<\s*StateSynchronization\s*<"
+        )
+        stream_listen = re.compile(r"\.listen\s*\(")
+        self.assertIsNone(stream_access.search("localChanges.listen(handleChange)"))
+        indirect_sdk_subscription = (
+            "Stream<StateSynchronization<CharacterVitalsState>> changes; "
+            "changes.listen(handleChange)"
+        )
+        self.assertIsNotNone(sdk_gameplay_stream_type.search(indirect_sdk_subscription))
+        self.assertIsNotNone(stream_listen.search(indirect_sdk_subscription))
+        local_stream = "Stream<LocalChange> changes; changes.listen(handleChange)"
+        self.assertIsNone(sdk_gameplay_stream_type.search(local_stream))
+        self.assertIsNotNone(stream_listen.search(local_stream))
+        self.assertIsNotNone(
+            sdk_gameplay_subscription_type.search(
+                "StreamSubscription<StateSynchronization<CharacterVitalsState>> subscription"
+            )
+        )
+        self.assertIsNone(
+            sdk_gameplay_subscription_type.search(
+                "StreamSubscription<LocalChange> subscription"
+            )
+        )
+        for forbidden_widget_access in (
+            "character.vitalsChanges.listen(handleChange)",
+            "currentHost.subscribeStateArea(area)",
+        ):
+            self.assertIsNotNone(stream_access.search(forbidden_widget_access))
+
         for source_path in (REPOSITORY_ROOT / "app" / "lib").rglob("*.dart"):
             relative_path = source_path.relative_to(REPOSITORY_ROOT).as_posix()
             source = source_path.read_text(encoding="utf-8")
@@ -2802,7 +2843,6 @@ class RepositoryConsistencyTests(unittest.TestCase):
                     continue
                 source = source_path.read_text(encoding="utf-8")
                 self.assertNotIn("dovahlink_client_sdk/src/", source, str(source_path))
-                self.assertNotIn("StreamSubscription<", source, str(source_path))
                 self.assertNotRegex(
                     source,
                     r"\.(?:vitalsChanges|xpChanges|levelChanges|identityChanges|"
@@ -2810,11 +2850,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
                     r"trackedQuestsChanges|subscribeStateArea)\b",
                     str(source_path),
                 )
-                self.assertNotRegex(
-                    source,
-                    r"\.listen\s*\(",
-                    f"Widgets cannot own stream subscriptions: {source_path}",
+                self.assertIsNone(
+                    sdk_gameplay_subscription_type.search(source),
+                    f"Widgets cannot own SDK gameplay stream subscriptions: {source_path}",
                 )
+                if sdk_gameplay_stream_type.search(source):
+                    self.assertIsNone(
+                        stream_listen.search(source),
+                        f"Widgets cannot subscribe to SDK synchronization streams: {source_path}",
+                    )
 
     def test_protocol_docs_describe_host_not_the_retired_native_plugin(self) -> None:
         """Guard protocol/README.md and ai/context/protocol/conventions.md against describing
