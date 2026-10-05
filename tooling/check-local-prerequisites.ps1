@@ -54,6 +54,13 @@ function Get-LocalCiPrerequisiteDefinitions {
             InstallUrl     = "https://dotnet.microsoft.com/en-us/download/dotnet/10.0"
         }
         [pscustomobject]@{
+            Id             = "rustup"
+            Name           = "rustup"
+            InstallCommand = "Install rustup; the pinned Rust release builds the sas-pairing native library the Host tests load."
+            VerifyCommand  = "rustup --version"
+            InstallUrl     = "https://rustup.rs/"
+        }
+        [pscustomobject]@{
             Id             = "flutter"
             Name           = "Flutter stable SDK"
             InstallCommand = "Install the Flutter stable SDK and add its bin directory to PATH."
@@ -466,6 +473,26 @@ function Test-LocalCiPrerequisite {
                     throw "The installed SDK does not provide dotnet format."
                 }
                 return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version (($sdk -split "\s+")[0]) -Details "dotnet format available" -Path $command.Source
+            }
+            "rustup" {
+                $command = Get-Command -Name "rustup.exe" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($null -eq $command) {
+                    throw "rustup.exe was not found on PATH."
+                }
+                # rustup prints an informational line on stderr; Windows PowerShell 5.1 would turn
+                # that into a terminating error under Stop, so read stdout only with Continue.
+                $previousPreference = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                try {
+                    $output = @(& $command.Source --version 2>$null)
+                }
+                finally {
+                    $ErrorActionPreference = $previousPreference
+                }
+                if ($LASTEXITCODE -ne 0) {
+                    throw "rustup --version exited with code $LASTEXITCODE."
+                }
+                return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version (($output | Select-Object -First 1).ToString().Trim()) -Path $command.Source
             }
             "flutter" {
                 $command = Get-Command -Name "flutter" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1

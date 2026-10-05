@@ -253,6 +253,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "ai/context/dotnet/**"',
             '- ".github/workflows/host-ci.yml"',
             '- "adapter-host-ipc/**"',
+            '- "tooling/sas_pairing_*.py"',
         }
 
         push_block = self._yaml_block(workflow, "  push:")
@@ -276,7 +277,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             workflow,
         )
         self.assertIn("    runs-on: windows-2022", workflow)
-        self.assertIn("    timeout-minutes: 10", workflow)
+        self.assertIn("    timeout-minutes: 20", workflow)
         self.assertIn("        shell: pwsh", workflow)
         self.assertIn("  workflow_dispatch:", workflow)
         self.assertIn(
@@ -290,9 +291,77 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-build",
             "-p:GenerateDocumentationFile=true",
             "-p:TreatWarningsAsErrors=true",
+            "rustup toolchain install $toolchain --profile minimal --no-self-update",
+            "run: python tooling/sas_pairing_dependency.py acquire --native",
         ):
             self.assertIn(fragment, workflow)
         self.assertNotIn("continue-on-error:", workflow)
+        self.assertLess(
+            workflow.index("rustup toolchain install"),
+            workflow.index("tooling/sas_pairing_dependency.py acquire --native"),
+        )
+        self.assertLess(
+            workflow.index("tooling/sas_pairing_dependency.py acquire --native"),
+            workflow.index(
+                "dotnet restore host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"
+            ),
+        )
+
+    def test_dormant_sas_pairing_dependency_is_pinned_and_isolated(self) -> None:
+        """Keep the dormant sas-pairing integration pinned to one verified build and out of the Host executable."""
+        pin = json.loads(self._read("host/sas-pairing-dependency.json"))
+        host_project = self._read("host/DovahLink.Host/DovahLink.Host.csproj")
+        ceremony_project = self._read(
+            "host/DovahLink.Host.PairingCeremony/DovahLink.Host.PairingCeremony.csproj"
+        )
+        test_project = self._read(
+            "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"
+        )
+        nuget_config = self._read("host/nuget.config")
+
+        # The running Host has no path to the integration or the package.
+        self.assertNotIn("SasPairing", host_project)
+        self.assertNotIn("PairingCeremony", host_project)
+        # The integration depends only on the package, at exactly the pinned version.
+        self.assertNotIn("<ProjectReference", ceremony_project)
+        self.assertEqual(
+            re.findall(
+                r'<PackageReference Include="([^"]+)" Version="([^"]+)"',
+                ceremony_project,
+            ),
+            [("SasPairing", f"[{pin['package_version']}]")],
+        )
+        self.assertIn(
+            '<ProjectReference Include="..\\DovahLink.Host.PairingCeremony\\DovahLink.Host.PairingCeremony.csproj" />',
+            test_project,
+        )
+        self.assertIn(
+            'Path="DovahLink.Host.PairingCeremony/DovahLink.Host.PairingCeremony.csproj"',
+            self._read("host/DovahLink.Host.slnx"),
+        )
+        # No local checkout, absolute path, or floating source can supply sas-pairing.
+        for text in (ceremony_project, test_project, nuget_config, host_project):
+            self.assertNotRegex(
+                text, r"(?i)\.\.[\\/]+sas-pairing|(?<![A-Za-z0-9])[A-Za-z]:[\\/]"
+            )
+        self.assertIn("<clear />", nuget_config)
+        self.assertIn(
+            '<add key="sas-pairing-pinned" value="../out/sas-pairing/feed" />',
+            nuget_config,
+        )
+        self.assertRegex(
+            nuget_config,
+            r'<packageSource key="sas-pairing-pinned">\s*<package pattern="SasPairing" />\s*</packageSource>',
+        )
+        self.assertEqual(nuget_config.count('pattern="SasPairing"'), 1)
+        # Its restore output and every acquired artifact stay in the ignored out/ directory.
+        self.assertIn("/out/", self._read(".gitignore").splitlines())
+        for text in (ceremony_project, test_project):
+            self.assertIn(
+                "<RestorePackagesPath>$(MSBuildThisFileDirectory)..\\..\\out\\sas-pairing\\packages</RestorePackagesPath>",
+                text,
+            )
+        self.assertRegex(pin["commit"], r"^[0-9a-f]{40}$")
 
     def test_host_target_framework_agrees_across_build_paths(self) -> None:
         """Keep the Host's target framework, built executable paths, and CI SDK major in agreement."""
@@ -418,6 +487,10 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '- "ai/context/**"',
             '- "app/**"',
             '- "host/CHANGELOG.md"',
+            '- "host/**/*.csproj"',
+            '- "host/DovahLink.Host.slnx"',
+            '- "host/nuget.config"',
+            '- "host/sas-pairing-dependency.json"',
             '- "integration/**"',
             '- "protocol/**"',
             '- "sdk/**"',
@@ -957,6 +1030,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '"tooling/format_staged.py", "--check", "--base-ref", "main"',
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(',
             '"restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"',
+            '"tooling/sas_pairing_dependency.py", "acquire", "--native"',
             '$hostExecutablePath = Join-Path $repoRoot "host\\DovahLink.Host\\bin\\Release\\net10.0-windows\\DovahLink.Host.exe"',
             "Test-Path -LiteralPath $hostExecutablePath -PathType Leaf",
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")',
@@ -1003,6 +1077,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             ),
             script.index('"tooling/format_staged.py", "--check", "--base-ref", "main"'),
             script.index('Write-Host "=== host-ci ==="'),
+            script.index('"tooling/sas_pairing_dependency.py", "acquire", "--native"'),
             script.index(
                 '"restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"'
             ),

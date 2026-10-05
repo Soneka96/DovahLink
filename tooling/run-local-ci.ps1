@@ -152,6 +152,10 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList
 )
 
 Write-Host "=== host-ci ==="
+# Builds the pinned sas-pairing package and native library the dormant Host integration tests use.
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList @(
+    "tooling/sas_pairing_dependency.py", "acquire", "--native"
+)
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
     "restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"
 )

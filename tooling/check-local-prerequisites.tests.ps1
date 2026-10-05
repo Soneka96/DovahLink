@@ -25,7 +25,7 @@ function Assert-True {
 
 $definitions = @(Get-LocalCiPrerequisiteDefinitions)
 $expectedIds = @(
-    "visual-studio", "git", "cmake", "ninja", "python", "dotnet",
+    "visual-studio", "git", "cmake", "ninja", "python", "dotnet", "rustup",
     "flutter", "dart", "clang-format", "ruff", "psscriptanalyzer"
 )
 Assert-True ($definitions.Count -eq $expectedIds.Count) "The prerequisite inventory has an unexpected number of entries."

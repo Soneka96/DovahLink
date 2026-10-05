@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Dormant sas-pairing Host integration: an isolated class library over the public SasPairing
+    package. It references no DovahLink project and takes only detached values, and the Host
+    executable does not reference it, so neither the package nor this assembly is part of the
+    running or shipped Host.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <!-- Restores into the ignored out/ folder so a re-acquired SasPairing build of the same version
+         is never served from a stale shared package cache. -->
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)..\..\out\sas-pairing\packages</RestorePackagesPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DovahLink.Host.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Exactly the version host/sas-pairing-dependency.json pins, built by tooling/sas_pairing_dependency.py. -->
+    <PackageReference Include="SasPairing" Version="[0.1.0-dev.1]" />
+  </ItemGroup>
+
+</Project>

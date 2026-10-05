@@ -5,6 +5,9 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <IsPackable>false</IsPackable>
+    <!-- Restores into the ignored out/ folder so the transitively referenced SasPairing build is
+         never served from a stale shared package cache. -->
+    <RestorePackagesPath>$(MSBuildThisFileDirectory)..\..\out\sas-pairing\packages</RestorePackagesPath>
   </PropertyGroup>
 
   <ItemGroup>
@@ -19,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\DovahLink.Host\DovahLink.Host.csproj" />
+    <ProjectReference Include="..\DovahLink.Host.PairingCeremony\DovahLink.Host.PairingCeremony.csproj" />
   </ItemGroup>
 
   <ItemGroup>

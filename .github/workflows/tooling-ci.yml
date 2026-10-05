@@ -17,6 +17,10 @@ on:
       - "ai/context/**"
       - "app/**"
       - "host/CHANGELOG.md"
+      - "host/**/*.csproj"
+      - "host/DovahLink.Host.slnx"
+      - "host/nuget.config"
+      - "host/sas-pairing-dependency.json"
       - "integration/**"
       - "protocol/**"
       - "sdk/**"
@@ -90,6 +94,8 @@ jobs:
           export PATH="$RUNNER_TEMP/LLVM-$llvm_version-Linux-X64/bin:$PATH"
           clang-format --version
           python -m pip install ruff
+          # The dormant Host integration restores SasPairing only from the pinned, locally built feed.
+          python tooling/sas_pairing_dependency.py acquire
           pwsh -NoProfile -NonInteractive -Command "Install-Module PSScriptAnalyzer -Scope CurrentUser -Force"
           while IFS= read -r -d '' project; do
             dotnet restore "$project"
