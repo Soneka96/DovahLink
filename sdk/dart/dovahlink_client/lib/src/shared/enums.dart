@@ -491,6 +491,17 @@ enum HostVersionCompatibilityFailure {
 
 // ---- State synchronization ----
 
+/// The runtime cell classification included in a player-location Snapshot.
+enum PlayerLocationCellKind {
+  /// The player is in an interior cell.
+  @JsonValue('interior')
+  interior,
+
+  /// The player is in an exterior cell.
+  @JsonValue('exterior')
+  exterior,
+}
+
 /// A public state domain the SDK client can subscribe to.
 enum DovahLinkStateArea {
   /// The character's current experience and progress to the next level.
@@ -506,7 +517,13 @@ enum DovahLinkStateArea {
   characterIdentity('character_identity'),
 
   /// The independent vampire and transformation-capability observations.
-  characterSupernaturalTraits('character_supernatural_traits');
+  characterSupernaturalTraits('character_supernatural_traits'),
+
+  /// The player's current cell, selected location, and worldspace.
+  playerLocation('player_location'),
+
+  /// The current Skyrim calendar time.
+  gameTime('game_time');
 
   /// The canonical protocol value for this area.
   final String protocolValue;

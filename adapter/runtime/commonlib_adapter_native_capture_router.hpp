@@ -10,21 +10,16 @@
 
 namespace dovahlink::adapter::runtime {
 
-///  The real, CommonLib-backed `IAdapterNativeCaptureRouter` implementation
-///  for Stage 4's narrow first capture slice, per
-///  `roadmap/04-live-state-synchronization-foundation.md`'s "Real capture
-///  and host integration". Maps each host-owned `CharacterSampleToken` to its
-///  one approved `CommonLibCharacterCapture` read and encodes the result
-///  into the little-endian wire payload the host's own `LiveCaptureSink`
-///  decodes: 24 bytes (six float32 current/maximum vitals values),
-///  4 bytes (one float32) for XP, 2 bytes (one uint16) for the level
-///  baseline, and up to 254 bytes for identity encoded as one-byte name
-///  length/name UTF-8/one-byte race length/race UTF-8. An unknown token reports
-///  3 bytes for supernatural traits encoded as three independent 0/1 values.
-///  An unknown token reports `SampleCaptureStatus::kUnsupported`; a known
-///  token whose underlying read is currently unavailable reports
-///  `kUnavailable` -- distinct outcomes, per
-///  `IAdapterNativeCaptureRouter::CaptureSample`'s own contract.
+///  The real, CommonLib-backed `IAdapterNativeCaptureRouter` implementation.
+///  Maps each host-owned `CharacterSampleToken` to its approved Skyrim read and
+///  encodes the result into the little-endian private payload consumed by the
+///  Host: 24 bytes for Vitals, 4 for XP, 2 for the level baseline, up to 254
+///  for Identity, 3 for supernatural traits, up to 229 for Player Location
+///  (four FormIDs, cell kind, and four bounded UTF-8 names), and up to 143 for
+///  Game Time (four raw float globals and one bounded localized month name). An
+///  unknown token reports `SampleCaptureStatus::kUnsupported`; a known token
+///  whose required source is unavailable reports `kUnavailable` -- distinct
+///  outcomes, per `IAdapterNativeCaptureRouter::CaptureSample`'s own contract.
 ///
 ///  Also registers and owns the `RE::LevelIncrease::Event` sink for
 ///  `CharacterEventKey::kCharacterLevelChanged`: a spontaneous native event

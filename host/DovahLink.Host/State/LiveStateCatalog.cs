@@ -75,6 +75,18 @@ public sealed class LiveStateCatalog
                 [new StateAreaId(Constants.CharacterSupernaturalTraitsStateArea)]),
             new CaptureUnitDefinition(
                 CaptureSourceKind.Sample,
+                (uint)CharacterSampleToken.PlayerLocation,
+                RateClass.Slow,
+                SynchronizationRole.BaselineSample,
+                [new StateAreaId(Constants.PlayerLocationStateArea)]),
+            new CaptureUnitDefinition(
+                CaptureSourceKind.Sample,
+                (uint)CharacterSampleToken.GameTime,
+                RateClass.Slow,
+                SynchronizationRole.BaselineSample,
+                [new StateAreaId(Constants.GameTimeStateArea)]),
+            new CaptureUnitDefinition(
+                CaptureSourceKind.Sample,
                 (uint)CharacterSampleToken.CharacterLevelBaseline,
                 RateClass: null,
                 SynchronizationRole: SynchronizationRole.BaselineSample,
@@ -92,6 +104,8 @@ public sealed class LiveStateCatalog
             new StateAreaDefinition(new StateAreaId(Constants.CharacterXpStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterIdentityStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterSupernaturalTraitsStateArea), UpdateMode.Snapshot),
+            new StateAreaDefinition(new StateAreaId(Constants.PlayerLocationStateArea), UpdateMode.Snapshot),
+            new StateAreaDefinition(new StateAreaId(Constants.GameTimeStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterLevelStateArea), UpdateMode.Event),
         ]);
 

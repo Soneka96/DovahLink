@@ -5,6 +5,7 @@
 #include <string>
 #include <utility>
 
+using dovahlink::adapter::test_support::NormalizeWhitespace;
 using dovahlink::adapter::test_support::ReadSource;
 
 namespace {
@@ -261,12 +262,15 @@ TEST_CASE("the adapter plugin rejects an unsupported runtime before "
 
 TEST_CASE("the adapter plugin logs both compatibility flags unconditionally",
           "[plugin][compatibility]") {
-    std::string source = ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE);
+    std::string source = NormalizeWhitespace(
+        ReadSource(DOVAHLINK_ADAPTER_PLUGIN_SOURCE_FILE));
     std::size_t configPos = source.find("ReadAdapterGameBehaviorConfig(");
-    std::size_t alwaysActiveLog = source.find("Always-active mode: {}");
-    std::size_t achievementLog = source.find("Achievement compatibility: {}");
-    std::size_t alwaysActiveGuard =
-        source.find("if (behaviorConfig.alwaysActive)");
+    std::size_t alwaysActiveLog =
+        source.find(NormalizeWhitespace("Always-active mode: {}"));
+    std::size_t achievementLog =
+        source.find(NormalizeWhitespace("Achievement compatibility: {}"));
+    std::size_t alwaysActiveGuard = source.find(
+        NormalizeWhitespace("if (behaviorConfig.alwaysActive)"));
     REQUIRE(configPos != std::string::npos);
     REQUIRE(alwaysActiveLog != std::string::npos);
     REQUIRE(achievementLog != std::string::npos);
@@ -278,4 +282,10 @@ TEST_CASE("the adapter plugin logs both compatibility flags unconditionally",
     CHECK(configPos < alwaysActiveLog);
     CHECK(alwaysActiveLog < achievementLog);
     CHECK(achievementLog < alwaysActiveGuard);
+    CHECK(source.find(
+              NormalizeWhitespace("SKSE::log::debug(\"Always-active mode: {}\"")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              "SKSE::log::debug(\"Achievement compatibility: {}\"")) !=
+          std::string::npos);
 }

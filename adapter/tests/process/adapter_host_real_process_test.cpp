@@ -1,7 +1,9 @@
 #include "capture/adapter_capture_handoff_queue.hpp"
 #include "capture/character_identity_capture.hpp"
 #include "capture/character_supernatural_traits_capture.hpp"
+#include "capture/game_time_capture.hpp"
 #include "capture/live_state_sample_codec.hpp"
+#include "capture/player_location_capture.hpp"
 #include "constants.hpp"
 #include "dispatch/adapter_native_capture_router.hpp"
 #include "enums.hpp"
@@ -66,10 +68,16 @@ using dovahlink::adapter::capture::CharacterSupernaturalTraitsCapture;
 using dovahlink::adapter::capture::EncodeCharacterSupernaturalTraitsPayload;
 using dovahlink::adapter::capture::EncodeFloatLittleEndian;
 using dovahlink::adapter::capture::EncodeUInt16LittleEndian;
+using dovahlink::adapter::capture::GameTimeCapture;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::capture::MakeCapturedPayload;
+using dovahlink::adapter::capture::PlayerLocationCapture;
 using dovahlink::adapter::capture::TryEncodeCharacterIdentityPayload;
+using dovahlink::adapter::capture::TryEncodeGameTimePayload;
+using dovahlink::adapter::capture::TryEncodePlayerLocationPayload;
 using dovahlink::adapter::capture::TryMakeCharacterIdentityCapture;
+using dovahlink::adapter::capture::TryMakeGameTimeCapture;
+using dovahlink::adapter::capture::TryMakePlayerLocationCapture;
 using dovahlink::adapter::dispatch::AdapterNativeCaptureRouter;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::dispatch::SampleCaptureResult;
@@ -325,8 +333,8 @@ class AcceptingCaptureRouter final
 ///  shape and wire encoding (via the same production
 ///  `EncodeFloatLittleEndian`/`EncodeUInt16LittleEndian`/`MakeCapturedPayload`
 ///  helpers) so the real Host's real resynchronization plan -- which
-///  currently requires the full Character baseline, not XP alone -- actually
-///  completes. `EmitLevelChanged` additionally mirrors
+///  requires every registered production baseline, including Player Location
+///  and Game Time, actually completes. `EmitLevelChanged` additionally mirrors
 ///  `CommonLibAdapterNativeCaptureRouter::LevelChangedEventSink::ProcessEvent`,
 ///  the real `RE::LevelIncrease::Event` sink, so the Level Event E2E test can
 ///  simulate that native callback without touching Skyrim/CommonLib/SKSE,
@@ -380,6 +388,44 @@ class DeterministicBaselineCaptureRouter final
                 .payload = EncodeCharacterSupernaturalTraitsPayload(
                     CharacterSupernaturalTraitsCapture{}),
             };
+        case CharacterSampleToken::kPlayerLocation: {
+            const auto location = TryMakePlayerLocationCapture(
+                0x01000010,
+                false,
+                "WhiterunWorld",
+                0x000A1234,
+                "Whiterun",
+                0x000A5678,
+                "Whiterun",
+                0x00000001,
+                "Skyrim");
+            if (!location) {
+                return SampleCaptureResult{
+                    .status = SampleCaptureStatus::kUnavailable};
+            }
+            const auto payload = TryEncodePlayerLocationPayload(*location);
+            if (!payload) {
+                return SampleCaptureResult{
+                    .status = SampleCaptureStatus::kUnavailable};
+            }
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = *payload};
+        }
+        case CharacterSampleToken::kGameTime: {
+            const auto gameTime =
+                TryMakeGameTimeCapture(201.0f, 8.0f, 17.0f, 17.75f, "Hearthfire");
+            if (!gameTime) {
+                return SampleCaptureResult{
+                    .status = SampleCaptureStatus::kUnavailable};
+            }
+            const auto payload = TryEncodeGameTimePayload(*gameTime);
+            if (!payload) {
+                return SampleCaptureResult{
+                    .status = SampleCaptureStatus::kUnavailable};
+            }
+            return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
+                                       .payload = *payload};
+        }
         case CharacterSampleToken::kCharacterLevelBaseline: {
             std::array<std::byte, 2> encoded = EncodeUInt16LittleEndian(10);
             return SampleCaptureResult{.status = SampleCaptureStatus::kAvailable,
@@ -2428,14 +2474,15 @@ TEST_CASE("a real native adapter's play-context-changed notification is "
 }
 
 TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
-          "reaches a real public WebSocket client as coherent Vitals and XP "
-          "Snapshot",
+          "reaches a real public WebSocket client as Vitals, XP, Game Time, "
+          "and Player Location Snapshots",
           "[process][integration]") {
     //  The end-to-end live-state proof: a synthetic native capture in this
     //  real Adapter test process crosses the real AdapterIpcSession, the
     //  real AdapterCaptureHandoffQueue, the real private IPC connection, a
     //  real launched Host process, its real LiveCaptureSink/
-    //  CharacterCaptureHandler/LiveStateApplication/StatePublisher/
+    //  Character, GameTimeCaptureHandler, and PlayerLocationCaptureHandler/
+    //  LiveStateApplication/StatePublisher/
     //  publication feed, and finally the real public WebSocket transport --
     //  observed here only through a real public client, never by inspecting
     //  Host-internal services directly. XP = 42.5 travels only because
@@ -2516,15 +2563,15 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     std::string ackOutcome = client.ReceiveText();
     REQUIRE(ackOutcome.find(R"("outcome":"trusted")") != std::string::npos);
 
-    //  Full trust now: subscribe to coherent Vitals and XP
-    //  cares about. subscription_ack accepts it immediately -- registration
+    //  Full trust now: subscribe to coherent Vitals, XP, Game Time, and Player Location.
+    //  subscription_ack accepts them immediately -- registration
     //  (RegisteredStateAreaPolicy) is independent of whether a baseline
     //  value is available yet -- so acceptance alone does not prove the
     //  resynchronization baseline arrived; the state_snapshot below does.
     client.SendText(
         R"({"messageType":"subscribe","messageId":"m5","sessionId":")" +
         sessionId +
-        R"(","correlationId":null,"payload":{"stateAreas":["character_vitals","character_xp"]},)"
+        R"(","correlationId":null,"payload":{"stateAreas":["character_vitals","character_xp","game_time","player_location"]},)"
         R"("playContextId":null,"clientId":")" +
         clientId + R"("})");
     std::string subscriptionAck = client.ReceiveText();
@@ -2534,6 +2581,10 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
             std::string::npos);
     REQUIRE(subscriptionAck.find(R"("character_xp")") !=
             std::string::npos);
+    REQUIRE(subscriptionAck.find(R"("player_location")") !=
+            std::string::npos);
+    REQUIRE(subscriptionAck.find(R"("game_time")") !=
+            std::string::npos);
 
     //  The Host's own pending-baseline mechanism (Constants.PendingBaselineDeadline
     //  = 5s) answers this subscribe with the baseline state_snapshot once the
@@ -2542,12 +2593,16 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     //  A well-formed hello_ack/capabilities/subscription_ack may legitimately
     //  precede it, so this waits for the specific expected message type
     //  rather than assuming the very next frame.
-    std::array<std::string, 2> snapshots = {
+    std::array<std::string, 4> snapshots = {
+        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15)),
+        ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15)),
         ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15)),
         ReceiveUntil(client, "state_snapshot", std::chrono::seconds(15)),
     };
     std::string xpSnapshot;
     std::string vitalsSnapshot;
+    std::string locationSnapshot;
+    std::string gameTimeSnapshot;
     for (const std::string& snapshot : snapshots) {
         std::string area = ExtractJsonStringField(snapshot, "stateArea");
         CHECK(ExtractJsonStringField(snapshot, "correlationId") == "m5");
@@ -2558,10 +2613,16 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
             xpSnapshot = snapshot;
         } else if (area == "character_vitals") {
             vitalsSnapshot = snapshot;
+        } else if (area == "player_location") {
+            locationSnapshot = snapshot;
+        } else if (area == "game_time") {
+            gameTimeSnapshot = snapshot;
         }
     }
     REQUIRE_FALSE(xpSnapshot.empty());
     REQUIRE_FALSE(vitalsSnapshot.empty());
+    REQUIRE_FALSE(locationSnapshot.empty());
+    REQUIRE_FALSE(gameTimeSnapshot.empty());
     CHECK(ExtractJsonNumberField(xpSnapshot, "value") == 42.5);
     CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "health", "current") == 100.0);
     CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "health", "max") == 410.0);
@@ -2569,6 +2630,18 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "magicka", "max") == 220.0);
     CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "stamina", "current") == 90.0);
     CHECK(ExtractNestedJsonNumberField(vitalsSnapshot, "stamina", "max") == 300.0);
+    CHECK(locationSnapshot.find(R"("cellId":16777232)") != std::string::npos);
+    CHECK(locationSnapshot.find(R"("cellKind":"exterior")") != std::string::npos);
+    CHECK(locationSnapshot.find(R"("locationId":660020)") != std::string::npos);
+    CHECK(locationSnapshot.find(R"("locationName":"Whiterun")") != std::string::npos);
+    CHECK(locationSnapshot.find(R"("worldspaceId":1)") != std::string::npos);
+    CHECK(locationSnapshot.find(R"("worldspaceName":"Skyrim")") != std::string::npos);
+    CHECK(gameTimeSnapshot.find(R"("year":201)") != std::string::npos);
+    CHECK(gameTimeSnapshot.find(R"("month":9)") != std::string::npos);
+    CHECK(gameTimeSnapshot.find(R"("monthName":"Hearthfire")") != std::string::npos);
+    CHECK(gameTimeSnapshot.find(R"("day":17)") != std::string::npos);
+    CHECK(gameTimeSnapshot.find(R"("hour":17)") != std::string::npos);
+    CHECK(gameTimeSnapshot.find(R"("minute":45)") != std::string::npos);
 
     //  Both baselines belong to the active play context this adapter replayed.
     std::string expectedPlayContextId =
@@ -2576,6 +2649,10 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     CHECK(ExtractJsonStringField(xpSnapshot, "playContextId") ==
           expectedPlayContextId);
     CHECK(ExtractJsonStringField(vitalsSnapshot, "playContextId") ==
+          expectedPlayContextId);
+    CHECK(ExtractJsonStringField(locationSnapshot, "playContextId") ==
+          expectedPlayContextId);
+    CHECK(ExtractJsonStringField(gameTimeSnapshot, "playContextId") ==
           expectedPlayContextId);
 }
 

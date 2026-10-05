@@ -1,0 +1,25 @@
+{
+  "messageType": "state_snapshot",
+  "messageId": "message-player-location-1",
+  "sessionId": "session-1",
+  "correlationId": "message-subscribe-1",
+  "payload": {
+    "stateArea": "player_location",
+    "revision": 1,
+    "occurredAt": "2026-08-11T12:00:00Z",
+    "data": {
+      "value": {
+        "cellId": 123456,
+        "cellKind": "exterior",
+        "cellName": "WhiterunWorld",
+        "locationId": 98765,
+        "locationName": "Whiterun",
+        "worldspaceId": 1,
+        "worldspaceName": "Skyrim"
+      }
+    }
+  },
+  "stateAuthorityId": "state-authority-1",
+  "playContextId": null,
+  "clientId": null
+}

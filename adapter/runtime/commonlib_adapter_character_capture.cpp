@@ -6,7 +6,9 @@
 
 #include "runtime/commonlib_adapter_character_capture.hpp"
 
+#include <cmath>
 #include <optional>
+#include <string>
 #include <string_view>
 
 #include "constants.hpp"
@@ -24,6 +26,24 @@ std::optional<std::string_view> TryMakeIdentityStringView(const char* value) {
         return std::nullopt;
     }
     for (std::size_t length = 0; length <= capture::kMaxCharacterIdentityStringBytes; ++length) {
+        if (value[length] == '\0') {
+            if (length == 0) {
+                return std::nullopt;
+            }
+            return std::string_view(value, length);
+        }
+    }
+    return std::nullopt;
+}
+
+///  Makes a bounded view over an optional player-location display name.
+///  @param value The runtime-owned NUL-terminated name.
+///  @return A non-empty name within the location byte limit, or `std::nullopt` when absent or too long.
+std::optional<std::string_view> TryMakePlayerLocationStringView(const char* value) {
+    if (value == nullptr) {
+        return std::nullopt;
+    }
+    for (std::size_t length = 0; length <= capture::kMaxPlayerLocationNameBytes; ++length) {
         if (value[length] == '\0') {
             if (length == 0) {
                 return std::nullopt;
@@ -92,6 +112,63 @@ std::optional<capture::CharacterIdentityCapture> CaptureCharacterIdentity() {
         return std::nullopt;
     }
     return capture::TryMakeCharacterIdentityCapture(*name, *raceName);
+}
+
+std::optional<capture::PlayerLocationCapture> CapturePlayerLocation() {
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    auto* cell = player == nullptr ? nullptr : player->GetParentCell();
+    if (cell == nullptr) {
+        return std::nullopt;
+    }
+
+    auto* playerLocation = player->GetPlayerRuntimeData().currentLocation;
+    auto* cellLocation = cell->GetLocation();
+    auto* worldspace = cell->GetRuntimeData().worldSpace;
+    return capture::TryMakePlayerLocationCapture(
+        cell->GetFormID(),
+        cell->IsInteriorCell(),
+        TryMakePlayerLocationStringView(cell->GetFullName()),
+        playerLocation == nullptr ? 0 : playerLocation->GetFormID(),
+        playerLocation == nullptr ? std::nullopt : TryMakePlayerLocationStringView(playerLocation->GetFullName()),
+        cellLocation == nullptr ? 0 : cellLocation->GetFormID(),
+        cellLocation == nullptr ? std::nullopt : TryMakePlayerLocationStringView(cellLocation->GetFullName()),
+        worldspace == nullptr ? 0 : worldspace->GetFormID(),
+        worldspace == nullptr ? std::nullopt : TryMakePlayerLocationStringView(worldspace->GetFullName()));
+}
+
+std::optional<capture::GameTimeCapture> CaptureGameTime() {
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    auto* calendar = RE::Calendar::GetSingleton();
+    if (player == nullptr || calendar == nullptr) {
+        return std::nullopt;
+    }
+
+    auto* year = calendar->gameYear;
+    auto* month = calendar->gameMonth;
+    auto* day = calendar->gameDay;
+    auto* hour = calendar->gameHour;
+    if (year == nullptr || month == nullptr || day == nullptr || hour == nullptr ||
+        year->type != RE::TESGlobal::Type::kFloat ||
+        month->type != RE::TESGlobal::Type::kFloat ||
+        day->type != RE::TESGlobal::Type::kFloat ||
+        hour->type != RE::TESGlobal::Type::kFloat) {
+        return std::nullopt;
+    }
+
+    const float rawMonth = month->value;
+    if (!std::isfinite(rawMonth) || rawMonth < 0.0f ||
+        rawMonth >= static_cast<float>(RE::Calendar::Months::kTotal) ||
+        std::trunc(rawMonth) != rawMonth) {
+        return std::nullopt;
+    }
+
+    const std::string monthName = calendar->GetMonthName();
+    return capture::TryMakeGameTimeCapture(
+        year->value,
+        rawMonth,
+        day->value,
+        hour->value,
+        monthName);
 }
 
 std::optional<capture::CharacterSupernaturalTraitsCapture>

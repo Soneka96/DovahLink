@@ -1,24 +1,37 @@
 #include "capture/character_identity_capture.hpp"
 #include "capture/character_supernatural_traits_capture.hpp"
+#include "capture/game_time_capture.hpp"
+#include "capture/player_location_capture.hpp"
 #include "test_support/source_text_test_support.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <string>
 #include <string_view>
 
 using dovahlink::adapter::capture::CharacterIdentityCapture;
 using dovahlink::adapter::capture::CharacterSupernaturalTraitsCapture;
 using dovahlink::adapter::capture::EncodeCharacterSupernaturalTraitsPayload;
+using dovahlink::adapter::capture::EncodeFloatLittleEndian;
+using dovahlink::adapter::capture::GameTimeCapture;
 using dovahlink::adapter::capture::kMaxCharacterIdentityStringBytes;
+using dovahlink::adapter::capture::kMaxGameMonthNameBytes;
+using dovahlink::adapter::capture::kMaxPlayerLocationNameBytes;
+using dovahlink::adapter::capture::PlayerLocationCapture;
 using dovahlink::adapter::capture::TryEncodeCharacterIdentityPayload;
+using dovahlink::adapter::capture::TryEncodeGameTimePayload;
+using dovahlink::adapter::capture::TryEncodePlayerLocationPayload;
 using dovahlink::adapter::capture::TryMakeCharacterIdentityCapture;
+using dovahlink::adapter::capture::TryMakeGameTimeCapture;
+using dovahlink::adapter::capture::TryMakePlayerLocationCapture;
 using dovahlink::adapter::test_support::NormalizeWhitespace;
 using dovahlink::adapter::test_support::ReadSource;
 
 static_assert(kMaxCharacterIdentityStringBytes == 126);
+static_assert(kMaxPlayerLocationNameBytes == 52);
 
 TEST_CASE("CommonLibAdapterCharacterCapture's vitals read current values and "
           "effective maximums from one coherent player capture",
@@ -283,4 +296,295 @@ TEST_CASE("Supernatural traits encode all eight independent boolean "
                 static_cast<std::byte>(traits.hasVampireLordForm ? 1 : 0),
                 static_cast<std::byte>(traits.hasWerewolfForm ? 1 : 0)}));
     }
+}
+
+TEST_CASE("Player location copies distinct bounded engine facts and encodes them in field order",
+          "[runtime][player_location_capture]") {
+    const auto capture = TryMakePlayerLocationCapture(
+        0x01000010,
+        false,
+        "WhiterunWorld",
+        0x000A1234,
+        "Whiterun",
+        0x000A5678,
+        "Whiterun",
+        0x00000001,
+        "Skyrim");
+    REQUIRE(capture.has_value());
+    CHECK(capture->cellFormId == 0x01000010);
+    CHECK_FALSE(capture->cellIsInterior);
+    CHECK(capture->playerLocationFormId == 0x000A1234);
+    CHECK(capture->cellLocationFormId == 0x000A5678);
+    CHECK(capture->worldspaceFormId == 0x00000001);
+    CHECK(std::string_view(capture->cellName.data(), capture->cellNameLength) == "WhiterunWorld");
+    CHECK(std::string_view(capture->playerLocationName.data(), capture->playerLocationNameLength) == "Whiterun");
+    CHECK(std::string_view(capture->cellLocationName.data(), capture->cellLocationNameLength) == "Whiterun");
+    CHECK(std::string_view(capture->worldspaceName.data(), capture->worldspaceNameLength) == "Skyrim");
+
+    const auto payload = TryEncodePlayerLocationPayload(*capture);
+    REQUIRE(payload.has_value());
+    const auto bytes = payload->AsSpan();
+    REQUIRE(bytes.size() == 21 + std::string_view("WhiterunWorld").size() +
+                                2 * std::string_view("Whiterun").size() +
+                                std::string_view("Skyrim").size());
+    CHECK(bytes[0] == std::byte{0x10});
+    CHECK(bytes[1] == std::byte{0x00});
+    CHECK(bytes[2] == std::byte{0x00});
+    CHECK(bytes[3] == std::byte{0x01});
+    CHECK(bytes[4] == std::byte{0x00});
+    CHECK(bytes[5] == std::byte{13});
+    CHECK(std::string_view(reinterpret_cast<const char*>(bytes.data() + 6), 13) == "WhiterunWorld");
+    CHECK(bytes[23] == std::byte{8});
+    CHECK(std::string_view(reinterpret_cast<const char*>(bytes.data() + 24), 8) == "Whiterun");
+    CHECK(bytes[36] == std::byte{8});
+    CHECK(std::string_view(reinterpret_cast<const char*>(bytes.data() + 37), 8) == "Whiterun");
+    CHECK(bytes[49] == std::byte{6});
+    CHECK(std::string_view(reinterpret_cast<const char*>(bytes.data() + 50), 6) == "Skyrim");
+}
+
+TEST_CASE("Player location keeps a valid unnamed cell available without location or worldspace",
+          "[runtime][player_location_capture]") {
+    const auto capture = TryMakePlayerLocationCapture(
+        0x01000010,
+        true,
+        std::nullopt,
+        0,
+        std::nullopt,
+        0,
+        std::nullopt,
+        0,
+        std::nullopt);
+    REQUIRE(capture.has_value());
+
+    const auto payload = TryEncodePlayerLocationPayload(*capture);
+    REQUIRE(payload.has_value());
+    CHECK(payload->size == 21);
+    CHECK(payload->AsSpan()[4] == std::byte{1});
+}
+
+TEST_CASE("Player location preserves localized UTF-8 display names",
+          "[runtime][player_location_capture]") {
+    const std::string_view localizedCellName = "Monast\xC3\xA8"
+                                               "re du lac";
+    const std::string_view localizedLocationName =
+        "Cr\xC3\xAA"
+        "te de l\xE2\x80\x99"
+        "ours";
+    const auto capture = TryMakePlayerLocationCapture(
+        1,
+        true,
+        localizedCellName,
+        2,
+        localizedLocationName,
+        3,
+        localizedLocationName,
+        4,
+        "Solitude");
+    REQUIRE(capture.has_value());
+
+    CHECK(std::string_view(capture->cellName.data(), capture->cellNameLength) == localizedCellName);
+    CHECK(std::string_view(capture->playerLocationName.data(), capture->playerLocationNameLength) == localizedLocationName);
+    const auto payload = TryEncodePlayerLocationPayload(*capture);
+    REQUIRE(payload.has_value());
+    CHECK(payload->size > 21);
+}
+
+TEST_CASE("Player location names accept the exact bound and omit oversized or malformed optional names",
+          "[runtime][player_location_capture]") {
+    const std::string maximum(kMaxPlayerLocationNameBytes, 'x');
+    const std::string oversized(kMaxPlayerLocationNameBytes + 1, 'x');
+    const auto exact = TryMakePlayerLocationCapture(
+        1, false, maximum, 2, maximum, 3, maximum, 4, maximum);
+    REQUIRE(exact.has_value());
+    const auto payload = TryEncodePlayerLocationPayload(*exact);
+    REQUIRE(payload.has_value());
+    CHECK(payload->size == 4 * sizeof(std::uint32_t) + 1 + 4 * (1 + kMaxPlayerLocationNameBytes));
+
+    const auto oversizedName = TryMakePlayerLocationCapture(
+        1, false, oversized, 2, "Location", 3, "Cell location", 4, "Worldspace");
+    REQUIRE(oversizedName.has_value());
+    CHECK(oversizedName->cellNameLength == 0);
+
+    const auto malformedUtf8 = TryMakePlayerLocationCapture(
+        1,
+        false,
+        std::string_view("\xC3", 1),
+        2,
+        std::nullopt,
+        3,
+        std::nullopt,
+        4,
+        std::nullopt);
+    REQUIRE(malformedUtf8.has_value());
+    CHECK(malformedUtf8->cellNameLength == 0);
+
+    const auto embeddedNul = TryMakePlayerLocationCapture(
+        1,
+        false,
+        std::string_view("Bad\0name", 8),
+        2,
+        std::nullopt,
+        3,
+        std::nullopt,
+        4,
+        std::nullopt);
+    REQUIRE(embeddedNul.has_value());
+    CHECK(embeddedNul->cellNameLength == 0);
+}
+
+TEST_CASE("Player location rejects missing cells and names without matching runtime FormIDs",
+          "[runtime][player_location_capture]") {
+    CHECK_FALSE(TryMakePlayerLocationCapture(
+                    0, false, std::nullopt, 2, std::nullopt, 3, std::nullopt, 4, std::nullopt)
+                    .has_value());
+    CHECK_FALSE(TryMakePlayerLocationCapture(
+                    1, false, std::nullopt, 0, "Orphaned location", 3, std::nullopt, 4, std::nullopt)
+                    .has_value());
+    CHECK_FALSE(TryMakePlayerLocationCapture(
+                    1, false, std::nullopt, 2, std::nullopt, 0, "Orphaned cell location", 4, std::nullopt)
+                    .has_value());
+    CHECK_FALSE(TryMakePlayerLocationCapture(
+                    1, false, std::nullopt, 2, std::nullopt, 3, std::nullopt, 0, "Orphaned worldspace")
+                    .has_value());
+
+    PlayerLocationCapture malformed{};
+    malformed.cellFormId = 1;
+    malformed.playerLocationFormId = 2;
+    malformed.cellLocationFormId = 3;
+    malformed.worldspaceFormId = 4;
+    const auto oversizedLength = static_cast<std::uint8_t>(kMaxPlayerLocationNameBytes + 1);
+    for (int field = 0; field < 4; ++field) {
+        PlayerLocationCapture invalid = malformed;
+        switch (field) {
+        case 0:
+            invalid.cellNameLength = oversizedLength;
+            break;
+        case 1:
+            invalid.playerLocationNameLength = oversizedLength;
+            break;
+        case 2:
+            invalid.cellLocationNameLength = oversizedLength;
+            break;
+        case 3:
+            invalid.worldspaceNameLength = oversizedLength;
+            break;
+        }
+        CHECK_FALSE(TryEncodePlayerLocationPayload(invalid).has_value());
+    }
+}
+
+TEST_CASE("CommonLibAdapterCharacterCapture reads bounded location facts from the current player and cell",
+          "[runtime][commonlib_adapter_character_capture][structural]") {
+    const std::string source = ReadSource(DOVAHLINK_ADAPTER_CHARACTER_CAPTURE_SOURCE_FILE);
+    const std::size_t captureStart = source.find("CapturePlayerLocation() {");
+    REQUIRE(captureStart != std::string::npos);
+    const std::string_view captureSource = std::string_view(source).substr(captureStart);
+    const std::string normalizedCaptureSource = NormalizeWhitespace(captureSource);
+
+    CHECK(captureSource.find("RE::PlayerCharacter::GetSingleton()") != std::string_view::npos);
+    CHECK(normalizedCaptureSource.find(NormalizeWhitespace(
+              "auto* cell = player == nullptr ? nullptr : player->GetParentCell();")) !=
+          std::string::npos);
+    CHECK(normalizedCaptureSource.find(NormalizeWhitespace(
+              "if (cell == nullptr) { return std::nullopt; }")) != std::string::npos);
+    CHECK(captureSource.find("player->GetPlayerRuntimeData().currentLocation") != std::string_view::npos);
+    CHECK(captureSource.find("cell->GetLocation()") != std::string_view::npos);
+    CHECK(captureSource.find("cell->GetRuntimeData().worldSpace") != std::string_view::npos);
+    CHECK(captureSource.find("playerLocation == nullptr ? std::nullopt") != std::string_view::npos);
+    CHECK(captureSource.find("cellLocation == nullptr ? std::nullopt") != std::string_view::npos);
+    CHECK(captureSource.find("worldspace == nullptr ? std::nullopt") != std::string_view::npos);
+    CHECK(captureSource.find("GetParentLocation") == std::string_view::npos);
+    CHECK(captureSource.find("TryMakePlayerLocationStringView") != std::string_view::npos);
+}
+
+TEST_CASE("Game time preserves raw Calendar globals and the localized month name in its bounded payload",
+          "[runtime][game_time_capture]") {
+    const auto capture = TryMakeGameTimeCapture(201.0f, 8.0f, 17.0f, 17.75f, "Hearthfire");
+    REQUIRE(capture.has_value());
+    CHECK(capture->year == 201.0f);
+    CHECK(capture->month == 8.0f);
+    CHECK(capture->day == 17.0f);
+    CHECK(capture->hour == 17.75f);
+
+    const auto payload = TryEncodeGameTimePayload(*capture);
+    REQUIRE(payload.has_value());
+    REQUIRE(payload->size == sizeof(float) * 4 + 1 + std::string_view("Hearthfire").size());
+    const auto bytes = payload->AsSpan();
+    const std::array<float, 4> values{201.0f, 8.0f, 17.0f, 17.75f};
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        CHECK(std::ranges::equal(
+            bytes.subspan(index * sizeof(float), sizeof(float)),
+            EncodeFloatLittleEndian(values[index])));
+    }
+    constexpr std::size_t monthNameLengthOffset = sizeof(float) * 4;
+    CHECK(bytes[monthNameLengthOffset] == std::byte{10});
+    CHECK(std::string_view(
+              reinterpret_cast<const char*>(bytes.data() + monthNameLengthOffset + 1), 10) ==
+          "Hearthfire");
+}
+
+TEST_CASE("Game time requires a bounded valid localized month name and finite raw globals",
+          "[runtime][game_time_capture]") {
+    const std::string maximum(kMaxGameMonthNameBytes, 'x');
+    const std::string oversized(kMaxGameMonthNameBytes + 1, 'x');
+    const auto exact = TryMakeGameTimeCapture(201.0f, 0.0f, 1.0f, 0.0f, maximum);
+    REQUIRE(exact.has_value());
+    const auto payload = TryEncodeGameTimePayload(*exact);
+    REQUIRE(payload.has_value());
+    CHECK(payload->size == sizeof(float) * 4 + 1 + kMaxGameMonthNameBytes);
+
+    CHECK_FALSE(TryMakeGameTimeCapture(201.0f, 0.0f, 1.0f, 0.0f, "").has_value());
+    CHECK_FALSE(TryMakeGameTimeCapture(201.0f, 0.0f, 1.0f, 0.0f, oversized).has_value());
+    CHECK_FALSE(TryMakeGameTimeCapture(
+                    201.0f, 0.0f, 1.0f, 0.0f, std::string_view("\xC3", 1))
+                    .has_value());
+    CHECK_FALSE(TryMakeGameTimeCapture(
+                    std::numeric_limits<float>::quiet_NaN(), 0.0f, 1.0f, 0.0f, "Morning Star")
+                    .has_value());
+    CHECK_FALSE(TryMakeGameTimeCapture(
+                    201.0f, 0.0f, 1.0f, std::numeric_limits<float>::infinity(), "Morning Star")
+                    .has_value());
+
+    GameTimeCapture malformed{};
+    malformed.monthNameLength = static_cast<std::uint8_t>(kMaxGameMonthNameBytes + 1);
+    CHECK_FALSE(TryEncodeGameTimePayload(malformed).has_value());
+}
+
+TEST_CASE("CommonLibAdapterCharacterCapture reads Calendar backing globals and rejects incomplete sources",
+          "[runtime][commonlib_adapter_character_capture][structural]") {
+    const std::string source = ReadSource(DOVAHLINK_ADAPTER_CHARACTER_CAPTURE_SOURCE_FILE);
+    const std::size_t captureStart = source.find("CaptureGameTime() {");
+    const std::size_t captureEnd = source.find(
+        "std::optional<capture::CharacterSupernaturalTraitsCapture>", captureStart);
+    REQUIRE(captureStart != std::string::npos);
+    REQUIRE(captureEnd != std::string::npos);
+    const std::string captureSource = NormalizeWhitespace(
+        std::string_view(source).substr(captureStart, captureEnd - captureStart));
+
+    CHECK(captureSource.find(NormalizeWhitespace("RE::PlayerCharacter::GetSingleton()")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("RE::Calendar::GetSingleton()")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("auto* year = calendar->gameYear;")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("auto* month = calendar->gameMonth;")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("auto* day = calendar->gameDay;")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("auto* hour = calendar->gameHour;")) != std::string::npos);
+    CHECK(captureSource.find("TESGlobal::Type::kFloat") != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace(
+              "if (player == nullptr || calendar == nullptr) { return std::nullopt; }")) !=
+          std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace(
+              "if (year == nullptr || month == nullptr || day == nullptr || hour == nullptr")) !=
+          std::string::npos);
+    CHECK(captureSource.find("std::isfinite(rawMonth)") != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace(
+              "rawMonth >= static_cast<float>(RE::Calendar::Months::kTotal)")) !=
+          std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("std::trunc(rawMonth) != rawMonth")) !=
+          std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("calendar->GetMonthName()")) != std::string::npos);
+    CHECK(captureSource.find("GetYear()") == std::string::npos);
+    CHECK(captureSource.find("GetMonth()") == std::string::npos);
+    CHECK(captureSource.find("GetDay()") == std::string::npos);
+    CHECK(captureSource.find("GetHour()") == std::string::npos);
+    CHECK(captureSource.find("GetCurrentGameTime()") == std::string::npos);
+    CHECK(captureSource.find("GetTimescale()") == std::string::npos);
 }

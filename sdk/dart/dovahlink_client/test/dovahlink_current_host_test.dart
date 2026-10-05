@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
 
@@ -25,15 +27,26 @@ void main() {
   late MockCurrentHostSessionService sessionService;
   late MockCurrentHostSubscriptionService subscriptionService;
   late MockCurrentHostCharacter character;
+  late Stream<StateSynchronization<PlayerLocationState?>> playerLocationChanges;
+  late Stream<StateSynchronization<GameTimeState?>> gameTimeChanges;
   late DovahLinkCurrentHost currentHost;
 
   setUp(() {
     sessionService = MockCurrentHostSessionService();
     subscriptionService = MockCurrentHostSubscriptionService();
     character = MockCurrentHostCharacter();
+    playerLocationChanges =
+        Stream<StateSynchronization<PlayerLocationState?>>.value(
+          const StateSynchronization<PlayerLocationState?>.notSubscribed(),
+        );
+    gameTimeChanges = Stream<StateSynchronization<GameTimeState?>>.value(
+      const StateSynchronization<GameTimeState?>.notSubscribed(),
+    );
     currentHost = DovahLinkCurrentHost(
       sessionService: sessionService,
       character: character,
+      playerLocationChanges: playerLocationChanges,
+      gameTimeChanges: gameTimeChanges,
       subscriptionService: subscriptionService,
     );
   });
@@ -60,6 +73,24 @@ void main() {
     test('Property character exposes the grouped Character view', () {
       expect(currentHost.character, same(character));
     });
+  });
+
+  group('Property playerLocationChanges behaves correctly', () {
+    test(
+      'Property playerLocationChanges exposes the synchronization-aware stream',
+      () {
+        expect(currentHost.playerLocationChanges, same(playerLocationChanges));
+      },
+    );
+  });
+
+  group('Property gameTimeChanges behaves correctly', () {
+    test(
+      'Property gameTimeChanges exposes the synchronization-aware stream',
+      () {
+        expect(currentHost.gameTimeChanges, same(gameTimeChanges));
+      },
+    );
   });
 
   group('Method subscribeStateArea behaves correctly', () {

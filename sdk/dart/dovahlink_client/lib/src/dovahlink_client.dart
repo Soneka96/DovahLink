@@ -32,6 +32,9 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/character_state_module.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/game_time_state_module.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/player_location_state_module.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
@@ -152,9 +155,16 @@ class DovahLinkClient {
         });
 
     final ICharacterStateModule characterState = CharacterStateModule();
+    final IGameTimeStateModule gameTimeState = GameTimeStateModule();
+    final IPlayerLocationStateModule playerLocationState =
+        PlayerLocationStateModule();
     final IStateMessageHandler stateMessageHandler = StateMessageHandler(
       sessionService: _sessionService,
-      domains: characterState.domains,
+      domains: <IStateDomainDefinition<Object?>>[
+        ...characterState.domains,
+        playerLocationState.domain,
+        gameTimeState.domain,
+      ],
     );
     final IUnsolicitedMessageHandler unsolicitedMessageHandler =
         UnsolicitedMessageHandler(
@@ -278,6 +288,8 @@ class DovahLinkClient {
     currentHost = DovahLinkCurrentHost(
       sessionService: _sessionService,
       character: characterState.character,
+      playerLocationChanges: playerLocationState.changes,
+      gameTimeChanges: gameTimeState.changes,
       subscriptionService: _subscriptionService,
     );
     pairing = DovahLinkPairing(

@@ -16,6 +16,14 @@ std::string RouterSource() {
 
 } //  namespace
 
+TEST_CASE("CommonLibAdapterNativeCaptureRouter does not emit temporary World Context diagnostics",
+          "[runtime][commonlib_adapter_native_capture_router][structural]") {
+    const std::string source = RouterSource();
+
+    CHECK(source.find("commonlib_world_context_diagnostics") == std::string::npos);
+    CHECK(source.find("CaptureWorldContextDiagnostics") == std::string::npos);
+}
+
 TEST_CASE("CommonLibAdapterNativeCaptureRouter maps each known sample token "
           "to its one approved capture read",
           "[runtime][commonlib_adapter_native_capture_router][structural]") {
@@ -40,6 +48,16 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter maps each known sample token "
               "case capture::CharacterSampleToken::kCharacterSupernaturalTraits: {")) !=
           std::string::npos);
     CHECK(source.find(NormalizeWhitespace("CaptureCharacterSupernaturalTraits()")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              "case capture::CharacterSampleToken::kPlayerLocation: {")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("CapturePlayerLocation()")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace(
+              "case capture::CharacterSampleToken::kGameTime: {")) !=
+          std::string::npos);
+    CHECK(source.find(NormalizeWhitespace("CaptureGameTime()")) !=
           std::string::npos);
 }
 
@@ -74,6 +92,12 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kUnavailable, never a "
           "if (!payload) {\nreturn dispatch::SampleCaptureResult{\n"
           ".status = dispatch::SampleCaptureStatus::kUnavailable};",
           "if (!traits) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!location) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!payload) {\nreturn dispatch::SampleCaptureResult{\n"
+          ".status = dispatch::SampleCaptureStatus::kUnavailable};",
+          "if (!gameTime) {\nreturn dispatch::SampleCaptureResult{\n"
           ".status = dispatch::SampleCaptureStatus::kUnavailable};"}) {
         CHECK(source.find(NormalizeWhitespace(needle)) != std::string::npos);
     }
@@ -121,6 +145,36 @@ TEST_CASE("CommonLibAdapterNativeCaptureRouter reports kAvailable with the "
               ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
               ".payload = capture::EncodeCharacterSupernaturalTraitsPayload(*traits)};")) !=
           std::string_view::npos);
+
+    const auto locationStart = source.find(
+        NormalizeWhitespace("case capture::CharacterSampleToken::kPlayerLocation: {"));
+    REQUIRE(locationStart != std::string::npos);
+    const auto locationEnd = source.find("default:", locationStart);
+    REQUIRE(locationEnd != std::string::npos);
+    const std::string_view locationCase =
+        std::string_view(source).substr(locationStart, locationEnd - locationStart);
+    CHECK(locationCase.find(NormalizeWhitespace("CapturePlayerLocation()")) !=
+          std::string_view::npos);
+    CHECK(locationCase.find(NormalizeWhitespace(
+              "TryEncodePlayerLocationPayload(*location)")) != std::string_view::npos);
+    CHECK(locationCase.find(NormalizeWhitespace(
+              ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
+              ".payload = *payload};")) != std::string_view::npos);
+
+    const auto gameTimeStart = source.find(
+        NormalizeWhitespace("case capture::CharacterSampleToken::kGameTime: {"));
+    REQUIRE(gameTimeStart != std::string::npos);
+    const auto gameTimeEnd = source.find("default:", gameTimeStart);
+    REQUIRE(gameTimeEnd != std::string::npos);
+    const std::string_view gameTimeCase =
+        std::string_view(source).substr(gameTimeStart, gameTimeEnd - gameTimeStart);
+    CHECK(gameTimeCase.find(NormalizeWhitespace("CaptureGameTime()")) !=
+          std::string_view::npos);
+    CHECK(gameTimeCase.find(NormalizeWhitespace(
+              "TryEncodeGameTimePayload(*gameTime)")) != std::string_view::npos);
+    CHECK(gameTimeCase.find(NormalizeWhitespace(
+              ".status = dispatch::SampleCaptureStatus::kAvailable,\n"
+              ".payload = *payload};")) != std::string_view::npos);
 }
 
 TEST_CASE("CommonLibAdapterNativeCaptureRouter encodes each token's payload "

@@ -193,7 +193,8 @@ presentation contract only; no Flutter code belongs to this deviation.
 
 After this foundation, the separately scoped phases are:
 
-1. **World Context Data Foundation:** location, game time, and tracked quest summary.
+1. **World Context Data Foundation:** location, game time, and tracked quest summary. Runtime and
+   source research is recorded in the [World Context Data Foundation research report](../world-context-data-foundation/README.md).
 2. **Active Play Context Lifecycle:** main menu, New Game, loading, save switching, return to menu,
    and gameplay-session admission/closure.
 3. **Session Overview convergence:** connect the approved prototype Overview to the trustworthy
