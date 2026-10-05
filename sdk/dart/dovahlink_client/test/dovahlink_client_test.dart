@@ -650,6 +650,97 @@ void main() {
     );
   });
 
+  group('Behavior Game Time state composition behaves correctly', () {
+    test(
+      'Behavior Game Time state composes a typed stream across subscribe, Snapshot, unavailable, and unsubscribe',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        expect(
+          (await client.currentHost.gameTimeChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['game_time']),
+        );
+        expect(
+          await client.currentHost.subscribeStateArea(
+            DovahLinkStateArea.gameTime,
+          ),
+          isEmpty,
+        );
+        expect(
+          (await client.currentHost.gameTimeChanges.first).status,
+          DovahLinkStateStatus.recovering,
+        );
+
+        final Future<void> synchronized = expectLater(
+          client.currentHost.gameTimeChanges,
+          emitsThrough(
+            predicate<StateSynchronization<GameTimeState?>>(
+              (StateSynchronization<GameTimeState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.stateAuthorityId == 'authority-1' &&
+                  state.playContextId == 'context-1' &&
+                  state.value?.year == 201 &&
+                  state.value?.month == 9 &&
+                  state.value?.monthName == 'Hearthfire' &&
+                  state.value?.day == 17 &&
+                  state.value?.hour == 17 &&
+                  state.value?.minute == 45,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'game_time',
+            revision: 1,
+            value: <String, dynamic>{
+              'year': 201,
+              'month': 9,
+              'monthName': 'Hearthfire',
+              'day': 17,
+              'hour': 17,
+              'minute': 45,
+            },
+          ),
+        );
+        await synchronized;
+
+        final Future<void> unavailable = expectLater(
+          client.currentHost.gameTimeChanges,
+          emitsThrough(
+            predicate<StateSynchronization<GameTimeState?>>(
+              (StateSynchronization<GameTimeState?> state) =>
+                  state.status == DovahLinkStateStatus.unavailable &&
+                  state.value == null &&
+                  state.revision == 2,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(stateArea: 'game_time', revision: 2, value: null),
+        );
+        await unavailable;
+
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: const <String>[]),
+        );
+        expect(
+          await client.currentHost.unsubscribeStateArea(
+            DovahLinkStateArea.gameTime,
+          ),
+          isEmpty,
+        );
+        expect(
+          (await client.currentHost.gameTimeChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+      },
+    );
+  });
+
   group('Behavior grouped API composition behaves correctly', () {
     test(
       'Behavior grouped API pairing authentication recovers pending confirmation in the SDK',

@@ -1,5 +1,6 @@
 #include "capture/character_identity_capture.hpp"
 #include "capture/character_supernatural_traits_capture.hpp"
+#include "capture/game_time_capture.hpp"
 #include "capture/player_location_capture.hpp"
 #include "test_support/source_text_test_support.hpp"
 
@@ -7,18 +8,24 @@
 
 #include <algorithm>
 #include <array>
+#include <limits>
 #include <string>
 #include <string_view>
 
 using dovahlink::adapter::capture::CharacterIdentityCapture;
 using dovahlink::adapter::capture::CharacterSupernaturalTraitsCapture;
 using dovahlink::adapter::capture::EncodeCharacterSupernaturalTraitsPayload;
+using dovahlink::adapter::capture::EncodeFloatLittleEndian;
+using dovahlink::adapter::capture::GameTimeCapture;
 using dovahlink::adapter::capture::kMaxCharacterIdentityStringBytes;
+using dovahlink::adapter::capture::kMaxGameMonthNameBytes;
 using dovahlink::adapter::capture::kMaxPlayerLocationNameBytes;
 using dovahlink::adapter::capture::PlayerLocationCapture;
 using dovahlink::adapter::capture::TryEncodeCharacterIdentityPayload;
+using dovahlink::adapter::capture::TryEncodeGameTimePayload;
 using dovahlink::adapter::capture::TryEncodePlayerLocationPayload;
 using dovahlink::adapter::capture::TryMakeCharacterIdentityCapture;
+using dovahlink::adapter::capture::TryMakeGameTimeCapture;
 using dovahlink::adapter::capture::TryMakePlayerLocationCapture;
 using dovahlink::adapter::test_support::NormalizeWhitespace;
 using dovahlink::adapter::test_support::ReadSource;
@@ -488,4 +495,96 @@ TEST_CASE("CommonLibAdapterCharacterCapture reads bounded location facts from th
     CHECK(captureSource.find("worldspace == nullptr ? std::nullopt") != std::string_view::npos);
     CHECK(captureSource.find("GetParentLocation") == std::string_view::npos);
     CHECK(captureSource.find("TryMakePlayerLocationStringView") != std::string_view::npos);
+}
+
+TEST_CASE("Game time preserves raw Calendar globals and the localized month name in its bounded payload",
+          "[runtime][game_time_capture]") {
+    const auto capture = TryMakeGameTimeCapture(201.0f, 8.0f, 17.0f, 17.75f, "Hearthfire");
+    REQUIRE(capture.has_value());
+    CHECK(capture->year == 201.0f);
+    CHECK(capture->month == 8.0f);
+    CHECK(capture->day == 17.0f);
+    CHECK(capture->hour == 17.75f);
+
+    const auto payload = TryEncodeGameTimePayload(*capture);
+    REQUIRE(payload.has_value());
+    REQUIRE(payload->size == sizeof(float) * 4 + 1 + std::string_view("Hearthfire").size());
+    const auto bytes = payload->AsSpan();
+    const std::array<float, 4> values{201.0f, 8.0f, 17.0f, 17.75f};
+    for (std::size_t index = 0; index < values.size(); ++index) {
+        CHECK(std::ranges::equal(
+            bytes.subspan(index * sizeof(float), sizeof(float)),
+            EncodeFloatLittleEndian(values[index])));
+    }
+    constexpr std::size_t monthNameLengthOffset = sizeof(float) * 4;
+    CHECK(bytes[monthNameLengthOffset] == std::byte{10});
+    CHECK(std::string_view(
+              reinterpret_cast<const char*>(bytes.data() + monthNameLengthOffset + 1), 10) ==
+          "Hearthfire");
+}
+
+TEST_CASE("Game time requires a bounded valid localized month name and finite raw globals",
+          "[runtime][game_time_capture]") {
+    const std::string maximum(kMaxGameMonthNameBytes, 'x');
+    const std::string oversized(kMaxGameMonthNameBytes + 1, 'x');
+    const auto exact = TryMakeGameTimeCapture(201.0f, 0.0f, 1.0f, 0.0f, maximum);
+    REQUIRE(exact.has_value());
+    const auto payload = TryEncodeGameTimePayload(*exact);
+    REQUIRE(payload.has_value());
+    CHECK(payload->size == sizeof(float) * 4 + 1 + kMaxGameMonthNameBytes);
+
+    CHECK_FALSE(TryMakeGameTimeCapture(201.0f, 0.0f, 1.0f, 0.0f, "").has_value());
+    CHECK_FALSE(TryMakeGameTimeCapture(201.0f, 0.0f, 1.0f, 0.0f, oversized).has_value());
+    CHECK_FALSE(TryMakeGameTimeCapture(
+                    201.0f, 0.0f, 1.0f, 0.0f, std::string_view("\xC3", 1))
+                    .has_value());
+    CHECK_FALSE(TryMakeGameTimeCapture(
+                    std::numeric_limits<float>::quiet_NaN(), 0.0f, 1.0f, 0.0f, "Morning Star")
+                    .has_value());
+    CHECK_FALSE(TryMakeGameTimeCapture(
+                    201.0f, 0.0f, 1.0f, std::numeric_limits<float>::infinity(), "Morning Star")
+                    .has_value());
+
+    GameTimeCapture malformed{};
+    malformed.monthNameLength = static_cast<std::uint8_t>(kMaxGameMonthNameBytes + 1);
+    CHECK_FALSE(TryEncodeGameTimePayload(malformed).has_value());
+}
+
+TEST_CASE("CommonLibAdapterCharacterCapture reads Calendar backing globals and rejects incomplete sources",
+          "[runtime][commonlib_adapter_character_capture][structural]") {
+    const std::string source = ReadSource(DOVAHLINK_ADAPTER_CHARACTER_CAPTURE_SOURCE_FILE);
+    const std::size_t captureStart = source.find("CaptureGameTime() {");
+    const std::size_t captureEnd = source.find(
+        "std::optional<capture::CharacterSupernaturalTraitsCapture>", captureStart);
+    REQUIRE(captureStart != std::string::npos);
+    REQUIRE(captureEnd != std::string::npos);
+    const std::string captureSource = NormalizeWhitespace(
+        std::string_view(source).substr(captureStart, captureEnd - captureStart));
+
+    CHECK(captureSource.find(NormalizeWhitespace("RE::PlayerCharacter::GetSingleton()")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("RE::Calendar::GetSingleton()")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("auto* year = calendar->gameYear;")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("auto* month = calendar->gameMonth;")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("auto* day = calendar->gameDay;")) != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("auto* hour = calendar->gameHour;")) != std::string::npos);
+    CHECK(captureSource.find("TESGlobal::Type::kFloat") != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace(
+              "if (player == nullptr || calendar == nullptr) { return std::nullopt; }")) !=
+          std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace(
+              "if (year == nullptr || month == nullptr || day == nullptr || hour == nullptr")) !=
+          std::string::npos);
+    CHECK(captureSource.find("std::isfinite(rawMonth)") != std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace(
+              "rawMonth >= static_cast<float>(RE::Calendar::Months::kTotal)")) !=
+          std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("std::trunc(rawMonth) != rawMonth")) !=
+          std::string::npos);
+    CHECK(captureSource.find(NormalizeWhitespace("calendar->GetMonthName()")) != std::string::npos);
+    CHECK(captureSource.find("GetYear()") == std::string::npos);
+    CHECK(captureSource.find("GetMonth()") == std::string::npos);
+    CHECK(captureSource.find("GetDay()") == std::string::npos);
+    CHECK(captureSource.find("GetHour()") == std::string::npos);
+    CHECK(captureSource.find("GetCurrentGameTime()") == std::string::npos);
+    CHECK(captureSource.find("GetTimescale()") == std::string::npos);
 }

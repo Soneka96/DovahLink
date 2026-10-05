@@ -72,6 +72,7 @@ void main() {
             'character_identity',
             'character_supernatural_traits',
             'player_location',
+            'game_time',
           ],
         );
       },

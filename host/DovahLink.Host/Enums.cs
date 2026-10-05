@@ -359,6 +359,9 @@ public enum CharacterSampleToken : uint
 
     /// <summary>One complete cell, location, and worldspace observation.</summary>
     PlayerLocation = 6,
+
+    /// <summary>One complete authoritative Skyrim calendar observation.</summary>
+    GameTime = 7,
 }
 
 /// <summary>The runtime cell kind reported for the player location.</summary>

@@ -50,6 +50,8 @@ enum class CharacterSampleToken : std::uint32_t {
     kCharacterSupernaturalTraits = 5,
     ///  One complete cell, location, and worldspace observation.
     kPlayerLocation = 6,
+    ///  One complete authoritative Skyrim calendar observation.
+    kGameTime = 7,
 };
 
 ///  A host-owned `IAdapterNativeCaptureRouter::RegisterEvent` key.

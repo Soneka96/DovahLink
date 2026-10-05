@@ -19,6 +19,7 @@ public class LiveStateCatalogTests
             [Constants.CharacterIdentityStateArea] = UpdateMode.Snapshot,
             [Constants.CharacterSupernaturalTraitsStateArea] = UpdateMode.Snapshot,
             [Constants.PlayerLocationStateArea] = UpdateMode.Snapshot,
+            [Constants.GameTimeStateArea] = UpdateMode.Snapshot,
             [Constants.CharacterLevelStateArea] = UpdateMode.Event,
         };
 
@@ -51,7 +52,7 @@ public class LiveStateCatalogTests
         Assert.Equal([new StateAreaId(Constants.CharacterXpStateArea)], xp.StateAreas);
     }
 
-    /// <summary>Verifies metadata and location use independent Slow baseline samples and Snapshot areas.</summary>
+    /// <summary>Verifies metadata, location, and calendar use independent Slow baseline samples and Snapshot areas.</summary>
     [Fact]
     public void Default_SlowCaptureUnits_UseIndependentSnapshotAreas()
     {
@@ -60,6 +61,7 @@ public class LiveStateCatalogTests
             (CharacterSampleToken.CharacterIdentity, Constants.CharacterIdentityStateArea),
             (CharacterSampleToken.CharacterSupernaturalTraits, Constants.CharacterSupernaturalTraitsStateArea),
             (CharacterSampleToken.PlayerLocation, Constants.PlayerLocationStateArea),
+            (CharacterSampleToken.GameTime, Constants.GameTimeStateArea),
         ];
 
         foreach ((CharacterSampleToken token, string stateArea) in metadataSamples)
@@ -109,6 +111,7 @@ public class LiveStateCatalogTests
             (uint)CharacterSampleToken.CharacterIdentity,
             (uint)CharacterSampleToken.CharacterSupernaturalTraits,
             (uint)CharacterSampleToken.PlayerLocation,
+            (uint)CharacterSampleToken.GameTime,
             (uint)CharacterSampleToken.CharacterLevelBaseline,
         ];
         Assert.Equal(expectedSamples.Order(), plan.BaselineSampleTokens.Order());

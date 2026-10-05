@@ -520,7 +520,10 @@ enum DovahLinkStateArea {
   characterSupernaturalTraits('character_supernatural_traits'),
 
   /// The player's current cell, selected location, and worldspace.
-  playerLocation('player_location');
+  playerLocation('player_location'),
+
+  /// The current Skyrim calendar time.
+  gameTime('game_time');
 
   /// The canonical protocol value for this area.
   final String protocolValue;

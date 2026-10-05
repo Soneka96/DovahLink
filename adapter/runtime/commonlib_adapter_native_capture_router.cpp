@@ -157,6 +157,22 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
             .status = dispatch::SampleCaptureStatus::kAvailable,
             .payload = *payload};
     }
+    case capture::CharacterSampleToken::kGameTime: {
+        std::optional<capture::GameTimeCapture> gameTime = CaptureGameTime();
+        if (!gameTime) {
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
+        }
+        std::optional<capture::CapturedPayload> payload =
+            capture::TryEncodeGameTimePayload(*gameTime);
+        if (!payload) {
+            return dispatch::SampleCaptureResult{
+                .status = dispatch::SampleCaptureStatus::kUnavailable};
+        }
+        return dispatch::SampleCaptureResult{
+            .status = dispatch::SampleCaptureStatus::kAvailable,
+            .payload = *payload};
+    }
     default:
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kUnsupported};

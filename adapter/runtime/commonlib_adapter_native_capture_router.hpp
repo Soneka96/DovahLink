@@ -14,8 +14,9 @@ namespace dovahlink::adapter::runtime {
 ///  Maps each host-owned `CharacterSampleToken` to its approved Skyrim read and
 ///  encodes the result into the little-endian private payload consumed by the
 ///  Host: 24 bytes for Vitals, 4 for XP, 2 for the level baseline, up to 254
-///  for Identity, 3 for supernatural traits, and up to 229 for Player
-///  Location (four FormIDs, cell kind, and four bounded UTF-8 names). An
+///  for Identity, 3 for supernatural traits, up to 229 for Player Location
+///  (four FormIDs, cell kind, and four bounded UTF-8 names), and up to 143 for
+///  Game Time (four raw float globals and one bounded localized month name). An
 ///  unknown token reports `SampleCaptureStatus::kUnsupported`; a known token
 ///  whose required source is unavailable reports `kUnavailable` -- distinct
 ///  outcomes, per `IAdapterNativeCaptureRouter::CaptureSample`'s own contract.

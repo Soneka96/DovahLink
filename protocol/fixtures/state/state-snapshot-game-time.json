@@ -1,0 +1,24 @@
+{
+  "messageType": "state_snapshot",
+  "messageId": "message-game-time-1",
+  "sessionId": "session-1",
+  "correlationId": "message-subscribe-1",
+  "payload": {
+    "stateArea": "game_time",
+    "revision": 1,
+    "occurredAt": "2026-08-11T12:00:00Z",
+    "data": {
+      "value": {
+        "year": 201,
+        "month": 9,
+        "monthName": "Hearthfire",
+        "day": 17,
+        "hour": 17,
+        "minute": 45
+      }
+    }
+  },
+  "stateAuthorityId": "state-authority-1",
+  "playContextId": null,
+  "clientId": null
+}

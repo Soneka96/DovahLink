@@ -56,6 +56,8 @@ TEST_CASE("Adapter live-state capture enums match the shared catalog fixture",
           ReadLiveStateToken("characterSupernaturalTraits"));
     CHECK(static_cast<std::uint32_t>(CharacterSampleToken::kPlayerLocation) ==
           ReadLiveStateToken("playerLocation"));
+    CHECK(static_cast<std::uint32_t>(CharacterSampleToken::kGameTime) ==
+          ReadLiveStateToken("gameTime"));
     CHECK(static_cast<std::uint32_t>(
               CharacterEventKey::kCharacterLevelChanged) ==
           ReadLiveStateToken("characterLevelChanged"));

@@ -312,6 +312,8 @@ class ValidateAllTests(unittest.TestCase):
             "state/state-snapshot-character-supernatural-traits-unavailable.json",
             "state/state-snapshot-player-location.json",
             "state/state-snapshot-player-location-unavailable.json",
+            "state/state-snapshot-game-time.json",
+            "state/state-snapshot-game-time-unavailable.json",
             "errors/error-blocked.json",
             "errors/error-frame-too-large.json",
             "errors/error-malformed-message.json",

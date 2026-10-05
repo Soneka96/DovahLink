@@ -6,7 +6,9 @@
 
 #include "runtime/commonlib_adapter_character_capture.hpp"
 
+#include <cmath>
 #include <optional>
+#include <string>
 #include <string_view>
 
 #include "constants.hpp"
@@ -132,6 +134,41 @@ std::optional<capture::PlayerLocationCapture> CapturePlayerLocation() {
         cellLocation == nullptr ? std::nullopt : TryMakePlayerLocationStringView(cellLocation->GetFullName()),
         worldspace == nullptr ? 0 : worldspace->GetFormID(),
         worldspace == nullptr ? std::nullopt : TryMakePlayerLocationStringView(worldspace->GetFullName()));
+}
+
+std::optional<capture::GameTimeCapture> CaptureGameTime() {
+    auto* player = RE::PlayerCharacter::GetSingleton();
+    auto* calendar = RE::Calendar::GetSingleton();
+    if (player == nullptr || calendar == nullptr) {
+        return std::nullopt;
+    }
+
+    auto* year = calendar->gameYear;
+    auto* month = calendar->gameMonth;
+    auto* day = calendar->gameDay;
+    auto* hour = calendar->gameHour;
+    if (year == nullptr || month == nullptr || day == nullptr || hour == nullptr ||
+        year->type != RE::TESGlobal::Type::kFloat ||
+        month->type != RE::TESGlobal::Type::kFloat ||
+        day->type != RE::TESGlobal::Type::kFloat ||
+        hour->type != RE::TESGlobal::Type::kFloat) {
+        return std::nullopt;
+    }
+
+    const float rawMonth = month->value;
+    if (!std::isfinite(rawMonth) || rawMonth < 0.0f ||
+        rawMonth >= static_cast<float>(RE::Calendar::Months::kTotal) ||
+        std::trunc(rawMonth) != rawMonth) {
+        return std::nullopt;
+    }
+
+    const std::string monthName = calendar->GetMonthName();
+    return capture::TryMakeGameTimeCapture(
+        year->value,
+        rawMonth,
+        day->value,
+        hour->value,
+        monthName);
 }
 
 std::optional<capture::CharacterSupernaturalTraitsCapture>

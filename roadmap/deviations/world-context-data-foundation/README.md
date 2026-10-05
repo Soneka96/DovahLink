@@ -87,6 +87,10 @@ their own source and runtime validation during the corresponding implementation 
   absent. A valid cell remains available when its location name or worldspace is absent. Runtime
   FormIDs identify these values only for the active loaded runtime. Optional names that are invalid
   UTF-8 or exceed the Adapter's 52-byte bound are omitted without truncating or invalidating the cell capture.
+- `game_time` reads year, raw zero-based month, day, and fractional hour only from the Calendar's
+  backing `TESGlobal`s after the player, Calendar, and all four float globals are available. The
+  running game's localized month name comes from `Calendar.GetMonthName()`. The Host publishes
+  month 1–12 and derives minutes by flooring the fractional hour; timescale and era are not state.
 
 ## Sources
 

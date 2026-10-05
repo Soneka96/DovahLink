@@ -94,6 +94,7 @@ The Character contract defines five independently authoritative state areas:
 | `character_supernatural_traits` | Independent vampire status and Vampire Lord / Werewolf transformation capabilities | Complete object with boolean `isVampire`, `hasVampireLordForm`, and `hasWerewolfForm` | Snapshot | One complete observation of all three source predicates, sampled at Slow cadence | `"value": null` if any required source is unavailable; all-false is a valid available value |
 | `character_level` | Current level | JSON number (integer-valued, 0-65535) | Event | Its initial/recovery baseline is established by a dedicated resynchronization-only sample, delivered as a `state_snapshot`; native level-up occurrences then publish as `state_event` | `"value": null` |
 | `player_location` | Current cell, selected location, and current worldspace | Complete object with required 32-bit runtime `cellId`, string `cellKind` (`interior` or `exterior`), and nullable runtime FormIDs and localized names (each name at most 52 UTF-8 bytes) for cell, location, and worldspace | Snapshot | One coherent Slow capture of cell, both location sources, and worldspace | `"value": null` when the authoritative player/cell context cannot be captured; absent names and locations are valid |
+| `game_time` | Current Skyrim calendar date and time | Complete object with nonnegative 32-bit `year` (0–2,147,483,647), one-based `month` (1–12), `day`, `hour` (0–23), `minute` (0–59), and localized `monthName` (at most 126 UTF-8 bytes) | Snapshot | One coherent Slow capture from the validated Calendar backing globals | `"value": null` when the player, Calendar globals, fields, or localized month name cannot be captured safely |
 
 Snapshot `data` objects use a `value` field. Scalar areas carry their scalar there; Vitals carries
 all three resource values together, Identity carries both strings together, and Supernatural Traits
@@ -115,6 +116,7 @@ The new domain values have these complete shapes:
 {"value": {"name": "Gonçalo", "race": "Nord"}}
 {"value": {"isVampire": false, "hasVampireLordForm": false, "hasWerewolfForm": false}}
 {"value": {"cellId": 123456, "cellKind": "exterior", "cellName": "WhiterunWorld", "locationId": 98765, "locationName": "Whiterun", "worldspaceId": 1, "worldspaceName": "Skyrim"}}
+{"value": {"year": 201, "month": 9, "monthName": "Hearthfire", "day": 17, "hour": 17, "minute": 45}}
 {"value": null}
 ```
 
@@ -124,6 +126,10 @@ name cannot be present without its corresponding FormID; each name is `null` whe
 usable name. The Host selects `PlayerCharacter.currentLocation` when present and otherwise uses
 `TESObjectCELL.GetLocation()`. The Adapter returns both source facts; this deterministic Host rule
 does not turn an unnamed wilderness cell into an unavailable location.
+
+`game_time` represents Skyrim's calendar. Its raw Calendar month is zero-based and the Host publishes
+it one-based; the Host derives `minute` by flooring the fractional game hour. `monthName` comes from
+the running game's localization. Do not treat this value as a Gregorian date/time or infer an era.
 
 Identity is unavailable unless both name and race are usable; never send a partial object. The
 supernatural booleans are independent: preserve every observed combination, including all-false and
@@ -136,8 +142,8 @@ reaches the public contract as a null value either, and instead produces no publ
 that update. Vitals availability is unit-wide: the coherent capture either supplies all six current
 and maximum readings or publishes `"value": null`; partial Vitals objects are not valid.
 
-`character_xp`, `character_vitals`, `character_identity`, and
-`character_supernatural_traits` are Snapshot-only: the Host has no Event-domain update for them,
+`character_xp`, `character_vitals`, `character_identity`, `character_supernatural_traits`,
+`player_location`, and `game_time` are Snapshot-only: the Host has no Event-domain update for them,
 and only revises their values at a new `revision` via `state_snapshot`, through the normal
 subscribe/snapshot_request/recovery rules above.
 
