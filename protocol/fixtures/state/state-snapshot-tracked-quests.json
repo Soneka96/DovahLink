@@ -1,0 +1,41 @@
+{
+  "messageType": "state_snapshot",
+  "messageId": "message-tracked-quests-1",
+  "sessionId": "session-1",
+  "correlationId": "message-subscribe-1",
+  "payload": {
+    "stateArea": "tracked_quests",
+    "revision": 1,
+    "occurredAt": "2026-08-11T12:00:00Z",
+    "data": {
+      "value": {
+        "quests": [
+          {
+            "questId": 10,
+            "title": "Cenário — Localized",
+            "type": 254,
+            "objectives": [
+              { "index": 10, "instanceId": 5, "text": "Dormant authored text", "state": "dormant" },
+              { "index": 20, "instanceId": 5, "text": "Localized displayed objective", "state": "displayed" },
+              { "index": 30, "instanceId": 5, "text": null, "state": "completed" },
+              { "index": 40, "instanceId": 5, "text": "Completed and displayed", "state": "completed_and_displayed" },
+              { "index": 50, "instanceId": 5, "text": "Failed objective", "state": "failed" },
+              { "index": 60, "instanceId": 5, "text": "Failed and displayed", "state": "failed_and_displayed" }
+            ]
+          },
+          {
+            "questId": 20,
+            "title": "Whiterun — Rescue",
+            "type": 8,
+            "objectives": [
+              { "index": 1, "instanceId": 2, "text": "Localized second quest objective", "state": "displayed" }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "stateAuthorityId": "state-authority-1",
+  "playContextId": "play-context-1",
+  "clientId": null
+}

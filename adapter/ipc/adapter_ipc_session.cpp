@@ -412,6 +412,8 @@ AdapterIpcSession::HandleMessage(const IpcMessage& message) {
                 return HandleListenEvent(value);
             } else if constexpr (std::is_same_v<T, IpcReadSampleMessage>) {
                 return HandleReadSample(value);
+            } else if constexpr (std::is_same_v<T, IpcReadTrackedQuestPageMessage>) {
+                return HandleReadTrackedQuestPage(value);
             } else if constexpr (std::is_same_v<T, IpcCloseMessage>) {
                 return AdapterIpcMessageDisposition::kClose;
             } else if constexpr (std::is_same_v<T, IpcRejectMessage>) {
@@ -858,6 +860,79 @@ AdapterIpcSession::HandleReadSample(const IpcReadSampleMessage& readSample) {
                 }
             } catch (...) {
                 //  Contained; see HandleResynchronizeRequest's task for why.
+            }
+        });
+    if (!admitted) {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        UnregisterCancellableDispatchLocked(correlationId, cancellation);
+    }
+    return AdapterIpcMessageDisposition::kContinue;
+}
+
+AdapterIpcMessageDisposition AdapterIpcSession::HandleReadTrackedQuestPage(
+    const IpcReadTrackedQuestPageMessage& request) {
+    const std::uint64_t correlationId = request.correlationId;
+    std::uint64_t connectionGeneration;
+    bool authenticated;
+    std::shared_ptr<PendingDispatchCancellationState> cancellation;
+    {
+        std::lock_guard<std::mutex> lock(availableMutex_);
+        connectionGeneration = connectionGeneration_;
+        authenticated = authenticationState_ == AuthenticationState::kAuthenticated;
+        if (authenticated) {
+            cancellation = RegisterCancellableDispatchLocked(correlationId);
+        }
+    }
+    if (!authenticated) {
+        return AdapterIpcMessageDisposition::kContinue;
+    }
+    if (cancellation == nullptr) {
+        SendBestEffortReject(correlationId,
+                             IpcRejectReason::kDuplicateCancellableCorrelationId);
+        return AdapterIpcMessageDisposition::kClose;
+    }
+
+    auto callbackMutex = callbackMutex_;
+    auto lifetimeToken = lifetimeToken_;
+    const bool admitted = ScheduleGameThreadDispatch(
+        [this, callbackMutex = std::move(callbackMutex),
+         lifetimeToken = std::move(lifetimeToken), request, correlationId,
+         connectionGeneration, cancellation] {
+            std::lock_guard<std::mutex> lifetimeLock(*callbackMutex);
+            if (!lifetimeToken->load()) {
+                return;
+            }
+            try {
+                {
+                    std::lock_guard<std::mutex> lock(availableMutex_);
+                    const bool cancelled = cancellation->cancelled;
+                    UnregisterCancellableDispatchLocked(correlationId, cancellation);
+                    if (connectionGeneration != connectionGeneration_ ||
+                        authenticationState_ != AuthenticationState::kAuthenticated ||
+                        cancelled) {
+                        return;
+                    }
+                }
+                const auto playContextId =
+                    playContextState_.CurrentPlayContext().value_or(
+                        std::array<std::byte, 16>{});
+                const dispatch::SampleCaptureResult captured =
+                    captureRouter_.CaptureTrackedQuestPage(request.request);
+                if (captured.status == dispatch::SampleCaptureStatus::kUnsupported) {
+                    return;
+                }
+                captureQueue_.TryEnqueue(capture::AdapterCaptureWorkItem{
+                    .intentKey = static_cast<std::uint32_t>(
+                        capture::TrackedQuestCaptureKey::kPage),
+                    .capturedValue = captured.payload,
+                    .correlationId = correlationId,
+                    .source = capture::CaptureSourceKind::kSample,
+                    .availability = captured.status == dispatch::SampleCaptureStatus::kAvailable
+                                        ? capture::CaptureAvailability::kAvailable
+                                        : capture::CaptureAvailability::kUnavailable,
+                    .playContextId = playContextId});
+            } catch (...) {
+                //  A Skyrim callback boundary must not propagate failures.
             }
         });
     if (!admitted) {

@@ -8,6 +8,7 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import 'package:dovahlink_client_sdk/src/state/game_time_state.dart';
 import 'package:dovahlink_client_sdk/src/state/player_location_state.dart';
 import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
+import 'package:dovahlink_client_sdk/src/state/tracked_quests_state.dart';
 
 /// Exposes the admitted session's Host context and grouped domain views.
 ///
@@ -31,6 +32,9 @@ abstract interface class IDovahLinkCurrentHost {
 
   /// Replays the Skyrim calendar Snapshot and its synchronization status.
   Stream<StateSynchronization<GameTimeState?>> get gameTimeChanges;
+
+  /// Replays all tracked quests and their synchronization status.
+  Stream<StateSynchronization<TrackedQuestsState?>> get trackedQuestsChanges;
 
   /// Adds [area] to the desired state domains and synchronizes the complete set with the Host.
   /// @param area The state domain to request.
@@ -65,9 +69,15 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   /// The current Skyrim calendar synchronization stream.
   final Stream<StateSynchronization<GameTimeState?>> _gameTimeChanges;
 
+  /// The current tracked-quests synchronization stream.
+  final Stream<StateSynchronization<TrackedQuestsState?>> _trackedQuestsChanges;
+
   /// Creates the current Host view over the existing session and domain owners.
   /// @param sessionService Owns the admitted session context.
   /// @param character Exposes the existing Character domain streams.
+  /// @param playerLocationChanges Replays the current player-location synchronization state.
+  /// @param gameTimeChanges Replays the current Skyrim calendar synchronization state.
+  /// @param trackedQuestsChanges Replays the current tracked-quests synchronization state.
   /// @param subscriptionService Owns desired state subscription operations.
   DovahLinkCurrentHost({
     required ISessionService sessionService,
@@ -75,11 +85,14 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
     required Stream<StateSynchronization<PlayerLocationState?>>
     playerLocationChanges,
     required Stream<StateSynchronization<GameTimeState?>> gameTimeChanges,
+    required Stream<StateSynchronization<TrackedQuestsState?>>
+    trackedQuestsChanges,
     required ISubscriptionService subscriptionService,
   }) : _sessionService = sessionService,
        _character = character,
        _playerLocationChanges = playerLocationChanges,
        _gameTimeChanges = gameTimeChanges,
+       _trackedQuestsChanges = trackedQuestsChanges,
        _subscriptionService = subscriptionService;
 
   /// Implements [IDovahLinkCurrentHost.host].
@@ -107,6 +120,11 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   @override
   Stream<StateSynchronization<GameTimeState?>> get gameTimeChanges =>
       _gameTimeChanges;
+
+  /// Implements [IDovahLinkCurrentHost.trackedQuestsChanges].
+  @override
+  Stream<StateSynchronization<TrackedQuestsState?>> get trackedQuestsChanges =>
+      _trackedQuestsChanges;
 
   /// Implements [IDovahLinkCurrentHost.subscribeStateArea].
   @override

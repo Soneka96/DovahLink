@@ -58,7 +58,7 @@ std::uint64_t ReadUInt64LittleEndian(std::span<const std::byte, 8> source) {
 
 ///  Whether `value` is one of `IpcMessageKind`'s contiguous defined values.
 constexpr bool IsDefinedMessageKind(std::uint8_t value) {
-    return value >= 1 && value <= 18;
+    return value >= 1 && value <= 19;
 }
 
 ///  Whether `value` is one of `TrustAdminOperation`'s contiguous defined
@@ -295,6 +295,22 @@ IpcFrameCodec::EncodeReadSample(const IpcReadSampleMessage& readSample) {
     WriteUInt32LittleEndian(
         std::span<std::byte, 4>(payload.data(), sizeof(std::uint32_t)),
         readSample.sampleToken);
+    return payload;
+}
+
+std::vector<std::byte> IpcFrameCodec::EncodeReadTrackedQuestPage(
+    const IpcReadTrackedQuestPageMessage& request) {
+    if (request.correlationId == 0 ||
+        !capture::IsValidTrackedQuestPageRequest(request.request)) {
+        throw std::invalid_argument("A tracked-quest page request is malformed.");
+    }
+    std::vector<std::byte> payload(7);
+    payload[0] = static_cast<std::byte>(request.request.kind);
+    WriteUInt32LittleEndian(
+        std::span<std::byte, 4>(payload.data() + 1, sizeof(std::uint32_t)),
+        request.request.questId);
+    payload[5] = static_cast<std::byte>(request.request.cursor & 0xFFu);
+    payload[6] = static_cast<std::byte>((request.request.cursor >> 8) & 0xFFu);
     return payload;
 }
 
@@ -665,6 +681,9 @@ std::vector<std::byte> IpcFrameCodec::Encode(const IpcMessage& message) const {
             } else if constexpr (std::is_same_v<T, IpcReadSampleMessage>) {
                 kind = IpcMessageKind::kReadSample;
                 payload = EncodeReadSample(value);
+            } else if constexpr (std::is_same_v<T, IpcReadTrackedQuestPageMessage>) {
+                kind = IpcMessageKind::kReadTrackedQuestPage;
+                payload = EncodeReadTrackedQuestPage(value);
             } else if constexpr (std::is_same_v<T, IpcPairingDisplayMessage>) {
                 kind = IpcMessageKind::kPairingDisplay;
                 payload = EncodePairingDisplay(value);
@@ -955,6 +974,29 @@ IpcFrameCodec::DecodeReadSample(std::uint64_t correlationId,
 }
 
 std::expected<IpcMessage, IpcRejectReason>
+IpcFrameCodec::DecodeReadTrackedQuestPage(
+    std::uint64_t correlationId, std::span<const std::byte> payload) {
+    if (correlationId == 0 || payload.size() != 7) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+    const auto kind = static_cast<capture::TrackedQuestPageKind>(
+        std::to_integer<std::uint8_t>(payload[0]));
+    const std::uint32_t questId = ReadUInt32LittleEndian(
+        std::span<const std::byte, 4>(payload.data() + 1, sizeof(std::uint32_t)));
+    const std::uint16_t cursor = static_cast<std::uint16_t>(
+        std::to_integer<std::uint8_t>(payload[5]) |
+        (static_cast<std::uint16_t>(std::to_integer<std::uint8_t>(payload[6])) << 8));
+    capture::TrackedQuestPageRequest request{.kind = kind,
+                                             .questId = questId,
+                                             .cursor = cursor};
+    if (!capture::IsValidTrackedQuestPageRequest(request)) {
+        return std::unexpected(IpcRejectReason::kMalformedPayload);
+    }
+    return IpcMessage{IpcReadTrackedQuestPageMessage{
+        .correlationId = correlationId, .request = request}};
+}
+
+std::expected<IpcMessage, IpcRejectReason>
 IpcFrameCodec::DecodePairingDisplay(std::uint64_t correlationId,
                                     std::span<const std::byte> payload) {
     if (correlationId == 0 || payload.size() != 1 + kPairingChallengeCodeDigits) {
@@ -1036,6 +1078,8 @@ IpcFrameCodec::Decode(std::span<const std::byte> frame) const {
         return DecodeListenEvent(correlationId, payload);
     case IpcMessageKind::kReadSample:
         return DecodeReadSample(correlationId, payload);
+    case IpcMessageKind::kReadTrackedQuestPage:
+        return DecodeReadTrackedQuestPage(correlationId, payload);
     case IpcMessageKind::kPairingDisplay:
         return DecodePairingDisplay(correlationId, payload);
     case IpcMessageKind::kPairingDisplayAck:

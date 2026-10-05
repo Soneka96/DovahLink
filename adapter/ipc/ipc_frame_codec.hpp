@@ -120,6 +120,10 @@ class IpcFrameCodec final : public IIpcFrameCodec {
     static std::vector<std::byte>
     EncodeReadSample(const IpcReadSampleMessage& readSample);
 
+    ///  Encodes a bounded tracked-quest page kind, FormID, and cursor.
+    static std::vector<std::byte> EncodeReadTrackedQuestPage(
+        const IpcReadTrackedQuestPageMessage& request);
+
     ///  Decodes a host-directed event-listening request.
     static std::expected<IpcMessage, IpcRejectReason>
     DecodeListenEvent(std::uint64_t correlationId,
@@ -129,6 +133,11 @@ class IpcFrameCodec final : public IIpcFrameCodec {
     static std::expected<IpcMessage, IpcRejectReason>
     DecodeReadSample(std::uint64_t correlationId,
                      std::span<const std::byte> payload);
+
+    ///  Decodes one validated tracked-quest page request.
+    static std::expected<IpcMessage, IpcRejectReason>
+    DecodeReadTrackedQuestPage(std::uint64_t correlationId,
+                               std::span<const std::byte> payload);
 
     ///  Encodes an `IpcPairingDisplayMessage` payload: one mode byte followed by
     ///  the fixed-length code digits.

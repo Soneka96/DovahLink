@@ -16,12 +16,14 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Added
 
+- Host publishes the complete, localized tracked quest and current objective collection as synchronized Snapshot state.
 - Host publishes Character Identity and Supernatural Traits as independently synchronized Snapshot state areas.
 - The connection handshake now exposes the stable Host installation ID and current OS computer name.
 - The loopback listener exposes a bounded, sessionless Host metadata probe for discovery and presence checks.
 
 ### Changed
 
+- Tracked-quest Snapshot collection now returns unavailable after five seconds so a delayed page sequence cannot keep resynchronization pending.
 - Adapter logs now suppress routine capture and successful setup messages while retaining one startup status and 30-second rate-limited capacity warnings.
 - Host publishes current and effective maximum Health, Magicka, and Stamina as one coherent
   `character_vitals` snapshot instead of three scalar state areas.

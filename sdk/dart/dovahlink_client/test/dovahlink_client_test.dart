@@ -279,6 +279,16 @@ class TrackingClientStorage implements IClientStorage {
 String _rawFixture(String relativePath) =>
     File('../../../protocol/fixtures/$relativePath').readAsStringSync();
 
+/// Reads the canonical data value from a state Snapshot fixture.
+/// @param relativePath The fixture path relative to `protocol/fixtures/`.
+/// @return The canonical state-area value inside the fixture Snapshot.
+Object? _stateFixtureValue(String relativePath) {
+  final JsonMap envelope = jsonDecode(_rawFixture(relativePath)) as JsonMap;
+  final JsonMap payload = envelope['payload'] as JsonMap;
+  final JsonMap data = payload['data'] as JsonMap;
+  return data['value'];
+}
+
 /// Builds an unsolicited `session_invalidated` envelope for [reason] (a raw wire value, e.g.
 /// `'revoked'`).
 String _rawSessionInvalidated(
@@ -735,6 +745,165 @@ void main() {
         );
         expect(
           (await client.currentHost.gameTimeChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+      },
+    );
+  });
+
+  group('Behavior Tracked Quests state composition behaves correctly', () {
+    test(
+      'Behavior Tracked Quests state composes a typed stream across subscribe, collection, empty, unavailable, and unsubscribe',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        expect(
+          (await client.currentHost.trackedQuestsChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['tracked_quests']),
+        );
+        expect(
+          await client.currentHost.subscribeStateArea(
+            DovahLinkStateArea.trackedQuests,
+          ),
+          isEmpty,
+        );
+        expect(
+          (await client.currentHost.trackedQuestsChanges.first).status,
+          DovahLinkStateStatus.recovering,
+        );
+
+        final Future<void> synchronized = expectLater(
+          client.currentHost.trackedQuestsChanges,
+          emitsThrough(
+            predicate<StateSynchronization<TrackedQuestsState?>>(
+              (StateSynchronization<TrackedQuestsState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.stateAuthorityId == 'authority-1' &&
+                  state.playContextId == 'context-1' &&
+                  state.value?.quests.length == 2 &&
+                  state.value?.quests.first.questId == 10 &&
+                  state.value?.quests.first.title == 'Cenário — Localized' &&
+                  state.value?.quests.first.objectives.length == 6 &&
+                  state.value?.quests.first.objectives.first.state ==
+                      TrackedQuestObjectiveState.dormant &&
+                  state.value?.quests.last.questId == 20 &&
+                  state.value?.quests.last.title == 'Whiterun — Rescue' &&
+                  state.value?.quests.last.objectives.single.state ==
+                      TrackedQuestObjectiveState.displayed,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'tracked_quests',
+            revision: 1,
+            value: _stateFixtureValue(
+              'state/state-snapshot-tracked-quests.json',
+            ),
+          ),
+        );
+        await synchronized;
+
+        final Future<void> empty = expectLater(
+          client.currentHost.trackedQuestsChanges,
+          emitsThrough(
+            predicate<StateSynchronization<TrackedQuestsState?>>(
+              (StateSynchronization<TrackedQuestsState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 2 &&
+                  state.value?.quests.isEmpty == true,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'tracked_quests',
+            revision: 2,
+            value: _stateFixtureValue(
+              'state/state-snapshot-tracked-quests-empty.json',
+            ),
+          ),
+        );
+        await empty;
+
+        final Future<void> unavailable = expectLater(
+          client.currentHost.trackedQuestsChanges,
+          emitsThrough(
+            predicate<StateSynchronization<TrackedQuestsState?>>(
+              (StateSynchronization<TrackedQuestsState?> state) =>
+                  state.status == DovahLinkStateStatus.unavailable &&
+                  state.value == null &&
+                  state.revision == 3,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'tracked_quests',
+            revision: 3,
+            value: _stateFixtureValue(
+              'state/state-snapshot-tracked-quests-unavailable.json',
+            ),
+          ),
+        );
+        await unavailable;
+
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: const <String>[]),
+        );
+        expect(
+          await client.currentHost.unsubscribeStateArea(
+            DovahLinkStateArea.trackedQuests,
+          ),
+          isEmpty,
+        );
+        expect(
+          (await client.currentHost.trackedQuestsChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+      },
+    );
+
+    test(
+      'Behavior Tracked Quests state resets to notSubscribed when the session ends',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['tracked_quests']),
+        );
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.trackedQuests,
+        );
+
+        final Future<void> synchronized = expectLater(
+          client.currentHost.trackedQuestsChanges,
+          emitsThrough(
+            predicate<StateSynchronization<TrackedQuestsState?>>(
+              (StateSynchronization<TrackedQuestsState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'tracked_quests',
+            revision: 1,
+            value: _stateFixtureValue(
+              'state/state-snapshot-tracked-quests.json',
+            ),
+          ),
+        );
+        await synchronized;
+
+        await client.connections.disconnect();
+
+        expect(
+          (await client.currentHost.trackedQuestsChanges.first).status,
           DovahLinkStateStatus.notSubscribed,
         );
       },

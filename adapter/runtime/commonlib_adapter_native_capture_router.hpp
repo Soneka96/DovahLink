@@ -20,6 +20,8 @@ namespace dovahlink::adapter::runtime {
 ///  unknown token reports `SampleCaptureStatus::kUnsupported`; a known token
 ///  whose required source is unavailable reports `kUnavailable` -- distinct
 ///  outcomes, per `IAdapterNativeCaptureRouter::CaptureSample`'s own contract.
+///  A tracked-quest page is encoded into the same existing 255-byte bounded
+///  capture value and returns through the existing capture handoff queue.
 ///
 ///  Also registers and owns the `RE::LevelIncrease::Event` sink for
 ///  `CharacterEventKey::kCharacterLevelChanged`: a spontaneous native event
@@ -49,6 +51,10 @@ class CommonLibAdapterNativeCaptureRouter final
 
     ///  @copydoc IAdapterNativeCaptureRouter::CaptureSample
     dispatch::SampleCaptureResult CaptureSample(std::uint32_t sampleToken) override;
+
+    ///  @copydoc dispatch::IAdapterNativeCaptureRouter::CaptureTrackedQuestPage
+    dispatch::SampleCaptureResult CaptureTrackedQuestPage(
+        const capture::TrackedQuestPageRequest& request) override;
 
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
     ///  Only `CharacterEventKey::kCharacterLevelChanged` is approved; any

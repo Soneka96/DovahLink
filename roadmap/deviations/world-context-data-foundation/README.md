@@ -1,14 +1,13 @@
 # World Context Data Foundation Research
 
-**Status:** Research complete for the observed runtime and inspected Skyrim APIs. Production contract and implementation remain separate work.
+**Status:** Runtime research is complete. The frozen findings below now inform the production World Context implementation.
 
 ## Purpose and scope
 
-This report preserves the runtime evidence collected for the follow-on World Context Data
-Foundation named in the [Character Core Data Foundation deviation](../character-core-data-foundation/README.md).
-It covers location, game time, quest tracking, objectives, and quest targets from the tested Skyrim
-Special Edition setup. It records observations and source semantics; it does not approve a public
-protocol shape or claim compatibility with every mod list.
+This report preserves the runtime evidence collected for the World Context data described in the
+[Character Core Data Foundation deviation](../character-core-data-foundation/README.md). It covers
+location, game time, quest tracking, objectives, and quest targets from the tested Skyrim Special
+Edition setup. It records observed source semantics, not compatibility with every mod list.
 
 The runtime observations came from the Adapter's temporary Debug World Context diagnostics and the
 maintainer's in-game Journal, map, console, and fast-travel checks. The diagnostic was intentionally
@@ -91,6 +90,31 @@ their own source and runtime validation during the corresponding implementation 
   backing `TESGlobal`s after the player, Calendar, and all four float globals are available. The
   running game's localized month name comes from `Calendar.GetMonthName()`. The Host publishes
   month 1–12 and derives minutes by flooring the fractional hour; timescale and era are not state.
+- `tracked_quests` includes only quests with `TESQuest.IsActive()` true. The Adapter returns
+  `PlayerCharacter.objectives` instances only when the objective pointer is non-null and the
+  referenced definition's `ownerQuest` is the exact tracked quest; it reads index and authored
+  `displayText` from that definition, and state plus `instanceID` from the player-owned instance.
+  Its bounded metadata page also returns `TESQuest.currentInstanceID`; the Host's frozen inclusion
+  rule filters to matching objective instances, excluding prior quest-instance records without
+  traversing quest-log history. The Adapter cursor advances over raw matching instances before
+  this filter, so prior-instance records still consume pages and the Host's aggregate objective
+  bound.
+  The Adapter does not resolve instance-specific substitutions: available localized authored text is
+  preserved as-is, and a missing display string is represented as null. The Adapter returns at most
+  32 runtime quest IDs
+  per page, one quest metadata item per response, and objective pages no larger than its existing
+  255-byte capture bound. The Adapter owns no complete-collection limits. Titles and objective text
+  are capped at 126 UTF-8 bytes. The Host assembles
+  and sorts the complete result by runtime quest FormID, objective index, and instanceID. Repeated
+  quest IDs in an otherwise valid collection collapse to one quest. The Host reads each unique
+  quest's metadata before and after its objective pages; a title, type, or `currentInstanceID`
+  change makes the capture unavailable. Identical current objective records with the same
+  quest/index/instanceID are deduplicated, while conflicting records fail the capture. Failed pages,
+  changed play context or tracked-ID set, more than 128 tracked quests, more than 1,024 raw objective
+  records, or serialized state above 1 MiB make the area unavailable. The Host rechecks the
+  tracked-ID set before publication; objective state can still advance while pages are read, so this
+  remains a best-effort sample rather than an engine transaction. Runtime FormIDs are not durable
+  identities and quest targets are excluded.
 
 ## Sources
 

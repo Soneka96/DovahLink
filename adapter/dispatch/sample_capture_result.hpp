@@ -5,7 +5,8 @@
 
 namespace dovahlink::adapter::dispatch {
 
-///  The result of one `IAdapterNativeCaptureRouter::CaptureSample` call.
+///  The result of one synchronous capture request handled by
+///  `IAdapterNativeCaptureRouter`.
 struct SampleCaptureResult {
     ///  Which of the three outcomes this call produced.
     SampleCaptureStatus status = SampleCaptureStatus::kUnsupported;

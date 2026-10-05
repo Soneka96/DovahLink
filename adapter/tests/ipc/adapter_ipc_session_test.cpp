@@ -30,6 +30,7 @@ using dovahlink::adapter::capture::CaptureAvailability;
 using dovahlink::adapter::capture::CaptureSourceKind;
 using dovahlink::adapter::capture::IAdapterCaptureHandoffQueue;
 using dovahlink::adapter::capture::kMaxCapturedPayloadBytes;
+using dovahlink::adapter::capture::TrackedQuestCaptureKey;
 using dovahlink::adapter::dispatch::IAdapterNativeCaptureRouter;
 using dovahlink::adapter::dispatch::SampleCaptureResult;
 using dovahlink::adapter::dispatch::SampleCaptureStatus;
@@ -60,6 +61,7 @@ using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
 using dovahlink::adapter::ipc::IpcPlayContextChangedMessage;
 using dovahlink::adapter::ipc::IpcPlayContextEndedMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
+using dovahlink::adapter::ipc::IpcReadTrackedQuestPageMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
@@ -76,6 +78,8 @@ using dovahlink::adapter::ipc::TrustAdminRequestOutcome;
 using dovahlink::adapter::ipc::TrustAdminRequestResult;
 using dovahlink::adapter::ipc::test_support::FakeAdapterTaskMarshaller;
 using dovahlink::adapter::runtime::IAdapterTaskMarshaller;
+
+namespace capture = dovahlink::adapter::capture;
 
 namespace {
 
@@ -105,6 +109,17 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
     void SetSampleThrows(std::uint32_t sampleToken) {
         throwingSampleTokens_.insert(sampleToken);
     }
+
+    ///  Configures a tracked-quest page request to return this bounded payload.
+    void SetTrackedQuestPageResult(std::vector<std::byte> value) {
+        trackedQuestPageResult_ = std::move(value);
+    }
+
+    ///  Makes the tracked-quest page capture report no supported translation.
+    void SetTrackedQuestPageUnsupported() { trackedQuestPageUnsupported_ = true; }
+
+    ///  Makes the tracked-quest page capture throw from the game-thread task.
+    void SetTrackedQuestPageThrows() { trackedQuestPageThrows_ = true; }
 
     ///  Configures `RegisterEvent(eventKey)` to return `registered`.
     void SetEventRegistered(std::uint32_t eventKey, bool registered) {
@@ -142,6 +157,29 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
             .status = SampleCaptureStatus::kAvailable, .payload = *payload};
     }
 
+    ///  @copydoc IAdapterNativeCaptureRouter::CaptureTrackedQuestPage
+    SampleCaptureResult CaptureTrackedQuestPage(
+        const dovahlink::adapter::capture::TrackedQuestPageRequest& /*request*/) override {
+        const auto key = static_cast<std::uint32_t>(
+            dovahlink::adapter::capture::TrackedQuestCaptureKey::kPage);
+        dispatchedKeys_.push_back(key);
+        calls_.emplace_back(CaptureSourceKind::kSample, key);
+        if (trackedQuestPageThrows_) {
+            throw std::runtime_error("CaptureTrackedQuestPage failed");
+        }
+        if (trackedQuestPageUnsupported_) {
+            return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
+        }
+        if (!trackedQuestPageResult_) {
+            return SampleCaptureResult{.status = SampleCaptureStatus::kUnavailable};
+        }
+        auto payload = dovahlink::adapter::capture::TryMakeCapturedPayload(
+            *trackedQuestPageResult_);
+        return payload
+                   ? SampleCaptureResult{.status = SampleCaptureStatus::kAvailable, .payload = *payload}
+                   : SampleCaptureResult{.status = SampleCaptureStatus::kUnavailable};
+    }
+
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
     bool RegisterEvent(std::uint32_t eventKey) override {
         dispatchedKeys_.push_back(eventKey);
@@ -167,6 +205,9 @@ class FakeAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter 
     std::unordered_set<std::uint32_t> unsupportedSampleTokens_;
     std::unordered_set<std::uint32_t> throwingSampleTokens_;
     std::unordered_map<std::uint32_t, bool> eventResults_;
+    std::optional<std::vector<std::byte>> trackedQuestPageResult_;
+    bool trackedQuestPageUnsupported_ = false;
+    bool trackedQuestPageThrows_ = false;
     std::unordered_set<std::uint32_t> throwingEventKeys_;
     std::vector<std::uint32_t> dispatchedKeys_;
     ///  The operation kind and intent key, recorded in call order.
@@ -189,6 +230,13 @@ class BlockingAdapterNativeCaptureRouter final : public IAdapterNativeCaptureRou
         Block();
         return SampleCaptureResult{
             .status = SampleCaptureStatus::kUnsupported};
+    }
+
+    ///  Signals that the callback entered, then waits for the test to release it.
+    SampleCaptureResult CaptureTrackedQuestPage(
+        const dovahlink::adapter::capture::TrackedQuestPageRequest& /*request*/) override {
+        Block();
+        return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
     }
 
     ///  Signals that the callback entered, then waits for the test to release
@@ -2506,6 +2554,96 @@ TEST_CASE("AdapterIpcSession sends nothing back for a read-sample request "
     fixture.marshaller.RunAllPending();
 
     CHECK(fixture.dispatcher.DispatchedKeys() == std::vector<std::uint32_t>{3});
+    CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession marshals a tracked-quest page and enqueues its bounded capture") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetTrackedQuestPageResult({std::byte{1}, std::byte{0}, std::byte{0x34}});
+    const auto request = capture::TrackedQuestPageRequest{
+        .kind = capture::TrackedQuestPageKind::kTrackedQuestIds};
+
+    CHECK(fixture.session.HandleMessage(IpcMessage{IpcReadTrackedQuestPageMessage{
+              .correlationId = 7, .request = request}}) ==
+          AdapterIpcMessageDisposition::kContinue);
+    CHECK(fixture.captureQueue.Enqueued().empty());
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    const auto& item = fixture.captureQueue.Enqueued().front();
+    CHECK(item.intentKey == static_cast<std::uint32_t>(TrackedQuestCaptureKey::kPage));
+    CHECK(item.correlationId == 7);
+    CHECK(item.source == CaptureSourceKind::kSample);
+    CHECK(item.availability == CaptureAvailability::kAvailable);
+    CHECK(item.capturedValue.size == 3);
+    CHECK(item.capturedValue.bytes[0] == std::byte{1});
+    CHECK(item.capturedValue.bytes[1] == std::byte{0});
+    CHECK(item.capturedValue.bytes[2] == std::byte{0x34});
+}
+
+TEST_CASE("AdapterIpcSession marks a tracked-quest page unavailable without a partial payload") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    fixture.session.HandleMessage(IpcMessage{IpcReadTrackedQuestPageMessage{
+        .correlationId = 8,
+        .request = {.kind = capture::TrackedQuestPageKind::kQuestMetadata,
+                    .questId = 0x12345678}}});
+    fixture.marshaller.RunAllPending();
+
+    REQUIRE(fixture.captureQueue.Enqueued().size() == 1);
+    CHECK(fixture.captureQueue.Enqueued().front().availability == CaptureAvailability::kUnavailable);
+    CHECK(fixture.captureQueue.Enqueued().front().capturedValue.size == 0);
+}
+
+TEST_CASE("AdapterIpcSession cancellation prevents a queued tracked-quest page read") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+
+    fixture.session.HandleMessage(IpcMessage{IpcReadTrackedQuestPageMessage{
+        .correlationId = 9,
+        .request = {.kind = capture::TrackedQuestPageKind::kTrackedQuestIds}}});
+    fixture.session.HandleMessage(IpcMessage{IpcCancelMessage{.correlationId = 9}});
+    fixture.marshaller.RunAllPending();
+
+    CHECK(fixture.captureQueue.Enqueued().empty());
+    CHECK(fixture.dispatcher.DispatchedKeys().empty());
+}
+
+TEST_CASE("AdapterIpcSession sends no capture for an unsupported tracked-quest page kind") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetTrackedQuestPageUnsupported();
+
+    fixture.session.HandleMessage(IpcMessage{IpcReadTrackedQuestPageMessage{
+        .correlationId = 10,
+        .request = {.kind = capture::TrackedQuestPageKind::kTrackedQuestIds}}});
+    fixture.marshaller.RunAllPending();
+
+    CHECK(fixture.captureQueue.Enqueued().empty());
+}
+
+TEST_CASE("AdapterIpcSession contains a tracked-quest page capture exception") {
+    SessionFixture fixture;
+    FakeAdapterIpcConnection connection;
+    fixture.session.AttachConnection(connection);
+    Authenticate(fixture.session, connection, fixture.target);
+    fixture.dispatcher.SetTrackedQuestPageThrows();
+
+    fixture.session.HandleMessage(IpcMessage{IpcReadTrackedQuestPageMessage{
+        .correlationId = 11,
+        .request = {.kind = capture::TrackedQuestPageKind::kTrackedQuestIds}}});
+    fixture.marshaller.RunAllPending();
+
     CHECK(fixture.captureQueue.Enqueued().empty());
 }
 

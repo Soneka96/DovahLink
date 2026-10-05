@@ -84,7 +84,7 @@ area.
 
 ## Registered state areas
 
-The Character contract defines five independently authoritative state areas:
+The Character and World Context contract defines eight independently authoritative state areas:
 
 | State area | Value meaning | Public `data` value type | Delivery mode | Capture policy | Unavailable behavior |
 |---|---|---|---|---|---|
@@ -93,8 +93,9 @@ The Character contract defines five independently authoritative state areas:
 | `character_identity` | Player display name and identity race | Complete object with string `name` and string `race` | Snapshot | One complete identity observation, sampled at Slow cadence | `"value": null` if either member is unavailable; partial objects are invalid |
 | `character_supernatural_traits` | Independent vampire status and Vampire Lord / Werewolf transformation capabilities | Complete object with boolean `isVampire`, `hasVampireLordForm`, and `hasWerewolfForm` | Snapshot | One complete observation of all three source predicates, sampled at Slow cadence | `"value": null` if any required source is unavailable; all-false is a valid available value |
 | `character_level` | Current level | JSON number (integer-valued, 0-65535) | Event | Its initial/recovery baseline is established by a dedicated resynchronization-only sample, delivered as a `state_snapshot`; native level-up occurrences then publish as `state_event` | `"value": null` |
-| `player_location` | Current cell, selected location, and current worldspace | Complete object with required 32-bit runtime `cellId`, string `cellKind` (`interior` or `exterior`), and nullable runtime FormIDs and localized names (each name at most 52 UTF-8 bytes) for cell, location, and worldspace | Snapshot | One coherent Slow capture of cell, both location sources, and worldspace | `"value": null` when the authoritative player/cell context cannot be captured; absent names and locations are valid |
+| `player_location` | Current cell, selected location, and current worldspace | Complete object with required nonzero unsigned 32-bit runtime `cellId`, string `cellKind` (`interior` or `exterior`), nullable `cellName`, and nullable `locationId`/`worldspaceId` runtime FormIDs with nullable localized names (each name at most 52 UTF-8 bytes) | Snapshot | One coherent Slow capture of cell, both location sources, and worldspace | `"value": null` when the authoritative player/cell context cannot be captured; absent names and locations are valid |
 | `game_time` | Current Skyrim calendar date and time | Complete object with nonnegative 32-bit `year` (0–2,147,483,647), one-based `month` (1–12), `day`, `hour` (0–23), `minute` (0–59), and localized `monthName` (at most 126 UTF-8 bytes) | Snapshot | One coherent Slow capture from the validated Calendar backing globals | `"value": null` when the player, Calendar globals, fields, or localized month name cannot be captured safely |
+| `tracked_quests` | Every quest currently tracked by the player, with its current objective instances and engine states | Complete object with required `quests` array (0–128 entries); each quest has required nonzero unsigned 32-bit `questId`, non-null `title` (1–126 UTF-8 bytes), unsigned 8-bit raw `type` (0–255), and required `objectives` array; each objective has required unsigned 16-bit `index`, unsigned 32-bit `instanceId`, nullable `text` (up to 126 UTF-8 bytes), and required `state` enum | Snapshot | Host assembles bounded Adapter pages on the existing Slow cadence; only one complete collection is published | `"value": null` when any required page or consistency check fails; an available empty `quests` array means no quests are tracked |
 
 Snapshot `data` objects use a `value` field. Scalar areas carry their scalar there; Vitals carries
 all three resource values together, Identity carries both strings together, and Supernatural Traits
@@ -117,6 +118,7 @@ The new domain values have these complete shapes:
 {"value": {"isVampire": false, "hasVampireLordForm": false, "hasWerewolfForm": false}}
 {"value": {"cellId": 123456, "cellKind": "exterior", "cellName": "WhiterunWorld", "locationId": 98765, "locationName": "Whiterun", "worldspaceId": 1, "worldspaceName": "Skyrim"}}
 {"value": {"year": 201, "month": 9, "monthName": "Hearthfire", "day": 17, "hour": 17, "minute": 45}}
+{"value": {"quests": [{"questId": 123456, "title": "Localized side quest title", "type": 8, "objectives": [{"index": 30, "instanceId": 1, "text": "Localized objective text", "state": "failed_and_displayed"}]}]}}
 {"value": null}
 ```
 
@@ -131,6 +133,48 @@ does not turn an unnamed wilderness cell into an unavailable location.
 it one-based; the Host derives `minute` by flooring the fractional game hour. `monthName` comes from
 the running game's localization. Do not treat this value as a Gregorian date/time or infer an era.
 
+`tracked_quests` includes only quests whose authoritative `TESQuest.IsActive()` tracking predicate
+is true during collection. The Adapter examines `PlayerCharacter.objectives` and returns an
+instance only when its objective pointer is non-null and its definition's `ownerQuest` is the exact
+tracked quest; it takes the objective index and authored display text from the definition and state
+plus `instanceId` from the player-owned instance record. The private quest metadata page also carries
+the engine's `currentInstanceID`. The Host accepts only instances whose `instanceId` matches that
+current ID, excluding prior quest-instance records. The Adapter's objective cursor advances across
+the raw matching records before this Host filter, so prior-instance records still advance pages and
+count toward the Host's raw-objective limit. Definition-only objectives, unrelated or unowned
+instance records, quests merely known to the save, and the Miscellaneous journal heading are
+excluded; the Adapter does not traverse the quest log. `questId` is the nonzero runtime FormID and is
+meaningful only for the active runtime/load order; it is not a durable cross-install identity. The
+objective `instanceId` preserves the engine's unsigned 32-bit range, including zero. `type` preserves
+the raw `QUEST_DATA::Type` code (unsigned 8-bit) and does not create product categories;
+unrecognized codes are retained as raw values, not replaced with a guessed category.
+
+`title` and objective display text come from the running game's localized records and must be valid
+UTF-8 without NUL. The Adapter does not resolve instance-specific substitutions; authored
+placeholders remain as authored, and unavailable objective display text is `null`. Objective state
+preserves the engine values as `dormant`, `displayed`, `completed`, `completed_and_displayed`,
+`failed`, or `failed_and_displayed`; dormancy does not imply optionality. Quest records are ordered by
+unsigned runtime FormID and objectives by objective index then `instanceId`. Repeated quest IDs in an
+otherwise valid Adapter enumeration are deduplicated by the Host, producing one public quest per
+unique ID. The Host reads each unique quest's metadata before and after its objective pages; a title,
+type, or `currentInstanceID` change makes the whole capture unavailable. Identical current objective
+records with the same `(questId, index, instanceId)` are deduplicated; conflicting records for that
+key make the whole capture unavailable.
+
+The private Adapter transport bounds one tracked-ID page to 32 IDs, one metadata response to one
+quest, and each objective page to 255 bytes. Objective cursors refer to raw matching records;
+objective pages continue until exhausted, and a page boundary never truncates a collection. Titles
+and objective text are limited to 126 UTF-8 bytes. These are per-response transport and text bounds;
+the Adapter owns no complete-collection policy. The Host limits a complete capture to 128 raw quest
+IDs, 1,024 raw objective-instance records, and 1 MiB for the serialized public `data` value. Exceeding
+a bound, encountering invalid or oversized text, or failing a required request makes the whole area
+unavailable instead of publishing a partial list. Each page response is matched to its pending
+correlation, Adapter instance and connection generation, and play-context identity and generation.
+The Host rechecks the tracked-ID set before publication and discards the assembly if the captured
+source authority or play context changed. Objective state can still advance while bounded pages are
+read, so this is a best-effort sampled Snapshot, not an engine transaction. No quest target or
+map-marker resolution is included.
+
 Identity is unavailable unless both name and race are usable; never send a partial object. The
 supernatural booleans are independent: preserve every observed combination, including all-false and
 unusual modded or console-created combinations. Unavailable is distinct from all-false.
@@ -143,7 +187,7 @@ that update. Vitals availability is unit-wide: the coherent capture either suppl
 and maximum readings or publishes `"value": null`; partial Vitals objects are not valid.
 
 `character_xp`, `character_vitals`, `character_identity`, `character_supernatural_traits`,
-`player_location`, and `game_time` are Snapshot-only: the Host has no Event-domain update for them,
+`player_location`, `game_time`, and `tracked_quests` are Snapshot-only: the Host has no Event-domain update for them,
 and only revises their values at a new `revision` via `state_snapshot`, through the normal
 subscribe/snapshot_request/recovery rules above.
 
@@ -164,7 +208,7 @@ post-change value, not a delta, per the general event rule above. A client must 
 not a valid starting point.
 
 The retired `character` aggregate (player level and three resource pools bundled into one state
-area) is not revived by this. The five state areas remain separate according to their independent
+area) is not revived by this. The eight state areas remain separate according to their independent
 capture authority and lifecycle. Identity groups name and race; supernatural traits are a distinct
 domain because their source predicates can change independently.
 
@@ -173,7 +217,7 @@ continuity recovery or an active play-context transition; this is why a `state_s
 already-subscribed area can arrive without a client-initiated `snapshot_request`. The client always
 receives an authoritative Snapshot from the Host -- it never reads Skyrim state directly.
 
-An area requested by `subscribe` or `snapshot_request` that is not one of these five remains
+An area requested by `subscribe` or `snapshot_request` that is not one of these eight remains
 explicitly rejected (see their sections below).
 
 ### Registered state area examples
@@ -643,7 +687,7 @@ available yet is never a dead end: its baseline is delivered automatically, stil
 `error` if none does before a bounded deadline elapses.
 
 Required payload field: `stateAreas`. The Host responds with `subscription_ack`. A requested area
-that is one of the five registered state areas above is accepted; any other requested area is
+that is one of the eight registered state areas above is accepted; any other requested area is
 rejected into `subscription_ack.rejectedStateAreas`. The resulting active set is exactly the
 accepted areas from this request, so omitted previously accepted areas and areas rejected in this
 request are removed from the active set. Duplicate entries are treated as one requested area.
@@ -660,7 +704,7 @@ Confirms accepted and rejected state areas:
 ```
 
 Both arrays are required. The host sends snapshots only for accepted areas. A requested area among
-the five registered state areas above appears in `acceptedStateAreas`; any other requested area
+the eight registered state areas above appears in `acceptedStateAreas`; any other requested area
 appears in `rejectedStateAreas`.
 
 `subscription_ack.correlationId` is the `messageId` of the `subscribe` it answers. An accepted

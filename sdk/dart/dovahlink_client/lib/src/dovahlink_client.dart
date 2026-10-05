@@ -38,6 +38,7 @@ import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.
 import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/tracked_quests_state_module.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
@@ -158,12 +159,15 @@ class DovahLinkClient {
     final IGameTimeStateModule gameTimeState = GameTimeStateModule();
     final IPlayerLocationStateModule playerLocationState =
         PlayerLocationStateModule();
+    final ITrackedQuestsStateModule trackedQuestsState =
+        TrackedQuestsStateModule();
     final IStateMessageHandler stateMessageHandler = StateMessageHandler(
       sessionService: _sessionService,
       domains: <IStateDomainDefinition<Object?>>[
         ...characterState.domains,
         playerLocationState.domain,
         gameTimeState.domain,
+        trackedQuestsState.domain,
       ],
     );
     final IUnsolicitedMessageHandler unsolicitedMessageHandler =
@@ -290,6 +294,7 @@ class DovahLinkClient {
       character: characterState.character,
       playerLocationChanges: playerLocationState.changes,
       gameTimeChanges: gameTimeState.changes,
+      trackedQuestsChanges: trackedQuestsState.changes,
       subscriptionService: _subscriptionService,
     );
     pairing = DovahLinkPairing(

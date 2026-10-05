@@ -73,6 +73,7 @@ void main() {
             'character_supernatural_traits',
             'player_location',
             'game_time',
+            'tracked_quests',
           ],
         );
       },
@@ -86,6 +87,22 @@ void main() {
         expect(PlayerLocationCellKind.values, <PlayerLocationCellKind>[
           PlayerLocationCellKind.interior,
           PlayerLocationCellKind.exterior,
+        ]);
+      },
+    );
+  });
+
+  group('Property values in TrackedQuestObjectiveState behaves correctly', () {
+    test(
+      'Property values in TrackedQuestObjectiveState preserves every engine state',
+      () {
+        expect(TrackedQuestObjectiveState.values, <TrackedQuestObjectiveState>[
+          TrackedQuestObjectiveState.dormant,
+          TrackedQuestObjectiveState.displayed,
+          TrackedQuestObjectiveState.completed,
+          TrackedQuestObjectiveState.completedAndDisplayed,
+          TrackedQuestObjectiveState.failed,
+          TrackedQuestObjectiveState.failedAndDisplayed,
         ]);
       },
     );

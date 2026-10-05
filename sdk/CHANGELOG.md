@@ -13,6 +13,8 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Added
 
+- `currentHost.trackedQuestsChanges` exposes all tracked quests and objective states as a
+  synchronization-aware typed stream.
 - `client.connections.renameDevice(displayName)` exposes the active Host's typed trusted-device rename outcome.
 - The SDK checks restored Known Host presence on startup and refreshes it while the client remains open, separately from session connection state.
 - `client.hosts.knownHostsChanges` emits the complete persisted Known Hosts view after commits.

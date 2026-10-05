@@ -865,6 +865,26 @@ public class AdapterIpcSessionTests
         Assert.Equal(99u, message.SampleToken);
     }
 
+    /// <summary>Verifies private page preparation accepts the cursor's full wire range.</summary>
+    [Theory]
+    [InlineData(TrackedQuestPageKind.TrackedQuestIds, 0u, (ushort)65504)]
+    [InlineData(TrackedQuestPageKind.Objectives, 1u, ushort.MaxValue)]
+    public void PrepareReadTrackedQuestPage_AfterHandshakeAcceptsRepresentableCursors(
+        TrackedQuestPageKind pageKind,
+        uint questId,
+        ushort cursor)
+    {
+        (AdapterIpcSession session, _, _) = HandshakenSession();
+
+        IpcReadTrackedQuestPageMessage? message = session.PrepareReadTrackedQuestPage(pageKind, questId, cursor);
+
+        Assert.NotNull(message);
+        Assert.NotEqual(0UL, message.CorrelationId);
+        Assert.Equal(pageKind, message.PageKind);
+        Assert.Equal(questId, message.QuestId);
+        Assert.Equal(cursor, message.Cursor);
+    }
+
     /// <summary>Verifies that successive capture-intent preparations issue distinct correlation ids.</summary>
     [Fact]
     public void PrepareCaptureIntents_IssueDistinctCorrelationIds()
