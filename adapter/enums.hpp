@@ -2,14 +2,16 @@
 
 #include <cstdint>
 
+#include "capture/tracked_quest_page_request.hpp"
+
 namespace dovahlink::adapter::capture {
 
 //  ---- Capture ----
 
 ///  Which host-owned key namespace a captured value's key belongs to.
 enum class CaptureSourceKind : std::uint8_t {
-    ///  A host-owned sample token, read synchronously via
-    ///  `IAdapterNativeCaptureRouter::CaptureSample`.
+    ///  A host-directed capture read performed synchronously by the Adapter,
+    ///  including sample tokens and tracked-quest page requests.
     kSample = 0,
     ///  A host-owned event key, captured asynchronously once a registered
     ///  native event fires.
@@ -54,6 +56,12 @@ enum class CharacterSampleToken : std::uint32_t {
     kGameTime = 7,
 };
 
+///  The capture-result key used by bounded tracked-quest page responses.
+enum class TrackedQuestCaptureKey : std::uint32_t {
+    ///  One response to an `IpcReadTrackedQuestPageMessage`.
+    kPage = 8,
+};
+
 ///  A host-owned `IAdapterNativeCaptureRouter::RegisterEvent` key.
 enum class CharacterEventKey : std::uint32_t {
     ///  The native level-increase event.
@@ -66,19 +74,19 @@ namespace dovahlink::adapter::dispatch {
 
 //  ---- Dispatch ----
 
-///  The outcome of one `IAdapterNativeCaptureRouter::CaptureSample` call.
+///  The outcome of one synchronous capture-router call.
 ///  Keeps a known-but-currently-unreadable Skyrim value distinct from a
-///  sample token this router has no approved translation for at all: the
+///  request this router has no approved translation for at all: the
 ///  first is normal, expected Skyrim state; the second is a protocol/version
 ///  mismatch a caller must never silently treat as authoritative unavailable
 ///  state.
 enum class SampleCaptureStatus : std::uint8_t {
     ///  The value was read and `SampleCaptureResult::payload` holds it.
     kAvailable = 0,
-    ///  `sampleToken` is a known, approved translation, but the underlying
-    ///  Skyrim read is not currently available.
+    ///  The request is a known, approved translation, but the underlying
+    ///  Skyrim facts are not currently available.
     kUnavailable = 1,
-    ///  `sampleToken` has no approved translation in this router.
+    ///  The request has no approved translation in this router.
     kUnsupported = 2,
 };
 
@@ -142,6 +150,9 @@ enum class IpcMessageKind : std::uint8_t {
     ///  Sent by the adapter to notify the host the play context has ended.
     ///  See `IpcPlayContextEndedMessage`.
     kPlayContextEnded = 18,
+    ///  Sent by the host to request one bounded tracked-quest page.
+    ///  The adapter responds using the existing `IpcCaptureResultMessage`.
+    kReadTrackedQuestPage = 19,
 };
 
 ///  Why a private IPC channel is being closed.
@@ -170,8 +181,8 @@ enum class IpcRejectReason : std::uint8_t {
     ///  An `IpcTrustAdminRequestMessage`'s correlation id matches one this
     ///  session already has admitted and still outstanding.
     kDuplicateTrustAdminCorrelationId = 4,
-    ///  A cancellable request's (resynchronize, listen-event, read-sample, or
-    ///  pairing-display) correlation id matches one this session already has
+    ///  A cancellable request's (resynchronize, listen-event, read-sample,
+    ///  tracked-quest-page, or pairing-display) correlation id matches one this session already has
     ///  admitted and still outstanding on the current connection generation.
     kDuplicateCancellableCorrelationId = 5,
 };

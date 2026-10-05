@@ -49,13 +49,18 @@ public class AdapterIpcServiceExtensionsTests
         Assert.NotNull(provider.GetRequiredService<IPairingAdapterNotifier>());
         Assert.IsType<LiveStateApplication>(provider.GetRequiredService<ILiveStateApplication>());
         ILiveCaptureHandler[] captureHandlers = provider.GetServices<ILiveCaptureHandler>().ToArray();
-        Assert.Equal(3, captureHandlers.Length);
+        Assert.Equal(4, captureHandlers.Length);
         CharacterCaptureHandler characterCaptureHandler = Assert.Single(captureHandlers.OfType<CharacterCaptureHandler>());
         PlayerLocationCaptureHandler playerLocationCaptureHandler = Assert.Single(captureHandlers.OfType<PlayerLocationCaptureHandler>());
         GameTimeCaptureHandler gameTimeCaptureHandler = Assert.Single(captureHandlers.OfType<GameTimeCaptureHandler>());
+        TrackedQuestCaptureHandler trackedQuestCaptureHandler = Assert.Single(captureHandlers.OfType<TrackedQuestCaptureHandler>());
         Assert.Same(characterCaptureHandler, provider.GetRequiredService<CharacterCaptureHandler>());
         Assert.Same(playerLocationCaptureHandler, provider.GetRequiredService<PlayerLocationCaptureHandler>());
         Assert.Same(gameTimeCaptureHandler, provider.GetRequiredService<GameTimeCaptureHandler>());
+        Assert.Same(trackedQuestCaptureHandler, provider.GetRequiredService<TrackedQuestCaptureHandler>());
+        Assert.IsType<TrackedQuestPageReader>(provider.GetRequiredService<ITrackedQuestPageReader>());
+        Assert.IsType<TrackedQuestSnapshotCollector>(provider.GetRequiredService<ITrackedQuestSnapshotCollector>());
+        Assert.IsType<TrackedQuestCaptureCoordinator>(provider.GetRequiredService<ITrackedQuestCaptureCoordinator>());
         Assert.NotNull(provider.GetRequiredService<ILiveCaptureSink>());
         Assert.NotNull(provider.GetRequiredService<LiveStateScheduler>());
     }

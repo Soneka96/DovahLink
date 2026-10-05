@@ -324,6 +324,11 @@ class AcceptingCaptureRouter final
             .status =
                 dovahlink::adapter::dispatch::SampleCaptureStatus::kUnavailable};
     }
+    dovahlink::adapter::dispatch::SampleCaptureResult CaptureTrackedQuestPage(
+        const dovahlink::adapter::capture::TrackedQuestPageRequest&) override {
+        return dovahlink::adapter::dispatch::SampleCaptureResult{
+            .status = dovahlink::adapter::dispatch::SampleCaptureStatus::kUnavailable};
+    }
     bool RegisterEvent(std::uint32_t) override { return true; }
 };
 
@@ -434,6 +439,11 @@ class DeterministicBaselineCaptureRouter final
         default:
             return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
         }
+    }
+
+    SampleCaptureResult CaptureTrackedQuestPage(
+        const dovahlink::adapter::capture::TrackedQuestPageRequest&) override {
+        return SampleCaptureResult{.status = SampleCaptureStatus::kUnavailable};
     }
 
     bool RegisterEvent(std::uint32_t eventKey) override {

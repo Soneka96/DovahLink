@@ -62,6 +62,18 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
     /// <summary>The correlation id <see cref="TrySendReadSample"/> reports when <see cref="TrySendReadSampleResult"/> is <see langword="true"/>.</summary>
     public ulong TrySendReadSampleCorrelationId { get; set; }
 
+    /// <summary>Optional response-aware request factory for tracked-quest page tests.</summary>
+    public Func<TrackedQuestPageKind, uint, ushort, IpcReadTrackedQuestPageMessage?>? PrepareTrackedQuestPageOverride { get; set; }
+
+    /// <summary>Whether tracked-quest page preparation should report unavailable.</summary>
+    public bool TrackedQuestPagePreparationUnavailable { get; set; }
+
+    /// <summary>Invoked synchronously when a prepared tracked-quest page enters the fake outbound queue.</summary>
+    public Action<IpcReadTrackedQuestPageMessage>? OnTrySendTrackedQuestPage { get; set; }
+
+    /// <summary>The next correlation supplied by the tracked-quest request factory.</summary>
+    public ulong NextTrackedQuestPageCorrelationId { get; set; } = 100;
+
     /// <summary>The sample tokens whose direct or prepared send method was called, in call order.</summary>
     public List<uint> ReadSampleCalls { get; } = [];
 
@@ -83,6 +95,39 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         OnTrySendReadSample?.Invoke();
         correlationId = TrySendReadSampleResult ? TrySendReadSampleCorrelationId : 0;
         return TrySendReadSampleResult;
+    }
+
+    /// <inheritdoc/>
+    /// <inheritdoc/>
+    public IpcReadTrackedQuestPageMessage? PrepareReadTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor)
+    {
+        if (ConnectionGeneration is null)
+        {
+            return null;
+        }
+
+        if (TrackedQuestPagePreparationUnavailable)
+        {
+            return null;
+        }
+
+        return PrepareTrackedQuestPageOverride?.Invoke(pageKind, questId, cursor)
+            ?? new IpcReadTrackedQuestPageMessage(NextTrackedQuestPageCorrelationId++, pageKind, questId, cursor);
+    }
+
+    /// <inheritdoc/>
+    public bool TrySendPreparedTrackedQuestPage(IpcReadTrackedQuestPageMessage message, long expectedConnectionGeneration, out ulong correlationId)
+    {
+        correlationId = ConnectionGeneration == expectedConnectionGeneration && TrySendReadSampleResult
+            ? message.CorrelationId
+            : 0;
+        if (correlationId == 0)
+        {
+            return false;
+        }
+
+        OnTrySendTrackedQuestPage?.Invoke(message);
+        return true;
     }
 
     /// <summary>Invoked when a scheduler prepares a sample request, before its final availability check.</summary>

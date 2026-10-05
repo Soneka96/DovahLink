@@ -29,6 +29,7 @@ void main() {
   late MockCurrentHostCharacter character;
   late Stream<StateSynchronization<PlayerLocationState?>> playerLocationChanges;
   late Stream<StateSynchronization<GameTimeState?>> gameTimeChanges;
+  late Stream<StateSynchronization<TrackedQuestsState?>> trackedQuestsChanges;
   late DovahLinkCurrentHost currentHost;
 
   setUp(() {
@@ -42,11 +43,16 @@ void main() {
     gameTimeChanges = Stream<StateSynchronization<GameTimeState?>>.value(
       const StateSynchronization<GameTimeState?>.notSubscribed(),
     );
+    trackedQuestsChanges =
+        Stream<StateSynchronization<TrackedQuestsState?>>.value(
+          const StateSynchronization<TrackedQuestsState?>.notSubscribed(),
+        );
     currentHost = DovahLinkCurrentHost(
       sessionService: sessionService,
       character: character,
       playerLocationChanges: playerLocationChanges,
       gameTimeChanges: gameTimeChanges,
+      trackedQuestsChanges: trackedQuestsChanges,
       subscriptionService: subscriptionService,
     );
   });
@@ -89,6 +95,15 @@ void main() {
       'Property gameTimeChanges exposes the synchronization-aware stream',
       () {
         expect(currentHost.gameTimeChanges, same(gameTimeChanges));
+      },
+    );
+  });
+
+  group('Property trackedQuestsChanges behaves correctly', () {
+    test(
+      'Property trackedQuestsChanges exposes the synchronization-aware stream',
+      () {
+        expect(currentHost.trackedQuestsChanges, same(trackedQuestsChanges));
       },
     );
   });

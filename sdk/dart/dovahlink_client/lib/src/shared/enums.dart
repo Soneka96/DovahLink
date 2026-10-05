@@ -502,6 +502,33 @@ enum PlayerLocationCellKind {
   exterior,
 }
 
+/// The engine-reported state of one objective instance for a tracked quest.
+enum TrackedQuestObjectiveState {
+  /// The current objective instance is dormant.
+  @JsonValue('dormant')
+  dormant,
+
+  /// The current objective instance is displayed.
+  @JsonValue('displayed')
+  displayed,
+
+  /// The current objective instance is completed.
+  @JsonValue('completed')
+  completed,
+
+  /// The current objective instance is completed and displayed.
+  @JsonValue('completed_and_displayed')
+  completedAndDisplayed,
+
+  /// The current objective instance is failed.
+  @JsonValue('failed')
+  failed,
+
+  /// The current objective instance is failed and displayed.
+  @JsonValue('failed_and_displayed')
+  failedAndDisplayed,
+}
+
 /// A public state domain the SDK client can subscribe to.
 enum DovahLinkStateArea {
   /// The character's current experience and progress to the next level.
@@ -523,7 +550,10 @@ enum DovahLinkStateArea {
   playerLocation('player_location'),
 
   /// The current Skyrim calendar time.
-  gameTime('game_time');
+  gameTime('game_time'),
+
+  /// Every quest currently tracked by the player and its current objectives.
+  trackedQuests('tracked_quests');
 
   /// The canonical protocol value for this area.
   final String protocolValue;

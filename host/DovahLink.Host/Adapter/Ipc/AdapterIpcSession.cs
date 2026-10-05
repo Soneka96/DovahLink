@@ -75,6 +75,12 @@ public interface IAdapterIpcSession
     /// <param name="sampleToken">The host-owned sample token.</param>
     IpcReadSampleMessage? PrepareReadSample(uint sampleToken);
 
+    /// <summary>Prepares one bounded tracked-quest page request.</summary>
+    /// <param name="pageKind">The page operation requested.</param>
+    /// <param name="questId">The runtime quest FormID, or zero for quest-ID pages.</param>
+    /// <param name="cursor">The tracked-ID or objective offset.</param>
+    IpcReadTrackedQuestPageMessage? PrepareReadTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor);
+
     /// <summary>Prepares a cancellation for a previously issued correlation id, or <see langword="null"/> before a successful handshake.</summary>
     /// <param name="correlationId">The nonzero correlation id of the request to cancel.</param>
     IpcCancelMessage? PrepareCancel(ulong correlationId);
@@ -375,6 +381,29 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
     /// <inheritdoc/>
     public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) =>
         lease is null || sampleToken == 0 || !lifecycle.IsActive(lease) ? null : new IpcReadSampleMessage(NextCorrelationId(), sampleToken);
+
+    /// <inheritdoc/>
+    public IpcReadTrackedQuestPageMessage? PrepareReadTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor)
+    {
+        if (lease is null || !lifecycle.IsActive(lease) || !IsValidTrackedQuestPageRequest(pageKind, questId, cursor))
+        {
+            return null;
+        }
+
+        return new IpcReadTrackedQuestPageMessage(NextCorrelationId(), pageKind, questId, cursor);
+    }
+
+    /// <summary>Checks the tracked-quest request's structural argument shape.</summary>
+    /// <param name="pageKind">The page operation requested.</param>
+    /// <param name="questId">The runtime quest FormID.</param>
+    /// <param name="cursor">The page offset.</param>
+    private static bool IsValidTrackedQuestPageRequest(TrackedQuestPageKind pageKind, uint questId, ushort cursor) => pageKind switch
+    {
+        TrackedQuestPageKind.TrackedQuestIds => questId == 0 && cursor % Constants.TrackedQuestIdsPerPage == 0,
+        TrackedQuestPageKind.QuestMetadata => questId != 0 && cursor == 0,
+        TrackedQuestPageKind.Objectives => questId != 0,
+        _ => false,
+    };
 
     /// <inheritdoc/>
     public IpcCancelMessage? PrepareCancel(ulong correlationId) =>

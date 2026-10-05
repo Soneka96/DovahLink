@@ -589,6 +589,27 @@ public static class Constants
     /// <summary>The <c>stateArea</c> id for Skyrim calendar time.</summary>
     public const string GameTimeStateArea = "game_time";
 
+    /// <summary>The <c>stateArea</c> id for all currently tracked quests and their current objective state.</summary>
+    public const string TrackedQuestsStateArea = "tracked_quests";
+
+    /// <summary>The maximum number of runtime quest FormIDs returned in one private page.</summary>
+    public const int TrackedQuestIdsPerPage = 32;
+
+    /// <summary>The maximum tracked quest count assembled into one complete Snapshot.</summary>
+    public const int MaxTrackedQuests = 128;
+
+    /// <summary>The maximum current objective count assembled into one complete Snapshot.</summary>
+    public const int MaxTrackedQuestObjectives = 1024;
+
+    /// <summary>The maximum UTF-8 byte length for a localized quest title or objective string.</summary>
+    public const int MaxTrackedQuestTextBytes = 126;
+
+    /// <summary>The existing Adapter capture-value bound used by each private quest-page response.</summary>
+    public const int MaxTrackedQuestCapturePageBytes = byte.MaxValue;
+
+    /// <summary>The maximum serialized <c>tracked_quests</c> state object published by the Host.</summary>
+    public const int MaxTrackedQuestsSerializedBytes = 1024 * 1024;
+
     /// <summary>The maximum UTF-8 byte length for either private Character Identity string.</summary>
     public const int MaxCharacterIdentityStringBytes = 126;
 

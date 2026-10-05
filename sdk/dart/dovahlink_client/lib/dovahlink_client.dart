@@ -39,6 +39,7 @@ export 'src/shared/enums.dart'
         DovahLinkKnownHostSessionState,
         DovahLinkStateArea,
         PlayerLocationCellKind,
+        TrackedQuestObjectiveState,
         DovahLinkStateStatus,
         DovahLinkTrustState,
         PairingAvailability,
@@ -64,6 +65,9 @@ export 'src/persistence/unsupported_client_storage.dart'
 export 'src/state/character_identity_state.dart' show CharacterIdentityState;
 export 'src/state/player_location_state.dart' show PlayerLocationState;
 export 'src/state/game_time_state.dart' show GameTimeState;
+export 'src/state/quest_objective.dart' show QuestObjective;
+export 'src/state/tracked_quest.dart' show TrackedQuest;
+export 'src/state/tracked_quests_state.dart' show TrackedQuestsState;
 export 'src/state/character_level_state.dart' show CharacterLevelState;
 export 'src/state/character_supernatural_traits_state.dart'
     show CharacterSupernaturalTraitsState;

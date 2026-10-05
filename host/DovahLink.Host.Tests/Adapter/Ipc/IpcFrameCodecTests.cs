@@ -497,6 +497,55 @@ public class IpcFrameCodecTests
         Assert.Equal(original, result.Message);
     }
 
+    /// <summary>Verifies bounded tracked-quest page requests round-trip every operation.</summary>
+    [Theory]
+    [InlineData(TrackedQuestPageKind.TrackedQuestIds, 0u, (ushort)65504)]
+    [InlineData(TrackedQuestPageKind.QuestMetadata, 0x12345678u, (ushort)0)]
+    [InlineData(TrackedQuestPageKind.Objectives, 0x12345678u, ushort.MaxValue)]
+    public void RoundTrip_ReadTrackedQuestPage(TrackedQuestPageKind kind, uint questId, ushort cursor)
+    {
+        var codec = new IpcFrameCodec();
+        var original = new IpcReadTrackedQuestPageMessage(7, kind, questId, cursor);
+
+        (IpcDecodeResult result, _) = EncodeThenDecode(codec, original);
+
+        Assert.Equal(original, result.Message);
+    }
+
+    /// <summary>Verifies malformed operation arguments cannot be encoded.</summary>
+    [Theory]
+    [InlineData(TrackedQuestPageKind.TrackedQuestIds, 1u, (ushort)0)]
+    [InlineData(TrackedQuestPageKind.TrackedQuestIds, 0u, (ushort)33)]
+    [InlineData(TrackedQuestPageKind.QuestMetadata, 1u, (ushort)1)]
+    [InlineData(TrackedQuestPageKind.Objectives, 0u, (ushort)0)]
+    [InlineData((TrackedQuestPageKind)3, 1u, (ushort)0)]
+    public void Encode_ReadTrackedQuestPage_InvalidArguments_Throws(TrackedQuestPageKind kind, uint questId, ushort cursor)
+    {
+        var codec = new IpcFrameCodec();
+        Assert.Throws<ArgumentException>(() => codec.Encode(new IpcReadTrackedQuestPageMessage(7, kind, questId, cursor)));
+    }
+
+    /// <summary>Verifies operation, correlation, and cursor violations fail closed while decoding.</summary>
+    [Theory]
+    [InlineData(1UL, (byte)255, 0u, (ushort)0)]
+    [InlineData(0UL, (byte)0, 0u, (ushort)0)]
+    [InlineData(1UL, (byte)0, 1u, (ushort)0)]
+    [InlineData(1UL, (byte)0, 0u, (ushort)33)]
+    [InlineData(1UL, (byte)1, 1u, (ushort)1)]
+    [InlineData(1UL, (byte)1, 0u, (ushort)0)]
+    [InlineData(1UL, (byte)2, 0u, (ushort)0)]
+    public void Decode_ReadTrackedQuestPage_InvalidPayload_FailsClosed(ulong correlationId, byte kind, uint questId, ushort cursor)
+    {
+        var codec = new IpcFrameCodec();
+        byte[] frame = BuildFrame(IpcMessageKind.ReadTrackedQuestPage, correlationId,
+            [kind, (byte)questId, (byte)(questId >> 8), (byte)(questId >> 16), (byte)(questId >> 24), (byte)cursor, (byte)(cursor >> 8)]);
+
+        IpcDecodeResult result = codec.Decode(frame);
+
+        Assert.NotNull(result.FailureReason);
+        Assert.Equal(IpcRejectReason.MalformedPayload, result.FailureReason);
+    }
+
     /// <summary>Verifies that an available capture result round-trips its source, key, and payload.</summary>
     [Fact]
     public void RoundTrip_CaptureResult_Available()
@@ -1957,6 +2006,8 @@ public class IpcFrameCodecTests
             (new IpcCancelMessage(7), "09000000070700000000000000"),
             (new IpcListenEventMessage(0x0102030405060708, 0x0A0B0C0D), "0D0000000808070605040302010D0C0B0A"),
             (new IpcReadSampleMessage(0x1122334455667788, 0xA1B2C3D4), "0D000000098877665544332211D4C3B2A1"),
+            (new IpcReadTrackedQuestPageMessage(14, TrackedQuestPageKind.TrackedQuestIds, 0, 96),
+                "10000000130E0000000000000000000000006000"),
             // 7-byte PairingDisplay payload: 1 mode byte + 6 ASCII code digits.
             (new IpcPairingDisplayMessage(8, "123456", PairingDisplayMode.Initial),
                 "100000000A080000000000000000313233343536"),
@@ -2014,6 +2065,11 @@ public class IpcFrameCodecTests
                     break;
                 case (IpcReadSampleMessage expectedMessage, IpcReadSampleMessage actualMessage):
                     Assert.Equal(expectedMessage.SampleToken, actualMessage.SampleToken);
+                    break;
+                case (IpcReadTrackedQuestPageMessage expectedMessage, IpcReadTrackedQuestPageMessage actualMessage):
+                    Assert.Equal(expectedMessage.PageKind, actualMessage.PageKind);
+                    Assert.Equal(expectedMessage.QuestId, actualMessage.QuestId);
+                    Assert.Equal(expectedMessage.Cursor, actualMessage.Cursor);
                     break;
                 case (IpcPairingDisplayMessage expectedMessage, IpcPairingDisplayMessage actualMessage):
                     Assert.Equal(expectedMessage.Code, actualMessage.Code);

@@ -8,6 +8,7 @@
 #include "capture/live_state_sample_codec.hpp"
 #include "enums.hpp"
 #include "runtime/commonlib_adapter_character_capture.hpp"
+#include "runtime/commonlib_adapter_tracked_quest_capture.hpp"
 
 namespace dovahlink::adapter::runtime {
 
@@ -177,6 +178,12 @@ CommonLibAdapterNativeCaptureRouter::CaptureSample(std::uint32_t sampleToken) {
         return dispatch::SampleCaptureResult{
             .status = dispatch::SampleCaptureStatus::kUnsupported};
     }
+}
+
+dispatch::SampleCaptureResult
+CommonLibAdapterNativeCaptureRouter::CaptureTrackedQuestPage(
+    const capture::TrackedQuestPageRequest& request) {
+    return CaptureCommonLibTrackedQuestPage(request);
 }
 
 bool CommonLibAdapterNativeCaptureRouter::RegisterEvent(std::uint32_t eventKey) {

@@ -3,14 +3,15 @@
 #include <cstddef>
 #include <cstdint>
 
+#include "capture/tracked_quest_page_request.hpp"
 #include "dispatch/sample_capture_result.hpp"
 
 namespace dovahlink::adapter::dispatch {
 
 ///  The adapter's native capture boundary: the last step before Skyrim, per
-///  `ai/context/adapter/architecture.md`. A host-directed sample token or
-///  event key maps here to one approved synchronous read or persistent event
-///  registration; no real key is registered yet. Sampling and event
+///  `ai/context/adapter/architecture.md`. A host-directed sample token, bounded
+///  tracked-quest page, or event key maps here to one approved synchronous
+///  read or persistent event registration. Sampling and event
 ///  registration are two explicit operations rather than one generic
 ///  translation, because they behave fundamentally differently: a sample
 ///  read finishes synchronously and produces one captured value, while an
@@ -31,6 +32,12 @@ class IAdapterNativeCaptureRouter {
     ///  translation at all; see `SampleCaptureResult`'s own documentation.
     virtual SampleCaptureResult CaptureSample(std::uint32_t sampleToken) = 0;
 
+    ///  Captures one bounded tracked-quest page synchronously on the game thread.
+    ///  @param request The page operation and cursor arguments.
+    ///  @return The encoded page or a known-unavailable result.
+    virtual SampleCaptureResult CaptureTrackedQuestPage(
+        const capture::TrackedQuestPageRequest& request) = 0;
+
     ///  Registers persistent interest in a host-directed event key's native
     ///  event, synchronously on the calling thread. Idempotent: registering
     ///  an already-registered key succeeds without adding a second
@@ -48,6 +55,10 @@ class AdapterNativeCaptureRouter final : public IAdapterNativeCaptureRouter {
   public:
     ///  @copydoc IAdapterNativeCaptureRouter::CaptureSample
     SampleCaptureResult CaptureSample(std::uint32_t sampleToken) override;
+
+    ///  @copydoc IAdapterNativeCaptureRouter::CaptureTrackedQuestPage
+    SampleCaptureResult CaptureTrackedQuestPage(
+        const capture::TrackedQuestPageRequest& request) override;
 
     ///  @copydoc IAdapterNativeCaptureRouter::RegisterEvent
     bool RegisterEvent(std::uint32_t eventKey) override;

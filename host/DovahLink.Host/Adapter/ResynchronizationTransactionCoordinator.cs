@@ -100,7 +100,7 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
     /// <summary>How long a tracked transaction may take to genuinely complete before its watchdog requests recovery.</summary>
     private readonly TimeSpan transactionTimeout;
 
-    /// <summary>Every state area a complete baseline transaction must accept, derived once from the catalog's BaselineSample units.</summary>
+    /// <summary>Every state area a complete baseline transaction must accept, derived once from its Adapter and Host-orchestrated baseline units.</summary>
     private readonly IReadOnlySet<StateAreaId> requiredAreas;
 
     /// <summary>Guards every field below against concurrent access.</summary>
@@ -151,7 +151,8 @@ public sealed class ResynchronizationTransactionCoordinator : IResynchronization
         this.continuityRecovery = continuityRecovery;
         this.transactionTimeout = transactionTimeout;
         requiredAreas = catalog.CaptureUnits
-            .Where(unit => unit.SynchronizationRole == SynchronizationRole.BaselineSample)
+            .Where(unit => unit.SynchronizationRole is
+                SynchronizationRole.BaselineSample or SynchronizationRole.HostOrchestratedBaseline)
             .SelectMany(unit => unit.StateAreas)
             .ToHashSet();
     }

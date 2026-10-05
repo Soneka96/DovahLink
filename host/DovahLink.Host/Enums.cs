@@ -311,12 +311,35 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the adapter to notify the host the play context has ended. See <see cref="Adapter.Ipc.IpcPlayContextEndedMessage"/>.</summary>
     PlayContextEnded = 18,
+
+    /// <summary>Sent by the host to request one bounded tracked-quest page.</summary>
+    ReadTrackedQuestPage = 19,
+}
+
+/// <summary>The bounded tracked-quest fact page requested from the Adapter.</summary>
+public enum TrackedQuestPageKind : byte
+{
+    /// <summary>A page of currently tracked runtime quest FormIDs.</summary>
+    TrackedQuestIds = 0,
+
+    /// <summary>The title and type for one tracked quest.</summary>
+    QuestMetadata = 1,
+
+    /// <summary>A page of current objective instances for one tracked quest.</summary>
+    Objectives = 2,
+}
+
+/// <summary>The capture-result key used for tracked-quest page replies.</summary>
+public enum TrackedQuestCaptureKey : uint
+{
+    /// <summary>One response to a tracked-quest page request.</summary>
+    Page = 8,
 }
 
 /// <summary>Which host-owned key namespace a captured value's key belongs to.</summary>
 public enum CaptureSourceKind : byte
 {
-    /// <summary>A host-owned sample token, read synchronously in response to a <see cref="Adapter.Ipc.IpcReadSampleMessage"/>.</summary>
+    /// <summary>A host-directed capture read, including sample tokens and tracked-quest page requests.</summary>
     Sample = 0,
 
     /// <summary>A host-owned event key, captured asynchronously once a registered native event fires.</summary>
@@ -421,6 +444,12 @@ public enum SynchronizationRole
     /// updates; registering it produces no baseline value of its own.
     /// </summary>
     PersistentEvent,
+
+    /// <summary>
+    /// A Host-orchestrated multi-request Snapshot capture; the Host obtains its baseline without
+    /// adding a generic sample token to the Adapter's resynchronization plan.
+    /// </summary>
+    HostOrchestratedBaseline,
 }
 
 /// <summary>
@@ -434,6 +463,37 @@ public enum UpdateMode
 
     /// <summary>An ordered complete post-change state, reliable within one authenticated session.</summary>
     Event,
+}
+
+// ---- Tracked Quests ----
+
+/// <summary>The six raw Skyrim objective-state meanings preserved in <c>tracked_quests</c>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<TrackedQuestObjectiveState>))]
+public enum TrackedQuestObjectiveState : byte
+{
+    /// <summary>The objective instance is dormant.</summary>
+    [JsonStringEnumMemberName("dormant")]
+    Dormant = 0,
+
+    /// <summary>The objective instance is displayed.</summary>
+    [JsonStringEnumMemberName("displayed")]
+    Displayed = 1,
+
+    /// <summary>The objective instance is completed.</summary>
+    [JsonStringEnumMemberName("completed")]
+    Completed = 2,
+
+    /// <summary>The objective instance is completed and displayed.</summary>
+    [JsonStringEnumMemberName("completed_and_displayed")]
+    CompletedAndDisplayed = 3,
+
+    /// <summary>The objective instance is failed.</summary>
+    [JsonStringEnumMemberName("failed")]
+    Failed = 4,
+
+    /// <summary>The objective instance is failed and displayed.</summary>
+    [JsonStringEnumMemberName("failed_and_displayed")]
+    FailedAndDisplayed = 5,
 }
 
 /// <summary>Why a private IPC channel is being closed.</summary>

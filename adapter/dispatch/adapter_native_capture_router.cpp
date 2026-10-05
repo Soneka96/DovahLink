@@ -8,6 +8,11 @@ AdapterNativeCaptureRouter::CaptureSample(std::uint32_t /*sampleToken*/) {
     return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
 }
 
+SampleCaptureResult AdapterNativeCaptureRouter::CaptureTrackedQuestPage(
+    const capture::TrackedQuestPageRequest& /*request*/) {
+    return SampleCaptureResult{.status = SampleCaptureStatus::kUnsupported};
+}
+
 bool AdapterNativeCaptureRouter::RegisterEvent(std::uint32_t /*eventKey*/) {
     //  No production event key is registered yet.
     return false;
