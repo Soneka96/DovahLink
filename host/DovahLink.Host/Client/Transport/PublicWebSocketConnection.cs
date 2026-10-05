@@ -1010,6 +1010,10 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                     // Neither lane has a frame ready right now, but at least one is still open. Wake up
                     // as soon as either lane's state changes -- a new admission or that lane completing
                     // -- then loop back to the top, which re-checks control-first priority from scratch.
+                    // Stop first if cancellation is already requested: both waits would then complete
+                    // synchronously, so this loop would spin without ever yielding -- forever when the
+                    // writer started after cancellation on the thread whose teardown completes the lanes.
+                    writerCancellation.Token.ThrowIfCancellationRequested();
                     Task<bool> controlWaitTask = controlOutbound.Reader.WaitToReadAsync(writerCancellation.Token).AsTask();
                     Task dataWaitTask = dataLaneQueue.WaitForReadyAsync(writerCancellation.Token);
                     await Task.WhenAny(controlWaitTask, dataWaitTask).ConfigureAwait(false);

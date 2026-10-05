@@ -2847,6 +2847,37 @@ public class PublicWebSocketConnectionTests
         listener.Stop();
     }
 
+    /// <summary>
+    /// Verifies that cancellation requested from inside
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/> -- after the upgrade but
+    /// before the writer loop starts, as when Host shutdown races a newly upgraded client -- still ends
+    /// the connection within a bounded time instead of leaving the writer spinning on already-cancelled
+    /// waits and blocking teardown forever.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelledBeforeWriterStarts_EndsWithoutSpinning()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = new FakePublicWebSocketMessageHandler();
+        handler.OnConnectionEstablished = _ => cancellation.Cancel();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The caller's own cancellation propagates from RunAsync; a timeout here would mean teardown hung.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        listener.Stop();
+    }
+
     // ---- Admission-handler close-ordering integration ----
 
     /// <summary>
