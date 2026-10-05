@@ -3,22 +3,20 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.actions.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.reducer.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/session_live_state.state.dart';
+import '../../../../fixtures/fixtures.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
         CharacterIdentityState,
         CharacterLevelState,
         CharacterSupernaturalTraitsState,
-        CharacterVital,
         CharacterVitalsState,
         CharacterXpState,
         DovahLinkStateStatus,
         GameTimeState,
         PlayerLocationCellKind,
         PlayerLocationState,
-        QuestObjective,
         StateSynchronization,
-        TrackedQuest,
         TrackedQuestObjectiveState,
         TrackedQuestsState;
 
@@ -33,10 +31,10 @@ void main() {
         final StateSynchronization<CharacterVitalsState> synchronization =
             _synchronization<CharacterVitalsState>(
               DovahLinkStateStatus.synchronized,
-              CharacterVitalsState(
-                health: const CharacterVital(current: 80, max: 100),
-                magicka: const CharacterVital(current: 40, max: 80),
-                stamina: const CharacterVital(current: 50, max: 90),
+              Fixtures.buildCharacterVitals(
+                health: Fixtures.buildCharacterVital(current: 80, max: 100),
+                magicka: Fixtures.buildCharacterVital(current: 40, max: 80),
+                stamina: Fixtures.buildCharacterVital(current: 50, max: 90),
               ),
             );
 
@@ -57,7 +55,7 @@ void main() {
         final StateSynchronization<CharacterXpState> synchronization =
             _synchronization<CharacterXpState>(
               DovahLinkStateStatus.unavailable,
-              const CharacterXpState(value: null),
+              Fixtures.buildCharacterXp(value: null),
             );
 
         final SessionLiveState result = liveStateReducer(
@@ -78,7 +76,7 @@ void main() {
         final StateSynchronization<CharacterLevelState> synchronization =
             _synchronization<CharacterLevelState>(
               DovahLinkStateStatus.stale,
-              const CharacterLevelState(value: 43),
+              Fixtures.buildCharacterLevel(value: 43),
             );
 
         final SessionLiveState result = liveStateReducer(
@@ -97,10 +95,8 @@ void main() {
       test(
         'CharacterIdentitySynchronizationChangedAction preserves SDK identity',
         () {
-          const CharacterIdentityState identity = CharacterIdentityState(
-            name: 'Player',
-            race: 'Nord',
-          );
+          final CharacterIdentityState identity =
+              Fixtures.buildCharacterIdentity(name: 'Player', race: 'Nord');
           final StateSynchronization<CharacterIdentityState?> synchronization =
               _synchronization<CharacterIdentityState?>(
                 DovahLinkStateStatus.synchronized,
@@ -125,8 +121,8 @@ void main() {
       test(
         'CharacterSupernaturalTraitsSynchronizationChangedAction stores its value',
         () {
-          const CharacterSupernaturalTraitsState traits =
-              CharacterSupernaturalTraitsState(
+          final CharacterSupernaturalTraitsState traits =
+              Fixtures.buildSupernaturalTraits(
                 isVampire: false,
                 hasVampireLordForm: false,
                 hasWerewolfForm: false,
@@ -155,7 +151,7 @@ void main() {
     'Action PlayerLocationSynchronizationChangedAction behaves correctly',
     () {
       test('PlayerLocationSynchronizationChangedAction stores its value', () {
-        const PlayerLocationState location = PlayerLocationState(
+        final PlayerLocationState location = Fixtures.buildPlayerLocation(
           cellId: 1,
           cellKind: PlayerLocationCellKind.exterior,
           cellName: null,
@@ -182,7 +178,7 @@ void main() {
 
   group('Action GameTimeSynchronizationChangedAction behaves correctly', () {
     test('GameTimeSynchronizationChangedAction stores its value', () {
-      const GameTimeState time = GameTimeState(
+      final GameTimeState time = Fixtures.buildGameTime(
         year: 4,
         month: 8,
         monthName: 'Last Seed',
@@ -211,14 +207,14 @@ void main() {
       test(
         'TrackedQuestsSynchronizationChangedAction stores complete quests',
         () {
-          final TrackedQuestsState quests = TrackedQuestsState(
+          final TrackedQuestsState quests = Fixtures.buildTrackedQuests(
             quests: [
-              TrackedQuest(
+              Fixtures.buildTrackedQuest(
                 questId: 1,
                 title: 'Test Quest',
                 type: 0,
                 objectives: [
-                  QuestObjective(
+                  Fixtures.buildQuestObjective(
                     index: 0,
                     instanceId: 1,
                     text: 'Complete the objective',
@@ -249,10 +245,10 @@ void main() {
 
   group('Action SessionLiveStateResetAction behaves correctly', () {
     test('SessionLiveStateResetAction clears a populated slice', () {
-      const StateSynchronization<CharacterXpState> xp =
+      final StateSynchronization<CharacterXpState> xp =
           StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterXpState(value: 42),
+            value: Fixtures.buildCharacterXp(value: 42),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 1,

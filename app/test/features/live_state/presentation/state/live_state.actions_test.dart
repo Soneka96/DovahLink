@@ -1,13 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.actions.dart';
+import '../../../../fixtures/fixtures.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
         CharacterIdentityState,
         CharacterLevelState,
         CharacterSupernaturalTraitsState,
-        CharacterVital,
         CharacterVitalsState,
         CharacterXpState,
         DovahLinkStateStatus,
@@ -26,10 +26,10 @@ void main() {
         final StateSynchronization<CharacterVitalsState> synchronization =
             StateSynchronization<CharacterVitalsState>(
               status: DovahLinkStateStatus.synchronized,
-              value: CharacterVitalsState(
-                health: const CharacterVital(current: 80, max: 100),
-                magicka: const CharacterVital(current: 40, max: 80),
-                stamina: const CharacterVital(current: 50, max: 90),
+              value: Fixtures.buildCharacterVitals(
+                health: Fixtures.buildCharacterVital(current: 80, max: 100),
+                magicka: Fixtures.buildCharacterVital(current: 40, max: 80),
+                stamina: Fixtures.buildCharacterVital(current: 50, max: 90),
               ),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
@@ -48,16 +48,16 @@ void main() {
     test(
       'CharacterXpSynchronizationChangedAction retains synchronization identity',
       () {
-        const StateSynchronization<CharacterXpState> synchronization =
+        final StateSynchronization<CharacterXpState> synchronization =
             StateSynchronization<CharacterXpState>(
               status: DovahLinkStateStatus.unavailable,
-              value: CharacterXpState(value: null),
+              value: Fixtures.buildCharacterXp(value: null),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
               revision: 2,
             );
 
-        const CharacterXpSynchronizationChangedAction action =
+        final CharacterXpSynchronizationChangedAction action =
             CharacterXpSynchronizationChangedAction(synchronization);
 
         expect(identical(action.synchronization, synchronization), isTrue);
@@ -69,16 +69,16 @@ void main() {
     test(
       'CharacterLevelSynchronizationChangedAction retains synchronization identity',
       () {
-        const StateSynchronization<CharacterLevelState> synchronization =
+        final StateSynchronization<CharacterLevelState> synchronization =
             StateSynchronization<CharacterLevelState>(
               status: DovahLinkStateStatus.synchronized,
-              value: CharacterLevelState(value: 43),
+              value: Fixtures.buildCharacterLevel(value: 43),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
               revision: 3,
             );
 
-        const CharacterLevelSynchronizationChangedAction action =
+        final CharacterLevelSynchronizationChangedAction action =
             CharacterLevelSynchronizationChangedAction(synchronization);
 
         expect(identical(action.synchronization, synchronization), isTrue);
@@ -90,11 +90,11 @@ void main() {
     test(
       'CharacterIdentitySynchronizationChangedAction retains the SDK object',
       () {
-        const CharacterIdentityState identity = CharacterIdentityState(
+        final CharacterIdentityState identity = Fixtures.buildCharacterIdentity(
           name: 'Player',
           race: 'Nord',
         );
-        const StateSynchronization<CharacterIdentityState?> synchronization =
+        final StateSynchronization<CharacterIdentityState?> synchronization =
             StateSynchronization<CharacterIdentityState?>(
               status: DovahLinkStateStatus.synchronized,
               value: identity,
@@ -103,7 +103,7 @@ void main() {
               revision: 4,
             );
 
-        const CharacterIdentitySynchronizationChangedAction action =
+        final CharacterIdentitySynchronizationChangedAction action =
             CharacterIdentitySynchronizationChangedAction(synchronization);
 
         expect(identical(action.synchronization, synchronization), isTrue);
@@ -118,11 +118,11 @@ void main() {
       test(
         'CharacterSupernaturalTraitsSynchronizationChangedAction retains synchronization identity',
         () {
-          const StateSynchronization<CharacterSupernaturalTraitsState?>
+          final StateSynchronization<CharacterSupernaturalTraitsState?>
           synchronization =
               StateSynchronization<CharacterSupernaturalTraitsState?>(
                 status: DovahLinkStateStatus.synchronized,
-                value: CharacterSupernaturalTraitsState(
+                value: Fixtures.buildSupernaturalTraits(
                   isVampire: false,
                   hasVampireLordForm: false,
                   hasWerewolfForm: false,
@@ -132,7 +132,7 @@ void main() {
                 revision: 5,
               );
 
-          const CharacterSupernaturalTraitsSynchronizationChangedAction action =
+          final CharacterSupernaturalTraitsSynchronizationChangedAction action =
               CharacterSupernaturalTraitsSynchronizationChangedAction(
                 synchronization,
               );
@@ -147,10 +147,10 @@ void main() {
     test(
       'PlayerLocationSynchronizationChangedAction retains synchronization identity',
       () {
-        const StateSynchronization<PlayerLocationState?> synchronization =
+        final StateSynchronization<PlayerLocationState?> synchronization =
             StateSynchronization<PlayerLocationState?>(
               status: DovahLinkStateStatus.synchronized,
-              value: PlayerLocationState(
+              value: Fixtures.buildPlayerLocation(
                 cellId: 1,
                 cellKind: PlayerLocationCellKind.exterior,
                 cellName: null,
@@ -164,7 +164,7 @@ void main() {
               revision: 6,
             );
 
-        const PlayerLocationSynchronizationChangedAction action =
+        final PlayerLocationSynchronizationChangedAction action =
             PlayerLocationSynchronizationChangedAction(synchronization);
 
         expect(identical(action.synchronization, synchronization), isTrue);
@@ -176,10 +176,10 @@ void main() {
     test(
       'GameTimeSynchronizationChangedAction retains synchronization identity',
       () {
-        const StateSynchronization<GameTimeState?> synchronization =
+        final StateSynchronization<GameTimeState?> synchronization =
             StateSynchronization<GameTimeState?>(
               status: DovahLinkStateStatus.synchronized,
-              value: GameTimeState(
+              value: Fixtures.buildGameTime(
                 year: 4,
                 month: 8,
                 monthName: 'Last Seed',
@@ -192,7 +192,7 @@ void main() {
               revision: 7,
             );
 
-        const GameTimeSynchronizationChangedAction action =
+        final GameTimeSynchronizationChangedAction action =
             GameTimeSynchronizationChangedAction(synchronization);
 
         expect(identical(action.synchronization, synchronization), isTrue);
@@ -204,7 +204,9 @@ void main() {
     test(
       'TrackedQuestsSynchronizationChangedAction retains the complete SDK state',
       () {
-        final TrackedQuestsState quests = TrackedQuestsState(quests: const []);
+        final TrackedQuestsState quests = Fixtures.buildTrackedQuests(
+          quests: const [],
+        );
         final StateSynchronization<TrackedQuestsState?> synchronization =
             StateSynchronization<TrackedQuestsState?>(
               status: DovahLinkStateStatus.synchronized,

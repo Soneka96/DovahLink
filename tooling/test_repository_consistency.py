@@ -2643,10 +2643,28 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "Do not create app-owned copies of SDK domain fields",
             "Presentation-derived models belong at the ViewModel or presentation boundary",
             "Adding a field to an existing public SDK domain model must require no integration-pipeline edits",
+            "Ordinary reconnect keeps those listeners attached under the same observation token",
+            "Each admitted observation has an app-local token captured by its stream callbacks",
+            "A later trusted session receives a new token",
         ):
             self.assertIn(required_rule, architecture)
 
         live_state_root = REPOSITORY_ROOT / "app" / "lib" / "features" / "live_state"
+        for duplicate_concept in (
+            "LiveStateMapper",
+            "LiveDomainState",
+            "LiveStateStatus",
+            "LiveCellKind",
+            "LiveQuestObjectiveStatus",
+            "LiveTrackedQuest",
+        ):
+            for source_path in live_state_root.rglob("*.dart"):
+                self.assertNotIn(
+                    duplicate_concept,
+                    source_path.read_text(encoding="utf-8"),
+                    str(source_path),
+                )
+
         for source_path in live_state_root.rglob("*.dart"):
             source = source_path.read_text(encoding="utf-8")
             self.assertNotIn("dovahlink_client_sdk/src/", source, str(source_path))
@@ -2678,6 +2696,47 @@ class RepositoryConsistencyTests(unittest.TestCase):
                     f"Live-state code must import only the SDK public barrel: {source_path}",
                 )
 
+        sdk_state_types = (
+            "CharacterVitalsState",
+            "CharacterXpState",
+            "CharacterLevelState",
+            "CharacterIdentityState\\?",
+            "CharacterSupernaturalTraitsState\\?",
+            "PlayerLocationState\\?",
+            "GameTimeState\\?",
+            "TrackedQuestsState\\?",
+        )
+        for relative_path in (
+            "app/lib/features/live_state/presentation/state/session_live_state.state.dart",
+            "app/lib/features/live_state/presentation/state/live_state.actions.dart",
+            "app/lib/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart",
+        ):
+            source = self._read(relative_path)
+            for sdk_type in sdk_state_types:
+                self.assertRegex(
+                    source,
+                    rf"StateSynchronization\s*<\s*{sdk_type}\s*>",
+                    f"{relative_path} must carry the SDK synchronization type {sdk_type}",
+                )
+
+        overview_view_model = self._read(
+            "app/lib/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart"
+        )
+        self.assertNotIn("dovahlink_client_sdk/src/", overview_view_model)
+        for sdk_import in re.findall(
+            r"package:dovahlink_client_sdk/[^'\"]+", overview_view_model
+        ):
+            self.assertEqual(
+                sdk_import,
+                "package:dovahlink_client_sdk/dovahlink_client.dart",
+                "The Session Overview ViewModel must use only the SDK public barrel.",
+            )
+
+        middleware = self._read(middleware_path)
+        self.assertIn("store.dispatch(action(synchronization))", middleware)
+        self.assertIn("_activeObservationTokens", middleware)
+        self.assertIn("_isCurrentObservation(store, token)", middleware)
+
         stream_access = re.compile(
             r"\.(?:vitalsChanges|xpChanges|levelChanges|identityChanges|"
             r"supernaturalTraitsChanges|playerLocationChanges|gameTimeChanges|"
@@ -2690,6 +2749,44 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 self.assertIsNone(
                     stream_access.search(source),
                     f"SDK live-state stream access escaped its middleware: {relative_path}",
+                )
+
+        app_tests_root = REPOSITORY_ROOT / "app" / "test"
+        fixture_catalog = "app/test/fixtures/fixtures.dart"
+        sdk_domain_constructors = re.compile(
+            r"\b(?:CharacterVital|CharacterVitalsState|CharacterXpState|"
+            r"CharacterLevelState|CharacterIdentityState|"
+            r"CharacterSupernaturalTraitsState|PlayerLocationState|GameTimeState|"
+            r"QuestObjective|TrackedQuest|TrackedQuestsState)\s*\("
+        )
+        for source_path in app_tests_root.rglob("*.dart"):
+            relative_path = source_path.relative_to(REPOSITORY_ROOT).as_posix()
+            source = source_path.read_text(encoding="utf-8")
+            self.assertNotIn("dovahlink_client_sdk/src/", source, relative_path)
+            enforces_live_state_api = (
+                relative_path.startswith("app/test/features/live_state/")
+                or relative_path == fixture_catalog
+                or relative_path
+                in {
+                    "app/test/app/composition_root_test.dart",
+                    "app/test/features/session/session.injection_container_test.dart",
+                    "app/test/features/session/presentation/state/viewmodels/session_overview.viewmodel_test.dart",
+                    "app/test/shared/state/app_reducer_test.dart",
+                }
+            )
+            for sdk_import in re.findall(
+                r"package:dovahlink_client_sdk/[^'\"]+", source
+            ):
+                if enforces_live_state_api:
+                    self.assertEqual(
+                        sdk_import,
+                        "package:dovahlink_client_sdk/dovahlink_client.dart",
+                        f"Live-state tests must use the SDK public barrel: {relative_path}",
+                    )
+            if relative_path != fixture_catalog:
+                self.assertIsNone(
+                    sdk_domain_constructors.search(source),
+                    f"SDK live-state models must be built through Fixtures: {relative_path}",
                 )
 
         for feature in ("session", "live_state"):
@@ -2712,6 +2809,11 @@ class RepositoryConsistencyTests(unittest.TestCase):
                     r"supernaturalTraitsChanges|playerLocationChanges|gameTimeChanges|"
                     r"trackedQuestsChanges|subscribeStateArea)\b",
                     str(source_path),
+                )
+                self.assertNotRegex(
+                    source,
+                    r"\.listen\s*\(",
+                    f"Widgets cannot own stream subscriptions: {source_path}",
                 )
 
     def test_protocol_docs_describe_host_not_the_retired_native_plugin(self) -> None:

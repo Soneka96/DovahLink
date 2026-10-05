@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/live_state/presentation/state/session_live_state.state.dart';
+import '../../../../fixtures/fixtures.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
@@ -43,11 +44,11 @@ void main() {
       'SessionLiveState copyWith retains the complete SDK synchronization object',
       () {
         const SessionLiveState state = SessionLiveState.initial();
-        const CharacterIdentityState identity = CharacterIdentityState(
+        final CharacterIdentityState identity = Fixtures.buildCharacterIdentity(
           name: 'Player',
           race: 'Nord',
         );
-        const StateSynchronization<CharacterIdentityState?> synchronization =
+        final StateSynchronization<CharacterIdentityState?> synchronization =
             StateSynchronization<CharacterIdentityState?>(
               status: DovahLinkStateStatus.synchronized,
               value: identity,
@@ -114,10 +115,13 @@ void main() {
     test(
       'SessionLiveState reset clears populated SDK synchronization values',
       () {
-        const StateSynchronization<CharacterIdentityState?> synchronization =
+        final StateSynchronization<CharacterIdentityState?> synchronization =
             StateSynchronization<CharacterIdentityState?>(
               status: DovahLinkStateStatus.synchronized,
-              value: CharacterIdentityState(name: 'Player', race: 'Nord'),
+              value: Fixtures.buildCharacterIdentity(
+                name: 'Player',
+                race: 'Nord',
+              ),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
               revision: 1,

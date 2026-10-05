@@ -304,9 +304,9 @@ void main() {
         );
         when(() => character.xpChanges).thenAnswer(
           (_) => Stream<StateSynchronization<CharacterXpState>>.value(
-            const StateSynchronization<CharacterXpState>(
+            StateSynchronization<CharacterXpState>(
               status: DovahLinkStateStatus.synchronized,
-              value: CharacterXpState(value: 61.5),
+              value: Fixtures.buildCharacterXp(value: 61.5),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
               revision: 2,

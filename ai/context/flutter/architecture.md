@@ -131,8 +131,12 @@ those protocol exchanges or sends a mapped Host snapshot as an SDK command.
 
 `features/live_state/` owns the Flutter projection of the eight currently available gameplay
 domains: Character Vitals, XP, Level, Identity, Supernatural Traits, Location, Skyrim Game Time, and
-Tracked Quests. Flutter may depend on the Dart SDK's public API; the SDK must never depend on
-Flutter, and Flutter must never import `package:dovahlink_client_sdk/src/`. When the SDK already
+Tracked Quests.
+
+### SDK public model reuse
+
+Flutter may depend on the Dart SDK's public API; the SDK must never depend on Flutter, and Flutter
+must never import `package:dovahlink_client_sdk/src/`. When the SDK already
 exposes the public domain model that represents the gameplay truth required by Flutter, that model
 is the canonical Redux integration-state value and must pass through unchanged. When its streams
 expose `StateSynchronization<T>`, that SDK type is the canonical synchronization truth, including
@@ -153,11 +157,14 @@ the app does not reproduce SDK domain models or synchronization semantics.
 
 Gameplay observation follows the admitted session, not the Session Shell route. Returning to
 Connections leaves the session and its listeners active. Ordinary reconnect keeps those listeners
-attached so the SDK can publish stale/recovering states and restore desired intent. A disconnected
-or administratively invalidated session cancels gameplay listeners and resets the projected slice;
-the middleware does not send unsubscribe requests after session teardown. The SDK owns whether
-desired intent is cleared or dormant. A later trusted session attaches to the SDK's current streams
-and projects its fresh baselines without comparing Host IDs or play-context IDs in Flutter.
+attached under the same observation token so the SDK can publish stale/recovering states and restore
+desired intent. Each admitted observation has an app-local token captured by its stream callbacks
+and required-area request sequence; work may dispatch, report, or continue only while that token is
+still current for its Redux store. A disconnected or administratively invalidated session invalidates
+its token before cancellation and resets the projected slice; the middleware does not send
+unsubscribe requests after session teardown. The SDK owns whether desired intent is cleared or
+dormant. A later trusted session receives a new token and observes the SDK's current streams without
+comparing Host IDs or play-context IDs in Flutter.
 
 Keep the domain distinctions in Redux: Vitals remain one coherent group with raw `current` and `max`
 values; XP stays numeric without a percentage; Identity remains complete; the three supernatural

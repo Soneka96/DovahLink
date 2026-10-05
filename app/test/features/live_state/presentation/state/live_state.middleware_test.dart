@@ -12,13 +12,13 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.act
 import 'package:dovahlink_client/features/session/presentation/state/session_shell.actions.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import '../../../../fixtures/fixtures.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
         CharacterIdentityState,
         CharacterLevelState,
         CharacterSupernaturalTraitsState,
-        CharacterVital,
         CharacterVitalsState,
         CharacterXpState,
         DovahLinkClient,
@@ -621,9 +621,9 @@ void main() {
         sdk.xp.addError(StateError('SDK stream failed.'), StackTrace.current);
         await pumpEventQueue();
         sdk.xp.add(
-          const StateSynchronization<CharacterXpState>(
+          StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterXpState(value: 42),
+            value: Fixtures.buildCharacterXp(value: 42),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 1,
@@ -682,9 +682,9 @@ void main() {
         expect(sdk.vitalsStreamReads, 1);
         expect(sdk.xpStreamReads, 1);
         sdk.xp.add(
-          const StateSynchronization<CharacterXpState>(
+          StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterXpState(value: 42),
+            value: Fixtures.buildCharacterXp(value: 42),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 2,
@@ -709,10 +709,10 @@ void main() {
         sdk.vitals.add(
           StateSynchronization<CharacterVitalsState>(
             status: DovahLinkStateStatus.stale,
-            value: CharacterVitalsState(
-              health: const CharacterVital(current: 88, max: 100),
-              magicka: const CharacterVital(current: 55, max: 80),
-              stamina: const CharacterVital(current: 48, max: 90),
+            value: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 88, max: 100),
+              magicka: Fixtures.buildCharacterVital(current: 55, max: 80),
+              stamina: Fixtures.buildCharacterVital(current: 48, max: 90),
             ),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
@@ -725,10 +725,10 @@ void main() {
         sdk.vitals.add(
           StateSynchronization<CharacterVitalsState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterVitalsState(
-              health: const CharacterVital(current: 89, max: 100),
-              magicka: const CharacterVital(current: 54, max: 80),
-              stamina: const CharacterVital(current: 49, max: 90),
+            value: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 89, max: 100),
+              magicka: Fixtures.buildCharacterVital(current: 54, max: 80),
+              stamina: Fixtures.buildCharacterVital(current: 49, max: 90),
             ),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
@@ -803,9 +803,9 @@ void main() {
         expect(sessionBXp.hasListener, isTrue);
 
         sessionAXp.add(
-          const StateSynchronization<CharacterXpState>(
+          StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterXpState(value: 11),
+            value: Fixtures.buildCharacterXp(value: 11),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 1,
@@ -823,10 +823,10 @@ void main() {
         await pumpEventQueue();
         expect(reported, isEmpty);
 
-        const StateSynchronization<CharacterXpState> sessionBSynchronization =
+        final StateSynchronization<CharacterXpState> sessionBSynchronization =
             StateSynchronization<CharacterXpState>(
               status: DovahLinkStateStatus.synchronized,
-              value: CharacterXpState(value: 52),
+              value: Fixtures.buildCharacterXp(value: 52),
               stateAuthorityId: 'authority-b',
               playContextId: 'context-b',
               revision: 1,
@@ -857,9 +857,9 @@ void main() {
         await pumpEventQueue();
         await _trustCurrentSession(sdk, middleware, store);
         sdk.xp.add(
-          const StateSynchronization<CharacterXpState>(
+          StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterXpState(value: 42),
+            value: Fixtures.buildCharacterXp(value: 42),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 1,
@@ -875,9 +875,9 @@ void main() {
         verifyNever(() => sdk.connections.disconnect());
 
         sdk.xp.add(
-          const StateSynchronization<CharacterXpState>(
+          StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterXpState(value: 50),
+            value: Fixtures.buildCharacterXp(value: 50),
             stateAuthorityId: 'authority-b',
             playContextId: 'context-b',
             revision: 1,
@@ -894,9 +894,9 @@ void main() {
         await pumpEventQueue();
         await _trustCurrentSession(sdk, middleware, store);
         sdk.xp.add(
-          const StateSynchronization<CharacterXpState>(
+          StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterXpState(value: 50),
+            value: Fixtures.buildCharacterXp(value: 50),
             stateAuthorityId: 'authority-b',
             playContextId: 'context-b',
             revision: 1,
@@ -960,9 +960,9 @@ void main() {
             SessionShellBackRequestedAction();
         middleware.call(store, action, forwarded.add);
         sdk.xp.add(
-          const StateSynchronization<CharacterXpState>(
+          StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterXpState(value: 42),
+            value: Fixtures.buildCharacterXp(value: 42),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 1,
@@ -1067,44 +1067,44 @@ void main() {
       final StateSynchronization<CharacterVitalsState> vitalsSynchronization =
           StateSynchronization<CharacterVitalsState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterVitalsState(
-              health: const CharacterVital(current: 100, max: 100),
-              magicka: const CharacterVital(current: 70, max: 80),
-              stamina: const CharacterVital(current: 65, max: 90),
+            value: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 100, max: 100),
+              magicka: Fixtures.buildCharacterVital(current: 70, max: 80),
+              stamina: Fixtures.buildCharacterVital(current: 65, max: 90),
             ),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 1,
           );
-      const StateSynchronization<CharacterXpState> xpSynchronization =
+      final StateSynchronization<CharacterXpState> xpSynchronization =
           StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.unavailable,
-            value: CharacterXpState(value: null),
+            value: Fixtures.buildCharacterXp(value: null),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 2,
           );
-      const StateSynchronization<CharacterLevelState> levelSynchronization =
+      final StateSynchronization<CharacterLevelState> levelSynchronization =
           StateSynchronization<CharacterLevelState>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterLevelState(value: 43),
+            value: Fixtures.buildCharacterLevel(value: 43),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 3,
           );
-      const StateSynchronization<CharacterIdentityState?>
+      final StateSynchronization<CharacterIdentityState?>
       identitySynchronization = StateSynchronization<CharacterIdentityState?>(
         status: DovahLinkStateStatus.synchronized,
-        value: CharacterIdentityState(name: 'Player', race: 'Nord'),
+        value: Fixtures.buildCharacterIdentity(name: 'Player', race: 'Nord'),
         stateAuthorityId: 'authority-a',
         playContextId: 'context-a',
         revision: 4,
       );
-      const StateSynchronization<CharacterSupernaturalTraitsState?>
+      final StateSynchronization<CharacterSupernaturalTraitsState?>
       traitsSynchronization =
           StateSynchronization<CharacterSupernaturalTraitsState?>(
             status: DovahLinkStateStatus.synchronized,
-            value: CharacterSupernaturalTraitsState(
+            value: Fixtures.buildSupernaturalTraits(
               isVampire: false,
               hasVampireLordForm: false,
               hasWerewolfForm: false,
@@ -1113,10 +1113,10 @@ void main() {
             playContextId: 'context-a',
             revision: 5,
           );
-      const StateSynchronization<PlayerLocationState?> locationSynchronization =
+      final StateSynchronization<PlayerLocationState?> locationSynchronization =
           StateSynchronization<PlayerLocationState?>(
             status: DovahLinkStateStatus.synchronized,
-            value: PlayerLocationState(
+            value: Fixtures.buildPlayerLocation(
               cellId: 1,
               cellKind: PlayerLocationCellKind.exterior,
               cellName: null,
@@ -1129,10 +1129,10 @@ void main() {
             playContextId: 'context-a',
             revision: 6,
           );
-      const StateSynchronization<GameTimeState?> timeSynchronization =
+      final StateSynchronization<GameTimeState?> timeSynchronization =
           StateSynchronization<GameTimeState?>(
             status: DovahLinkStateStatus.synchronized,
-            value: GameTimeState(
+            value: Fixtures.buildGameTime(
               year: 4,
               month: 8,
               monthName: 'Last Seed',
@@ -1147,7 +1147,7 @@ void main() {
       final StateSynchronization<TrackedQuestsState?> questsSynchronization =
           StateSynchronization<TrackedQuestsState?>(
             status: DovahLinkStateStatus.synchronized,
-            value: TrackedQuestsState(quests: const []),
+            value: Fixtures.buildTrackedQuests(quests: const []),
             stateAuthorityId: 'authority-a',
             playContextId: 'context-a',
             revision: 8,
@@ -1238,7 +1238,7 @@ void main() {
           sdk.xp.add(
             StateSynchronization<CharacterXpState>(
               status: status,
-              value: const CharacterXpState(value: 42),
+              value: Fixtures.buildCharacterXp(value: 42),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
               revision: 9,

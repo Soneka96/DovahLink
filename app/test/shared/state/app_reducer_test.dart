@@ -179,15 +179,15 @@ void main() {
       'CharacterXpSynchronizationChangedAction updates the live-state slice',
       () {
         final AppState state = AppState.initial();
-        const StateSynchronization<CharacterXpState> synchronization =
+        final StateSynchronization<CharacterXpState> synchronization =
             StateSynchronization<CharacterXpState>(
               status: DovahLinkStateStatus.unavailable,
-              value: CharacterXpState(value: null),
+              value: Fixtures.buildCharacterXp(value: null),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
               revision: 1,
             );
-        const CharacterXpSynchronizationChangedAction action =
+        final CharacterXpSynchronizationChangedAction action =
             CharacterXpSynchronizationChangedAction(synchronization);
 
         final AppState result = appReducer(state, action);
