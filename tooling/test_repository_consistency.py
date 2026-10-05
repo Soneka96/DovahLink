@@ -2610,19 +2610,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("Stage 8 remains planned", character_deviation)
 
     def test_flutter_live_state_keeps_sdk_streams_inside_middleware(self) -> None:
-        """Protect the app-owned live-state boundary from SDK and protocol leakage."""
+        """Keep gameplay observation inside middleware and the SDK public API."""
         middleware_path = (
             "app/lib/features/live_state/presentation/state/live_state.middleware.dart"
         )
         middleware = self._read(middleware_path)
-        mapper = self._read("app/lib/features/live_state/live_state.mapper.dart")
         self.assertIn(
             "package:dovahlink_client_sdk/dovahlink_client.dart",
             middleware,
-        )
-        self.assertIn(
-            "package:dovahlink_client_sdk/dovahlink_client.dart",
-            mapper,
         )
         for required_stream in (
             "vitalsChanges",
@@ -2635,7 +2630,21 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "trackedQuestsChanges",
         ):
             self.assertIn(required_stream, middleware)
-            self.assertNotIn(required_stream, mapper)
+
+        architecture = self._normalize_whitespace(
+            self._read("ai/context/flutter/architecture.md")
+        )
+        for required_rule in (
+            "Flutter may depend on the Dart SDK's public API",
+            "the SDK must never depend on Flutter",
+            "Flutter must never import `package:dovahlink_client_sdk/src/`",
+            "that model is the canonical Redux integration-state value and must pass through unchanged",
+            "that SDK type is the canonical synchronization truth",
+            "Do not create app-owned copies of SDK domain fields",
+            "Presentation-derived models belong at the ViewModel or presentation boundary",
+            "Adding a field to an existing public SDK domain model must require no integration-pipeline edits",
+        ):
+            self.assertIn(required_rule, architecture)
 
         live_state_root = REPOSITORY_ROOT / "app" / "lib" / "features" / "live_state"
         for source_path in live_state_root.rglob("*.dart"):
@@ -2650,9 +2659,24 @@ class RepositoryConsistencyTests(unittest.TestCase):
                 "ProtocolMessageType",
             ):
                 self.assertNotIn(protocol_type, source, str(source_path))
+            if source_path.relative_to(REPOSITORY_ROOT).as_posix() != middleware_path:
+                self.assertNotRegex(
+                    source,
+                    r"\.listen\s*\(",
+                    f"Live-state stream subscriptions escaped their middleware: {source_path}",
+                )
             if source_path.name.endswith(".reducer.dart"):
                 self.assertNotIn("DovahLinkClient", source, str(source_path))
                 self.assertNotIn("subscribeStateArea", source, str(source_path))
+
+            for sdk_import in re.findall(
+                r"package:dovahlink_client_sdk/[^'\"]+", source
+            ):
+                self.assertEqual(
+                    sdk_import,
+                    "package:dovahlink_client_sdk/dovahlink_client.dart",
+                    f"Live-state code must import only the SDK public barrel: {source_path}",
+                )
 
         stream_access = re.compile(
             r"\.(?:vitalsChanges|xpChanges|levelChanges|identityChanges|"

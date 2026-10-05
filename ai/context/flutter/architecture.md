@@ -131,11 +131,25 @@ those protocol exchanges or sends a mapped Host snapshot as an SDK command.
 
 `features/live_state/` owns the Flutter projection of the eight currently available gameplay
 domains: Character Vitals, XP, Level, Identity, Supernatural Traits, Location, Skyrim Game Time, and
-Tracked Quests. `LiveStateMiddleware` observes only the public SDK `currentHost` streams and requests
-the required areas after SDK trust is established. `LiveStateMapper` maps SDK values into
-app-owned typed values before Redux receives them. The projection keeps every domain's status,
-revision, `stateAuthorityId`, and `playContextId`; it does not reproduce SDK synchronization or
-recovery logic.
+Tracked Quests. Flutter may depend on the Dart SDK's public API; the SDK must never depend on
+Flutter, and Flutter must never import `package:dovahlink_client_sdk/src/`. When the SDK already
+exposes the public domain model that represents the gameplay truth required by Flutter, that model
+is the canonical Redux integration-state value and must pass through unchanged. When its streams
+expose `StateSynchronization<T>`, that SDK type is the canonical synchronization truth, including
+status, value, authority, play context, and revision. Do not create app-owned copies of SDK domain
+fields, synchronization metadata, status enums, or domain enums merely to carry the same semantics.
+
+An app-owned model is appropriate only when it adds genuinely different app or presentation
+semantics, such as aggregation, formatting, screen-specific summaries, interaction state, navigation
+state, or user input. Presentation-derived models belong at the ViewModel or presentation boundary;
+they must not replace SDK models as the authoritative Redux integration state. Adding a field to an
+existing public SDK domain model must require no integration-pipeline edits merely to transport that
+field; only its acquisition and any presentation code that chooses to use it need to know the field
+exists.
+
+`LiveStateMiddleware` observes only the public SDK `currentHost` streams and requests the required
+areas after SDK trust is established. It forwards each SDK synchronization value directly to Redux;
+the app does not reproduce SDK domain models or synchronization semantics.
 
 Gameplay observation follows the admitted session, not the Session Shell route. Returning to
 Connections leaves the session and its listeners active. Ordinary reconnect keeps those listeners
