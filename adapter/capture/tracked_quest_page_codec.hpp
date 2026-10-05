@@ -71,7 +71,8 @@ class TrackedQuestPageCodec final {
         payload.bytes[0] = static_cast<std::byte>(ids.size());
         payload.bytes[1] = static_cast<std::byte>(hasMore ? 1 : 0);
         for (std::size_t index = 0; index < ids.size(); ++index) {
-            WriteUInt32(payload.bytes.data() + 2 + index * sizeof(std::uint32_t), ids[index]);
+            const std::size_t offset = 2 + index * sizeof(std::uint32_t);
+            WriteUInt32(&payload.bytes[offset], ids[index]);
         }
         payload.size = static_cast<std::uint8_t>(2 + ids.size() * sizeof(std::uint32_t));
         return payload;

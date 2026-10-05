@@ -52,6 +52,14 @@ TEST_CASE("tracked quest ID page encoding is bounded and little-endian") {
     CHECK(payload->bytes[2] == std::byte{0x78});
     CHECK(payload->bytes[5] == std::byte{0x12});
     CHECK(payload->bytes[payload->size - 4] == std::byte{0x04});
+    for (std::size_t index = 0; index < ids.size(); ++index) {
+        const std::size_t offset = 2 + index * sizeof(std::uint32_t);
+        for (std::size_t byteIndex = 0; byteIndex < sizeof(std::uint32_t); ++byteIndex) {
+            const std::byte expected = static_cast<std::byte>(
+                (ids[index] >> (byteIndex * 8)) & 0xFFu);
+            CHECK(payload->bytes[offset + byteIndex] == expected);
+        }
+    }
 }
 
 TEST_CASE("tracked quest ID scanning returns short pages without counting skipped quests") {
