@@ -3,6 +3,7 @@ using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
+using DovahLink.Host.PairingCeremony;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Tests.TestDoubles;
@@ -33,6 +34,48 @@ public static class Fixtures
         string subjectPublicKeyInfoHex =
             "3059301306072a8648ce3d020106082a8648ce3d03010703420004f2422a662eb6e5065e3ea5587ed92dd959deff9b9e4115bb76dcb02abf07144a68e354b81cc01714608a8ecd61f8d9ac453cda8b0d20056623db09859432498a") =>
         Convert.FromHexString(subjectPublicKeyInfoHex);
+
+    // ---- Pairing ceremony ----
+
+    /// <summary>Builds this Host's Bootstrap fields from the vector Host ID and published test Host key.</summary>
+    /// <returns>The Host Bootstrap fields.</returns>
+    public static CeremonyBootstrapFields BuildCeremonyBootstrapFields()
+    {
+        DovahLinkBootstrap bootstrap = DovahLinkBootstrap.ForHost(
+            new HostId(Guid.Parse("00112233-4455-6677-8899-aabbccddeeff")),
+            P256PublicKey.FromSubjectPublicKeyInfo(BuildP256SubjectPublicKeyInfo()));
+        return new CeremonyBootstrapFields(bootstrap.ApplicationIdentity, bootstrap.KeyAlgorithm, bootstrap.PublicKey, bootstrap.SharedContext);
+    }
+
+    /// <summary>Builds ceremony-host options; the default path is never loaded by a fake native session.</summary>
+    /// <param name="nativeLibraryPath">The absolute native library path.</param>
+    /// <param name="authorityScope">The authority scope, or <see langword="null"/> for the vector Host scope.</param>
+    /// <returns>The options.</returns>
+    public static PairingCeremonyHostOptions BuildPairingCeremonyHostOptions(
+        string nativeLibraryPath = "C:\\DovahLink\\fake\\sas_pairing_core.dll", byte[]? authorityScope = null) =>
+        new(
+            nativeLibraryPath,
+            authorityScope ?? DovahLinkPairingMapping.EncodeHostAuthorityScope(new HostId(Guid.Parse("00112233-4455-6677-8899-aabbccddeeff"))),
+            BuildCeremonyBootstrapFields());
+
+    /// <summary>Builds a detached local result whose peer frame is the vector client Bootstrap.</summary>
+    /// <param name="ceremonyIdentityFill">The byte every ceremony-identity byte is set to.</param>
+    /// <returns>The snapshot.</returns>
+    public static CeremonyResultSnapshot BuildCeremonyResultSnapshot(byte ceremonyIdentityFill = 0x5a)
+    {
+        DovahLinkBootstrap client = DovahLinkBootstrap.ForClientCandidate(
+            new ClientId(Guid.Parse("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0")),
+            P256PublicKey.FromSubjectPublicKeyInfo(BuildP256SubjectPublicKeyInfo(
+                "3059301306072a8648ce3d020106082a8648ce3d03010703420004fdf05d25acd08029eabaf4dbafefda88f9df6acc278a88cff9d67934b71e15cbe8be70c2230db3aa58ac0bd5fd14dbb15e6c94a249aee685890665d145a07484")));
+        return new CeremonyResultSnapshot(
+            Enumerable.Repeat(ceremonyIdentityFill, 32).ToArray(),
+            CeremonyPeerRole.Initiator,
+            1,
+            new byte[16],
+            client.EncodeCanonicalFrame(),
+            client.SharedContext,
+            "sas-pairing-vodozemac-profile-draft-01"u8);
+    }
 
     // ---- Protocol ----
 
