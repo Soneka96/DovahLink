@@ -51,13 +51,22 @@ public interface IAdapterIpcConnection
     /// <returns>The prepared intent, or <see langword="null"/> when this connection cannot prepare it.</returns>
     IpcReadSampleMessage? PrepareReadSample(uint sampleToken);
 
-    /// <summary>Attempts to enqueue one bounded tracked-quest page request.</summary>
+    /// <summary>Prepares one bounded tracked-quest page request without enqueueing it.</summary>
     /// <param name="pageKind">The requested page operation.</param>
     /// <param name="questId">The runtime quest FormID, or zero for quest-ID pages.</param>
     /// <param name="cursor">The tracked-ID or objective offset.</param>
+    /// <returns>The prepared request, or <see langword="null"/> when the session is unavailable.</returns>
+    IpcReadTrackedQuestPageMessage? PrepareReadTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor);
+
+    /// <summary>
+    /// Attempts to enqueue a prepared quest-page request if the connection still owns the expected
+    /// generation. Lets the Host register its correlation handler before the Adapter can reply.
+    /// </summary>
+    /// <param name="message">The request prepared by this connection.</param>
+    /// <param name="expectedConnectionGeneration">The connection generation the collector owns.</param>
     /// <param name="correlationId">The request identity when enqueued; otherwise zero.</param>
     /// <returns>Whether the request entered the bounded outbound queue.</returns>
-    bool TrySendTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor, out ulong correlationId);
+    bool TrySendPreparedTrackedQuestPage(IpcReadTrackedQuestPageMessage message, long expectedConnectionGeneration, out ulong correlationId);
 
     /// <summary>
     /// Attempts to enqueue a sample intent prepared by this connection, provided this connection's
@@ -336,16 +345,20 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
     public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => session.PrepareReadSample(sampleToken);
 
     /// <inheritdoc/>
-    public bool TrySendTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor, out ulong correlationId)
+    public IpcReadTrackedQuestPageMessage? PrepareReadTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor) =>
+        session.PrepareReadTrackedQuestPage(pageKind, questId, cursor);
+
+    /// <inheritdoc/>
+    public bool TrySendPreparedTrackedQuestPage(IpcReadTrackedQuestPageMessage message, long expectedConnectionGeneration, out ulong correlationId)
     {
-        IpcReadTrackedQuestPageMessage? request = session.PrepareReadTrackedQuestPage(pageKind, questId, cursor);
-        if (request is null || !outbound.Writer.TryWrite(codec.Encode(request)))
+        if (session.ConnectionGeneration != expectedConnectionGeneration ||
+            !outbound.Writer.TryWrite(codec.Encode(message)))
         {
             correlationId = 0;
             return false;
         }
 
-        correlationId = request.CorrelationId;
+        correlationId = message.CorrelationId;
         return true;
     }
 

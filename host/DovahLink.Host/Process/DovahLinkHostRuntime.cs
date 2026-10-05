@@ -5,22 +5,22 @@ namespace DovahLink.Host.Process;
 
 /// <summary>
 /// Owns one composed Host lifetime's explicit startup and shutdown ordering: publishes the
-/// adapter-IPC rendezvous endpoint, runs the adapter-IPC and (when composed) public listeners and the
-/// live-state sampling scheduler until the host lifetime ends or shutdown is requested, then tears
-/// them all down in a proven-safe order.
+/// adapter-IPC rendezvous endpoint, runs the adapter-IPC and (when composed) public listeners, the
+/// live-state sampling scheduler, and tracked-quest capture coordinator until the host lifetime ends
+/// or shutdown is requested, then tears them all down in a proven-safe order.
 /// </summary>
 public interface IHostRuntime
 {
     /// <summary>
-    /// Publishes the rendezvous endpoint, starts both listeners and the live-state scheduler, runs
+    /// Publishes the rendezvous endpoint, starts both listeners and live-state capture services, runs
     /// until <paramref name="shutdown"/> is cancelled, then tears down in order: cancels shutdown,
-    /// awaits the adapter-IPC listener, then the public listener, then the live-state scheduler, then
-    /// the shutdown-signal watcher.
+    /// awaits the adapter-IPC listener, then the public listener, then the live-state scheduler and
+    /// tracked-quest capture coordinator, then the shutdown-signal watcher.
     /// </summary>
     /// <param name="shutdown">
     /// The shared shutdown source; cancelled by the caller on process exit, and internally by this
-    /// runtime's own named shutdown-signal watcher. Both listeners and the live-state scheduler stop
-    /// and tear down through this one shared token.
+    /// runtime's own named shutdown-signal watcher. Both listeners and live-state capture services
+    /// stop and tear down through this one shared token.
     /// </param>
     /// <returns>A successful process exit code once shutdown completes and teardown finishes.</returns>
     Task<int> RunAsync(CancellationTokenSource shutdown);
@@ -39,6 +39,9 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
 
     /// <summary>Drives the host's own sampling cadence for rate-classed capture units.</summary>
     private readonly ILiveStateScheduler liveStateScheduler;
+
+    /// <summary>Collects and publishes complete tracked-quest snapshots from bounded Adapter pages.</summary>
+    private readonly ITrackedQuestCaptureCoordinator trackedQuestCaptureCoordinator;
 
     /// <summary>Accepts public client connections, or <see langword="null"/> when not composed.</summary>
     private readonly IPublicWebSocketListener? publicListener;
@@ -73,6 +76,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
     /// <param name="rendezvousOutput">Reports the rendezvous endpoint to a launching adapter reading this process's standard output.</param>
     /// <param name="peerProofVerifier">Supplies this host process's own peer-ownership proof token and HostProof HMAC key.</param>
     /// <param name="liveStateScheduler">Drives the host's own sampling cadence for rate-classed capture units.</param>
+    /// <param name="trackedQuestCaptureCoordinator">Collects complete tracked-quest snapshots.</param>
     /// <param name="playContextResynchronizationTrigger">Resolved purely to force its construction; see the field's own doc comment.</param>
     /// <param name="publicListener">
     /// Accepts public client connections, or <see langword="null"/> to run without one. Defaults to
@@ -87,6 +91,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         TextWriter rendezvousOutput,
         IAdapterPeerProofVerifier peerProofVerifier,
         ILiveStateScheduler liveStateScheduler,
+        ITrackedQuestCaptureCoordinator trackedQuestCaptureCoordinator,
         IPlayContextResynchronizationTrigger playContextResynchronizationTrigger,
         IPublicWebSocketListener? publicListener = null)
     {
@@ -98,6 +103,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         this.rendezvousOutput = rendezvousOutput;
         this.peerProofVerifier = peerProofVerifier;
         this.liveStateScheduler = liveStateScheduler;
+        this.trackedQuestCaptureCoordinator = trackedQuestCaptureCoordinator;
         this.playContextResynchronizationTrigger = playContextResynchronizationTrigger;
     }
 
@@ -126,6 +132,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         Task adapterListenerTask = adapterListener.RunAsync(shutdown.Token);
         Task publicListenerTask = publicListener?.RunAsync(shutdown.Token) ?? Task.CompletedTask;
         Task liveStateSchedulerTask = liveStateScheduler.RunAsync(shutdown.Token);
+        Task trackedQuestCaptureTask = trackedQuestCaptureCoordinator.RunAsync(shutdown.Token);
 
         await lifetime.RunAsync(shutdown.Token);
 
@@ -133,6 +140,7 @@ public sealed class DovahLinkHostRuntime : IHostRuntime
         await adapterListenerTask;
         await publicListenerTask;
         await liveStateSchedulerTask;
+        await trackedQuestCaptureTask;
         await shutdownWatchTask;
         return 0;
     }

@@ -79,6 +79,15 @@
     <None Include="..\..\protocol\fixtures\state\state-snapshot-character-supernatural-traits-unavailable.json"
           Link="protocol\fixtures\state\state-snapshot-character-supernatural-traits-unavailable.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-tracked-quests.json"
+          Link="protocol\fixtures\state\state-snapshot-tracked-quests.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-tracked-quests-empty.json"
+          Link="protocol\fixtures\state\state-snapshot-tracked-quests-empty.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\state\state-snapshot-tracked-quests-unavailable.json"
+          Link="protocol\fixtures\state\state-snapshot-tracked-quests-unavailable.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

@@ -62,7 +62,11 @@ public sealed class ThrowingAdapterIpcConnection : IAdapterIpcConnection
     }
 
     /// <inheritdoc/>
-    public bool TrySendTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor, out ulong correlationId)
+    /// <inheritdoc/>
+    public IpcReadTrackedQuestPageMessage? PrepareReadTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor) => null;
+
+    /// <inheritdoc/>
+    public bool TrySendPreparedTrackedQuestPage(IpcReadTrackedQuestPageMessage message, long expectedConnectionGeneration, out ulong correlationId)
     {
         correlationId = 0;
         return false;
