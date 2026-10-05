@@ -111,6 +111,8 @@ Under the maintainer's pre-alpha `sas-pairing` P10 authorization (see the
 the Host gains a persistent cryptographic identity and a dormant, test-exercised `sas-pairing`
 integration foundation that the running product does not use. This stage owns activating it:
 
+- composing the Host identity key and the integration into the running Host, by adding the
+  `DovahLink.Host` reference to `DovahLink.Host.PairingCeremony`;
 - the production Host `sas-pairing` listener and driver lifecycle;
 - the interactive Host/Adapter Skyrim prompt for SAS comparison;
 - Flutter SAS rendering and the explicit human comparison UX;

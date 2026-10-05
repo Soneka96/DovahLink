@@ -29,6 +29,10 @@ for the player-facing summary posted with each Nexus Mods package. See
 - Raw public connection capacity is bounded separately from authenticated session capacity.
 - The packaged Host now targets and bundles .NET 10 instead of .NET 9.
 
+### Fixed
+
+- Host connection teardown and shutdown no longer hang when a client connection's writer starts after the connection was cancelled.
+
 ## [0.5.0] - 2026-09-24
 
 ### Changed

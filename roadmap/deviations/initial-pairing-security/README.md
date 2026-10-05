@@ -88,6 +88,14 @@ It does not authorize the Client key (S4), Host pinning (S5), WSS/TLS (S6), Clie
 possession (S7), the initial-pairing cutover (S8–S10), the security audit (S11), LAN exposure, or
 Android work. Those remain incomplete, and each needs its own explicitly approved increment.
 
+Both named items are implemented as dormant foundations; see the
+[Host architecture](../../../ai/context/host/architecture.md#dormant-sas-pairing-integration-foundation).
+Tests run them against the real pinned `sas-pairing` native library. A real ceremony between the
+Host integration and a separate test peer process reaches a Host local result whose peer Bootstrap
+equals the expected Client frame, and changing any one field of that frame is rejected. One Host
+installation's authority scope has exactly one owner across processes, and the integration's owner
+thread leaves ordinary Host work responsive. Nothing in the running Host uses either foundation.
+
 DovahLink's production-security gate remains **closed**. No hostile-LAN or production
 secure-pairing claim is made. Stage 5A and production LAN exposure remain gated. `sas-pairing`
 itself remains experimental and pre-alpha, not professionally audited or formally verified. A human

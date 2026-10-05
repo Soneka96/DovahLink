@@ -28,7 +28,9 @@ P-256, represented as DER SPKI like the Client key, because the same key is the 
 certificate key. DovahLink's production-security gate remains closed: no hostile-LAN or production
 secure-pairing claim is made, S4–S11 remain incomplete and unauthorized, and Stage 5A and production
 LAN exposure remain gated. `sas-pairing` is experimental and pre-alpha, not professionally audited
-or formally verified. See the
+or formally verified. That dormant foundation is implemented (see the
+[Host architecture](../host/architecture.md#host-cryptographic-identity-key)); the running Host
+composes neither the key nor the integration. See the
 [initial-pairing security deviation](../../../roadmap/deviations/initial-pairing-security/README.md#p10-pre-alpha-integration-authorization).
 
 The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.2 is the current feasibility and selection gate; it ended in STOP, so do not implement or activate its security-dependent S3–S11 sequence, beyond the dormant P10-authorized S3 Host identity foundation above, or infer a protocol from this document's candidate descriptions. Separately scoped DovahLink product work that does not depend on secure hostile-network first contact may proceed; it does not mark any S3–S11 slice complete.
@@ -94,6 +96,8 @@ It survives Skyrim, Host, and Windows restarts, machine rename, and endpoint/IP/
 The Host owns a persistent asymmetric key pair. Its private key never leaves the Host. The canonical public identity representation is DER-encoded SubjectPublicKeyInfo (SPKI); its fingerprint is `SHA-256(SPKI DER)` encoded as unpadded base64url. S2.1 separately selected this representation, independently of its initial-pairing STOP. A client's KnownHost can bind this identity to `hostId` only after a future passing pairing profile or authorized key rotation; this selection does not authorize production pinning behavior.
 
 `hostId` and Host public key are deliberately separate. The ID names the logical installation; the key proves cryptographic control of it.
+
+The P10-authorized dormant S3 foundation implements this key as a persisted, per-Windows-user, non-exportable ECDSA P-256 key with a public SPKI record. A recorded key that is missing, inaccessible, or different fails closed and is never regenerated. The running Host does not use it yet; see the [Host architecture](../host/architecture.md#host-cryptographic-identity-key).
 
 ## 6. Client identity
 
@@ -232,7 +236,7 @@ Trust reset, revoke, block, or forget does not silently change `hostId` or the H
 
 ## 14. Key storage and ownership
 
-The Host private key is protected by Windows DPAPI or suitable Windows cryptographic key storage and is never written in plaintext when avoidable. Client private keys use platform secure storage: Windows DPAPI/appropriate Windows cryptographic storage, Android Keystore, and iOS Keychain/Secure Enclave where appropriate.
+The Host private key is protected by Windows DPAPI or suitable Windows cryptographic key storage and is never written in plaintext when avoidable. The dormant S3 foundation keeps it in the Microsoft Software Key Storage Provider with export disabled, so DovahLink never writes private-key bytes itself. Client private keys use platform secure storage: Windows DPAPI/appropriate Windows cryptographic storage, Android Keystore, and iOS Keychain/Secure Enclave where appropriate.
 
 The reusable SDK depends on key-storage and cryptographic-operation ports. It does not contain platform-specific filesystem/security code. The platform layer owns OS key APIs and OS device/computer-name lookup. The Host owns its key persistence implementation. The app owns presentation and user name overrides; it never handles private keys, PAKE internals, bearer secrets, or protocol security rules. Flutter is not a parallel security implementation.
 
@@ -249,7 +253,7 @@ The exact rotation message and persistence protocol are future implementation de
 
 ## 16. Host reinstall and identity reset
 
-If a Host reset changes `hostId` from AAA to BBB, the Client treats BBB as a different Host even when `hostName`, endpoint, machine, and Skyrim installation are unchanged. If only the Host key rotates under authorization from the previous key, `hostId` may remain AAA. If the Host private key is lost while its `hostId` file survives, clients must not trust the Host by `hostId` alone; require re-pairing or an explicitly supported authenticated recovery/restore procedure.
+If a Host reset changes `hostId` from AAA to BBB, the Client treats BBB as a different Host even when `hostName`, endpoint, machine, and Skyrim installation are unchanged. If only the Host key rotates under authorization from the previous key, `hostId` may remain AAA. If the Host private key is lost while its `hostId` file survives, clients must not trust the Host by `hostId` alone; require re-pairing or an explicitly supported authenticated recovery/restore procedure. The Host itself fails closed in that case: it never generates a replacement key for a `hostId` whose key record exists.
 
 ## 17. Migration from bearer credentials
 
@@ -292,7 +296,7 @@ Every security migration PR must leave the merged baseline internally coherent. 
 | **S2** | Original cryptographic feasibility gate; stopped because no acceptable balanced-PAKE implementation path was established. Superseded for investigation by S2.1, but its implementation slices remain blocked. |
 | **S2.1** | Committed-SAS feasibility and standards review. Historical STOP; superseded by S2.2 assessment. See `crypto-stack-selection.md`. |
 | **S2.2** | Pasini–Vaudenay SAS-AKE production-profile feasibility. **STOP — post-SAS application composition is unproven; no production profile selected; S3 remains blocked.** See `crypto-stack-selection.md`. |
-| **S3** | Persistent Host cryptographic identity and protected Host private-key storage. Authorized for pre-alpha implementation as a dormant foundation under the P10 authorization in the status section; its production activation remains gated. |
+| **S3** | Persistent Host cryptographic identity and protected Host private-key storage. Authorized for pre-alpha implementation as a dormant foundation under the P10 authorization in the status section, and implemented as that foundation; its production activation remains gated. |
 | **S4** | Persistent Client cryptographic identity abstraction and platform key storage. |
 | **S5** | Future Host pinning and authenticated identity binding for the existing `knownHosts` collection. SDK persistence cardinality and bearer/recovery ownership now use Host IDs, but no cryptographic pin or peer authentication is implemented. The format-3 cutover invalidates unreleased singleton state and requires re-pairing; do not add compatibility machinery to preserve it. |
 | **S6** | WSS/TLS 1.3 transport, normal Host-key verification, and provisional initial-pair plumbing, only after the profile passes. Disable resumption and 0-RTT. |
@@ -303,7 +307,7 @@ Every security migration PR must leave the merged baseline internally coherent. 
 | **S11** | Security/adversarial regression audit across Host, SDK, transport, persistence, pairing, recovery, and protocol boundaries. |
 
 S3–S11 remain blocked and incomplete as production security-migration slices. The P10-authorized
-pre-alpha S3 Host identity foundation is the only exception, and it activates no production path.
+pre-alpha S3 Host identity foundation is the only exception; it is implemented and activates no production path.
 In particular, production keys, initial-pairing cryptography, authenticated non-loopback transport, secure cutover,
 and migration audit remain gated. DovahLink application-level authorization, Known Host/Device UX,
 and trust-administration design may be developed separately when they do not activate those paths;
