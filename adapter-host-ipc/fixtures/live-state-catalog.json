@@ -8,6 +8,9 @@
     "playerLocation": 6,
     "gameTime": 7
   },
+  "trackedQuestCaptureKeys": {
+    "page": 8
+  },
   "eventKeys": {
     "characterLevelChanged": 1
   }

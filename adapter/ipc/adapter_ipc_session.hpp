@@ -134,7 +134,7 @@ class IAdapterIpcSession {
     ///  HelloAck returns `kAuthenticated`; every non-HelloAck received before
     ///  authentication, a rejected or invalid HelloAck, a duplicate HelloAck,
     ///  received close, unexpected message kind, or cancellable request (
-    ///  resynchronize, listen-event, read-sample, or pairing-display) whose
+    ///  resynchronize, listen-event, read-sample, tracked-quest-page, or pairing-display) whose
     ///  correlation id is already admitted and still outstanding on the current
     ///  generation returns `kClose`.
     virtual AdapterIpcMessageDisposition
@@ -181,7 +181,7 @@ class IAdapterIpcSession {
     ///  `AdapterIpcConnectionCallbacks::onClosing`). Invalidates this
     ///  generation's authentication and eligibility for deferred game-thread
     ///  work immediately, rather than waiting for the later physical
-    ///  disconnect: a `ListenEvent`, `ReadSample`, or `ResynchronizeRequest`
+    ///  disconnect: a `ListenEvent`, `ReadSample`, `ReadTrackedQuestPage`, or `ResynchronizeRequest`
     ///  already marshaled onto the game thread before this call must reject
     ///  itself once it runs. Idempotent with `HandleDisconnected` for the same
     ///  generation; whichever of the two is called first performs the
@@ -325,6 +325,12 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  otherwise.
     AdapterIpcMessageDisposition
     HandleReadSample(const IpcReadSampleMessage& readSample);
+
+    ///  Marshals one bounded tracked-quest page capture onto the game thread.
+    ///  @param request The page and cursor requested by the Host.
+    ///  @return Continue after queuing or rejecting the page capture.
+    AdapterIpcMessageDisposition HandleReadTrackedQuestPage(
+        const IpcReadTrackedQuestPageMessage& request);
 
     ///  Marshals a pairing-display request onto the game thread, presents it
     ///  through `pairingNotificationSink_`, and replies with an
@@ -557,7 +563,7 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     std::shared_ptr<std::atomic<std::size_t>> pendingGameThreadDispatchCount_ =
         std::make_shared<std::atomic<std::size_t>>(0);
     ///  The currently-admitted, not-yet-run deferred dispatch (resynchronization,
-    ///  listen-event, read-sample, or pairing-display request) registered under
+    ///  listen-event, read-sample, tracked-quest-page, or pairing-display request) registered under
     ///  each correlation id, if any. `RegisterCancellableDispatchLocked` inserts
     ///  an entry exactly when it admits a dispatch under a correlation id with
     ///  no live registration, and returns `nullptr` instead of overwriting one
@@ -570,7 +576,7 @@ class AdapterIpcSession final : public IAdapterIpcSession {
     ///  admitted at once -- rather than an independent bound: an unknown, stale,
     ///  or duplicate `IpcCancelMessage` can never insert an entry, so it can
     ///  never displace cancellation state for a dispatch that is actually still
-    ///  pending. The host-supplied correlation ids these four handlers key
+    ///  pending. The host-supplied correlation ids these five handlers key
     ///  registrations under are not constrained by this adapter's own
     ///  `NextCorrelationId()` (which only numbers this adapter's own outbound
     ///  requests, such as Hello and TrustAdminRequest) and are deliberately

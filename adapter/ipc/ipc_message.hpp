@@ -15,6 +15,7 @@
 #include "ipc/ipc_play_context_changed_message.hpp"
 #include "ipc/ipc_play_context_ended_message.hpp"
 #include "ipc/ipc_read_sample_message.hpp"
+#include "ipc/ipc_read_tracked_quest_page_message.hpp"
 #include "ipc/ipc_reject_message.hpp"
 #include "ipc/ipc_resynchronize_request_message.hpp"
 #include "ipc/ipc_resynchronize_result_message.hpp"
@@ -31,6 +32,7 @@ using IpcMessage =
                  IpcResynchronizeRequestMessage, IpcResynchronizeResultMessage,
                  IpcCloseMessage, IpcRejectMessage, IpcCancelMessage,
                  IpcListenEventMessage, IpcReadSampleMessage,
+                 IpcReadTrackedQuestPageMessage,
                  IpcPairingDisplayMessage, IpcPairingDisplayAckMessage,
                  IpcPairingAttemptsExhaustedMessage,
                  IpcTrustAdminRequestMessage, IpcTrustAdminResultMessage,

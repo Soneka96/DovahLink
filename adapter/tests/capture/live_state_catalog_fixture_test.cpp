@@ -10,6 +10,7 @@
 
 using dovahlink::adapter::capture::CharacterEventKey;
 using dovahlink::adapter::capture::CharacterSampleToken;
+using dovahlink::adapter::capture::TrackedQuestCaptureKey;
 using dovahlink::adapter::test_support::ReadSource;
 
 //  back to its own tests/capture/live_state_catalog_fixture_test.cpp in the
@@ -58,6 +59,8 @@ TEST_CASE("Adapter live-state capture enums match the shared catalog fixture",
           ReadLiveStateToken("playerLocation"));
     CHECK(static_cast<std::uint32_t>(CharacterSampleToken::kGameTime) ==
           ReadLiveStateToken("gameTime"));
+    CHECK(static_cast<std::uint32_t>(TrackedQuestCaptureKey::kPage) ==
+          ReadLiveStateToken("page"));
     CHECK(static_cast<std::uint32_t>(
               CharacterEventKey::kCharacterLevelChanged) ==
           ReadLiveStateToken("characterLevelChanged"));

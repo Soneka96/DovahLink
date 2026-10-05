@@ -657,6 +657,64 @@ public class AdapterIpcConnectionTests
         Assert.Equal(42u, readSample.SampleToken);
     }
 
+    /// <summary>Verifies that a bounded tracked-quest page request is written to the peer.</summary>
+    [Fact]
+    public async Task TrySendTrackedQuestPage_Connected_DeliversFrameToPeer()
+    {
+        (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
+        var codec = new IpcFrameCodec();
+        var expected = new IpcReadTrackedQuestPageMessage(9, TrackedQuestPageKind.Objectives, 0x12345678, 4);
+        var fakeSession = new FakeAdapterIpcSession { TrackedQuestPageResult = expected };
+        var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
+        await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
+
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await ReadOneFrameAsync(client, codec); // ack
+        bool enqueued = connection.TrySendTrackedQuestPage(expected.PageKind, expected.QuestId, expected.Cursor, out ulong correlationId);
+        IpcMessage delivered = await ReadOneFrameAsync(client, codec);
+        client.Dispose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(enqueued);
+        Assert.Equal(expected.CorrelationId, correlationId);
+        Assert.Equal(expected, delivered);
+    }
+
+    /// <summary>Verifies a session that declines a quest-page request reports no correlation.</summary>
+    [Fact]
+    public void TrySendTrackedQuestPage_SessionRefuses_ReturnsFalseWithoutCorrelation()
+    {
+        var connection = new AdapterIpcConnection(
+            new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
+
+        bool enqueued = connection.TrySendTrackedQuestPage(TrackedQuestPageKind.TrackedQuestIds, 0, 0, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+    }
+
+    /// <summary>Verifies an outbound-queue rejection clears a prepared quest-page correlation.</summary>
+    [Fact]
+    public void TrySendTrackedQuestPage_QueueFull_ReturnsFalseWithoutCorrelation()
+    {
+        var session = new FakeAdapterIpcSession
+        {
+            ConnectionGeneration = 1,
+            ListenEventResult = new IpcListenEventMessage(1, 1),
+            TrackedQuestPageResult = new IpcReadTrackedQuestPageMessage(99, TrackedQuestPageKind.TrackedQuestIds, 0, 0),
+        };
+        var connection = new AdapterIpcConnection(new MemoryStream(), new IpcFrameCodec(), session, new SystemClock());
+        for (int i = 0; i < Constants.MaxIpcQueuedMessages; i++)
+        {
+            Assert.True(connection.TrySendListenEvent(1, out _));
+        }
+
+        bool enqueued = connection.TrySendTrackedQuestPage(TrackedQuestPageKind.TrackedQuestIds, 0, 0, out ulong correlationId);
+
+        Assert.False(enqueued);
+        Assert.Equal(0UL, correlationId);
+    }
+
     /// <summary>Verifies that a prepared sample is admitted and retains its prepared correlation on the expected connection generation.</summary>
     [Fact]
     public void TrySendPreparedReadSample_MatchingGeneration_QueuesAndReportsCorrelation()

@@ -91,13 +91,14 @@ their own source and runtime validation during the corresponding implementation 
   backing `TESGlobal`s after the player, Calendar, and all four float globals are available. The
   running game's localized month name comes from `Calendar.GetMonthName()`. The Host publishes
   month 1–12 and derives minutes by flooring the fractional hour; timescale and era are not state.
-- `tracked_quests` includes only quests with `TESQuest.IsActive()` true. An objective is included
-  only from `PlayerCharacter.objectives` when its objective pointer is non-null, the referenced
-  definition's `ownerQuest` is the exact tracked quest, and the instance `instanceID` matches the
-  quest's `currentInstanceID`. The Adapter reads index and authored `displayText` from that
-  definition, and state plus `instanceID` from the player-owned objective instance; this excludes
-  definition-only objectives and prior quest-instance records without traversing quest-log history.
-  It does not resolve instance-specific substitutions: available localized authored text is
+- `tracked_quests` includes only quests with `TESQuest.IsActive()` true. The Adapter returns
+  `PlayerCharacter.objectives` instances only when the objective pointer is non-null and the
+  referenced definition's `ownerQuest` is the exact tracked quest; it reads index and authored
+  `displayText` from that definition, and state plus `instanceID` from the player-owned instance.
+  Its bounded metadata page also returns `TESQuest.currentInstanceID`; the Host's frozen inclusion
+  rule filters to matching objective instances, excluding prior quest-instance records without
+  traversing quest-log history.
+  The Adapter does not resolve instance-specific substitutions: available localized authored text is
   preserved as-is, and a missing display string is represented as null. The Adapter returns at most
   32 runtime quest IDs
   per page, one quest metadata item per response, and objective pages no larger than its existing
