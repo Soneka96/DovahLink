@@ -112,8 +112,10 @@ Generic secure initial-pairing research continues in
 hostile-network first contact remains technically permitted; current maintainer scheduling keeps it
 behind this deviation unless explicitly reprioritized. Production secure first contact, unknown
 non-loopback pairing, Stage 5A secure Android/Wi-Fi, and production LAN exposure remain blocked until
-the required security profiles and integration gates pass. `sas-pairing` remains research; it is not
-claimed complete or production-ready. See the [initial-pairing security deviation](initial-pairing-security/README.md)
+the required security profiles and integration gates pass. `sas-pairing` is experimental and
+pre-alpha; it is not claimed complete or production-ready. The maintainer-authorized P10 work adds
+only a persistent Host identity and a dormant, test-exercised Host integration foundation that the
+running product does not use; Stage 5A owns activation. See the [initial-pairing security deviation](initial-pairing-security/README.md)
 and the [DovahLink identity and transport security architecture](../../ai/context/security/identity-and-transport.md).
 
 ## Maintainer rules

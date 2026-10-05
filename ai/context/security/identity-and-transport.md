@@ -19,7 +19,19 @@ implemented. Until later migration PRs land, current behavior remains defined by
 implementation. Sections below that describe cryptographic migration behavior remain proposals
 only where they are not supported by a completed security gate.
 
-The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.2 is the current feasibility and selection gate; it ended in STOP, so do not implement or activate its security-dependent S3–S11 sequence or infer a protocol from this document's candidate descriptions. Separately scoped DovahLink product work that does not depend on secure hostile-network first contact may proceed; it does not mark any S3–S11 slice complete.
+**P10 pre-alpha integration authorization.** S2.2 remains a valid historical STOP and is not
+converted to a pass. The maintainer has explicitly authorized experimental, pre-alpha DovahLink
+integration against the separately developed `sas-pairing` profile under that project's P10, scoped
+to the S3 persistent Host cryptographic identity and a dormant, test-exercised Host `sas-pairing`
+integration foundation that the running Host does not compose. For that work the Host key is ECDSA
+P-256, represented as DER SPKI like the Client key, because the same key is the Host's future TLS
+certificate key. DovahLink's production-security gate remains closed: no hostile-LAN or production
+secure-pairing claim is made, S4–S11 remain incomplete and unauthorized, and Stage 5A and production
+LAN exposure remain gated. `sas-pairing` is experimental and pre-alpha, not professionally audited
+or formally verified. See the
+[initial-pairing security deviation](../../../roadmap/deviations/initial-pairing-security/README.md#p10-pre-alpha-integration-authorization).
+
+The Host/client security migration must follow this contract. Cryptographic algorithms and libraries are not implementation details to guess later. S2.2 is the current feasibility and selection gate; it ended in STOP, so do not implement or activate its security-dependent S3–S11 sequence, beyond the dormant P10-authorized S3 Host identity foundation above, or infer a protocol from this document's candidate descriptions. Separately scoped DovahLink product work that does not depend on secure hostile-network first contact may proceed; it does not mark any S3–S11 slice complete.
 
 ## 1. Goals
 
@@ -280,7 +292,7 @@ Every security migration PR must leave the merged baseline internally coherent. 
 | **S2** | Original cryptographic feasibility gate; stopped because no acceptable balanced-PAKE implementation path was established. Superseded for investigation by S2.1, but its implementation slices remain blocked. |
 | **S2.1** | Committed-SAS feasibility and standards review. Historical STOP; superseded by S2.2 assessment. See `crypto-stack-selection.md`. |
 | **S2.2** | Pasini–Vaudenay SAS-AKE production-profile feasibility. **STOP — post-SAS application composition is unproven; no production profile selected; S3 remains blocked.** See `crypto-stack-selection.md`. |
-| **S3** | Persistent Host cryptographic identity and protected Host private-key storage. |
+| **S3** | Persistent Host cryptographic identity and protected Host private-key storage. Authorized for pre-alpha implementation as a dormant foundation under the P10 authorization in the status section; its production activation remains gated. |
 | **S4** | Persistent Client cryptographic identity abstraction and platform key storage. |
 | **S5** | Future Host pinning and authenticated identity binding for the existing `knownHosts` collection. SDK persistence cardinality and bearer/recovery ownership now use Host IDs, but no cryptographic pin or peer authentication is implemented. The format-3 cutover invalidates unreleased singleton state and requires re-pairing; do not add compatibility machinery to preserve it. |
 | **S6** | WSS/TLS 1.3 transport, normal Host-key verification, and provisional initial-pair plumbing, only after the profile passes. Disable resumption and 0-RTT. |
@@ -290,8 +302,9 @@ Every security migration PR must leave the merged baseline internally coherent. 
 | **S10** | Remove any remaining obsolete bearer pairing/authentication behavior as part of the approved cutover. This is not permission to retain dual security modes or defer deletion for unreleased development state. |
 | **S11** | Security/adversarial regression audit across Host, SDK, transport, persistence, pairing, recovery, and protocol boundaries. |
 
-S3–S11 remain blocked and incomplete as production security-migration slices. In particular,
-production keys, initial-pairing cryptography, authenticated non-loopback transport, secure cutover,
+S3–S11 remain blocked and incomplete as production security-migration slices. The P10-authorized
+pre-alpha S3 Host identity foundation is the only exception, and it activates no production path.
+In particular, production keys, initial-pairing cryptography, authenticated non-loopback transport, secure cutover,
 and migration audit remain gated. DovahLink application-level authorization, Known Host/Device UX,
 and trust-administration design may be developed separately when they do not activate those paths;
 such work neither completes nor substitutes for an S3–S11 slice.

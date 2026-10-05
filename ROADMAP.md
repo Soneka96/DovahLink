@@ -91,8 +91,8 @@ how progression resumes; they do not replace this roadmap or change its stage st
   MACs, and pairing PoP; the exact KEM assumptions and lifetime retry bound also remain unresolved.
   Shortcake is still prerelease and unaudited, its P-256 DHKEM change remains an open PR, and
   canonical profile bytes, vectors, and Windows/Android/iOS builds have not been demonstrated. No
-  production initial-pairing profile is selected; security migration S3–S11 remain blocked and
-  incomplete. This STOP blocks production secure first contact and security-dependent network
+  production initial-pairing profile is selected; security migration S3–S11 remain incomplete and,
+  apart from the pre-alpha integration authorized below, blocked. This STOP blocks production secure first contact and security-dependent network
   exposure, not unrelated product development. Phase 5.4, ordinary Flutter/Redux work, local or
   loopback development, Known Host UX, and DovahLink-owned trust and pairing-authorization design may
   proceed independently. The current six-digit flow is not production security for hostile-network
@@ -105,6 +105,17 @@ how progression resumes; they do not replace this roadmap or change its stage st
   deferred to S7. See the [initial-pairing security deviation](roadmap/deviations/initial-pairing-security/README.md)
   for its development history and
   [`ai/context/security/crypto-stack-selection.md`](ai/context/security/crypto-stack-selection.md).
+- **Pre-alpha `sas-pairing` integration (P10):** S2.2 remains a valid historical STOP and is not
+  converted to a pass. The maintainer has explicitly authorized experimental, pre-alpha DovahLink
+  integration against the separately developed `sas-pairing` profile under that project's P10. The
+  authorization opens only the named work: the S3 persistent Host cryptographic identity and a
+  dormant, test-exercised Host `sas-pairing` integration foundation that the running Host does not
+  compose. DovahLink's production-security gate remains closed: no hostile-LAN or production
+  secure-pairing claim is made, S4–S11 remain incomplete, and Stage 5A and production LAN exposure
+  remain gated. `sas-pairing` itself is experimental and pre-alpha, not professionally audited or
+  formally verified. The six-digit flow and bearer reconnect remain the running product behavior;
+  [Stage 5A](roadmap/05a-android-wifi-development-path.md) owns activating `sas-pairing`. See the
+  [initial-pairing security deviation](roadmap/deviations/initial-pairing-security/README.md).
 - The Bridge-authored Stage 4.2–4.4 implementation path was permanently superseded after Stage 3A;
   its specifications remain as historical engineering evidence in
   [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md).
