@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 import 'package:redux/redux.dart';
@@ -129,6 +131,18 @@ class LiveStateSdkFake {
   /// The current trust standing exposed by the fake SDK view.
   DovahLinkTrustState? trustState = DovahLinkTrustState.trusted;
 
+  /// State area returned as rejected by the SDK fake, when set.
+  DovahLinkStateArea? rejectedArea;
+
+  /// State area whose subscription request throws, when set.
+  DovahLinkStateArea? failingArea;
+
+  /// State area whose subscription response is controlled by a test.
+  DovahLinkStateArea? pendingArea;
+
+  /// Completes a delayed subscription response.
+  Completer<Set<DovahLinkStateArea>>? pendingSubscription;
+
   /// Reads of the SDK Vitals stream getter.
   int vitalsStreamReads = 0;
 
@@ -195,11 +209,23 @@ class LiveStateSdkFake {
     });
     when(() => currentHost.subscribeStateArea(any())).thenAnswer((
       Invocation invocation,
-    ) async {
-      requestedAreas.add(
-        invocation.positionalArguments.single as DovahLinkStateArea,
+    ) {
+      final DovahLinkStateArea area =
+          invocation.positionalArguments.single as DovahLinkStateArea;
+      requestedAreas.add(area);
+      if (area == failingArea) {
+        return Future<Set<DovahLinkStateArea>>.error(
+          StateError('Subscription request failed.'),
+        );
+      }
+      if (area == pendingArea && pendingSubscription != null) {
+        return pendingSubscription!.future;
+      }
+      return Future<Set<DovahLinkStateArea>>.value(
+        area == rejectedArea
+            ? <DovahLinkStateArea>{area}
+            : <DovahLinkStateArea>{},
       );
-      return <DovahLinkStateArea>{};
     });
   }
 
@@ -239,6 +265,10 @@ void main() {
   late MockStore store;
   late List<Object?> actions;
 
+  setUpAll(() {
+    registerFallbackValue(DovahLinkStateArea.gameTime);
+  });
+
   setUp(() async {
     await sl.reset();
     sdk = LiveStateSdkFake();
@@ -268,6 +298,7 @@ void main() {
 
         sdk.emitConnectionState(DovahLinkConnectionState.connected);
         await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
 
         expect(sdk.requestedAreas, _expectedAreas);
         expect(sdk.vitalsStreamReads, 1);
@@ -294,9 +325,155 @@ void main() {
         expect(sdk.vitalsStreamReads, 0);
 
         sdk.trustState = DovahLinkTrustState.trusted;
-        middleware.call(store, const PairingSessionTrustedAction(), (_) {});
+        final List<Object?> forwarded = <Object?>[];
+        const PairingSessionTrustedAction trustedAction =
+            PairingSessionTrustedAction();
+        middleware.call(store, trustedAction, forwarded.add);
+        middleware.call(store, trustedAction, forwarded.add);
         await pumpEventQueue();
 
+        expect(forwarded, [trustedAction, trustedAction]);
+        expect(sdk.requestedAreas, _expectedAreas);
+        expect(sdk.vitalsStreamReads, 1);
+      },
+    );
+
+    test(
+      'subscription rejection is reported while later domains are still requested',
+      () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
+        sdk.rejectedArea = DovahLinkStateArea.gameTime;
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        expect(sdk.requestedAreas, _expectedAreas);
+        expect(reported, hasLength(1));
+        expect(reported.single.exception, isA<StateError>());
+        expect(sdk.questsStreamReads, 1);
+      },
+    );
+
+    test(
+      'subscription failure is reported while later domains are still requested',
+      () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
+        sdk.failingArea = DovahLinkStateArea.gameTime;
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        expect(sdk.requestedAreas, _expectedAreas);
+        expect(reported, hasLength(1));
+        expect(reported.single.exception, isA<StateError>());
+        expect(sdk.questsStreamReads, 1);
+      },
+    );
+
+    test(
+      'late subscription acknowledgement after disconnect stops the remaining requests',
+      () async {
+        sdk.pendingArea = DovahLinkStateArea.characterVitals;
+        sdk.pendingSubscription = Completer<Set<DovahLinkStateArea>>();
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        expect(sdk.requestedAreas, [DovahLinkStateArea.characterVitals]);
+        sdk.emitConnectionState(DovahLinkConnectionState.disconnected);
+        sdk.pendingSubscription!.complete(<DovahLinkStateArea>{});
+        await pumpEventQueue();
+
+        expect(sdk.requestedAreas, [DovahLinkStateArea.characterVitals]);
+        expect(actions.whereType<SessionLiveStateResetAction>(), hasLength(1));
+      },
+    );
+
+    test(
+      'late subscription acknowledgement after shutdown starts no more requests',
+      () async {
+        sdk.pendingArea = DovahLinkStateArea.characterVitals;
+        sdk.pendingSubscription = Completer<Set<DovahLinkStateArea>>();
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        final Future<void> shutdown = middleware.shutdown();
+        sdk.pendingSubscription!.complete(<DovahLinkStateArea>{});
+        await Future.wait<void>([shutdown, pumpEventQueue()]);
+
+        expect(sdk.requestedAreas, [DovahLinkStateArea.characterVitals]);
+        expect(sdk.vitals.hasListener, isFalse);
+      },
+    );
+
+    test(
+      'a stream error is reported while the listener keeps observing',
+      () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        sdk.xp.addError(StateError('SDK stream failed.'), StackTrace.current);
+        await pumpEventQueue();
+        sdk.xp.add(
+          const StateSynchronization<CharacterXpState>(
+            status: DovahLinkStateStatus.synchronized,
+            value: CharacterXpState(value: 42),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 1,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(reported, hasLength(1));
+        expect(reported.single.exception, isA<StateError>());
+        expect(
+          actions.whereType<CharacterXpSynchronizationChangedAction>(),
+          hasLength(1),
+        );
+      },
+    );
+
+    test(
+      'a lifecycle stream error is reported and later transitions still work',
+      () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
+        middleware.initialize(store);
+        await pumpEventQueue();
+
+        sdk.lifecycle.addError(
+          StateError('Lifecycle stream failed.'),
+          StackTrace.current,
+        );
+        await pumpEventQueue();
+        sdk.emitConnectionState(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        expect(reported, hasLength(1));
+        expect(reported.single.exception, isA<StateError>());
         expect(sdk.requestedAreas, _expectedAreas);
         expect(sdk.vitalsStreamReads, 1);
       },
@@ -341,6 +518,7 @@ void main() {
         sdk.connectionState = DovahLinkConnectionState.connected;
         middleware.initialize(store);
         await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
         sdk.vitals.add(
           StateSynchronization<CharacterVitalsState>(
             status: DovahLinkStateStatus.stale,
@@ -396,6 +574,7 @@ void main() {
         sdk.connectionState = DovahLinkConnectionState.connected;
         middleware.initialize(store);
         await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
         sdk.xp.add(
           const StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
@@ -429,6 +608,38 @@ void main() {
           actions.whereType<CharacterXpSynchronizationChangedAction>(),
           hasLength(1),
         );
+
+        sdk.emitConnectionState(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+        sdk.xp.add(
+          const StateSynchronization<CharacterXpState>(
+            status: DovahLinkStateStatus.synchronized,
+            value: CharacterXpState(value: 50),
+            stateAuthorityId: 'authority-b',
+            playContextId: 'context-b',
+            revision: 1,
+          ),
+        );
+        await pumpEventQueue();
+
+        final List<CharacterXpSynchronizationChangedAction> xpProjections =
+            actions
+                .whereType<CharacterXpSynchronizationChangedAction>()
+                .toList();
+        expect(xpProjections, hasLength(2));
+        expect(xpProjections.first.synchronization.value, 42);
+        expect(xpProjections.first.synchronization.playContextId, 'context-a');
+        expect(xpProjections.last.synchronization.value, 50);
+        expect(xpProjections.last.synchronization.playContextId, 'context-b');
+        expect(
+          actions.indexOf(const SessionLiveStateResetAction()),
+          lessThan(actions.indexOf(xpProjections.last)),
+        );
+        expect(sdk.requestedAreas, <DovahLinkStateArea>[
+          ..._expectedAreas,
+          ..._expectedAreas,
+        ]);
       },
     );
 
@@ -438,6 +649,7 @@ void main() {
         sdk.connectionState = DovahLinkConnectionState.connected;
         middleware.initialize(store);
         await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
         sdk.emitConnectionState(
           DovahLinkConnectionState.administrativelyInvalidated,
         );
@@ -446,6 +658,12 @@ void main() {
         expect(actions.whereType<SessionLiveStateResetAction>(), hasLength(1));
         expect(sdk.vitals.hasListener, isFalse);
         verifyNever(() => sdk.connections.disconnect());
+
+        sdk.emitConnectionState(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+        expect(sdk.requestedAreas, _expectedAreas);
+        expect(sdk.vitalsStreamReads, 2);
       },
     );
 
@@ -455,7 +673,11 @@ void main() {
         sdk.connectionState = DovahLinkConnectionState.connected;
         middleware.initialize(store);
         await pumpEventQueue();
-        middleware.call(store, const SessionShellBackRequestedAction(), (_) {});
+        await _trustCurrentSession(sdk, middleware, store);
+        final List<Object?> forwarded = <Object?>[];
+        const SessionShellBackRequestedAction action =
+            SessionShellBackRequestedAction();
+        middleware.call(store, action, forwarded.add);
         sdk.xp.add(
           const StateSynchronization<CharacterXpState>(
             status: DovahLinkStateStatus.synchronized,
@@ -468,10 +690,35 @@ void main() {
         await pumpEventQueue();
 
         expect(sdk.xp.hasListener, isTrue);
+        expect(forwarded, [action]);
         expect(
           actions.whereType<CharacterXpSynchronizationChangedAction>(),
           hasLength(1),
         );
+        verifyNever(() => sdk.connections.disconnect());
+      },
+    );
+
+    test(
+      'PairingDisposedAction trust variants are forwarded without owning teardown',
+      () async {
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+        final List<Object?> forwarded = <Object?>[];
+        const PairingDisposedAction untrustedDispose = PairingDisposedAction(
+          wasTrusted: false,
+        );
+        const PairingDisposedAction trustedDispose = PairingDisposedAction(
+          wasTrusted: true,
+        );
+
+        middleware.call(store, untrustedDispose, forwarded.add);
+        middleware.call(store, trustedDispose, forwarded.add);
+
+        expect(forwarded, [untrustedDispose, trustedDispose]);
+        expect(sdk.xp.hasListener, isTrue);
         verifyNever(() => sdk.connections.disconnect());
       },
     );
@@ -482,7 +729,11 @@ void main() {
         sdk.connectionState = DovahLinkConnectionState.connected;
         middleware.initialize(store);
         await pumpEventQueue();
-        await middleware.shutdown();
+        await _trustCurrentSession(sdk, middleware, store);
+        final Future<void> firstShutdown = middleware.shutdown();
+        final Future<void> repeatedShutdown = middleware.shutdown();
+        expect(identical(firstShutdown, repeatedShutdown), isTrue);
+        await firstShutdown;
         final int requestedAreaCount = sdk.requestedAreas.length;
         middleware.initialize(store);
         sdk.emitConnectionState(DovahLinkConnectionState.connected);
@@ -490,6 +741,17 @@ void main() {
 
         expect(sdk.vitals.hasListener, isFalse);
         expect(sdk.requestedAreas, hasLength(requestedAreaCount));
+
+        final LiveStateMiddleware replacement = LiveStateMiddleware();
+        replacement.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, replacement, store);
+        expect(sdk.vitals.hasListener, isTrue);
+        expect(sdk.requestedAreas, <DovahLinkStateArea>[
+          ..._expectedAreas,
+          ..._expectedAreas,
+        ]);
+        await replacement.shutdown();
       },
     );
   });
@@ -499,6 +761,7 @@ void main() {
       sdk.connectionState = DovahLinkConnectionState.connected;
       middleware.initialize(store);
       await pumpEventQueue();
+      await _trustCurrentSession(sdk, middleware, store);
       sdk.vitals.add(
         StateSynchronization<CharacterVitalsState>(
           status: DovahLinkStateStatus.synchronized,
@@ -670,6 +933,7 @@ void main() {
         sdk.connectionState = DovahLinkConnectionState.connected;
         middleware.initialize(store);
         await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
         for (final DovahLinkStateStatus status in <DovahLinkStateStatus>[
           DovahLinkStateStatus.notSubscribed,
           DovahLinkStateStatus.stale,
@@ -715,3 +979,18 @@ const List<DovahLinkStateArea> _expectedAreas = <DovahLinkStateArea>[
   DovahLinkStateArea.gameTime,
   DovahLinkStateArea.trackedQuests,
 ];
+
+/// Dispatches SDK trust admission after lifecycle observation is attached.
+/// @param sdk The SDK fake reporting the connected session.
+/// @param middleware The middleware receiving trust admission.
+/// @param store The mock Redux store receiving projections.
+Future<void> _trustCurrentSession(
+  LiveStateSdkFake sdk,
+  LiveStateMiddleware middleware,
+  MockStore store,
+) async {
+  expect(sdk.connectionState, DovahLinkConnectionState.connected);
+  expect(sdk.trustState, DovahLinkTrustState.trusted);
+  middleware.call(store, const PairingSessionTrustedAction(), (_) {});
+  await pumpEventQueue();
+}

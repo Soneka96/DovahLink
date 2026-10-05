@@ -54,7 +54,7 @@ class AppShutdownService implements IAppShutdownService {
   @override
   Future<void> shutdown() => _shutdownFuture ??= _performShutdown();
 
-  /// Starts both middleware cancellations and the existing-client close before the deadline
+  /// Starts all middleware cancellations and the existing-client close before the deadline
   /// wait, so close invalidates authentication and reconnect work immediately. Their late
   /// completions perform no follow-up application work.
   Future<void> _performShutdown() async {

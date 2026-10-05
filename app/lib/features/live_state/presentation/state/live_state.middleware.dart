@@ -57,9 +57,13 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
   _lifecycleSubscriptions =
       <Store<AppState>, StreamSubscription<DovahLinkConnectionState>>{};
 
-  /// Domain listeners attached while each store has an admitted session.
-  final Map<Store<AppState>, List<StreamSubscription<dynamic>>>
-  _stateSubscriptions = <Store<AppState>, List<StreamSubscription<dynamic>>>{};
+  /// Cancellation callbacks for domain listeners attached to each admitted session.
+  final Map<Store<AppState>, List<Future<void> Function()>>
+  _stateSubscriptionCancellations =
+      <Store<AppState>, List<Future<void> Function()>>{};
+
+  /// Stores whose SDK desired areas were established for this middleware lifetime.
+  final Set<Store<AppState>> _requestedDesiredAreaStores = <Store<AppState>>{};
 
   /// The shared shutdown operation returned to repeated callers.
   Future<void>? _shutdownFuture;
@@ -77,6 +81,8 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     switch (action) {
       case PairingSessionTrustedAction _:
         _sessionTrusted(store);
+      case final PairingDisposedAction disposedAction:
+        _pairingDisposed(store, disposedAction);
     }
   }
 
@@ -108,14 +114,14 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
           for (final StreamSubscription<DovahLinkConnectionState> subscription
               in _lifecycleSubscriptions.values)
             subscription.cancel(),
-          for (final List<StreamSubscription<dynamic>> subscriptions
-              in _stateSubscriptions.values)
-            for (final StreamSubscription<dynamic> subscription
-                in subscriptions)
-              subscription.cancel(),
+          for (final List<Future<void> Function()> cancellations
+              in _stateSubscriptionCancellations.values)
+            for (final Future<void> Function() cancel in cancellations)
+              cancel(),
         ]).then((_) {
           _lifecycleSubscriptions.clear();
-          _stateSubscriptions.clear();
+          _stateSubscriptionCancellations.clear();
+          _requestedDesiredAreaStores.clear();
         });
   }
 
@@ -131,18 +137,19 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     if (_isShuttingDown) {
       return;
     }
-    switch (state) {
-      case DovahLinkConnectionState.connected:
-        if (client.currentHost.trustState == DovahLinkTrustState.trusted) {
-          _attachStateStreams(store, client);
-        }
-      case DovahLinkConnectionState.disconnected ||
-          DovahLinkConnectionState.administrativelyInvalidated:
-        _endAdmittedSession(store);
-      case DovahLinkConnectionState.connecting ||
-          DovahLinkConnectionState.reconnecting ||
-          DovahLinkConnectionState.reauthenticating:
-        break;
+    if (state == DovahLinkConnectionState.connected) {
+      if (client.currentHost.trustState == DovahLinkTrustState.trusted) {
+        _attachStateStreams(store, client);
+      }
+      return;
+    }
+    if (state == DovahLinkConnectionState.disconnected) {
+      _requestedDesiredAreaStores.remove(store);
+      _endAdmittedSession(store);
+      return;
+    }
+    if (state == DovahLinkConnectionState.administrativelyInvalidated) {
+      _endAdmittedSession(store);
     }
   }
 
@@ -156,6 +163,9 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     if (client.connections.state == DovahLinkConnectionState.connected &&
         client.currentHost.trustState == DovahLinkTrustState.trusted) {
       _attachStateStreams(store, client);
+      if (_requestedDesiredAreaStores.add(store)) {
+        unawaited(_requestRequiredAreas(store, client.currentHost));
+      }
     }
   }
 
@@ -163,10 +173,10 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
   /// @param store The store to receive state changes.
   /// @param client The SDK client exposing the public state groups.
   void _attachStateStreams(Store<AppState> store, DovahLinkClient client) {
-    if (_isShuttingDown || _stateSubscriptions.containsKey(store)) {
+    if (_isShuttingDown || _stateSubscriptionCancellations.containsKey(store)) {
       return;
     }
-    _stateSubscriptions[store] = <StreamSubscription<dynamic>>[];
+    _stateSubscriptionCancellations[store] = <Future<void> Function()>[];
     final currentHost = client.currentHost;
     final character = currentHost.character;
     _observe(
@@ -217,7 +227,15 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
       LiveStateMapper.trackedQuests,
       TrackedQuestsSynchronizationChangedAction.new,
     );
-    unawaited(_requestRequiredAreas(store, currentHost));
+  }
+
+  /// Clears request deduplication only when pairing intentionally disconnects.
+  /// @param store The store whose pairing flow ended.
+  /// @param action The pairing-disposal intent captured before teardown.
+  void _pairingDisposed(Store<AppState> store, PairingDisposedAction action) {
+    if (!action.wasTrusted) {
+      _requestedDesiredAreaStores.remove(store);
+    }
   }
 
   /// Subscribes to one typed SDK stream and forwards its app-owned projection.
@@ -234,14 +252,15 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     final StreamSubscription<StateSynchronization<T>> subscription = changes
         .listen(
           (StateSynchronization<T> synchronization) {
-            if (!_isShuttingDown && _stateSubscriptions.containsKey(store)) {
+            if (!_isShuttingDown &&
+                _stateSubscriptionCancellations.containsKey(store)) {
               store.dispatch(action(project(synchronization)));
             }
           },
           onError: (Object error, StackTrace stackTrace) =>
               _reportObservationFailure(error, stackTrace),
         );
-    _stateSubscriptions[store]?.add(subscription);
+    _stateSubscriptionCancellations[store]?.add(subscription.cancel);
   }
 
   /// Adds every required domain through the SDK's additive desired-set API.
@@ -252,7 +271,8 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     IDovahLinkCurrentHost currentHost,
   ) async {
     for (final DovahLinkStateArea area in _requiredAreas) {
-      if (_isShuttingDown || !_stateSubscriptions.containsKey(store)) {
+      if (_isShuttingDown ||
+          !_stateSubscriptionCancellations.containsKey(store)) {
         return;
       }
       try {
@@ -262,6 +282,9 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
           _reportSubscriptionRejection(area);
         }
       } on Object catch (error, stackTrace) {
+        if (!_stateSubscriptionCancellations.containsKey(store)) {
+          return;
+        }
         _reportObservationFailure(error, stackTrace);
       }
     }
@@ -270,13 +293,13 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
   /// Cancels gameplay listeners and clears the ended session's Redux projection.
   /// @param store The store whose admitted session has ended.
   void _endAdmittedSession(Store<AppState> store) {
-    final List<StreamSubscription<dynamic>>? subscriptions = _stateSubscriptions
-        .remove(store);
-    if (subscriptions == null) {
+    final List<Future<void> Function()>? cancellations =
+        _stateSubscriptionCancellations.remove(store);
+    if (cancellations == null) {
       return;
     }
-    for (final StreamSubscription<dynamic> subscription in subscriptions) {
-      unawaited(subscription.cancel());
+    for (final Future<void> Function() cancel in cancellations) {
+      unawaited(cancel());
     }
     if (!_isShuttingDown) {
       store.dispatch(const SessionLiveStateResetAction());

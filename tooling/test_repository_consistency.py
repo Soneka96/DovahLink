@@ -2499,6 +2499,87 @@ class RepositoryConsistencyTests(unittest.TestCase):
             protocol_readme,
         )
 
+    def test_flutter_live_state_keeps_sdk_streams_inside_middleware(self) -> None:
+        """Protect the app-owned live-state boundary from SDK and protocol leakage."""
+        middleware_path = (
+            "app/lib/features/live_state/presentation/state/live_state.middleware.dart"
+        )
+        middleware = self._read(middleware_path)
+        mapper = self._read("app/lib/features/live_state/live_state.mapper.dart")
+        self.assertIn(
+            "package:dovahlink_client_sdk/dovahlink_client.dart",
+            middleware,
+        )
+        self.assertIn(
+            "package:dovahlink_client_sdk/dovahlink_client.dart",
+            mapper,
+        )
+        for required_stream in (
+            "vitalsChanges",
+            "xpChanges",
+            "levelChanges",
+            "identityChanges",
+            "supernaturalTraitsChanges",
+            "playerLocationChanges",
+            "gameTimeChanges",
+            "trackedQuestsChanges",
+        ):
+            self.assertIn(required_stream, middleware)
+            self.assertNotIn(required_stream, mapper)
+
+        live_state_root = REPOSITORY_ROOT / "app" / "lib" / "features" / "live_state"
+        for source_path in live_state_root.rglob("*.dart"):
+            source = source_path.read_text(encoding="utf-8")
+            self.assertNotIn("dovahlink_client_sdk/src/", source, str(source_path))
+            self.assertNotIn(
+                "dovahlink_client_sdk/src/protocol/", source, str(source_path)
+            )
+            for protocol_type in (
+                "Envelope",
+                "SubscribePayload",
+                "ProtocolMessageType",
+            ):
+                self.assertNotIn(protocol_type, source, str(source_path))
+            if source_path.name.endswith(".reducer.dart"):
+                self.assertNotIn("DovahLinkClient", source, str(source_path))
+                self.assertNotIn("subscribeStateArea", source, str(source_path))
+
+        stream_access = re.compile(
+            r"\.(?:vitalsChanges|xpChanges|levelChanges|identityChanges|"
+            r"supernaturalTraitsChanges|playerLocationChanges|gameTimeChanges|"
+            r"trackedQuestsChanges|subscribeStateArea)\b"
+        )
+        for source_path in (REPOSITORY_ROOT / "app" / "lib").rglob("*.dart"):
+            relative_path = source_path.relative_to(REPOSITORY_ROOT).as_posix()
+            source = source_path.read_text(encoding="utf-8")
+            if relative_path != middleware_path:
+                self.assertIsNone(
+                    stream_access.search(source),
+                    f"SDK live-state stream access escaped its middleware: {relative_path}",
+                )
+
+        for feature in ("session", "live_state"):
+            presentation = (
+                REPOSITORY_ROOT / "app" / "lib" / "features" / feature / "presentation"
+            )
+            if not presentation.exists():
+                continue
+            for source_path in presentation.rglob("*.dart"):
+                if not source_path.name.endswith(
+                    (".screen.dart", ".widget.dart", ".section.dart")
+                ):
+                    continue
+                source = source_path.read_text(encoding="utf-8")
+                self.assertNotIn("dovahlink_client_sdk/src/", source, str(source_path))
+                self.assertNotIn("StreamSubscription<", source, str(source_path))
+                self.assertNotRegex(
+                    source,
+                    r"\.(?:vitalsChanges|xpChanges|levelChanges|identityChanges|"
+                    r"supernaturalTraitsChanges|playerLocationChanges|gameTimeChanges|"
+                    r"trackedQuestsChanges|subscribeStateArea)\b",
+                    str(source_path),
+                )
+
     def test_protocol_docs_describe_host_not_the_retired_native_plugin(self) -> None:
         """Guard protocol/README.md and ai/context/protocol/conventions.md against describing
         the retired native SKSE plugin, rather than the Host, as the protocol's server-side endpoint."""

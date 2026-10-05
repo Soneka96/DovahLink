@@ -202,6 +202,29 @@ void main() {
       expect(result.value?.locationId, 22);
       expect(result.value?.worldspaceId, isNull);
     });
+
+    test('playerLocation maps exterior cells separately', () {
+      final result = LiveStateMapper.playerLocation(
+        const StateSynchronization<PlayerLocationState?>(
+          status: DovahLinkStateStatus.synchronized,
+          value: PlayerLocationState(
+            cellId: 21,
+            cellKind: PlayerLocationCellKind.exterior,
+            cellName: null,
+            locationId: null,
+            locationName: null,
+            worldspaceId: 22,
+            worldspaceName: 'Worldspace',
+          ),
+          stateAuthorityId: 'authority-a',
+          playContextId: 'context-a',
+          revision: 7,
+        ),
+      );
+
+      expect(result.value?.cellKind, LiveCellKind.exterior);
+      expect(result.value?.worldspaceName, 'Worldspace');
+    });
   });
 
   group('gameTime behaves correctly', () {
@@ -307,6 +330,113 @@ void main() {
         expect(result.status, LiveStateStatus.synchronized);
         expect(result.value, isEmpty);
         expect(() => result.value?.clear(), throwsUnsupportedError);
+      },
+    );
+
+    test('trackedQuests maps every objective status independently', () {
+      const List<TrackedQuestObjectiveState> sdkStates = [
+        TrackedQuestObjectiveState.dormant,
+        TrackedQuestObjectiveState.displayed,
+        TrackedQuestObjectiveState.completed,
+        TrackedQuestObjectiveState.completedAndDisplayed,
+        TrackedQuestObjectiveState.failed,
+        TrackedQuestObjectiveState.failedAndDisplayed,
+      ];
+      final TrackedQuestsState value = TrackedQuestsState(
+        quests: <TrackedQuest>[
+          TrackedQuest(
+            questId: 1,
+            title: 'Quest',
+            type: 2,
+            objectives: <QuestObjective>[
+              for (int index = 0; index < sdkStates.length; index++)
+                QuestObjective(
+                  index: index,
+                  instanceId: index,
+                  text: null,
+                  state: sdkStates[index],
+                ),
+            ],
+          ),
+        ],
+      );
+      final result = LiveStateMapper.trackedQuests(
+        StateSynchronization<TrackedQuestsState?>(
+          status: DovahLinkStateStatus.synchronized,
+          value: value,
+          stateAuthorityId: 'authority-a',
+          playContextId: 'context-a',
+          revision: 11,
+        ),
+      );
+
+      expect(
+        result.value?.single.objectives.map((objective) => objective.status),
+        LiveQuestObjectiveStatus.values,
+      );
+    });
+  });
+
+  group('nullable SDK values behave correctly', () {
+    test(
+      'nullable domain inputs remain unavailable values with status intact',
+      () {
+        final level = LiveStateMapper.characterLevel(
+          const StateSynchronization<CharacterLevelState>(
+            status: DovahLinkStateStatus.unavailable,
+            value: null,
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 12,
+          ),
+        );
+        final traits = LiveStateMapper.supernaturalTraits(
+          const StateSynchronization<CharacterSupernaturalTraitsState?>(
+            status: DovahLinkStateStatus.unavailable,
+            value: null,
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 13,
+          ),
+        );
+        final location = LiveStateMapper.playerLocation(
+          const StateSynchronization<PlayerLocationState?>(
+            status: DovahLinkStateStatus.unavailable,
+            value: null,
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 14,
+          ),
+        );
+        final gameTime = LiveStateMapper.gameTime(
+          const StateSynchronization<GameTimeState?>(
+            status: DovahLinkStateStatus.unavailable,
+            value: null,
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 15,
+          ),
+        );
+        final quests = LiveStateMapper.trackedQuests(
+          const StateSynchronization<TrackedQuestsState?>(
+            status: DovahLinkStateStatus.unavailable,
+            value: null,
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 16,
+          ),
+        );
+
+        expect(level.status, LiveStateStatus.unavailable);
+        expect(level.value, isNull);
+        expect(traits.status, LiveStateStatus.unavailable);
+        expect(traits.value, isNull);
+        expect(location.status, LiveStateStatus.unavailable);
+        expect(location.value, isNull);
+        expect(gameTime.status, LiveStateStatus.unavailable);
+        expect(gameTime.value, isNull);
+        expect(quests.status, LiveStateStatus.unavailable);
+        expect(quests.value, isNull);
       },
     );
   });
