@@ -156,7 +156,8 @@ public static class Fixtures
         PublicWebSocketTransportOptions? options = null,
         IPublicWebSocketTransportDiagnostics? diagnostics = null,
         IDataLaneOutboundQueue? dataLaneQueue = null,
-        HostIdentity? hostIdentity = null) =>
+        HostIdentity? hostIdentity = null,
+        TimeProvider? fragmentAssemblyTimeProvider = null) =>
         new(
             stream,
             messageHandler,
@@ -164,7 +165,8 @@ public static class Fixtures
             options ?? BuildPublicWebSocketTransportOptions(),
             diagnostics ?? new FakePublicWebSocketTransportDiagnostics(),
             dataLaneQueue ?? new DataLaneOutboundQueue(),
-            hostIdentity ?? BuildHostIdentity());
+            hostIdentity ?? BuildHostIdentity(),
+            fragmentAssemblyTimeProvider ?? TimeProvider.System);
 
     // ---- Client dispatch ----
 
