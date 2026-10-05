@@ -4,6 +4,7 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/session_live_state.state.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import '../../../../../fixtures/fixtures.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
@@ -82,6 +83,298 @@ void main() {
       expect(firstViewModel == secondViewModel, isFalse);
     });
   });
+
+  group('Property characterName behaves correctly', () {
+    test('Property characterName returns the trimmed SDK name', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(name: '  Aela  '),
+          ),
+        ),
+      );
+
+      expect(viewModel.characterName, 'Aela');
+    });
+
+    test('Property characterName omits a missing or blank SDK name', () {
+      final SessionOverviewViewModel missing = _buildViewModel(
+        _buildLiveState(),
+      );
+      final SessionOverviewViewModel blank = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(name: '  '),
+          ),
+        ),
+      );
+
+      expect(missing.characterName, isNull);
+      expect(blank.characterName, isNull);
+    });
+  });
+
+  group('Property characterLevelLabel behaves correctly', () {
+    test('Property characterLevelLabel combines available level and XP', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterLevel: _synchronized<CharacterLevelState>(
+            Fixtures.buildCharacterLevel(value: 43),
+          ),
+          characterXp: _synchronized<CharacterXpState>(
+            Fixtures.buildCharacterXp(value: 320),
+          ),
+        ),
+      );
+
+      expect(viewModel.characterLevelLabel, 'Level 43 (320 XP)');
+    });
+
+    test('Property characterLevelLabel preserves fractional XP', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterLevel: _synchronized<CharacterLevelState>(
+            Fixtures.buildCharacterLevel(value: 43),
+          ),
+          characterXp: _synchronized<CharacterXpState>(
+            Fixtures.buildCharacterXp(value: 320.5),
+          ),
+        ),
+      );
+
+      expect(viewModel.characterLevelLabel, 'Level 43 (320.5 XP)');
+    });
+
+    test('Property characterLevelLabel omits XP when XP is unavailable', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterLevel: _synchronized<CharacterLevelState>(
+            Fixtures.buildCharacterLevel(value: 43),
+          ),
+          characterXp: _synchronized<CharacterXpState>(
+            Fixtures.buildCharacterXp(value: null),
+          ),
+        ),
+      );
+
+      expect(viewModel.characterLevelLabel, 'Level 43');
+    });
+
+    test('Property characterLevelLabel omits XP without a level', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterXp: _synchronized<CharacterXpState>(
+            Fixtures.buildCharacterXp(value: 320),
+          ),
+        ),
+      );
+
+      expect(viewModel.characterLevelLabel, isNull);
+    });
+  });
+
+  group('Property locationName behaves correctly', () {
+    test('Property locationName prefers the selected location name', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(),
+          ),
+        ),
+      );
+
+      expect(viewModel.locationName, 'The Bannered Mare');
+    });
+
+    test('Property locationName falls back to the current cell name', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(locationId: null, locationName: null),
+          ),
+        ),
+      );
+
+      expect(viewModel.locationName, 'Whiterun');
+    });
+
+    test('Property locationName skips a blank preferred name', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(locationName: '  '),
+          ),
+        ),
+      );
+
+      expect(viewModel.locationName, 'Whiterun');
+    });
+
+    test('Property locationName falls back to the worldspace name', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(
+              locationId: null,
+              locationName: null,
+              cellName: null,
+              worldspaceId: 24,
+              worldspaceName: 'Skyrim',
+            ),
+          ),
+        ),
+      );
+
+      expect(viewModel.locationName, 'Skyrim');
+    });
+
+    test('Property locationName omits absent or blank place names', () {
+      final SessionOverviewViewModel missing = _buildViewModel(
+        _buildLiveState(
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(
+              locationId: null,
+              locationName: null,
+              cellName: null,
+            ),
+          ),
+        ),
+      );
+      final SessionOverviewViewModel blank = _buildViewModel(
+        _buildLiveState(
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(
+              locationName: '  ',
+              cellName: '\t',
+              worldspaceName: '',
+              worldspaceId: 24,
+            ),
+          ),
+        ),
+      );
+
+      expect(missing.locationName, isNull);
+      expect(blank.locationName, isNull);
+    });
+  });
+
+  group('Property gameTimeLabel behaves correctly', () {
+    test('Property gameTimeLabel formats the Skyrim year and evening time', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          gameTime: _synchronized<GameTimeState?>(
+            Fixtures.buildGameTime(year: 201, hour: 18, minute: 42),
+          ),
+        ),
+      );
+
+      expect(viewModel.gameTimeLabel, '4E 201, 6:42 PM');
+    });
+
+    test('Property gameTimeLabel handles midnight and noon', () {
+      final SessionOverviewViewModel midnight = _buildViewModel(
+        _buildLiveState(
+          gameTime: _synchronized<GameTimeState?>(
+            Fixtures.buildGameTime(year: 201, hour: 0, minute: 5),
+          ),
+        ),
+      );
+      final SessionOverviewViewModel noon = _buildViewModel(
+        _buildLiveState(
+          gameTime: _synchronized<GameTimeState?>(
+            Fixtures.buildGameTime(year: 201, hour: 12, minute: 0),
+          ),
+        ),
+      );
+
+      expect(midnight.gameTimeLabel, '4E 201, 12:05 AM');
+      expect(noon.gameTimeLabel, '4E 201, 12:00 PM');
+    });
+
+    test('Property gameTimeLabel omits an unavailable calendar value', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(),
+      );
+
+      expect(viewModel.gameTimeLabel, isNull);
+    });
+  });
+
+  group('Property contextLine behaves correctly', () {
+    test('Property contextLine joins current character, place, and time', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(name: 'Gonçalo'),
+          ),
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(),
+          ),
+          gameTime: _synchronized<GameTimeState?>(
+            Fixtures.buildGameTime(year: 201, hour: 18, minute: 42),
+          ),
+        ),
+      );
+
+      expect(
+        viewModel.contextLine,
+        'Gonçalo · The Bannered Mare · 4E 201, 6:42 PM',
+      );
+    });
+
+    test('Property contextLine omits unavailable segments cleanly', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(name: 'Gonçalo'),
+          ),
+          gameTime: _synchronized<GameTimeState?>(
+            Fixtures.buildGameTime(year: 201, hour: 18, minute: 42),
+          ),
+        ),
+      );
+
+      expect(viewModel.contextLine, 'Gonçalo · 4E 201, 6:42 PM');
+    });
+
+    test('Property contextLine omits the character when it is unavailable', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(),
+          ),
+          gameTime: _synchronized<GameTimeState?>(
+            Fixtures.buildGameTime(year: 201, hour: 18, minute: 42),
+          ),
+        ),
+      );
+
+      expect(viewModel.contextLine, 'The Bannered Mare · 4E 201, 6:42 PM');
+    });
+
+    test('Property contextLine omits the time when it is unavailable', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(name: 'Gonçalo'),
+          ),
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(),
+          ),
+        ),
+      );
+
+      expect(viewModel.contextLine, 'Gonçalo · The Bannered Mare');
+    });
+
+    test('Property contextLine is absent when no segments are usable', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(),
+      );
+
+      expect(viewModel.contextLine, isNull);
+    });
+  });
 }
 
 /// Creates an Overview ViewModel from a test live-state slice.
@@ -100,22 +393,42 @@ SessionOverviewViewModel _buildViewModel(SessionLiveState state) =>
 /// Creates one state with concrete SDK synchronization values for every domain.
 SessionLiveState _buildLiveState({
   StateSynchronization<TrackedQuestsState?>? trackedQuests,
+  StateSynchronization<CharacterIdentityState?>? characterIdentity,
+  StateSynchronization<CharacterLevelState>? characterLevel,
+  StateSynchronization<CharacterXpState>? characterXp,
+  StateSynchronization<PlayerLocationState?>? playerLocation,
+  StateSynchronization<GameTimeState?>? gameTime,
 }) => SessionLiveState(
   characterVitals:
       const StateSynchronization<CharacterVitalsState>.notSubscribed(),
-  characterXp: const StateSynchronization<CharacterXpState>.notSubscribed(),
+  characterXp:
+      characterXp ??
+      const StateSynchronization<CharacterXpState>.notSubscribed(),
   characterLevel:
+      characterLevel ??
       const StateSynchronization<CharacterLevelState>.notSubscribed(),
   characterIdentity:
+      characterIdentity ??
       const StateSynchronization<CharacterIdentityState?>.notSubscribed(),
   supernaturalTraits:
       const StateSynchronization<
         CharacterSupernaturalTraitsState?
       >.notSubscribed(),
   playerLocation:
+      playerLocation ??
       const StateSynchronization<PlayerLocationState?>.notSubscribed(),
-  gameTime: const StateSynchronization<GameTimeState?>.notSubscribed(),
+  gameTime:
+      gameTime ?? const StateSynchronization<GameTimeState?>.notSubscribed(),
   trackedQuests:
       trackedQuests ??
       const StateSynchronization<TrackedQuestsState?>.notSubscribed(),
+);
+
+/// Creates a synchronization projection around one test value.
+StateSynchronization<T> _synchronized<T>(T value) => StateSynchronization<T>(
+  status: DovahLinkStateStatus.synchronized,
+  value: value,
+  stateAuthorityId: 'authority-a',
+  playContextId: 'context-a',
+  revision: 1,
 );
