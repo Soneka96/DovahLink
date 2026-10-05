@@ -73,6 +73,7 @@ void main() {
             'character_supernatural_traits',
             'player_location',
             'game_time',
+            'tracked_quests',
           ],
         );
       },
