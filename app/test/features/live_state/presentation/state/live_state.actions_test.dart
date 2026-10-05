@@ -1,100 +1,113 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dovahlink_client/features/live_state/presentation/state/live_domain_state.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.actions.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_tracked_quest.dart';
-import '../../../../fixtures/fixtures.dart';
 
-/// Exercises the typed Redux actions used by live-state middleware.
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show
+        CharacterIdentityState,
+        CharacterLevelState,
+        CharacterSupernaturalTraitsState,
+        CharacterVital,
+        CharacterVitalsState,
+        CharacterXpState,
+        DovahLinkStateStatus,
+        GameTimeState,
+        PlayerLocationCellKind,
+        PlayerLocationState,
+        StateSynchronization,
+        TrackedQuestsState;
+
+/// Exercises that Redux actions retain SDK synchronization objects unchanged.
 void main() {
   group('CharacterVitalsSynchronizationChangedAction behaves correctly', () {
     test(
-      'CharacterVitalsSynchronizationChangedAction carries coherent raw values',
+      'CharacterVitalsSynchronizationChangedAction retains synchronization identity',
       () {
-        const CharacterVitalsSynchronizationChangedAction action =
-            CharacterVitalsSynchronizationChangedAction(
-              LiveDomainState<
-                ({
-                  ({double current, double max}) health,
-                  ({double current, double max}) magicka,
-                  ({double current, double max}) stamina,
-                })
-              >(
-                status: LiveStateStatus.synchronized,
-                value: (
-                  health: (current: 195, max: 180),
-                  magicka: (current: 30, max: 120),
-                  stamina: (current: 88, max: 100),
-                ),
-                stateAuthorityId: 'authority-a',
-                playContextId: 'context-a',
-                revision: 3,
+        final StateSynchronization<CharacterVitalsState> synchronization =
+            StateSynchronization<CharacterVitalsState>(
+              status: DovahLinkStateStatus.synchronized,
+              value: CharacterVitalsState(
+                health: const CharacterVital(current: 80, max: 100),
+                magicka: const CharacterVital(current: 40, max: 80),
+                stamina: const CharacterVital(current: 50, max: 90),
               ),
+              stateAuthorityId: 'authority-a',
+              playContextId: 'context-a',
+              revision: 1,
             );
 
-        expect(action.synchronization.status, LiveStateStatus.synchronized);
-        expect(action.synchronization.value?.health.current, 195);
-        expect(action.synchronization.value?.health.max, 180);
-        expect(action.synchronization.revision, 3);
+        final CharacterVitalsSynchronizationChangedAction action =
+            CharacterVitalsSynchronizationChangedAction(synchronization);
+
+        expect(identical(action.synchronization, synchronization), isTrue);
       },
     );
   });
 
   group('CharacterXpSynchronizationChangedAction behaves correctly', () {
-    test('CharacterXpSynchronizationChangedAction carries exact XP', () {
-      const CharacterXpSynchronizationChangedAction action =
-          CharacterXpSynchronizationChangedAction(
-            LiveDomainState<double?>(
-              status: LiveStateStatus.stale,
-              value: 72.5,
+    test(
+      'CharacterXpSynchronizationChangedAction retains synchronization identity',
+      () {
+        const StateSynchronization<CharacterXpState> synchronization =
+            StateSynchronization<CharacterXpState>(
+              status: DovahLinkStateStatus.unavailable,
+              value: CharacterXpState(value: null),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
-              revision: 4,
-            ),
-          );
+              revision: 2,
+            );
 
-      expect(action.synchronization.status, LiveStateStatus.stale);
-      expect(action.synchronization.value, 72.5);
-      expect(action.synchronization.revision, 4);
-    });
+        const CharacterXpSynchronizationChangedAction action =
+            CharacterXpSynchronizationChangedAction(synchronization);
+
+        expect(identical(action.synchronization, synchronization), isTrue);
+      },
+    );
   });
 
   group('CharacterLevelSynchronizationChangedAction behaves correctly', () {
-    test('CharacterLevelSynchronizationChangedAction carries the level', () {
-      const CharacterLevelSynchronizationChangedAction action =
-          CharacterLevelSynchronizationChangedAction(
-            LiveDomainState<int?>(
-              status: LiveStateStatus.synchronized,
-              value: 43,
+    test(
+      'CharacterLevelSynchronizationChangedAction retains synchronization identity',
+      () {
+        const StateSynchronization<CharacterLevelState> synchronization =
+            StateSynchronization<CharacterLevelState>(
+              status: DovahLinkStateStatus.synchronized,
+              value: CharacterLevelState(value: 43),
               stateAuthorityId: 'authority-a',
               playContextId: 'context-a',
-              revision: 5,
-            ),
-          );
+              revision: 3,
+            );
 
-      expect(action.synchronization.value, 43);
-      expect(action.synchronization.status, LiveStateStatus.synchronized);
-    });
+        const CharacterLevelSynchronizationChangedAction action =
+            CharacterLevelSynchronizationChangedAction(synchronization);
+
+        expect(identical(action.synchronization, synchronization), isTrue);
+      },
+    );
   });
 
   group('CharacterIdentitySynchronizationChangedAction behaves correctly', () {
     test(
-      'CharacterIdentitySynchronizationChangedAction carries both identity fields',
+      'CharacterIdentitySynchronizationChangedAction retains the SDK object',
       () {
-        const CharacterIdentitySynchronizationChangedAction action =
-            CharacterIdentitySynchronizationChangedAction(
-              LiveDomainState<({String name, String race})?>(
-                status: LiveStateStatus.synchronized,
-                value: (name: 'Player', race: 'Nord'),
-                stateAuthorityId: 'authority-a',
-                playContextId: 'context-a',
-                revision: 6,
-              ),
+        const CharacterIdentityState identity = CharacterIdentityState(
+          name: 'Player',
+          race: 'Nord',
+        );
+        const StateSynchronization<CharacterIdentityState?> synchronization =
+            StateSynchronization<CharacterIdentityState?>(
+              status: DovahLinkStateStatus.synchronized,
+              value: identity,
+              stateAuthorityId: 'authority-a',
+              playContextId: 'context-a',
+              revision: 4,
             );
 
-        expect(action.synchronization.value?.name, 'Player');
-        expect(action.synchronization.value?.race, 'Nord');
+        const CharacterIdentitySynchronizationChangedAction action =
+            CharacterIdentitySynchronizationChangedAction(synchronization);
+
+        expect(identical(action.synchronization, synchronization), isTrue);
+        expect(identical(action.synchronization.value, identity), isTrue);
       },
     );
   });
@@ -103,32 +116,28 @@ void main() {
     'CharacterSupernaturalTraitsSynchronizationChangedAction behaves correctly',
     () {
       test(
-        'CharacterSupernaturalTraitsSynchronizationChangedAction keeps predicates independent',
+        'CharacterSupernaturalTraitsSynchronizationChangedAction retains synchronization identity',
         () {
-          const CharacterSupernaturalTraitsSynchronizationChangedAction action =
-              CharacterSupernaturalTraitsSynchronizationChangedAction(
-                LiveDomainState<
-                  ({
-                    bool isVampire,
-                    bool hasVampireLordForm,
-                    bool hasWerewolfForm,
-                  })
-                >(
-                  status: LiveStateStatus.synchronized,
-                  value: (
-                    isVampire: false,
-                    hasVampireLordForm: true,
-                    hasWerewolfForm: true,
-                  ),
-                  stateAuthorityId: 'authority-a',
-                  playContextId: 'context-a',
-                  revision: 7,
+          const StateSynchronization<CharacterSupernaturalTraitsState?>
+          synchronization =
+              StateSynchronization<CharacterSupernaturalTraitsState?>(
+                status: DovahLinkStateStatus.synchronized,
+                value: CharacterSupernaturalTraitsState(
+                  isVampire: false,
+                  hasVampireLordForm: false,
+                  hasWerewolfForm: false,
                 ),
+                stateAuthorityId: 'authority-a',
+                playContextId: 'context-a',
+                revision: 5,
               );
 
-          expect(action.synchronization.value?.isVampire, isFalse);
-          expect(action.synchronization.value?.hasVampireLordForm, isTrue);
-          expect(action.synchronization.value?.hasWerewolfForm, isTrue);
+          const CharacterSupernaturalTraitsSynchronizationChangedAction action =
+              CharacterSupernaturalTraitsSynchronizationChangedAction(
+                synchronization,
+              );
+
+          expect(identical(action.synchronization, synchronization), isTrue);
         },
       );
     },
@@ -136,108 +145,81 @@ void main() {
 
   group('PlayerLocationSynchronizationChangedAction behaves correctly', () {
     test(
-      'PlayerLocationSynchronizationChangedAction preserves nullable location facts',
+      'PlayerLocationSynchronizationChangedAction retains synchronization identity',
       () {
-        const PlayerLocationSynchronizationChangedAction action =
-            PlayerLocationSynchronizationChangedAction(
-              LiveDomainState<
-                ({
-                  int cellId,
-                  LiveCellKind cellKind,
-                  String? cellName,
-                  int? locationId,
-                  String? locationName,
-                  int? worldspaceId,
-                  String? worldspaceName,
-                })?
-              >(
-                status: LiveStateStatus.synchronized,
-                value: (
-                  cellId: 22,
-                  cellKind: LiveCellKind.interior,
-                  cellName: 'Cell',
-                  locationId: null,
-                  locationName: null,
-                  worldspaceId: null,
-                  worldspaceName: null,
-                ),
-                stateAuthorityId: 'authority-a',
-                playContextId: 'context-a',
-                revision: 8,
+        const StateSynchronization<PlayerLocationState?> synchronization =
+            StateSynchronization<PlayerLocationState?>(
+              status: DovahLinkStateStatus.synchronized,
+              value: PlayerLocationState(
+                cellId: 1,
+                cellKind: PlayerLocationCellKind.exterior,
+                cellName: null,
+                locationId: null,
+                locationName: null,
+                worldspaceId: null,
+                worldspaceName: null,
               ),
+              stateAuthorityId: 'authority-a',
+              playContextId: 'context-a',
+              revision: 6,
             );
 
-        expect(action.synchronization.value?.cellKind, LiveCellKind.interior);
-        expect(action.synchronization.value?.locationName, isNull);
-        expect(action.synchronization.value?.worldspaceName, isNull);
+        const PlayerLocationSynchronizationChangedAction action =
+            PlayerLocationSynchronizationChangedAction(synchronization);
+
+        expect(identical(action.synchronization, synchronization), isTrue);
       },
     );
   });
 
   group('GameTimeSynchronizationChangedAction behaves correctly', () {
     test(
-      'GameTimeSynchronizationChangedAction carries Skyrim calendar fields',
+      'GameTimeSynchronizationChangedAction retains synchronization identity',
       () {
-        const GameTimeSynchronizationChangedAction action =
-            GameTimeSynchronizationChangedAction(
-              LiveDomainState<
-                ({
-                  int year,
-                  int month,
-                  String monthName,
-                  int day,
-                  int hour,
-                  int minute,
-                })?
-              >(
-                status: LiveStateStatus.synchronized,
-                value: (
-                  year: 4,
-                  month: 8,
-                  monthName: 'Last Seed',
-                  day: 12,
-                  hour: 14,
-                  minute: 30,
-                ),
-                stateAuthorityId: 'authority-a',
-                playContextId: 'context-a',
-                revision: 9,
+        const StateSynchronization<GameTimeState?> synchronization =
+            StateSynchronization<GameTimeState?>(
+              status: DovahLinkStateStatus.synchronized,
+              value: GameTimeState(
+                year: 4,
+                month: 8,
+                monthName: 'Last Seed',
+                day: 12,
+                hour: 14,
+                minute: 30,
               ),
+              stateAuthorityId: 'authority-a',
+              playContextId: 'context-a',
+              revision: 7,
             );
 
-        expect(action.synchronization.value?.year, 4);
-        expect(action.synchronization.value?.month, 8);
-        expect(action.synchronization.value?.monthName, 'Last Seed');
-        expect(action.synchronization.value?.hour, 14);
-        expect(action.synchronization.value?.minute, 30);
+        const GameTimeSynchronizationChangedAction action =
+            GameTimeSynchronizationChangedAction(synchronization);
+
+        expect(identical(action.synchronization, synchronization), isTrue);
       },
     );
   });
 
   group('TrackedQuestsSynchronizationChangedAction behaves correctly', () {
     test(
-      'TrackedQuestsSynchronizationChangedAction carries the complete collection',
+      'TrackedQuestsSynchronizationChangedAction retains the complete SDK state',
       () {
-        final TrackedQuestsSynchronizationChangedAction action =
-            TrackedQuestsSynchronizationChangedAction(
-              LiveDomainState<List<LiveTrackedQuest>>(
-                status: LiveStateStatus.synchronized,
-                value: [
-                  Fixtures.buildLiveTrackedQuest(questId: 1),
-                  Fixtures.buildLiveTrackedQuest(questId: 2),
-                ],
-                stateAuthorityId: 'authority-a',
-                playContextId: 'context-a',
-                revision: 10,
-              ),
+        final TrackedQuestsState quests = TrackedQuestsState(quests: const []);
+        final StateSynchronization<TrackedQuestsState?> synchronization =
+            StateSynchronization<TrackedQuestsState?>(
+              status: DovahLinkStateStatus.synchronized,
+              value: quests,
+              stateAuthorityId: 'authority-a',
+              playContextId: 'context-a',
+              revision: 8,
             );
 
-        expect(action.synchronization.value, hasLength(2));
-        expect(action.synchronization.value?.map((quest) => quest.questId), [
-          1,
-          2,
-        ]);
-        expect(action.synchronization.revision, 10);
+        final TrackedQuestsSynchronizationChangedAction action =
+            TrackedQuestsSynchronizationChangedAction(synchronization);
+
+        expect(identical(action.synchronization, synchronization), isTrue);
+        expect(identical(action.synchronization.value, quests), isTrue);
+        expect(action.synchronization.value?.quests, isEmpty);
       },
     );
   });

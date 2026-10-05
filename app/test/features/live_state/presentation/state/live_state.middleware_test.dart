@@ -8,7 +8,6 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.actions.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/session/presentation/state/session_shell.actions.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -555,11 +554,14 @@ void main() {
                 .whereType<CharacterVitalsSynchronizationChangedAction>()
                 .toList();
         expect(projections, hasLength(2));
-        expect(projections.first.synchronization.status, LiveStateStatus.stale);
-        expect(projections.first.synchronization.value?.health.current, 88);
+        expect(
+          projections.first.synchronization.status,
+          DovahLinkStateStatus.stale,
+        );
+        expect(projections.first.synchronization.value?.health?.current, 88);
         expect(
           projections.last.synchronization.status,
-          LiveStateStatus.synchronized,
+          DovahLinkStateStatus.synchronized,
         );
         expect(projections.last.synchronization.revision, 5);
         expect(actions.whereType<SessionLiveStateResetAction>(), isEmpty);
@@ -628,9 +630,9 @@ void main() {
                 .whereType<CharacterXpSynchronizationChangedAction>()
                 .toList();
         expect(xpProjections, hasLength(2));
-        expect(xpProjections.first.synchronization.value, 42);
+        expect(xpProjections.first.synchronization.value?.value, 42);
         expect(xpProjections.first.synchronization.playContextId, 'context-a');
-        expect(xpProjections.last.synchronization.value, 50);
+        expect(xpProjections.last.synchronization.value?.value, 50);
         expect(xpProjections.last.synchronization.playContextId, 'context-b');
         expect(
           actions.indexOf(const SessionLiveStateResetAction()),
@@ -762,131 +764,131 @@ void main() {
       middleware.initialize(store);
       await pumpEventQueue();
       await _trustCurrentSession(sdk, middleware, store);
-      sdk.vitals.add(
-        StateSynchronization<CharacterVitalsState>(
-          status: DovahLinkStateStatus.synchronized,
-          value: CharacterVitalsState(
-            health: const CharacterVital(current: 100, max: 100),
-            magicka: const CharacterVital(current: 70, max: 80),
-            stamina: const CharacterVital(current: 65, max: 90),
-          ),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 1,
-        ),
+      final StateSynchronization<CharacterVitalsState> vitalsSynchronization =
+          StateSynchronization<CharacterVitalsState>(
+            status: DovahLinkStateStatus.synchronized,
+            value: CharacterVitalsState(
+              health: const CharacterVital(current: 100, max: 100),
+              magicka: const CharacterVital(current: 70, max: 80),
+              stamina: const CharacterVital(current: 65, max: 90),
+            ),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 1,
+          );
+      const StateSynchronization<CharacterXpState> xpSynchronization =
+          StateSynchronization<CharacterXpState>(
+            status: DovahLinkStateStatus.unavailable,
+            value: CharacterXpState(value: null),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 2,
+          );
+      const StateSynchronization<CharacterLevelState> levelSynchronization =
+          StateSynchronization<CharacterLevelState>(
+            status: DovahLinkStateStatus.synchronized,
+            value: CharacterLevelState(value: 43),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 3,
+          );
+      const StateSynchronization<CharacterIdentityState?>
+      identitySynchronization = StateSynchronization<CharacterIdentityState?>(
+        status: DovahLinkStateStatus.synchronized,
+        value: CharacterIdentityState(name: 'Player', race: 'Nord'),
+        stateAuthorityId: 'authority-a',
+        playContextId: 'context-a',
+        revision: 4,
       );
-      sdk.xp.add(
-        const StateSynchronization<CharacterXpState>(
-          status: DovahLinkStateStatus.unavailable,
-          value: CharacterXpState(value: null),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 2,
-        ),
-      );
-      sdk.level.add(
-        const StateSynchronization<CharacterLevelState>(
-          status: DovahLinkStateStatus.synchronized,
-          value: CharacterLevelState(value: 43),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 3,
-        ),
-      );
-      sdk.identity.add(
-        const StateSynchronization<CharacterIdentityState?>(
-          status: DovahLinkStateStatus.synchronized,
-          value: CharacterIdentityState(name: 'Player', race: 'Nord'),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 4,
-        ),
-      );
-      sdk.supernaturalTraits.add(
-        const StateSynchronization<CharacterSupernaturalTraitsState?>(
-          status: DovahLinkStateStatus.synchronized,
-          value: CharacterSupernaturalTraitsState(
-            isVampire: false,
-            hasVampireLordForm: false,
-            hasWerewolfForm: false,
-          ),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 5,
-        ),
-      );
-      sdk.location.add(
-        const StateSynchronization<PlayerLocationState?>(
-          status: DovahLinkStateStatus.synchronized,
-          value: PlayerLocationState(
-            cellId: 1,
-            cellKind: PlayerLocationCellKind.exterior,
-            cellName: null,
-            locationId: null,
-            locationName: null,
-            worldspaceId: null,
-            worldspaceName: null,
-          ),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 6,
-        ),
-      );
-      sdk.gameTime.add(
-        const StateSynchronization<GameTimeState?>(
-          status: DovahLinkStateStatus.synchronized,
-          value: GameTimeState(
-            year: 4,
-            month: 8,
-            monthName: 'Last Seed',
-            day: 12,
-            hour: 14,
-            minute: 30,
-          ),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 7,
-        ),
-      );
-      sdk.quests.add(
-        StateSynchronization<TrackedQuestsState?>(
-          status: DovahLinkStateStatus.synchronized,
-          value: TrackedQuestsState(quests: const []),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 8,
-        ),
-      );
+      const StateSynchronization<CharacterSupernaturalTraitsState?>
+      traitsSynchronization =
+          StateSynchronization<CharacterSupernaturalTraitsState?>(
+            status: DovahLinkStateStatus.synchronized,
+            value: CharacterSupernaturalTraitsState(
+              isVampire: false,
+              hasVampireLordForm: false,
+              hasWerewolfForm: false,
+            ),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 5,
+          );
+      const StateSynchronization<PlayerLocationState?> locationSynchronization =
+          StateSynchronization<PlayerLocationState?>(
+            status: DovahLinkStateStatus.synchronized,
+            value: PlayerLocationState(
+              cellId: 1,
+              cellKind: PlayerLocationCellKind.exterior,
+              cellName: null,
+              locationId: null,
+              locationName: null,
+              worldspaceId: null,
+              worldspaceName: null,
+            ),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 6,
+          );
+      const StateSynchronization<GameTimeState?> timeSynchronization =
+          StateSynchronization<GameTimeState?>(
+            status: DovahLinkStateStatus.synchronized,
+            value: GameTimeState(
+              year: 4,
+              month: 8,
+              monthName: 'Last Seed',
+              day: 12,
+              hour: 14,
+              minute: 30,
+            ),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 7,
+          );
+      final StateSynchronization<TrackedQuestsState?> questsSynchronization =
+          StateSynchronization<TrackedQuestsState?>(
+            status: DovahLinkStateStatus.synchronized,
+            value: TrackedQuestsState(quests: const []),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 8,
+          );
+      sdk.vitals.add(vitalsSynchronization);
+      sdk.xp.add(xpSynchronization);
+      sdk.level.add(levelSynchronization);
+      sdk.identity.add(identitySynchronization);
+      sdk.supernaturalTraits.add(traitsSynchronization);
+      sdk.location.add(locationSynchronization);
+      sdk.gameTime.add(timeSynchronization);
+      sdk.quests.add(questsSynchronization);
       await pumpEventQueue();
 
       expect(
-        actions.whereType<CharacterVitalsSynchronizationChangedAction>(),
-        hasLength(1),
+        actions
+            .whereType<CharacterVitalsSynchronizationChangedAction>()
+            .single
+            .synchronization,
+        same(vitalsSynchronization),
       );
       expect(
         actions
             .whereType<CharacterXpSynchronizationChangedAction>()
             .single
-            .synchronization
-            .status,
-        LiveStateStatus.unavailable,
+            .synchronization,
+        same(xpSynchronization),
       );
       expect(
         actions
             .whereType<CharacterLevelSynchronizationChangedAction>()
             .single
-            .synchronization
-            .value,
-        43,
+            .synchronization,
+        same(levelSynchronization),
       );
       expect(
         actions
             .whereType<CharacterIdentitySynchronizationChangedAction>()
             .single
-            .synchronization
-            .value
-            ?.race,
-        'Nord',
+            .synchronization,
+        same(identitySynchronization),
       );
       expect(
         actions
@@ -894,36 +896,29 @@ void main() {
               CharacterSupernaturalTraitsSynchronizationChangedAction
             >()
             .single
-            .synchronization
-            .value
-            ?.isVampire,
-        isFalse,
+            .synchronization,
+        same(traitsSynchronization),
       );
       expect(
         actions
             .whereType<PlayerLocationSynchronizationChangedAction>()
             .single
-            .synchronization
-            .value
-            ?.locationName,
-        isNull,
+            .synchronization,
+        same(locationSynchronization),
       );
       expect(
         actions
             .whereType<GameTimeSynchronizationChangedAction>()
             .single
-            .synchronization
-            .value
-            ?.monthName,
-        'Last Seed',
+            .synchronization,
+        same(timeSynchronization),
       );
       expect(
         actions
             .whereType<TrackedQuestsSynchronizationChangedAction>()
             .single
-            .synchronization
-            .value,
-        isEmpty,
+            .synchronization,
+        same(questsSynchronization),
       );
     });
 
@@ -957,10 +952,10 @@ void main() {
             (action) => action.synchronization.status,
           ),
           [
-            LiveStateStatus.notSubscribed,
-            LiveStateStatus.stale,
-            LiveStateStatus.recovering,
-            LiveStateStatus.failed,
+            DovahLinkStateStatus.notSubscribed,
+            DovahLinkStateStatus.stale,
+            DovahLinkStateStatus.recovering,
+            DovahLinkStateStatus.failed,
           ],
         );
       },

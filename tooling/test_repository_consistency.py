@@ -2590,7 +2590,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._read("app/README.md"),
         )
         self.assertIn(
-            "Trusted SDK gameplay state now flows through middleware",
+            "Redux carries the SDK's public gameplay models and `StateSynchronization<T>` values",
             self._read("app/CHANGELOG.md"),
         )
         self.assertIn(

@@ -37,7 +37,7 @@ class AppState {
   /// Current resolved companion name and any identity-load failure.
   final DeviceIdentityState deviceIdentity;
 
-  /// Current app-owned projection of SDK gameplay state.
+  /// Current integration state containing SDK-owned gameplay values.
   final SessionLiveState liveState;
 
   /// Returns the initial state for a new client session. Appearance and device identity default to

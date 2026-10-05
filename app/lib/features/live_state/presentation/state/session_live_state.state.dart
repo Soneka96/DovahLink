@@ -1,20 +1,28 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:dovahlink_client/features/live_state/presentation/state/live_domain_state.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_tracked_quest.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show
+        CharacterIdentityState,
+        CharacterLevelState,
+        CharacterSupernaturalTraitsState,
+        CharacterVitalsState,
+        CharacterXpState,
+        GameTimeState,
+        PlayerLocationState,
+        StateSynchronization,
+        TrackedQuestsState;
 
 /// Redux projection of the independently synchronized Skyrim gameplay domains.
 class SessionLiveState extends Equatable {
   /// Creates a complete live-state slice.
-  /// @param characterVitals The coherent Vitals domain projection.
-  /// @param characterXp The XP domain projection.
-  /// @param characterLevel The Level domain projection.
-  /// @param characterIdentity The complete Identity domain projection.
-  /// @param supernaturalTraits The independent Supernatural Traits projection.
-  /// @param playerLocation The complete Location facts.
-  /// @param gameTime The Skyrim calendar projection.
-  /// @param trackedQuests The complete tracked-quest collection.
+  /// @param characterVitals The SDK Vitals synchronization value.
+  /// @param characterXp The SDK XP synchronization value.
+  /// @param characterLevel The SDK Level synchronization value.
+  /// @param characterIdentity The SDK Identity synchronization value.
+  /// @param supernaturalTraits The SDK Supernatural Traits synchronization value.
+  /// @param playerLocation The SDK Location synchronization value.
+  /// @param gameTime The SDK Game Time synchronization value.
+  /// @param trackedQuests The SDK Tracked Quests synchronization value.
   const SessionLiveState({
     required this.characterVitals,
     required this.characterXp,
@@ -28,112 +36,74 @@ class SessionLiveState extends Equatable {
 
   /// Creates the initial slice before any domain is subscribed.
   const SessionLiveState.initial()
-    : characterVitals = const LiveDomainState.notSubscribed(),
-      characterXp = const LiveDomainState.notSubscribed(),
-      characterLevel = const LiveDomainState.notSubscribed(),
-      characterIdentity = const LiveDomainState.notSubscribed(),
-      supernaturalTraits = const LiveDomainState.notSubscribed(),
-      playerLocation = const LiveDomainState.notSubscribed(),
-      gameTime = const LiveDomainState.notSubscribed(),
-      trackedQuests = const LiveDomainState.notSubscribed();
+    : characterVitals =
+          const StateSynchronization<CharacterVitalsState>.notSubscribed(),
+      characterXp =
+          const StateSynchronization<CharacterXpState>.notSubscribed(),
+      characterLevel =
+          const StateSynchronization<CharacterLevelState>.notSubscribed(),
+      characterIdentity =
+          const StateSynchronization<CharacterIdentityState?>.notSubscribed(),
+      supernaturalTraits =
+          const StateSynchronization<
+            CharacterSupernaturalTraitsState?
+          >.notSubscribed(),
+      playerLocation =
+          const StateSynchronization<PlayerLocationState?>.notSubscribed(),
+      gameTime = const StateSynchronization<GameTimeState?>.notSubscribed(),
+      trackedQuests =
+          const StateSynchronization<TrackedQuestsState?>.notSubscribed();
 
-  /// One coherent Health, Magicka, and Stamina observation.
-  final LiveDomainState<
-    ({
-      ({double current, double max}) health,
-      ({double current, double max}) magicka,
-      ({double current, double max}) stamina,
-    })
-  >
-  characterVitals;
+  /// The SDK-owned coherent Vitals synchronization value.
+  final StateSynchronization<CharacterVitalsState> characterVitals;
 
-  /// The exact numeric XP value, without an inferred percentage.
-  final LiveDomainState<double?> characterXp;
+  /// The SDK-owned XP synchronization value.
+  final StateSynchronization<CharacterXpState> characterXp;
 
-  /// The latest character level.
-  final LiveDomainState<int?> characterLevel;
+  /// The SDK-owned Level synchronization value.
+  final StateSynchronization<CharacterLevelState> characterLevel;
 
-  /// The player's display name and game-provided identity-race name.
-  final LiveDomainState<({String name, String race})?> characterIdentity;
+  /// The SDK-owned complete Identity synchronization value.
+  final StateSynchronization<CharacterIdentityState?> characterIdentity;
 
-  /// The three independent supernatural predicates.
-  final LiveDomainState<
-    ({bool isVampire, bool hasVampireLordForm, bool hasWerewolfForm})
-  >
+  /// The SDK-owned Supernatural Traits synchronization value.
+  final StateSynchronization<CharacterSupernaturalTraitsState?>
   supernaturalTraits;
 
-  /// The cell, selected location, and worldspace facts without display fallback.
-  final LiveDomainState<
-    ({
-      int cellId,
-      LiveCellKind cellKind,
-      String? cellName,
-      int? locationId,
-      String? locationName,
-      int? worldspaceId,
-      String? worldspaceName,
-    })?
-  >
-  playerLocation;
+  /// The SDK-owned Location synchronization value.
+  final StateSynchronization<PlayerLocationState?> playerLocation;
 
-  /// Skyrim calendar fields, kept separate from Gregorian date/time types.
-  final LiveDomainState<
-    ({int year, int month, String monthName, int day, int hour, int minute})?
-  >
-  gameTime;
+  /// The SDK-owned Skyrim calendar synchronization value.
+  final StateSynchronization<GameTimeState?> gameTime;
 
-  /// The complete tracked quest collection; an available empty list is authoritative.
-  final LiveDomainState<List<LiveTrackedQuest>> trackedQuests;
+  /// The SDK-owned complete tracked-quest synchronization value.
+  final StateSynchronization<TrackedQuestsState?> trackedQuests;
 
-  /// Returns a copy with selected domain projections replaced.
+  /// Returns a copy with selected synchronization values replaced.
   SessionLiveState copyWith({
-    /// The replacement Vitals projection, when supplied.
-    LiveDomainState<
-      ({
-        ({double current, double max}) health,
-        ({double current, double max}) magicka,
-        ({double current, double max}) stamina,
-      })
-    >?
-    characterVitals,
+    /// The replacement Vitals synchronization value, when supplied.
+    StateSynchronization<CharacterVitalsState>? characterVitals,
 
-    /// The replacement XP projection, when supplied.
-    LiveDomainState<double?>? characterXp,
+    /// The replacement XP synchronization value, when supplied.
+    StateSynchronization<CharacterXpState>? characterXp,
 
-    /// The replacement Level projection, when supplied.
-    LiveDomainState<int?>? characterLevel,
+    /// The replacement Level synchronization value, when supplied.
+    StateSynchronization<CharacterLevelState>? characterLevel,
 
-    /// The replacement Identity projection, when supplied.
-    LiveDomainState<({String name, String race})?>? characterIdentity,
+    /// The replacement Identity synchronization value, when supplied.
+    StateSynchronization<CharacterIdentityState?>? characterIdentity,
 
-    /// The replacement Supernatural Traits projection, when supplied.
-    LiveDomainState<
-      ({bool isVampire, bool hasVampireLordForm, bool hasWerewolfForm})
-    >?
-    supernaturalTraits,
+    /// The replacement Supernatural Traits synchronization value, when supplied.
+    StateSynchronization<CharacterSupernaturalTraitsState?>? supernaturalTraits,
 
-    /// The replacement Location projection, when supplied.
-    LiveDomainState<
-      ({
-        int cellId,
-        LiveCellKind cellKind,
-        String? cellName,
-        int? locationId,
-        String? locationName,
-        int? worldspaceId,
-        String? worldspaceName,
-      })?
-    >?
-    playerLocation,
+    /// The replacement Location synchronization value, when supplied.
+    StateSynchronization<PlayerLocationState?>? playerLocation,
 
-    /// The replacement Skyrim calendar projection, when supplied.
-    LiveDomainState<
-      ({int year, int month, String monthName, int day, int hour, int minute})?
-    >?
-    gameTime,
+    /// The replacement Game Time synchronization value, when supplied.
+    StateSynchronization<GameTimeState?>? gameTime,
 
-    /// The replacement complete tracked-quest projection, when supplied.
-    LiveDomainState<List<LiveTrackedQuest>>? trackedQuests,
+    /// The replacement Tracked Quests synchronization value, when supplied.
+    StateSynchronization<TrackedQuestsState?>? trackedQuests,
   }) => SessionLiveState(
     characterVitals: characterVitals ?? this.characterVitals,
     characterXp: characterXp ?? this.characterXp,
@@ -145,8 +115,7 @@ class SessionLiveState extends Equatable {
     trackedQuests: trackedQuests ?? this.trackedQuests,
   );
 
-  /// Returns the initial projections after an admitted session has ended.
-  /// @return A fresh slice with every domain marked `notSubscribed`.
+  /// Returns the initial synchronization values after an admitted session ends.
   SessionLiveState reset() => const SessionLiveState.initial();
 
   /// See [Equatable.props].

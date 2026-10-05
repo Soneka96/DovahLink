@@ -4,14 +4,15 @@ import 'package:dovahlink_client/features/appearance/presentation/state/appearan
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.actions.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_domain_state.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.actions.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_reducer.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import '../../fixtures/fixtures.dart';
+
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show CharacterXpState, DovahLinkStateStatus, StateSynchronization;
 
 /// Exercises root Redux reducer pass-through and delegation.
 void main() {
@@ -178,24 +179,25 @@ void main() {
       'CharacterXpSynchronizationChangedAction updates the live-state slice',
       () {
         final AppState state = AppState.initial();
-        const CharacterXpSynchronizationChangedAction action =
-            CharacterXpSynchronizationChangedAction(
-              LiveDomainState<double?>(
-                status: LiveStateStatus.unavailable,
-                value: null,
-                stateAuthorityId: 'authority-a',
-                playContextId: 'context-a',
-                revision: 1,
-              ),
+        const StateSynchronization<CharacterXpState> synchronization =
+            StateSynchronization<CharacterXpState>(
+              status: DovahLinkStateStatus.unavailable,
+              value: CharacterXpState(value: null),
+              stateAuthorityId: 'authority-a',
+              playContextId: 'context-a',
+              revision: 1,
             );
+        const CharacterXpSynchronizationChangedAction action =
+            CharacterXpSynchronizationChangedAction(synchronization);
 
         final AppState result = appReducer(state, action);
 
         expect(
           result.liveState.characterXp.status,
-          LiveStateStatus.unavailable,
+          DovahLinkStateStatus.unavailable,
         );
-        expect(result.liveState.characterXp.value, isNull);
+        expect(result.liveState.characterXp.value?.value, isNull);
+        expect(result.liveState.characterXp, same(synchronization));
         expect(identical(result.connection, state.connection), isTrue);
         expect(identical(result.pairing, state.pairing), isTrue);
         expect(identical(result.appearance, state.appearance), isTrue);

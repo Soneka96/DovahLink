@@ -4,8 +4,6 @@ import 'package:flutter/foundation.dart' show FlutterError, FlutterErrorDetails;
 
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/live_state/live_state.mapper.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_domain_state.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -37,7 +35,7 @@ abstract interface class ILiveStateMiddleware {
   Future<void> shutdown();
 }
 
-/// Projects public SDK gameplay streams into the Redux live-state slice.
+/// Forwards public SDK gameplay synchronization values into the Redux slice.
 class LiveStateMiddleware extends MiddlewareClass<AppState>
     implements ILiveStateMiddleware {
   /// The complete set of gameplay domains required by the future Overview.
@@ -182,49 +180,41 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     _observe(
       store,
       character.vitalsChanges,
-      LiveStateMapper.characterVitals,
       CharacterVitalsSynchronizationChangedAction.new,
     );
     _observe(
       store,
       character.xpChanges,
-      LiveStateMapper.characterXp,
       CharacterXpSynchronizationChangedAction.new,
     );
     _observe(
       store,
       character.levelChanges,
-      LiveStateMapper.characterLevel,
       CharacterLevelSynchronizationChangedAction.new,
     );
     _observe(
       store,
       character.identityChanges,
-      LiveStateMapper.characterIdentity,
       CharacterIdentitySynchronizationChangedAction.new,
     );
     _observe(
       store,
       character.supernaturalTraitsChanges,
-      LiveStateMapper.supernaturalTraits,
       CharacterSupernaturalTraitsSynchronizationChangedAction.new,
     );
     _observe(
       store,
       currentHost.playerLocationChanges,
-      LiveStateMapper.playerLocation,
       PlayerLocationSynchronizationChangedAction.new,
     );
     _observe(
       store,
       currentHost.gameTimeChanges,
-      LiveStateMapper.gameTime,
       GameTimeSynchronizationChangedAction.new,
     );
     _observe(
       store,
       currentHost.trackedQuestsChanges,
-      LiveStateMapper.trackedQuests,
       TrackedQuestsSynchronizationChangedAction.new,
     );
   }
@@ -238,23 +228,21 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     }
   }
 
-  /// Subscribes to one typed SDK stream and forwards its app-owned projection.
+  /// Subscribes to one typed SDK stream and forwards its value unchanged.
   /// @param store The store receiving the typed action.
   /// @param changes The SDK synchronization stream for one domain.
-  /// @param project Maps SDK values into app-owned state.
   /// @param action Creates the domain-specific Redux action.
-  void _observe<T, TApp>(
+  void _observe<T>(
     Store<AppState> store,
     Stream<StateSynchronization<T>> changes,
-    LiveDomainState<TApp> Function(StateSynchronization<T>) project,
-    Object Function(LiveDomainState<TApp>) action,
+    Object Function(StateSynchronization<T>) action,
   ) {
     final StreamSubscription<StateSynchronization<T>> subscription = changes
         .listen(
           (StateSynchronization<T> synchronization) {
             if (!_isShuttingDown &&
                 _stateSubscriptionCancellations.containsKey(store)) {
-              store.dispatch(action(project(synchronization)));
+              store.dispatch(action(synchronization));
             }
           },
           onError: (Object error, StackTrace stackTrace) =>

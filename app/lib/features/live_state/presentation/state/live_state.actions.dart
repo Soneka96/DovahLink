@@ -1,142 +1,126 @@
 import 'package:equatable/equatable.dart';
 
-import 'package:dovahlink_client/features/live_state/presentation/state/live_domain_state.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_tracked_quest.dart';
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show
+        CharacterIdentityState,
+        CharacterLevelState,
+        CharacterSupernaturalTraitsState,
+        CharacterVitalsState,
+        CharacterXpState,
+        GameTimeState,
+        PlayerLocationState,
+        StateSynchronization,
+        TrackedQuestsState;
 
-/// Carries the latest coherent Vitals synchronization projection.
+/// Carries the latest Vitals synchronization value from the SDK.
 class CharacterVitalsSynchronizationChangedAction extends Equatable {
   /// Creates a Vitals synchronization action.
-  /// @param synchronization The complete Vitals projection.
+  /// @param synchronization The public SDK Vitals synchronization value.
   const CharacterVitalsSynchronizationChangedAction(this.synchronization);
 
-  /// The complete typed Vitals state and synchronization metadata.
-  final LiveDomainState<
-    ({
-      ({double current, double max}) health,
-      ({double current, double max}) magicka,
-      ({double current, double max}) stamina,
-    })
-  >
-  synchronization;
+  /// The SDK-owned Vitals synchronization value.
+  final StateSynchronization<CharacterVitalsState> synchronization;
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [synchronization];
 }
 
-/// Carries the latest XP synchronization projection.
+/// Carries the latest XP synchronization value from the SDK.
 class CharacterXpSynchronizationChangedAction extends Equatable {
   /// Creates an XP synchronization action.
-  /// @param synchronization The XP value and synchronization metadata.
+  /// @param synchronization The public SDK XP synchronization value.
   const CharacterXpSynchronizationChangedAction(this.synchronization);
 
-  /// The exact numeric XP value and synchronization metadata.
-  final LiveDomainState<double?> synchronization;
+  /// The SDK-owned XP synchronization value.
+  final StateSynchronization<CharacterXpState> synchronization;
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [synchronization];
 }
 
-/// Carries the latest Level synchronization projection.
+/// Carries the latest Level synchronization value from the SDK.
 class CharacterLevelSynchronizationChangedAction extends Equatable {
   /// Creates a Level synchronization action.
-  /// @param synchronization The Level value and synchronization metadata.
+  /// @param synchronization The public SDK Level synchronization value.
   const CharacterLevelSynchronizationChangedAction(this.synchronization);
 
-  /// The latest level and synchronization metadata.
-  final LiveDomainState<int?> synchronization;
+  /// The SDK-owned Level synchronization value.
+  final StateSynchronization<CharacterLevelState> synchronization;
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [synchronization];
 }
 
-/// Carries the latest Identity synchronization projection.
+/// Carries the latest Identity synchronization value from the SDK.
 class CharacterIdentitySynchronizationChangedAction extends Equatable {
   /// Creates an Identity synchronization action.
-  /// @param synchronization The complete identity and synchronization metadata.
+  /// @param synchronization The public SDK Identity synchronization value.
   const CharacterIdentitySynchronizationChangedAction(this.synchronization);
 
-  /// The complete identity value and synchronization metadata.
-  final LiveDomainState<({String name, String race})?> synchronization;
+  /// The SDK-owned Identity synchronization value.
+  final StateSynchronization<CharacterIdentityState?> synchronization;
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [synchronization];
 }
 
-/// Carries the latest Supernatural Traits synchronization projection.
+/// Carries the latest Supernatural Traits synchronization value from the SDK.
 class CharacterSupernaturalTraitsSynchronizationChangedAction
     extends Equatable {
   /// Creates a Supernatural Traits synchronization action.
-  /// @param synchronization The independent predicates and synchronization metadata.
+  /// @param synchronization The public SDK traits synchronization value.
   const CharacterSupernaturalTraitsSynchronizationChangedAction(
     this.synchronization,
   );
 
-  /// The independent predicates and synchronization metadata.
-  final LiveDomainState<
-    ({bool isVampire, bool hasVampireLordForm, bool hasWerewolfForm})
-  >
-  synchronization;
+  /// The SDK-owned Supernatural Traits synchronization value.
+  final StateSynchronization<CharacterSupernaturalTraitsState?> synchronization;
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [synchronization];
 }
 
-/// Carries the latest Location synchronization projection.
+/// Carries the latest Location synchronization value from the SDK.
 class PlayerLocationSynchronizationChangedAction extends Equatable {
   /// Creates a Location synchronization action.
-  /// @param synchronization The location facts and synchronization metadata.
+  /// @param synchronization The public SDK Location synchronization value.
   const PlayerLocationSynchronizationChangedAction(this.synchronization);
 
-  /// The distinct cell, selected-location, and worldspace facts.
-  final LiveDomainState<
-    ({
-      int cellId,
-      LiveCellKind cellKind,
-      String? cellName,
-      int? locationId,
-      String? locationName,
-      int? worldspaceId,
-      String? worldspaceName,
-    })?
-  >
-  synchronization;
+  /// The SDK-owned Location synchronization value.
+  final StateSynchronization<PlayerLocationState?> synchronization;
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [synchronization];
 }
 
-/// Carries the latest Skyrim calendar synchronization projection.
+/// Carries the latest Game Time synchronization value from the SDK.
 class GameTimeSynchronizationChangedAction extends Equatable {
   /// Creates a Game Time synchronization action.
-  /// @param synchronization The Skyrim calendar and synchronization metadata.
+  /// @param synchronization The public SDK Game Time synchronization value.
   const GameTimeSynchronizationChangedAction(this.synchronization);
 
-  /// The Skyrim calendar fields and synchronization metadata.
-  final LiveDomainState<
-    ({int year, int month, String monthName, int day, int hour, int minute})?
-  >
-  synchronization;
+  /// The SDK-owned Game Time synchronization value.
+  final StateSynchronization<GameTimeState?> synchronization;
 
   /// See [Equatable.props].
   @override
   List<Object?> get props => [synchronization];
 }
 
-/// Carries the complete tracked-quest synchronization projection.
+/// Carries the complete Tracked Quests synchronization value from the SDK.
 class TrackedQuestsSynchronizationChangedAction extends Equatable {
   /// Creates a Tracked Quests synchronization action.
-  /// @param synchronization The complete tracked-quest projection.
+  /// @param synchronization The complete public SDK synchronization value.
   const TrackedQuestsSynchronizationChangedAction(this.synchronization);
 
-  /// Every tracked quest and its objective instances, or an authoritative empty list.
-  final LiveDomainState<List<LiveTrackedQuest>> synchronization;
+  /// The SDK-owned complete Tracked Quests synchronization value.
+  final StateSynchronization<TrackedQuestsState?> synchronization;
 
   /// See [Equatable.props].
   @override

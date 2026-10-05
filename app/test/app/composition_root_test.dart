@@ -11,7 +11,6 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:dovahlink_client/app/composition_root.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
@@ -362,9 +361,9 @@ void main() {
 
         expect(
           store.state.liveState.characterXp.status,
-          LiveStateStatus.synchronized,
+          DovahLinkStateStatus.synchronized,
         );
-        expect(store.state.liveState.characterXp.value, 61.5);
+        expect(store.state.liveState.characterXp.value?.value, 61.5);
         expect(store.state.liveState.characterXp.playContextId, 'context-a');
         expect(requestedAreas, [
           DovahLinkStateArea.characterVitals,

@@ -1,71 +1,57 @@
 import 'package:equatable/equatable.dart';
 import 'package:redux/redux.dart';
 
-import 'package:dovahlink_client/features/live_state/presentation/state/live_domain_state.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.selectors.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_tracked_quest.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show
+        CharacterIdentityState,
+        CharacterLevelState,
+        CharacterSupernaturalTraitsState,
+        CharacterVitalsState,
+        CharacterXpState,
+        GameTimeState,
+        PlayerLocationState,
+        StateSynchronization,
+        TrackedQuestsState;
 
 /// Typed Redux projection consumed by the future Session Overview presentation.
 class SessionOverviewViewModel extends Equatable {
-  /// The coherent Vitals value and synchronization metadata.
-  final LiveDomainState<
-    ({
-      ({double current, double max}) health,
-      ({double current, double max}) magicka,
-      ({double current, double max}) stamina,
-    })
-  >
-  characterVitals;
+  /// The SDK Vitals synchronization value.
+  final StateSynchronization<CharacterVitalsState> characterVitals;
 
-  /// The exact XP value and synchronization metadata.
-  final LiveDomainState<double?> characterXp;
+  /// The SDK XP synchronization value.
+  final StateSynchronization<CharacterXpState> characterXp;
 
-  /// The current level and synchronization metadata.
-  final LiveDomainState<int?> characterLevel;
+  /// The SDK Level synchronization value.
+  final StateSynchronization<CharacterLevelState> characterLevel;
 
-  /// The complete identity value and synchronization metadata.
-  final LiveDomainState<({String name, String race})?> characterIdentity;
+  /// The SDK Identity synchronization value.
+  final StateSynchronization<CharacterIdentityState?> characterIdentity;
 
-  /// The independent supernatural predicates and synchronization metadata.
-  final LiveDomainState<
-    ({bool isVampire, bool hasVampireLordForm, bool hasWerewolfForm})
-  >
+  /// The SDK Supernatural Traits synchronization value.
+  final StateSynchronization<CharacterSupernaturalTraitsState?>
   supernaturalTraits;
 
-  /// Distinct cell, selected-location, and worldspace facts with synchronization metadata.
-  final LiveDomainState<
-    ({
-      int cellId,
-      LiveCellKind cellKind,
-      String? cellName,
-      int? locationId,
-      String? locationName,
-      int? worldspaceId,
-      String? worldspaceName,
-    })?
-  >
-  playerLocation;
+  /// The SDK Location synchronization value.
+  final StateSynchronization<PlayerLocationState?> playerLocation;
 
-  /// Skyrim calendar fields and synchronization metadata.
-  final LiveDomainState<
-    ({int year, int month, String monthName, int day, int hour, int minute})?
-  >
-  gameTime;
+  /// The SDK Game Time synchronization value.
+  final StateSynchronization<GameTimeState?> gameTime;
 
-  /// Every tracked quest and objective instance with synchronization metadata.
-  final LiveDomainState<List<LiveTrackedQuest>> trackedQuests;
+  /// The SDK Tracked Quests synchronization value.
+  final StateSynchronization<TrackedQuestsState?> trackedQuests;
 
-  /// Creates a ViewModel from all currently selected Overview domains.
-  /// @param characterVitals The complete Vitals projection.
-  /// @param characterXp The XP projection.
-  /// @param characterLevel The Level projection.
-  /// @param characterIdentity The Identity projection.
-  /// @param supernaturalTraits The independent supernatural predicates.
-  /// @param playerLocation The complete Location projection.
-  /// @param gameTime The Skyrim calendar projection.
-  /// @param trackedQuests The complete tracked-quest collection.
+  /// Creates a lossless projection of every selected live-state domain.
+  /// @param characterVitals The SDK Vitals synchronization value.
+  /// @param characterXp The SDK XP synchronization value.
+  /// @param characterLevel The SDK Level synchronization value.
+  /// @param characterIdentity The SDK Identity synchronization value.
+  /// @param supernaturalTraits The SDK Supernatural Traits synchronization value.
+  /// @param playerLocation The SDK Location synchronization value.
+  /// @param gameTime The SDK Game Time synchronization value.
+  /// @param trackedQuests The SDK Tracked Quests synchronization value.
   const SessionOverviewViewModel({
     required this.characterVitals,
     required this.characterXp,
@@ -77,9 +63,9 @@ class SessionOverviewViewModel extends Equatable {
     required this.trackedQuests,
   });
 
-  /// Builds the Overview state projection from the application's Redux store.
+  /// Builds the Overview projection from the application's Redux store.
   /// @param store The Redux store containing the live-state slice.
-  /// @return A ViewModel with every domain's value and synchronization status.
+  /// @return A lossless projection of the SDK synchronization values.
   factory SessionOverviewViewModel.fromStore(Store<AppState> store) =>
       SessionOverviewViewModel(
         characterVitals: LiveStateSelectors.characterVitalsSelector(

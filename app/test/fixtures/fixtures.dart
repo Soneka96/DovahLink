@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
-import 'package:dovahlink_client/features/live_state/presentation/state/live_tracked_quest.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
@@ -310,48 +308,5 @@ abstract final class Fixtures {
           colors: [Color(0xE00B141D), Color(0x000B141D)],
           stops: [0, 0.72],
         ),
-  );
-
-  // ---- Live State ----
-
-  /// Builds a tracked quest with one representative current objective.
-  /// @param questId The runtime quest identifier.
-  /// @param title The localized quest title.
-  /// @param type The raw Skyrim quest type.
-  /// @param objectives The current objective instances.
-  static LiveTrackedQuest buildLiveTrackedQuest({
-    int questId = 1,
-    String title = 'Test Quest',
-    int type = 0,
-    List<
-      ({
-        int index,
-        int instanceId,
-        String? text,
-        LiveQuestObjectiveStatus status,
-      })
-    >?
-    objectives,
-  }) => LiveTrackedQuest(
-    questId: questId,
-    title: title,
-    type: type,
-    objectives:
-        objectives ??
-        <
-          ({
-            int index,
-            int instanceId,
-            String? text,
-            LiveQuestObjectiveStatus status,
-          })
-        >[
-          (
-            index: 0,
-            instanceId: 1,
-            text: 'Complete the objective',
-            status: LiveQuestObjectiveStatus.displayed,
-          ),
-        ],
   );
 }

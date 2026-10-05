@@ -1,11 +1,13 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_shell.viewmodel.dart';
 import 'package:dovahlink_client/features/session/session.injection_container.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/state/create_store.dart';
+
+import 'package:dovahlink_client_sdk/dovahlink_client.dart'
+    show DovahLinkStateStatus;
 
 /// Exercises Session feature dependency registration.
 void main() {
@@ -29,8 +31,14 @@ void main() {
         );
 
         expect(viewModel, isA<SessionOverviewViewModel>());
-        expect(viewModel.characterVitals.status, LiveStateStatus.notSubscribed);
-        expect(viewModel.trackedQuests.status, LiveStateStatus.notSubscribed);
+        expect(
+          viewModel.characterVitals.status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+        expect(
+          viewModel.trackedQuests.status,
+          DovahLinkStateStatus.notSubscribed,
+        );
 
         final SessionShellViewModel shellViewModel = sl<SessionShellViewModel>(
           param1: store,
