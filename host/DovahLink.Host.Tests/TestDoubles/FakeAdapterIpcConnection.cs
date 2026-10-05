@@ -65,6 +65,9 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
     /// <summary>Optional response-aware request factory for tracked-quest page tests.</summary>
     public Func<TrackedQuestPageKind, uint, ushort, IpcReadTrackedQuestPageMessage?>? PrepareTrackedQuestPageOverride { get; set; }
 
+    /// <summary>Whether tracked-quest page preparation should report unavailable.</summary>
+    public bool TrackedQuestPagePreparationUnavailable { get; set; }
+
     /// <summary>Invoked synchronously when a prepared tracked-quest page enters the fake outbound queue.</summary>
     public Action<IpcReadTrackedQuestPageMessage>? OnTrySendTrackedQuestPage { get; set; }
 
@@ -99,6 +102,11 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
     public IpcReadTrackedQuestPageMessage? PrepareReadTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor)
     {
         if (ConnectionGeneration is null)
+        {
+            return null;
+        }
+
+        if (TrackedQuestPagePreparationUnavailable)
         {
             return null;
         }

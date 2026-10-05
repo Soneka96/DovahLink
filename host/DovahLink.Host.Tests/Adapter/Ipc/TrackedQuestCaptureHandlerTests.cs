@@ -7,33 +7,63 @@ using DovahLink.Host.Tests.TestDoubles;
 
 namespace DovahLink.Host.Tests.Adapter.Ipc;
 
-/// <summary>Tests the provenance-validated page-response handoff to quest collection.</summary>
+/// <summary>Tests the provenance-validated page-response handoff to the private page reader.</summary>
 public class TrackedQuestCaptureHandlerTests
 {
     /// <summary>Forwards a registered quest-page capture after the generic sink validates its state area.</summary>
     [Fact]
     public void Handle_TrackedQuestPage_DelegatesValidatedContext()
     {
-        var coordinator = new FakeTrackedQuestCaptureCoordinator();
-        var handler = new TrackedQuestCaptureHandler(coordinator);
+        var pageReader = new FakeTrackedQuestPageReader();
+        var handler = new TrackedQuestCaptureHandler(pageReader);
         LiveCaptureContext context = BuildContext([new StateAreaId(Constants.TrackedQuestsStateArea)]);
 
         handler.Handle(context);
 
-        Assert.Same(context, Assert.Single(coordinator.PageCaptures));
+        Assert.Same(context, Assert.Single(pageReader.PageCaptures));
     }
 
     /// <summary>Ignores a page capture context that is not bound to exactly the tracked-quest area.</summary>
     [Fact]
     public void Handle_WrongStateArea_DoesNotDelegate()
     {
-        var coordinator = new FakeTrackedQuestCaptureCoordinator();
-        var handler = new TrackedQuestCaptureHandler(coordinator);
+        var pageReader = new FakeTrackedQuestPageReader();
+        var handler = new TrackedQuestCaptureHandler(pageReader);
         LiveCaptureContext context = BuildContext([new StateAreaId(Constants.GameTimeStateArea)]);
 
         handler.Handle(context);
 
-        Assert.Empty(coordinator.PageCaptures);
+        Assert.Empty(pageReader.PageCaptures);
+    }
+
+    /// <summary>Ignores a page capture unit that declares no state areas.</summary>
+    [Fact]
+    public void Handle_EmptyStateAreas_DoesNotDelegate()
+    {
+        var pageReader = new FakeTrackedQuestPageReader();
+        var handler = new TrackedQuestCaptureHandler(pageReader);
+        LiveCaptureContext context = BuildContext([]);
+
+        handler.Handle(context);
+
+        Assert.Empty(pageReader.PageCaptures);
+    }
+
+    /// <summary>Ignores a page capture unit that declares more than the tracked-quest state area.</summary>
+    [Fact]
+    public void Handle_MultipleStateAreas_DoesNotDelegate()
+    {
+        var pageReader = new FakeTrackedQuestPageReader();
+        var handler = new TrackedQuestCaptureHandler(pageReader);
+        LiveCaptureContext context = BuildContext(
+        [
+            new StateAreaId(Constants.TrackedQuestsStateArea),
+            new StateAreaId(Constants.GameTimeStateArea),
+        ]);
+
+        handler.Handle(context);
+
+        Assert.Empty(pageReader.PageCaptures);
     }
 
     /// <summary>Builds the validated live-capture metadata passed by <see cref="LiveCaptureSink"/>.</summary>

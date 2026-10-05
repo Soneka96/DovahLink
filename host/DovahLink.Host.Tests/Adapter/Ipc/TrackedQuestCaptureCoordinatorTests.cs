@@ -227,6 +227,9 @@ public class TrackedQuestCaptureCoordinatorTests
         /// <summary>The Host's view of its currently active fake connection.</summary>
         private readonly FakeAdapterIpcListener listener = new();
 
+        /// <summary>The page reader exercised by the capture coordinator.</summary>
+        private readonly TrackedQuestPageReader pageReader;
+
         /// <summary>The current Adapter connection and its tracked-quest page response callback.</summary>
         private readonly FakeAdapterIpcConnection connection;
 
@@ -248,12 +251,14 @@ public class TrackedQuestCaptureCoordinatorTests
                 TrySendReadSampleResult = true,
                 PrepareTrackedQuestPageOverride = (kind, questId, cursor) =>
                     new IpcReadTrackedQuestPageMessage(nextCorrelationId++, kind, questId, cursor),
-                OnTrySendTrackedQuestPage = DeliverNextResponse,
             };
             listener.CurrentConnection = connection;
+            pageReader = new TrackedQuestPageReader(() => listener);
+            connection.OnTrySendTrackedQuestPage = DeliverNextResponse;
             var publisher = new StatePublisher<TrackedQuests?>(new RevisionTracker(), playContextTracker, adapterTracker);
             Coordinator = new TrackedQuestCaptureCoordinator(
                 () => listener,
+                pageReader,
                 adapterTracker,
                 playContextTracker,
                 publisher,
@@ -360,7 +365,7 @@ public class TrackedQuestCaptureCoordinatorTests
             var context = new LiveCaptureContext(
                 captureResult, new AdapterCaptureSource(instanceId, 1), unit, adapterSnapshot,
                 playContext.Current.Value, playContext.TransitionGeneration, DateTimeOffset.UtcNow);
-            Coordinator.AcceptPageCapture(context);
+            pageReader.AcceptPageCapture(context);
             if (ChangeContextAfterNextPage)
             {
                 ChangeContextAfterNextPage = false;

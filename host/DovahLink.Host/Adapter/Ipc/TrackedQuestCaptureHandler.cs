@@ -2,7 +2,7 @@ using DovahLink.Host.State;
 
 namespace DovahLink.Host.Adapter.Ipc;
 
-/// <summary>Routes validated private quest-page responses to the Host collection coordinator.</summary>
+/// <summary>Routes validated private quest-page responses to their pending page read.</summary>
 public sealed class TrackedQuestCaptureHandler : ILiveCaptureHandler
 {
     /// <summary>The one raw page-response capture identity owned by this handler.</summary>
@@ -12,14 +12,14 @@ public sealed class TrackedQuestCaptureHandler : ILiveCaptureHandler
             (CaptureSourceKind.Sample, (uint)TrackedQuestCaptureKey.Page),
         ]);
 
-    /// <summary>Owns page correlation and complete quest collection.</summary>
-    private readonly ITrackedQuestCaptureCoordinator coordinator;
+    /// <summary>Owns request correlation and provenance matching for private pages.</summary>
+    private readonly ITrackedQuestPageReader pageReader;
 
-    /// <summary>Creates the page-response adapter over the current complete-quest collector.</summary>
-    /// <param name="coordinator">Receives each validated page response.</param>
-    public TrackedQuestCaptureHandler(ITrackedQuestCaptureCoordinator coordinator)
+    /// <summary>Creates the page-response adapter over the private page reader.</summary>
+    /// <param name="pageReader">Receives each validated page response.</param>
+    public TrackedQuestCaptureHandler(ITrackedQuestPageReader pageReader)
     {
-        this.coordinator = coordinator;
+        this.pageReader = pageReader;
     }
 
     /// <inheritdoc/>
@@ -34,6 +34,6 @@ public sealed class TrackedQuestCaptureHandler : ILiveCaptureHandler
             return;
         }
 
-        coordinator.AcceptPageCapture(context);
+        pageReader.AcceptPageCapture(context);
     }
 }

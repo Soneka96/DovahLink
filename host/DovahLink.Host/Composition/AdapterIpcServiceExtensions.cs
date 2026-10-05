@@ -67,8 +67,11 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<PlayerLocationCaptureHandler>());
         services.AddSingleton<GameTimeCaptureHandler>();
         services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<GameTimeCaptureHandler>());
+        services.AddSingleton<ITrackedQuestPageReader>(sp => new TrackedQuestPageReader(
+            () => sp.GetRequiredService<IAdapterIpcListener>()));
         services.AddSingleton<ITrackedQuestCaptureCoordinator>(sp => new TrackedQuestCaptureCoordinator(
             () => sp.GetRequiredService<IAdapterIpcListener>(),
+            sp.GetRequiredService<ITrackedQuestPageReader>(),
             sp.GetRequiredService<IAdapterAvailabilityTracker>(),
             sp.GetRequiredService<IPlayContextTracker>(),
             sp.GetRequiredService<IStatePublisher<TrackedQuests?>>(),
