@@ -5,6 +5,8 @@ import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state_enums.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_tracked_quest.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
@@ -360,6 +362,48 @@ void main() {
     test('Method buildDovahThemeTokens returns a fresh value per call', () {
       final DovahThemeTokens first = Fixtures.buildDovahThemeTokens();
       final DovahThemeTokens second = Fixtures.buildDovahThemeTokens();
+
+      expect(first, second);
+      expect(first.hashCode, second.hashCode);
+      expect(identical(first, second), isFalse);
+    });
+  });
+
+  group('Method buildLiveTrackedQuest behaves correctly', () {
+    test(
+      'Method buildLiveTrackedQuest builds representative quest and objective values',
+      () {
+        final LiveTrackedQuest quest = Fixtures.buildLiveTrackedQuest();
+
+        expect(quest.questId, 1);
+        expect(quest.title, 'Test Quest');
+        expect(quest.type, 0);
+        expect(quest.objectives, hasLength(1));
+        expect(quest.objectives.single.text, 'Complete the objective');
+        expect(
+          quest.objectives.single.status,
+          LiveQuestObjectiveStatus.displayed,
+        );
+      },
+    );
+
+    test('Method buildLiveTrackedQuest preserves scenario overrides', () {
+      final LiveTrackedQuest quest = Fixtures.buildLiveTrackedQuest(
+        questId: 18,
+        title: 'Alternate Quest',
+        type: 6,
+        objectives: const [],
+      );
+
+      expect(quest.questId, 18);
+      expect(quest.title, 'Alternate Quest');
+      expect(quest.type, 6);
+      expect(quest.objectives, isEmpty);
+    });
+
+    test('Method buildLiveTrackedQuest returns an equal fresh value', () {
+      final LiveTrackedQuest first = Fixtures.buildLiveTrackedQuest();
+      final LiveTrackedQuest second = Fixtures.buildLiveTrackedQuest();
 
       expect(first, second);
       expect(first.hashCode, second.hashCode);
