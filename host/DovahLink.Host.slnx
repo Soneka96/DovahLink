@@ -2,4 +2,5 @@
   <Project Path="DovahLink.Host.Tests/DovahLink.Host.Tests.csproj" />
   <Project Path="DovahLink.Host/DovahLink.Host.csproj" />
   <Project Path="DovahLink.Host.PairingCeremony/DovahLink.Host.PairingCeremony.csproj" />
+  <Project Path="DovahLink.Host.PairingCeremony.TestPeer/DovahLink.Host.PairingCeremony.TestPeer.csproj" />
 </Solution>

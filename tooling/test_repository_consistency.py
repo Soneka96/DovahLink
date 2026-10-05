@@ -363,6 +363,39 @@ class RepositoryConsistencyTests(unittest.TestCase):
             )
         self.assertRegex(pin["commit"], r"^[0-9a-f]{40}$")
 
+    def test_sas_pairing_test_peer_is_test_infrastructure_only(self) -> None:
+        """Keep the sas-pairing test peer out of every package, publish, and product composition."""
+        peer = self._read(
+            "host/DovahLink.Host.PairingCeremony.TestPeer/DovahLink.Host.PairingCeremony.TestPeer.csproj"
+        )
+        self.assertIn("<IsPackable>false</IsPackable>", peer)
+        self.assertIn("<IsPublishable>false</IsPublishable>", peer)
+        self.assertNotIn("<ProjectReference", peer)
+        self.assertIn(
+            '<ProjectReference Include="..\\DovahLink.Host.PairingCeremony.TestPeer\\DovahLink.Host.PairingCeremony.TestPeer.csproj" ReferenceOutputAssembly="false" />',
+            self._read("host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"),
+        )
+        for project in (
+            "host/DovahLink.Host/DovahLink.Host.csproj",
+            "host/DovahLink.Host.PairingCeremony/DovahLink.Host.PairingCeremony.csproj",
+        ):
+            self.assertNotIn("TestPeer", self._read(project))
+        # The Vortex package publishes only the Host executable project; no packaging or build tool
+        # names the dormant integration or its test peer.
+        self.assertIn(
+            'REPOSITORY_ROOT / "host" / "DovahLink.Host" / "DovahLink.Host.csproj"',
+            self._read("tooling/package_adapter_host.py"),
+        )
+        for tool in (
+            "tooling/package_adapter_host.py",
+            "tooling/adapter_host_packager.py",
+            "tooling/assemble_adapter_host_package_for_ctest.py",
+            "adapter/CMakeLists.txt",
+        ):
+            text = self._read(tool)
+            self.assertNotIn("TestPeer", text, tool)
+            self.assertNotIn("PairingCeremony", text, tool)
+
     def test_host_target_framework_agrees_across_build_paths(self) -> None:
         """Keep the Host's target framework, built executable paths, and CI SDK major in agreement."""
         frameworks = {

@@ -414,6 +414,20 @@ public sealed class PairingCeremonyHostTests : IDisposable
         Eventually(() => session.DisposeCount == 1);
     }
 
+    /// <summary>Verifies a local result whose event no longer names its run is matched to its attempt by ceremony identity.</summary>
+    [Fact]
+    public void ResultWithoutRun_IsMatchedToItsAttemptByCeremonyIdentity()
+    {
+        (NativeRunHandle _, byte[] identity) = BringToSasDecision();
+        host.TrySubmitSasDecision(identity, SasComparisonDecision.Match);
+        Eventually(() => session.CallCount("EmitBootstrapMac") == 1);
+
+        session.QueueDrive([new NativeCeremonyEvent(NativeCeremonyEventKind.ConnectionStep, NativeProtocolEvent.Other, null, false, Fixtures.BuildCeremonyResultSnapshot(0x5a))]);
+
+        Eventually(() => observer.Completions.Count == 1);
+        Assert.Equal(observer.SasRequests.Single().Attempt, observer.Completions.Single().Attempt);
+    }
+
     /// <summary>Verifies a local result whose run was never tracked is still reported, with no attempt.</summary>
     [Fact]
     public void ResultForUntrackedRun_IsReportedWithoutAttempt()

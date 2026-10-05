@@ -1,5 +1,5 @@
 using System.Net;
-using System.Security.Cryptography;
+using DovahLink.Host.Identity;
 using DovahLink.Host.PairingCeremony;
 using DovahLink.Host.Tests.TestDoubles;
 
@@ -18,7 +18,7 @@ public sealed class PairingCeremonyHostNativeTests
     public void RealHost_RunsOnLoopbackAndReleasesEverythingOnStop()
     {
         string nativeLibrary = SasPairingTestArtifacts.NativeLibraryPath();
-        byte[] scope = RandomNumberGenerator.GetBytes(47);
+        byte[] scope = DovahLinkPairingMapping.EncodeHostAuthorityScope(new HostId(Guid.Parse("7e570000-0000-4000-8000-0000000000a3")));
 
         for (int round = 0; round < 2; round++)
         {
@@ -37,5 +37,35 @@ public sealed class PairingCeremonyHostNativeTests
             Assert.Null(host.Failure);
             Assert.Empty(observer.Failures);
         }
+    }
+
+    /// <summary>
+    /// E-03 idle cadence: an idle real host blocks in each bounded drive rather than spinning, so it
+    /// makes only a few drives a second, each within the native bound.
+    /// </summary>
+    [Fact]
+    public void RealHost_IdleDrivesAreBoundedAndPaced()
+    {
+        var measured = new MeasuringNativeSessionFactory();
+        using var host = new PairingCeremonyHost(
+            Fixtures.BuildPairingCeremonyHostOptions(
+                SasPairingTestArtifacts.NativeLibraryPath(),
+                DovahLinkPairingMapping.EncodeHostAuthorityScope(new HostId(Guid.Parse("7e570000-0000-4000-8000-0000000000a4")))),
+            new RecordingPairingCeremonyObserver(),
+            measured);
+        Assert.True(host.Start());
+
+        Thread.Sleep(TimeSpan.FromSeconds(2));
+        host.Stop();
+
+        TimeSpan[] drives = [.. measured.Drives.Select(drive => drive.Duration)];
+        string report = string.Create(
+            System.Globalization.CultureInfo.InvariantCulture,
+            $"E-03 idle: drives={drives.Length} in 2s worst={drives.Max().TotalMilliseconds:F1}ms median={drives.Order().ElementAt(drives.Length / 2).TotalMilliseconds:F1}ms");
+        string evidence = Path.Combine(SasPairingTestArtifacts.RepositoryRoot, "out", "sas-pairing", "evidence");
+        Directory.CreateDirectory(evidence);
+        File.AppendAllText(Path.Combine(evidence, "e03-responsiveness.txt"), $"{DateTimeOffset.UtcNow:O} {report}{Environment.NewLine}");
+        Assert.InRange(drives.Length, 2, 40);
+        Assert.True(drives.Max() < TimeSpan.FromSeconds(1), report);
     }
 }

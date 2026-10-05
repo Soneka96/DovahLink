@@ -407,6 +407,10 @@ public sealed class PairingCeremonyHost : IPairingCeremonyHost
 
         if (evt.Result is not null)
         {
+            // A result can arrive after its run ended and is no longer named; the ceremony identity the
+            // attempt presented is then the authoritative way to find it.
+            attempt ??= attempts.Values.FirstOrDefault(candidate =>
+                candidate.PresentedCeremonyIdentity is not null && evt.Result.CeremonyIdentity.SequenceEqual(candidate.PresentedCeremonyIdentity));
             if (attempt is not null)
             {
                 attempts.Remove(attempt.Run);

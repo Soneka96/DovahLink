@@ -23,6 +23,8 @@
   <ItemGroup>
     <ProjectReference Include="..\DovahLink.Host\DovahLink.Host.csproj" />
     <ProjectReference Include="..\DovahLink.Host.PairingCeremony\DovahLink.Host.PairingCeremony.csproj" />
+    <!-- Build-only: the real-native tests launch the test peer as a separate process; its assembly is never referenced. -->
+    <ProjectReference Include="..\DovahLink.Host.PairingCeremony.TestPeer\DovahLink.Host.PairingCeremony.TestPeer.csproj" ReferenceOutputAssembly="false" />
   </ItemGroup>
 
   <ItemGroup>
