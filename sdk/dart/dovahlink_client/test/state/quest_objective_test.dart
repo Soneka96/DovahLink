@@ -25,6 +25,55 @@ JsonMap _buildObjectiveJson({
 
 /// Tests decoding and bounds for typed tracked-quest objectives.
 void main() {
+  group('Factory QuestObjective behaves correctly', () {
+    test(
+      'Factory QuestObjective rejects numeric and text values outside bounds',
+      () {
+        for (final QuestObjective Function() buildMalformed
+            in <QuestObjective Function()>[
+              () => QuestObjective(
+                index: -1,
+                instanceId: 0,
+                text: null,
+                state: TrackedQuestObjectiveState.dormant,
+              ),
+              () => QuestObjective(
+                index: 0x10000,
+                instanceId: 0,
+                text: null,
+                state: TrackedQuestObjectiveState.dormant,
+              ),
+              () => QuestObjective(
+                index: 0,
+                instanceId: -1,
+                text: null,
+                state: TrackedQuestObjectiveState.dormant,
+              ),
+              () => QuestObjective(
+                index: 0,
+                instanceId: 0x100000000,
+                text: null,
+                state: TrackedQuestObjectiveState.dormant,
+              ),
+              () => QuestObjective(
+                index: 0,
+                instanceId: 0,
+                text: List<String>.filled(64, 'é').join(),
+                state: TrackedQuestObjectiveState.dormant,
+              ),
+              () => QuestObjective(
+                index: 0,
+                instanceId: 0,
+                text: 'bad\u0000text',
+                state: TrackedQuestObjectiveState.dormant,
+              ),
+            ]) {
+          expect(buildMalformed, throwsFormatException);
+        }
+      },
+    );
+  });
+
   group('Factory fromJson behaves correctly', () {
     test(
       'Factory fromJson preserves objective identity and localized text',

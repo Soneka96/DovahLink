@@ -168,4 +168,108 @@ void main() {
       },
     );
   });
+
+  group('Factory TrackedQuest behaves correctly', () {
+    test(
+      'Factory TrackedQuest rejects invalid identity, title, type, count, and duplicate objectives',
+      () {
+        final QuestObjective objective = QuestObjective(
+          index: 1,
+          instanceId: 1,
+          text: null,
+          state: TrackedQuestObjectiveState.dormant,
+        );
+        final List<QuestObjective> tooManyObjectives =
+            List<QuestObjective>.generate(
+              1025,
+              (int index) => QuestObjective(
+                index: index,
+                instanceId: 1,
+                text: null,
+                state: TrackedQuestObjectiveState.dormant,
+              ),
+            );
+
+        for (final TrackedQuest Function() buildMalformed
+            in <TrackedQuest Function()>[
+              () => TrackedQuest(
+                questId: 0,
+                title: 'Quest',
+                type: 8,
+                objectives: <QuestObjective>[],
+              ),
+              () => TrackedQuest(
+                questId: 0x100000000,
+                title: 'Quest',
+                type: 8,
+                objectives: <QuestObjective>[],
+              ),
+              () => TrackedQuest(
+                questId: 1,
+                title: '',
+                type: 8,
+                objectives: <QuestObjective>[],
+              ),
+              () => TrackedQuest(
+                questId: 1,
+                title: List<String>.filled(64, 'é').join(),
+                type: 8,
+                objectives: <QuestObjective>[],
+              ),
+              () => TrackedQuest(
+                questId: 1,
+                title: 'bad\u0000title',
+                type: 8,
+                objectives: <QuestObjective>[],
+              ),
+              () => TrackedQuest(
+                questId: 1,
+                title: 'Quest',
+                type: -1,
+                objectives: <QuestObjective>[],
+              ),
+              () => TrackedQuest(
+                questId: 1,
+                title: 'Quest',
+                type: 256,
+                objectives: <QuestObjective>[],
+              ),
+              () => TrackedQuest(
+                questId: 1,
+                title: 'Quest',
+                type: 8,
+                objectives: tooManyObjectives,
+              ),
+              () => TrackedQuest(
+                questId: 1,
+                title: 'Quest',
+                type: 8,
+                objectives: <QuestObjective>[objective, objective],
+              ),
+            ]) {
+          expect(buildMalformed, throwsFormatException);
+        }
+      },
+    );
+
+    test(
+      'Factory TrackedQuest copies and freezes the supplied objective list',
+      () {
+        final List<QuestObjective> objectives = <QuestObjective>[
+          QuestObjective.fromJson(_buildObjectiveJson()),
+        ];
+        final TrackedQuest quest = TrackedQuest(
+          questId: 10,
+          title: 'Quest',
+          type: 8,
+          objectives: objectives,
+        );
+
+        objectives.clear();
+
+        expect(quest.objectives, hasLength(1));
+        expect(() => quest.objectives.clear(), throwsUnsupportedError);
+      },
+    );
+  });
 }

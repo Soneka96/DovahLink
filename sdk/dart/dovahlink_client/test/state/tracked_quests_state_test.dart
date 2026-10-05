@@ -158,6 +158,36 @@ void main() {
     );
 
     test(
+      'Factory TrackedQuestsState rejects duplicate IDs and oversized lists from direct callers',
+      () {
+        final TrackedQuest quest = TrackedQuest(
+          questId: 1,
+          title: 'Quest',
+          type: 0,
+          objectives: <QuestObjective>[],
+        );
+        final List<TrackedQuest> tooManyQuests = List<TrackedQuest>.generate(
+          129,
+          (int index) => TrackedQuest(
+            questId: index + 1,
+            title: 'Quest ${index + 1}',
+            type: 0,
+            objectives: <QuestObjective>[],
+          ),
+        );
+
+        expect(
+          () => TrackedQuestsState(quests: <TrackedQuest>[quest, quest]),
+          throwsFormatException,
+        );
+        expect(
+          () => TrackedQuestsState(quests: tooManyQuests),
+          throwsFormatException,
+        );
+      },
+    );
+
+    test(
       'Factory TrackedQuestsState rejects more than 1024 total objectives',
       () {
         final List<QuestObjective> objectiveBatch =
@@ -202,5 +232,25 @@ void main() {
 
       expect(() => state.quests.clear(), throwsUnsupportedError);
     });
+
+    test(
+      'Factory TrackedQuestsState copies the supplied quest list before freezing it',
+      () {
+        final List<TrackedQuest> quests = <TrackedQuest>[
+          TrackedQuest(
+            questId: 10,
+            title: 'Quest',
+            type: 8,
+            objectives: <QuestObjective>[],
+          ),
+        ];
+        final TrackedQuestsState state = TrackedQuestsState(quests: quests);
+
+        quests.clear();
+
+        expect(state.quests, hasLength(1));
+        expect(() => state.quests.clear(), throwsUnsupportedError);
+      },
+    );
   });
 }

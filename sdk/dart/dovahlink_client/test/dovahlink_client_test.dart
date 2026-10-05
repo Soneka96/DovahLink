@@ -867,6 +867,47 @@ void main() {
         );
       },
     );
+
+    test(
+      'Behavior Tracked Quests state resets to notSubscribed when the session ends',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['tracked_quests']),
+        );
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.trackedQuests,
+        );
+
+        final Future<void> synchronized = expectLater(
+          client.currentHost.trackedQuestsChanges,
+          emitsThrough(
+            predicate<StateSynchronization<TrackedQuestsState?>>(
+              (StateSynchronization<TrackedQuestsState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'tracked_quests',
+            revision: 1,
+            value: _stateFixtureValue(
+              'state/state-snapshot-tracked-quests.json',
+            ),
+          ),
+        );
+        await synchronized;
+
+        await client.connections.disconnect();
+
+        expect(
+          (await client.currentHost.trackedQuestsChanges.first).status,
+          DovahLinkStateStatus.notSubscribed,
+        );
+      },
+    );
   });
 
   group('Behavior grouped API composition behaves correctly', () {
