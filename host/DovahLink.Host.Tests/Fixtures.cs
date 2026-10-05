@@ -23,6 +23,17 @@ public static class Fixtures
     /// <summary>Builds a ready-to-use, never-faulted state-authority lifecycle backed by a fresh fake adapter-availability tracker.</summary>
     public static IStateAuthorityLifecycle BuildStateAuthorityLifecycle() => new StateAuthorityLifecycle(new FakeAdapterAvailabilityTracker());
 
+    /// <summary>
+    /// Builds the canonical P-256 SubjectPublicKeyInfo of a published test-vector key. The default is
+    /// the DovahLink Bootstrap v1 test Host key; its private scalar is public, so it is never a real key.
+    /// </summary>
+    /// <param name="subjectPublicKeyInfoHex">The lowercase hex of the SubjectPublicKeyInfo.</param>
+    /// <returns>A fresh copy of the SubjectPublicKeyInfo bytes.</returns>
+    public static byte[] BuildP256SubjectPublicKeyInfo(
+        string subjectPublicKeyInfoHex =
+            "3059301306072a8648ce3d020106082a8648ce3d03010703420004f2422a662eb6e5065e3ea5587ed92dd959deff9b9e4115bb76dcb02abf07144a68e354b81cc01714608a8ecd61f8d9ac453cda8b0d20056623db09859432498a") =>
+        Convert.FromHexString(subjectPublicKeyInfoHex);
+
     // ---- Protocol ----
 
     /// <summary>

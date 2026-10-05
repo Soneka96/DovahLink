@@ -2,6 +2,43 @@ using System.Text.Json.Serialization;
 
 namespace DovahLink.Host;
 
+// ---- Host identity ----
+
+/// <summary>
+/// The outcome of loading this Host installation's persistent identity key. Only
+/// <see cref="Provisioned"/> and <see cref="Loaded"/> make the key available; every other value fails
+/// closed and never regenerates a key under the same Host ID.
+/// </summary>
+public enum HostKeyStatus
+{
+    /// <summary>No key or record existed for this Host ID, so a new non-exportable key was created and recorded.</summary>
+    Provisioned,
+
+    /// <summary>The recorded key was opened and matches its public-key record.</summary>
+    Loaded,
+
+    /// <summary>A public-key record exists, but the persisted key it names is gone; recovery is a deliberate identity reset.</summary>
+    ProvisionedKeyMissing,
+
+    /// <summary>The persisted key exists but could not be opened or read.</summary>
+    KeyInaccessible,
+
+    /// <summary>The persisted key is not a non-exportable ECDSA P-256 signing key.</summary>
+    KeyPolicyInvalid,
+
+    /// <summary>The persisted key's public key differs from its public-key record.</summary>
+    PublicKeyMismatch,
+
+    /// <summary>The public-key record is not exactly one canonical P-256 SubjectPublicKeyInfo.</summary>
+    RecordCorrupt,
+
+    /// <summary>A previous Host ID's key or record could not be retired, so the identity state is not trustworthy.</summary>
+    StaleIdentityRetirementFailed,
+
+    /// <summary>Another Host process held the per-user Host key lock for longer than the load waits.</summary>
+    KeyLockTimedOut,
+}
+
 // ---- Trust ----
 
 /// <summary>The persistent trust state of a device the host has issued or previously issued a pairing credential to.</summary>

@@ -22,6 +22,43 @@ public static class Constants
         }
     }
 
+    /// <summary>
+    /// The prefix of the per-user persisted CNG key name of a Host installation's identity key; the
+    /// full name appends the Host ID, so a new Host ID never reuses an earlier installation's key.
+    /// </summary>
+    public const string HostKeyNamePrefix = "DovahLink.Host.Identity.v1.";
+
+    /// <summary>The file-name prefix of a Host key's public-key record, which the Host ID and extension follow.</summary>
+    public const string HostKeyRecordFilePrefix = "host-key-";
+
+    /// <summary>The file-name extension of a Host key's public-key record (raw DER SubjectPublicKeyInfo).</summary>
+    public const string HostKeyRecordFileExtension = ".spki";
+
+    /// <summary>
+    /// The lock file every Host process of one Windows user holds exclusively while it loads or creates
+    /// the Host key, because the key provider does not reliably refuse a concurrent create of one name.
+    /// </summary>
+    public const string HostKeyLockFileName = "host-key.lock";
+
+    /// <summary>How long loading the Host key waits for another Host process's key lock before failing closed.</summary>
+    public static readonly TimeSpan HostKeyLockTimeout = TimeSpan.FromSeconds(10);
+
+    /// <summary>The pause between attempts to take the Host key lock.</summary>
+    public static readonly TimeSpan HostKeyLockRetryInterval = TimeSpan.FromMilliseconds(10);
+
+    /// <summary>The exact length of a canonical uncompressed P-256 DER SubjectPublicKeyInfo.</summary>
+    public const int P256SubjectPublicKeyInfoLength = 91;
+
+    /// <summary>
+    /// The fixed DER prefix of every canonical P-256 SubjectPublicKeyInfo: id-ecPublicKey with the
+    /// named secp256r1 curve and an uncompressed point; the 32-byte X and Y coordinates follow.
+    /// </summary>
+    public static ReadOnlySpan<byte> P256SubjectPublicKeyInfoPrefix =>
+    [
+        0x30, 0x59, 0x30, 0x13, 0x06, 0x07, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01, 0x06, 0x08,
+        0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04,
+    ];
+
     // ---- Trust ----
 
     /// <summary>The default per-Windows-user file the trust store is persisted to.</summary>
