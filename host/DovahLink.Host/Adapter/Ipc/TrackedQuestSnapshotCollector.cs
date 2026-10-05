@@ -22,6 +22,10 @@ public interface ITrackedQuestSnapshotCollector
 /// <inheritdoc cref="ITrackedQuestSnapshotCollector"/>
 public sealed class TrackedQuestSnapshotCollector : ITrackedQuestSnapshotCollector
 {
+    /// <summary>Bounds one complete Snapshot to the same five Slow-cadence ticks as a page response.</summary>
+    private static readonly TimeSpan CollectionTimeout = TimeSpan.FromTicks(
+        Constants.LiveStateSlowSampleInterval.Ticks * Constants.LiveStateSampleTimeoutTicks);
+
     /// <summary>Reads one private page at a time under the supplied capture authority.</summary>
     private readonly ITrackedQuestPageReader pageReader;
 
@@ -32,8 +36,37 @@ public sealed class TrackedQuestSnapshotCollector : ITrackedQuestSnapshotCollect
         this.pageReader = pageReader;
     }
 
-    /// <inheritdoc/>
+    /// <summary>Collects one complete Snapshot within a bounded total request budget.</summary>
+    /// <param name="source">The Adapter instance and connection generation for this collection.</param>
+    /// <param name="playContext">The active play context and transition generation for this collection.</param>
+    /// <param name="cancellationToken">The Host lifetime cancellation token.</param>
+    /// <returns>The complete ordered collection, or <see langword="null"/> when a page, bound, or collection deadline fails.</returns>
     public async Task<TrackedQuests?> CollectAsync(
+        AdapterCaptureSource source,
+        PlayContextSnapshot playContext,
+        CancellationToken cancellationToken)
+    {
+        using CancellationTokenSource collectionDeadline =
+            CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        collectionDeadline.CancelAfter(CollectionTimeout);
+
+        try
+        {
+            return await CollectWithinDeadlineAsync(source, playContext, collectionDeadline.Token)
+                .ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>Reads all pages for one Snapshot before its collection deadline.</summary>
+    /// <param name="source">The Adapter instance and connection generation for this collection.</param>
+    /// <param name="playContext">The active play context and transition generation for this collection.</param>
+    /// <param name="cancellationToken">The linked Host lifetime and collection deadline token.</param>
+    /// <returns>The complete ordered collection, or <see langword="null"/> when any required page or bound fails.</returns>
+    private async Task<TrackedQuests?> CollectWithinDeadlineAsync(
         AdapterCaptureSource source,
         PlayContextSnapshot playContext,
         CancellationToken cancellationToken)
@@ -76,6 +109,7 @@ public sealed class TrackedQuestSnapshotCollector : ITrackedQuestSnapshotCollect
         // LiveStateApplication publishes the same { value } data shape with the same serializer defaults.
         // Current page, text, and count limits make this bound defensive, but it protects later contract changes.
         byte[] serializedState = JsonSerializer.SerializeToUtf8Bytes(new { value });
+        cancellationToken.ThrowIfCancellationRequested();
         return serializedState.Length <= Constants.MaxTrackedQuestsSerializedBytes ? value : null;
     }
 

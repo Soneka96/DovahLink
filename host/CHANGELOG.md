@@ -23,6 +23,7 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Changed
 
+- Tracked-quest Snapshot collection now returns unavailable after five seconds so a delayed page sequence cannot keep resynchronization pending.
 - Adapter logs now suppress routine capture and successful setup messages while retaining one startup status and 30-second rate-limited capacity warnings.
 - Host publishes current and effective maximum Health, Magicka, and Stamina as one coherent
   `character_vitals` snapshot instead of three scalar state areas.

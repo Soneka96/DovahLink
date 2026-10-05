@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using DovahLink.Host;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
@@ -93,6 +94,53 @@ public class ResynchronizationTransactionCoordinatorTests
         Assert.NotNull(coordinator.AcquireToken(instanceId, 1, context, 1));
         coordinator.RecordAreaAccepted(questArea, instanceId, 1, context, 1);
         Assert.False(tracker.NeedsResynchronization);
+    }
+
+    /// <summary>Verifies a delayed Host-orchestrated quest baseline can complete before the production watchdog recovers.</summary>
+    [Fact]
+    public async Task DefaultCatalog_DelayedTrackedQuestBaselineCompletesBeforeProductionWatchdog()
+    {
+        LiveStateCatalog catalog = LiveStateCatalog.Default;
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var continuityRecovery = new FakeAdapterContinuityRecovery();
+        var coordinator = CreateCoordinator(
+            catalog, tracker, continuityRecovery, Constants.ResynchronizationTransactionTimeout);
+        PlayContextId context = PlayContextId.NewId();
+        StateAreaId questArea = new(Constants.TrackedQuestsStateArea);
+        long transactionStarted = Stopwatch.GetTimestamp();
+
+        coordinator.BeginTransaction(instanceId, 1, context, 1);
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+        StateAreaId[] otherAreas = catalog.CaptureUnits
+            .Where(unit => unit.SynchronizationRole is
+                SynchronizationRole.BaselineSample or SynchronizationRole.HostOrchestratedBaseline)
+            .SelectMany(unit => unit.StateAreas)
+            .Where(area => area != questArea)
+            .Distinct()
+            .ToArray();
+        foreach (StateAreaId area in otherAreas)
+        {
+            Assert.NotNull(coordinator.AcquireToken(instanceId, 1, context, 1));
+            coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
+        }
+
+        await Task.Delay(TimeSpan.FromTicks(
+            Constants.LiveStateSlowSampleInterval.Ticks * Constants.LiveStateSampleTimeoutTicks));
+
+        Assert.True(tracker.NeedsResynchronization);
+        Assert.NotNull(coordinator.AcquireToken(instanceId, 1, context, 1));
+        coordinator.RecordAreaAccepted(questArea, instanceId, 1, context, 1);
+        Assert.False(tracker.NeedsResynchronization);
+
+        TimeSpan remaining = Constants.ResynchronizationTransactionTimeout - Stopwatch.GetElapsedTime(transactionStarted);
+        if (remaining > TimeSpan.Zero)
+        {
+            await Task.Delay(remaining + TimeSpan.FromMilliseconds(100));
+        }
+
+        Assert.Empty(continuityRecovery.RecoveryRequests);
     }
 
     /// <summary>Verifies that every required area being accepted never completes the transaction on its own when the adapter's own plan was reported not accepted (for example a failed event registration).</summary>

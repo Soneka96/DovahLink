@@ -46,6 +46,68 @@ public class TrackedQuestSnapshotCollectorTests
         Assert.Equal(Constants.MaxTrackedQuests, snapshot.Quests.Count);
     }
 
+    /// <summary>Verifies the total collection deadline cancels a pending page and returns unavailable.</summary>
+    [Fact]
+    public async Task CollectAsync_CollectionDeadlineCancelsPendingPageAndReturnsUnavailable()
+    {
+        var fixture = new CollectorFixture([10]);
+        var pageStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pageCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PageReader.ReadPageOverride = async (_, _, _, _, _, cancellationToken) =>
+        {
+            pageStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return null;
+            }
+            catch (OperationCanceledException)
+            {
+                pageCanceled.TrySetResult();
+                throw;
+            }
+        };
+
+        Task<TrackedQuests?> collection = fixture.Collector.CollectAsync(
+            fixture.Source, fixture.PlayContext, CancellationToken.None);
+        await pageStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+
+        Assert.Null(await collection.WaitAsync(TimeSpan.FromSeconds(8)));
+        await pageCanceled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>Verifies Host shutdown cancellation remains visible to the collector caller.</summary>
+    [Fact]
+    public async Task CollectAsync_HostCancellationPropagatesAndCancelsPendingPage()
+    {
+        var fixture = new CollectorFixture([10]);
+        var pageStarted = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var pageCanceled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        fixture.PageReader.ReadPageOverride = async (_, _, _, _, _, cancellationToken) =>
+        {
+            pageStarted.TrySetResult();
+            try
+            {
+                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+                return null;
+            }
+            catch (OperationCanceledException)
+            {
+                pageCanceled.TrySetResult();
+                throw;
+            }
+        };
+        using var shutdown = new CancellationTokenSource();
+
+        Task<TrackedQuests?> collection = fixture.Collector.CollectAsync(
+            fixture.Source, fixture.PlayContext, shutdown.Token);
+        await pageStarted.Task.WaitAsync(TimeSpan.FromSeconds(2));
+        shutdown.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => collection);
+        await pageCanceled.Task.WaitAsync(TimeSpan.FromSeconds(2));
+    }
+
     /// <summary>Verifies the Host rejects a complete tracked-ID sequence above its collection limit.</summary>
     [Fact]
     public async Task CollectAsync_RejectsMoreThanMaximumTrackedQuests()

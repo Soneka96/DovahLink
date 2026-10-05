@@ -138,6 +138,30 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
             Assert.False(eventRaised);
         }
 
+        /// <summary>Verifies an unavailable baseline still records its area so resynchronization can finish.</summary>
+        [Fact]
+        public void Apply_UnavailableResynchronizationBaseline_RecordsAreaAcceptance()
+        {
+            Fixture fixture = CreateReady();
+            fixture.AdapterTracker.NeedsResynchronization = true;
+            fixture.Coordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+
+            fixture.Application.Apply(
+                fixture.FloatPublisher,
+                UpdateMode.Snapshot,
+                XpArea,
+                value: null,
+                isResynchronizationBaseline: true,
+                fixture.Source,
+                fixture.AdapterTracker.GetSnapshot(),
+                fixture.Context,
+                fixture.PlayContextTracker.TransitionGeneration,
+                fixture.Clock.UtcNow);
+
+            Assert.Single(fixture.Coordinator.RecordAreaAcceptedCalls);
+            Assert.Equal(XpArea, fixture.Coordinator.RecordAreaAcceptedCalls[0].AreaId);
+        }
+
         /// <summary>Verifies that an unchanged baseline restores the feed cache without publishing a duplicate change.</summary>
         [Fact]
         public void Apply_UnchangedResynchronizationBaseline_RestoresFeedSnapshot()
