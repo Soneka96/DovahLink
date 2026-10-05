@@ -20,6 +20,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         CharacterVitalsState,
         CharacterXpState,
         CredentialRejectionReason,
+        DovahLinkStateStatus,
         DovahLinkHost,
         DovahLinkHostAvailability,
         DovahLinkKnownHostSessionState,
@@ -30,12 +31,37 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         PlayerLocationCellKind,
         PlayerLocationState,
         QuestObjective,
+        StateSynchronization,
         TrackedQuest,
         TrackedQuestObjectiveState,
         TrackedQuestsState;
 
 /// Central test-owned catalog of representative Flutter app values.
 abstract final class Fixtures {
+  /// Builds an SDK synchronization value for presentation tests.
+  static StateSynchronization<T> buildStateSynchronization<T>({
+    /// The accepted SDK value, or `null` when no value is usable.
+    T? value,
+
+    /// The synchronization standing to represent.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+
+    /// The authority identity for a value with an accepted baseline.
+    String? stateAuthorityId = 'authority-a',
+
+    /// The play context for a value with an accepted baseline.
+    String? playContextId = 'context-a',
+
+    /// The last accepted revision for a value with an accepted baseline.
+    int? revision = 1,
+  }) => StateSynchronization<T>(
+    status: status,
+    value: value,
+    stateAuthorityId: stateAuthorityId,
+    playContextId: playContextId,
+    revision: revision,
+  );
+
   // ---- Connection ----
 
   /// Builds a Host identity with the representative local endpoint.

@@ -3,6 +3,8 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/live_state/presentation/state/session_live_state.state.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 import '../../../../../fixtures/fixtures.dart';
 
@@ -17,6 +19,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         GameTimeState,
         PlayerLocationState,
         StateSynchronization,
+        TrackedQuest,
         TrackedQuestsState;
 
 /// Exercises that the Overview ViewModel exposes the stored SDK values directly.
@@ -375,6 +378,106 @@ void main() {
       expect(viewModel.contextLine, isNull);
     });
   });
+
+  group('Property supernaturalLabel behaves correctly', () {
+    for (final (
+          String description,
+          bool isVampire,
+          bool hasVampireLordForm,
+          bool hasWerewolfForm,
+          String? expected,
+        )
+        in <(String, bool, bool, bool, String?)>[
+          ('none', false, false, false, null),
+          ('vampire', true, false, false, 'Vampire'),
+          ('vampire lord', true, true, false, 'Vampire Lord'),
+          ('werewolf', false, false, true, 'Werewolf'),
+          ('vampire and werewolf', true, false, true, 'Vampire · Werewolf'),
+          (
+            'vampire lord and werewolf',
+            true,
+            true,
+            true,
+            'Vampire Lord · Werewolf',
+          ),
+          (
+            'vampire lord and werewolf without vampire status',
+            false,
+            true,
+            true,
+            'Vampire Lord · Werewolf',
+          ),
+          (
+            'vampire lord without vampire status',
+            false,
+            true,
+            false,
+            'Vampire Lord',
+          ),
+        ]) {
+      test('Property supernaturalLabel presents $description', () {
+        final SessionOverviewViewModel viewModel = _buildViewModel(
+          _buildLiveState(
+            supernaturalTraits:
+                Fixtures.buildStateSynchronization<
+                  CharacterSupernaturalTraitsState?
+                >(
+                  value: Fixtures.buildSupernaturalTraits(
+                    isVampire: isVampire,
+                    hasVampireLordForm: hasVampireLordForm,
+                    hasWerewolfForm: hasWerewolfForm,
+                  ),
+                ),
+          ),
+        );
+
+        expect(viewModel.supernaturalLabel, expected);
+      });
+    }
+
+    test('Property supernaturalLabel omits unavailable traits', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(),
+      );
+
+      expect(viewModel.supernaturalLabel, isNull);
+    });
+  });
+
+  group('Property vitalsViewData behaves correctly', () {
+    test('Property vitalsViewData projects the SDK Vitals value', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterVitals: _synchronized<CharacterVitalsState>(
+            Fixtures.buildCharacterVitals(),
+          ),
+        ),
+      );
+
+      final SessionOverviewVitalsViewData viewData = viewModel.vitalsViewData;
+      expect(viewData.status, DovahLinkStateStatus.synchronized);
+      expect(viewData.healthRatio, closeTo(0.8, 0.0001));
+      expect(viewData.magickaRatio, closeTo(0.5, 0.0001));
+      expect(viewData.staminaRatio, closeTo(50 / 90, 0.0001));
+    });
+  });
+
+  group('Property questsViewData behaves correctly', () {
+    test('Property questsViewData projects the truthful empty summary', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          trackedQuests: _synchronized<TrackedQuestsState?>(
+            Fixtures.buildTrackedQuests(quests: <TrackedQuest>[]),
+          ),
+        ),
+      );
+
+      final SessionOverviewQuestViewData viewData = viewModel.questsViewData;
+      expect(viewData.title, 'NO QUEST TRACKED');
+      expect(viewData.detail, 'No path is marked.');
+      expect(viewData.status, DovahLinkStateStatus.synchronized);
+    });
+  });
 }
 
 /// Creates an Overview ViewModel from a test live-state slice.
@@ -392,14 +495,17 @@ SessionOverviewViewModel _buildViewModel(SessionLiveState state) =>
 
 /// Creates one state with concrete SDK synchronization values for every domain.
 SessionLiveState _buildLiveState({
+  StateSynchronization<CharacterVitalsState>? characterVitals,
   StateSynchronization<TrackedQuestsState?>? trackedQuests,
   StateSynchronization<CharacterIdentityState?>? characterIdentity,
   StateSynchronization<CharacterLevelState>? characterLevel,
   StateSynchronization<CharacterXpState>? characterXp,
   StateSynchronization<PlayerLocationState?>? playerLocation,
   StateSynchronization<GameTimeState?>? gameTime,
+  StateSynchronization<CharacterSupernaturalTraitsState?>? supernaturalTraits,
 }) => SessionLiveState(
   characterVitals:
+      characterVitals ??
       const StateSynchronization<CharacterVitalsState>.notSubscribed(),
   characterXp:
       characterXp ??
@@ -411,6 +517,7 @@ SessionLiveState _buildLiveState({
       characterIdentity ??
       const StateSynchronization<CharacterIdentityState?>.notSubscribed(),
   supernaturalTraits:
+      supernaturalTraits ??
       const StateSynchronization<
         CharacterSupernaturalTraitsState?
       >.notSubscribed(),
@@ -425,10 +532,7 @@ SessionLiveState _buildLiveState({
 );
 
 /// Creates a synchronization projection around one test value.
-StateSynchronization<T> _synchronized<T>(T value) => StateSynchronization<T>(
-  status: DovahLinkStateStatus.synchronized,
-  value: value,
-  stateAuthorityId: 'authority-a',
-  playContextId: 'context-a',
-  revision: 1,
-);
+StateSynchronization<T> _synchronized<T>(
+  T? value, {
+  DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+}) => Fixtures.buildStateSynchronization<T>(value: value, status: status);

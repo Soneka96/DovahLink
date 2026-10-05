@@ -20,11 +20,13 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         CharacterSupernaturalTraitsState,
         CharacterVitalsState,
         CredentialRejectionReason,
+        DovahLinkStateStatus,
         DovahLinkTrustState,
         GameTimeState,
         PlayerLocationCellKind,
         PlayerLocationState,
         QuestObjective,
+        StateSynchronization,
         TrackedQuest,
         TrackedQuestObjectiveState,
         TrackedQuestsState,
@@ -32,6 +34,40 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
 
 /// Exercises the Flutter app's representative typed fixture builders.
 void main() {
+  group('Method buildStateSynchronization behaves correctly', () {
+    test('Method buildStateSynchronization keeps value and status', () {
+      final StateSynchronization<int> synchronization =
+          Fixtures.buildStateSynchronization<int>(value: 43);
+
+      expect(synchronization.status, DovahLinkStateStatus.synchronized);
+      expect(synchronization.value, isA<int>());
+      expect(synchronization.value, 43);
+      expect(synchronization.stateAuthorityId, 'authority-a');
+      expect(synchronization.playContextId, 'context-a');
+      expect(synchronization.revision, 1);
+    });
+
+    test(
+      'Method buildStateSynchronization keeps explicit unavailable values',
+      () {
+        final StateSynchronization<int> synchronization =
+            Fixtures.buildStateSynchronization<int>(
+              status: DovahLinkStateStatus.failed,
+              value: null,
+              stateAuthorityId: null,
+              playContextId: null,
+              revision: null,
+            );
+
+        expect(synchronization.status, DovahLinkStateStatus.failed);
+        expect(synchronization.value, isNull);
+        expect(synchronization.stateAuthorityId, isNull);
+        expect(synchronization.playContextId, isNull);
+        expect(synchronization.revision, isNull);
+      },
+    );
+  });
+
   group('Method buildHost behaves correctly', () {
     test('Method buildHost builds representative defaults', () {
       final Host host = Fixtures.buildHost();

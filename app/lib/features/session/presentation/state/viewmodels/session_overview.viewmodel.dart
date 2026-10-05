@@ -2,6 +2,8 @@ import 'package:equatable/equatable.dart';
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.selectors.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
@@ -121,6 +123,31 @@ class SessionOverviewViewModel extends Equatable {
     ];
     return segments.isEmpty ? null : segments.join(' · ');
   }
+
+  /// The independent supernatural facts expressed as concise character labels.
+  String? get supernaturalLabel {
+    final CharacterSupernaturalTraitsState? traits = supernaturalTraits.value;
+    if (traits == null) {
+      return null;
+    }
+
+    final List<String> labels = <String>[
+      if (traits.hasVampireLordForm)
+        'Vampire Lord'
+      else if (traits.isVampire)
+        'Vampire',
+      if (traits.hasWerewolfForm) 'Werewolf',
+    ];
+    return labels.isEmpty ? null : labels.join(' · ');
+  }
+
+  /// The presentation ratios and synchronization standing for the three vitals.
+  SessionOverviewVitalsViewData get vitalsViewData =>
+      SessionOverviewVitalsViewData.fromSynchronization(characterVitals);
+
+  /// The truthful zero, single, or plural tracked-quest summary.
+  SessionOverviewQuestViewData get questsViewData =>
+      SessionOverviewQuestViewData.fromSynchronization(trackedQuests);
 
   /// Builds the Overview projection from the application's Redux store.
   /// @param store The Redux store containing the live-state slice.
