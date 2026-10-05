@@ -91,6 +91,23 @@ their own source and runtime validation during the corresponding implementation 
   backing `TESGlobal`s after the player, Calendar, and all four float globals are available. The
   running game's localized month name comes from `Calendar.GetMonthName()`. The Host publishes
   month 1–12 and derives minutes by flooring the fractional hour; timescale and era are not state.
+- `tracked_quests` includes only quests with `TESQuest.IsActive()` true. An objective is included
+  only from `PlayerCharacter.objectives` when its objective pointer is non-null, the referenced
+  definition's `ownerQuest` is the exact tracked quest, and the instance `instanceID` matches the
+  quest's `currentInstanceID`. The Adapter reads index and authored `displayText` from that
+  definition, and state plus `instanceID` from the player-owned objective instance; this excludes
+  definition-only objectives and prior quest-instance records without traversing quest-log history.
+  It does not resolve instance-specific substitutions: available localized authored text is
+  preserved as-is, and a missing display string is represented as null. The Adapter returns at most
+  32 runtime quest IDs
+  per page, one quest metadata item per response, and objective pages no larger than its existing
+  255-byte capture bound. Titles and objective text are capped at 126 UTF-8 bytes. The Host assembles
+  and sorts the complete result by runtime quest FormID, objective index, and instanceID; identical
+  records with the same quest/index/instanceID are deduplicated, while conflicting duplicates fail
+  the capture. Failed pages, changed play context or tracked-ID set, more than 128 tracked quests,
+  more than 1,024 objectives, or serialized state above 1 MiB make the area unavailable. The set is
+  rechecked before publication; objective changes during page reads remain a best-effort sampling
+  limitation. Runtime FormIDs are not durable identities and quest targets are excluded.
 
 ## Sources
 
