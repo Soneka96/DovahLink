@@ -138,35 +138,42 @@ is true during collection. The Adapter examines `PlayerCharacter.objectives` and
 instance only when its objective pointer is non-null and its definition's `ownerQuest` is the exact
 tracked quest; it takes the objective index and authored display text from the definition and state
 plus `instanceId` from the player-owned instance record. The private quest metadata page also carries
-the engine's `currentInstanceID`. The Host's inclusion rule accepts only instances whose
-`instanceId` matches that current ID, excluding prior quest-instance records while preserving raw
-capture ownership at the Adapter boundary. Definition-only objectives, unrelated or unowned
+the engine's `currentInstanceID`. The Host accepts only instances whose `instanceId` matches that
+current ID, excluding prior quest-instance records. The Adapter's objective cursor advances across
+the raw matching records before this Host filter, so prior-instance records still advance pages and
+count toward the Host's raw-objective limit. Definition-only objectives, unrelated or unowned
 instance records, quests merely known to the save, and the Miscellaneous journal heading are
-excluded; the Adapter does not traverse the quest log. `questId` is the nonzero runtime
-FormID and is meaningful only for the active runtime/load order; it is not a durable cross-install
-identity. `type` preserves the raw `QUEST_DATA::Type` code (unsigned 8-bit) and does not create
-product categories; unrecognized codes are retained as raw values, not replaced with a guessed
-category.
-`title` and objective display text come from the running game's localized records. The Adapter does
-not resolve instance-specific substitutions; authored placeholders remain as authored, and
-unavailable objective display text is `null`. Objective state preserves the engine values as
-`dormant`, `displayed`, `completed`, `completed_and_displayed`, `failed`, or
-`failed_and_displayed`; dormancy does not imply optionality. Quest records are ordered by unsigned
-runtime FormID and objectives by objective index then `instanceId`. Identical duplicate quest
-metadata is deduplicated; conflicting metadata for one quest ID makes the whole capture unavailable.
-Identical duplicate objective records with the same `(questId, index, instanceId)` are deduplicated;
-conflicting records for that key make the whole capture unavailable.
+excluded; the Adapter does not traverse the quest log. `questId` is the nonzero runtime FormID and is
+meaningful only for the active runtime/load order; it is not a durable cross-install identity. The
+objective `instanceId` preserves the engine's unsigned 32-bit range, including zero. `type` preserves
+the raw `QUEST_DATA::Type` code (unsigned 8-bit) and does not create product categories;
+unrecognized codes are retained as raw values, not replaced with a guessed category.
 
-The private Adapter transport bounds a tracked-ID page to 32 IDs, a metadata response to one quest,
-and each objective page to 255 bytes. Objective pages continue until exhausted; a page boundary
-never truncates the collection. Titles and objective text are limited to 126 UTF-8 bytes. One
-capture is limited to 128 tracked quests, 1,024 total objective records, and 1 MiB of serialized
-state. Exceeding a bound, encountering invalid/oversized text, or failing any required request makes
-the whole area unavailable instead of publishing a partial list. The Host binds every response to
-one adapter connection, state authority, play context, and capture generation; it rechecks the
-tracked-ID set before publication and discards the assembly if that set or the play context changed.
-Objective state can still advance while bounded pages are read, so this is a best-effort sampled
-snapshot, not an engine transaction. No quest target or map-marker resolution is included.
+`title` and objective display text come from the running game's localized records and must be valid
+UTF-8 without NUL. The Adapter does not resolve instance-specific substitutions; authored
+placeholders remain as authored, and unavailable objective display text is `null`. Objective state
+preserves the engine values as `dormant`, `displayed`, `completed`, `completed_and_displayed`,
+`failed`, or `failed_and_displayed`; dormancy does not imply optionality. Quest records are ordered by
+unsigned runtime FormID and objectives by objective index then `instanceId`. Repeated quest IDs in an
+otherwise valid Adapter enumeration are deduplicated by the Host, producing one public quest per
+unique ID. The Host reads each unique quest's metadata before and after its objective pages; a title,
+type, or `currentInstanceID` change makes the whole capture unavailable. Identical current objective
+records with the same `(questId, index, instanceId)` are deduplicated; conflicting records for that
+key make the whole capture unavailable.
+
+The private Adapter transport bounds one tracked-ID page to 32 IDs, one metadata response to one
+quest, and each objective page to 255 bytes. Objective cursors refer to raw matching records;
+objective pages continue until exhausted, and a page boundary never truncates a collection. Titles
+and objective text are limited to 126 UTF-8 bytes. These are per-response transport and text bounds;
+the Adapter owns no complete-collection policy. The Host limits a complete capture to 128 raw quest
+IDs, 1,024 raw objective-instance records, and 1 MiB for the serialized public `data` value. Exceeding
+a bound, encountering invalid or oversized text, or failing a required request makes the whole area
+unavailable instead of publishing a partial list. Each page response is matched to its pending
+correlation, Adapter instance and connection generation, and play-context identity and generation.
+The Host rechecks the tracked-ID set before publication and discards the assembly if the captured
+source authority or play context changed. Objective state can still advance while bounded pages are
+read, so this is a best-effort sampled Snapshot, not an engine transaction. No quest target or
+map-marker resolution is included.
 
 Identity is unavailable unless both name and race are usable; never send a partial object. The
 supernatural booleans are independent: preserve every observed combination, including all-false and

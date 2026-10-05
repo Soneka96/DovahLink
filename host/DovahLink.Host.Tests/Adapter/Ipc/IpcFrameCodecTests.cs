@@ -499,9 +499,9 @@ public class IpcFrameCodecTests
 
     /// <summary>Verifies bounded tracked-quest page requests round-trip every operation.</summary>
     [Theory]
-    [InlineData(TrackedQuestPageKind.TrackedQuestIds, 0u, (ushort)96)]
+    [InlineData(TrackedQuestPageKind.TrackedQuestIds, 0u, (ushort)65504)]
     [InlineData(TrackedQuestPageKind.QuestMetadata, 0x12345678u, (ushort)0)]
-    [InlineData(TrackedQuestPageKind.Objectives, 0x12345678u, (ushort)1024)]
+    [InlineData(TrackedQuestPageKind.Objectives, 0x12345678u, ushort.MaxValue)]
     public void RoundTrip_ReadTrackedQuestPage(TrackedQuestPageKind kind, uint questId, ushort cursor)
     {
         var codec = new IpcFrameCodec();
@@ -518,7 +518,7 @@ public class IpcFrameCodecTests
     [InlineData(TrackedQuestPageKind.TrackedQuestIds, 0u, (ushort)33)]
     [InlineData(TrackedQuestPageKind.QuestMetadata, 1u, (ushort)1)]
     [InlineData(TrackedQuestPageKind.Objectives, 0u, (ushort)0)]
-    [InlineData(TrackedQuestPageKind.Objectives, 1u, (ushort)1025)]
+    [InlineData((TrackedQuestPageKind)3, 1u, (ushort)0)]
     public void Encode_ReadTrackedQuestPage_InvalidArguments_Throws(TrackedQuestPageKind kind, uint questId, ushort cursor)
     {
         var codec = new IpcFrameCodec();
@@ -531,10 +531,9 @@ public class IpcFrameCodecTests
     [InlineData(0UL, (byte)0, 0u, (ushort)0)]
     [InlineData(1UL, (byte)0, 1u, (ushort)0)]
     [InlineData(1UL, (byte)0, 0u, (ushort)33)]
-    [InlineData(1UL, (byte)0, 0u, (ushort)160)]
     [InlineData(1UL, (byte)1, 1u, (ushort)1)]
+    [InlineData(1UL, (byte)1, 0u, (ushort)0)]
     [InlineData(1UL, (byte)2, 0u, (ushort)0)]
-    [InlineData(1UL, (byte)2, 1u, (ushort)1025)]
     public void Decode_ReadTrackedQuestPage_InvalidPayload_FailsClosed(ulong correlationId, byte kind, uint questId, ushort cursor)
     {
         var codec = new IpcFrameCodec();

@@ -500,15 +500,15 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             : IpcDecodeResult.Success(new IpcReadTrackedQuestPageMessage(correlationId, kind, questId, cursor));
     }
 
-    /// <summary>Checks the request's operation-specific quest ID and cursor bounds.</summary>
+    /// <summary>Checks the request's operation-specific structural shape.</summary>
     /// <param name="kind">The requested page kind.</param>
     /// <param name="questId">The runtime quest FormID.</param>
     /// <param name="cursor">The page offset.</param>
     private static bool IsValidTrackedQuestPageRequest(TrackedQuestPageKind kind, uint questId, ushort cursor) => kind switch
     {
-        TrackedQuestPageKind.TrackedQuestIds => questId == 0 && cursor <= 128 && cursor % 32 == 0,
+        TrackedQuestPageKind.TrackedQuestIds => questId == 0 && cursor % Constants.TrackedQuestIdsPerPage == 0,
         TrackedQuestPageKind.QuestMetadata => questId != 0 && cursor == 0,
-        TrackedQuestPageKind.Objectives => questId != 0 && cursor <= 1024,
+        TrackedQuestPageKind.Objectives => questId != 0,
         _ => false,
     };
 

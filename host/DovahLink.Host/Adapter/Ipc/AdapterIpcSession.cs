@@ -393,15 +393,15 @@ public sealed class AdapterIpcSession : IAdapterIpcSession
         return new IpcReadTrackedQuestPageMessage(NextCorrelationId(), pageKind, questId, cursor);
     }
 
-    /// <summary>Checks operation-specific tracked-quest request bounds.</summary>
+    /// <summary>Checks the tracked-quest request's structural argument shape.</summary>
     /// <param name="pageKind">The page operation requested.</param>
     /// <param name="questId">The runtime quest FormID.</param>
     /// <param name="cursor">The page offset.</param>
     private static bool IsValidTrackedQuestPageRequest(TrackedQuestPageKind pageKind, uint questId, ushort cursor) => pageKind switch
     {
-        TrackedQuestPageKind.TrackedQuestIds => questId == 0 && cursor <= 128 && cursor % 32 == 0,
+        TrackedQuestPageKind.TrackedQuestIds => questId == 0 && cursor % Constants.TrackedQuestIdsPerPage == 0,
         TrackedQuestPageKind.QuestMetadata => questId != 0 && cursor == 0,
-        TrackedQuestPageKind.Objectives => questId != 0 && cursor <= 1024,
+        TrackedQuestPageKind.Objectives => questId != 0,
         _ => false,
     };
 
