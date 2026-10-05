@@ -91,6 +91,22 @@ void main() {
     );
   });
 
+  group('Property values in TrackedQuestObjectiveState behaves correctly', () {
+    test(
+      'Property values in TrackedQuestObjectiveState preserves every engine state',
+      () {
+        expect(TrackedQuestObjectiveState.values, <TrackedQuestObjectiveState>[
+          TrackedQuestObjectiveState.dormant,
+          TrackedQuestObjectiveState.displayed,
+          TrackedQuestObjectiveState.completed,
+          TrackedQuestObjectiveState.completedAndDisplayed,
+          TrackedQuestObjectiveState.failed,
+          TrackedQuestObjectiveState.failedAndDisplayed,
+        ]);
+      },
+    );
+  });
+
   group('Method fromProtocolValue behaves correctly', () {
     test(
       'Method fromProtocolValue round-trips known areas and rejects unknown names',
