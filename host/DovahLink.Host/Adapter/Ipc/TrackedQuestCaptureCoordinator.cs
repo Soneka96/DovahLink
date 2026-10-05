@@ -6,11 +6,12 @@ using DovahLink.Host.Time;
 
 namespace DovahLink.Host.Adapter.Ipc;
 
-/// <summary>Runs one Host-owned multi-request tracked-quest capture at a time.</summary>
+/// <summary>Runs non-overlapping Slow-cadence capture cycles and publishes complete results.</summary>
 public interface ITrackedQuestCaptureCoordinator
 {
-    /// <summary>Runs complete tracked-quest Snapshot cycles until cancellation.</summary>
+    /// <summary>Runs serialized complete tracked-quest Snapshot cycles until cancellation.</summary>
     /// <param name="cancellationToken">The Host lifetime cancellation token.</param>
+    /// <remarks>Each attempt is followed by the full configured Slow interval (currently one second), including long captures; no catch-up cycle starts.</remarks>
     Task RunAsync(CancellationToken cancellationToken);
 }
 
@@ -79,10 +80,7 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
                     var playContext = new PlayContextSnapshot(current.PlayContextId, current.PlayContextGeneration);
                     TrackedQuests? value = await snapshotCollector.CollectAsync(
                         source, playContext, cancellationToken).ConfigureAwait(false);
-                    if (IsAuthorityCurrent(current))
-                    {
-                        ApplySnapshot(current, value);
-                    }
+                    ApplySnapshot(current, value);
                 }
 
                 await Task.Delay(Constants.LiveStateSlowSampleInterval, cancellationToken).ConfigureAwait(false);
@@ -102,7 +100,13 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
     {
         AdapterAvailabilitySnapshot adapterSnapshot = adapterAvailabilityTracker.GetSnapshot();
         PlayContextSnapshot playContext = playContextTracker.GetSnapshot();
-        if (!IsAuthorityCurrent(authority))
+        IAdapterIpcConnection? connection = listenerAccessor().CurrentConnection;
+        if (adapterSnapshot.Current != AdapterAvailability.Available
+            || adapterSnapshot.CurrentInstanceId != authority.InstanceId
+            || adapterSnapshot.ConnectionGeneration != authority.ConnectionGeneration
+            || connection?.ConnectionGeneration != authority.ConnectionGeneration
+            || playContext.Current != authority.PlayContextId
+            || playContext.TransitionGeneration != authority.PlayContextGeneration)
         {
             return;
         }
@@ -136,22 +140,6 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
         }
 
         return new CaptureAuthority(instanceId, adapter.ConnectionGeneration, playContextId, playContext.TransitionGeneration);
-    }
-
-    /// <summary>Checks that an assembly still belongs to the live adapter and play-context generations.</summary>
-    /// <param name="authority">The connection and play context captured at collection start.</param>
-    /// <returns>Whether both source authorities still match exactly.</returns>
-    private bool IsAuthorityCurrent(CaptureAuthority authority)
-    {
-        AdapterAvailabilitySnapshot adapter = adapterAvailabilityTracker.GetSnapshot();
-        PlayContextSnapshot playContext = playContextTracker.GetSnapshot();
-        IAdapterIpcConnection? connection = listenerAccessor().CurrentConnection;
-        return adapter.Current == AdapterAvailability.Available
-            && adapter.CurrentInstanceId == authority.InstanceId
-            && adapter.ConnectionGeneration == authority.ConnectionGeneration
-            && connection?.ConnectionGeneration == authority.ConnectionGeneration
-            && playContext.Current == authority.PlayContextId
-            && playContext.TransitionGeneration == authority.PlayContextGeneration;
     }
 
     /// <summary>The source authority that must remain unchanged for one collection.</summary>
