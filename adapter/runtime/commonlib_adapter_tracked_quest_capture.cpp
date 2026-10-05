@@ -3,7 +3,7 @@
 #include "runtime/commonlib_adapter_tracked_quest_capture.hpp"
 
 #include "capture/tracked_quest_page_codec.hpp"
-#include <array>
+#include "capture/tracked_quest_page_scanner.hpp"
 
 namespace dovahlink::adapter::runtime {
 
@@ -37,19 +37,11 @@ dispatch::SampleCaptureResult CaptureCommonLibTrackedQuestPage(
         if (dataHandler == nullptr) {
             return UnavailablePage();
         }
-        std::array<std::uint32_t, capture::kMaxTrackedQuests> ids{};
-        std::size_t trackedCount = 0;
-        for (RE::TESQuest* quest : dataHandler->GetFormArray<RE::TESQuest>()) {
-            if (quest == nullptr || !quest->IsActive()) {
-                continue;
-            }
-            if (trackedCount == ids.size()) {
-                return UnavailablePage();
-            }
-            ids[trackedCount++] = quest->GetFormID();
-        }
-        auto payload = capture::TrackedQuestPageCodec::EncodeQuestIdPage(
-            std::span(ids).first(trackedCount), request.cursor);
+        const auto& quests = dataHandler->GetFormArray<RE::TESQuest>();
+        auto payload = capture::ScanTrackedQuestIdsPage(
+            quests, request.cursor,
+            [](const RE::TESQuest* quest) { return quest != nullptr && quest->IsActive(); },
+            [](const RE::TESQuest* quest) { return quest->GetFormID(); });
         if (!payload) {
             return UnavailablePage();
         }
@@ -84,56 +76,30 @@ dispatch::SampleCaptureResult CaptureCommonLibTrackedQuestPage(
         return UnavailablePage();
     }
 
-    std::array<capture::TrackedQuestObjectiveFact, 32> facts{};
-    std::size_t factCount = 0;
-    std::size_t objectiveOffset = 0;
-    bool hasMore = false;
     //  Preserve every engine objective instance owned by this quest. The Host
     //  uses the metadata page's currentInstanceID to select the current set.
-    for (const RE::BGSInstancedQuestObjective& instance :
-         player->GetPlayerRuntimeData().objectives) {
-        RE::BGSQuestObjective* objective = instance.Objective;
-        if (objective == nullptr || objective->ownerQuest != quest) {
-            continue;
-        }
-        if (!capture::IsTrackedQuestObjectiveCountWithinLimit(objectiveOffset + 1)) {
-            return UnavailablePage();
-        }
-        if (objectiveOffset++ < request.cursor) {
-            continue;
-        }
-        std::optional<std::string_view> text;
-        if (objective->displayText.data() != nullptr) {
-            text = capture::TryMakeTrackedQuestTextView(objective->displayText.c_str(), true);
-            if (!text) {
-                return UnavailablePage();
+    const auto& instances = player->GetPlayerRuntimeData().objectives;
+    auto payload = capture::ScanTrackedQuestObjectivesPage(
+        quest->GetFormID(), request.cursor, instances,
+        [quest](const RE::BGSInstancedQuestObjective& instance) {
+            return instance.Objective != nullptr && instance.Objective->ownerQuest == quest;
+        },
+        [](const RE::BGSInstancedQuestObjective& instance)
+            -> std::optional<capture::TrackedQuestObjectiveFact> {
+            RE::BGSQuestObjective* objective = instance.Objective;
+            std::optional<std::string_view> text;
+            if (objective->displayText.data() != nullptr) {
+                text = capture::TryMakeTrackedQuestTextView(objective->displayText.c_str(), true);
+                if (!text) {
+                    return std::nullopt;
+                }
             }
-        }
-        const auto fact = capture::TrackedQuestObjectiveFact{
-            .index = objective->index,
-            .instanceId = instance.instanceID,
-            .state = static_cast<std::uint8_t>(instance.InstanceState),
-            .text = text};
-        if (factCount == facts.size()) {
-            hasMore = true;
-            break;
-        }
-        facts[factCount] = fact;
-        auto fitsPage = capture::TrackedQuestPageCodec::EncodeObjectives(
-            quest->GetFormID(),
-            static_cast<std::uint16_t>(request.cursor + factCount + 1), false,
-            std::span(facts).first(factCount + 1));
-        if (!fitsPage) {
-            hasMore = true;
-            break;
-        }
-        ++factCount;
-    }
-
-    const std::uint16_t nextCursor = static_cast<std::uint16_t>(request.cursor + factCount);
-    auto payload = capture::TrackedQuestPageCodec::EncodeObjectives(
-        quest->GetFormID(), nextCursor, hasMore,
-        std::span(facts).first(factCount));
+            return capture::TrackedQuestObjectiveFact{
+                .index = objective->index,
+                .instanceId = instance.instanceID,
+                .state = static_cast<std::uint8_t>(instance.InstanceState),
+                .text = text};
+        });
     if (!payload) {
         return UnavailablePage();
     }

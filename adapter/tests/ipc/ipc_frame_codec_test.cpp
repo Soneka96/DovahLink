@@ -495,14 +495,14 @@ TEST_CASE("tracked-quest page requests round-trip each bounded operation",
     for (const capture::TrackedQuestPageRequest request : {
              capture::TrackedQuestPageRequest{
                  .kind = capture::TrackedQuestPageKind::kTrackedQuestIds,
-                 .cursor = 96},
+                 .cursor = 65504},
              capture::TrackedQuestPageRequest{
                  .kind = capture::TrackedQuestPageKind::kQuestMetadata,
                  .questId = 0x12345678},
              capture::TrackedQuestPageRequest{
                  .kind = capture::TrackedQuestPageKind::kObjectives,
                  .questId = 0x12345678,
-                 .cursor = 1024}}) {
+                 .cursor = (std::numeric_limits<std::uint16_t>::max)()}}) {
         IpcReadTrackedQuestPageMessage original{.correlationId = 7,
                                                 .request = request};
 
@@ -528,8 +528,7 @@ TEST_CASE("tracked-quest page requests reject invalid operation arguments",
     CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcReadTrackedQuestPageMessage{
                         .correlationId = 1,
                         .request = {.kind = capture::TrackedQuestPageKind::kObjectives,
-                                    .questId = 1,
-                                    .cursor = 1025}}}),
+                                    .questId = 0}}}),
                     std::invalid_argument);
 }
 
@@ -558,10 +557,10 @@ TEST_CASE("tracked-quest page requests fail closed on malformed payloads",
              std::tuple{std::uint64_t{1}, std::uint8_t{255}, std::uint32_t{0}, std::uint16_t{0}},
              std::tuple{std::uint64_t{1}, std::uint8_t{0}, std::uint32_t{1}, std::uint16_t{0}},
              std::tuple{std::uint64_t{1}, std::uint8_t{0}, std::uint32_t{0}, std::uint16_t{33}},
-             std::tuple{std::uint64_t{1}, std::uint8_t{0}, std::uint32_t{0}, std::uint16_t{160}},
              std::tuple{std::uint64_t{1}, std::uint8_t{1}, std::uint32_t{1}, std::uint16_t{1}},
+             std::tuple{std::uint64_t{1}, std::uint8_t{1}, std::uint32_t{1}, std::uint16_t{65535}},
              std::tuple{std::uint64_t{1}, std::uint8_t{2}, std::uint32_t{0}, std::uint16_t{0}},
-             std::tuple{std::uint64_t{1}, std::uint8_t{2}, std::uint32_t{1}, std::uint16_t{1025}}}) {
+             std::tuple{std::uint64_t{1}, std::uint8_t{3}, std::uint32_t{1}, std::uint16_t{0}}}) {
         auto result = decode(correlationId, kind, questId, cursor);
         CHECK_FALSE(result.has_value());
         CHECK(result.error() == IpcRejectReason::kMalformedPayload);

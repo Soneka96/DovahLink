@@ -40,13 +40,6 @@ inline std::optional<std::string_view> TryMakeTrackedQuestTextView(
     return std::nullopt;
 }
 
-///  Checks the Host-approved aggregate objective bound without truncation.
-///  @param count The number of current objective instances seen for one quest.
-///  @return Whether the count can remain within the bounded capture domain.
-constexpr bool IsTrackedQuestObjectiveCountWithinLimit(std::size_t count) {
-    return count <= kMaxTrackedQuestObjectives;
-}
-
 ///  One raw objective-instance fact used by the bounded page encoder.
 struct TrackedQuestObjectiveFact {
     ///  The objective's authored index in the quest.
@@ -63,13 +56,14 @@ struct TrackedQuestObjectiveFact {
 ///  Encodes one tracked-quest page as a bounded private capture payload.
 class TrackedQuestPageCodec final {
   public:
-    ///  Encodes up to 32 runtime quest IDs and whether another page exists.
+    ///  Encodes an already selected page of runtime quest IDs.
     ///  @param ids Runtime quest IDs in engine enumeration order.
     ///  @param hasMore Whether additional tracked quest IDs remain.
     ///  @return The encoded page, or `std::nullopt` for invalid or oversized facts.
     static std::optional<CapturedPayload> EncodeQuestIds(
         std::span<const std::uint32_t> ids, bool hasMore) {
-        if (ids.size() > kTrackedQuestIdsPerPage || (ids.empty() && hasMore) ||
+        if (ids.size() > kTrackedQuestIdsPerPage ||
+            (hasMore && ids.size() != kTrackedQuestIdsPerPage) ||
             std::ranges::any_of(ids, [](std::uint32_t id) { return id == 0; })) {
             return std::nullopt;
         }
@@ -81,23 +75,6 @@ class TrackedQuestPageCodec final {
         }
         payload.size = static_cast<std::uint8_t>(2 + ids.size() * sizeof(std::uint32_t));
         return payload;
-    }
-
-    ///  Selects and encodes one tracked-ID page from a bounded capture list.
-    ///  @param trackedIds The tracked runtime quest IDs in engine enumeration order.
-    ///  @param cursor The requested starting offset.
-    ///  @return The encoded page, or `std::nullopt` when the list exceeds its bound or is invalid.
-    static std::optional<CapturedPayload> EncodeQuestIdPage(
-        std::span<const std::uint32_t> trackedIds, std::uint16_t cursor) {
-        if (trackedIds.size() > kMaxTrackedQuests ||
-            std::ranges::any_of(trackedIds, [](std::uint32_t id) { return id == 0; })) {
-            return std::nullopt;
-        }
-        const std::size_t start = std::min<std::size_t>(cursor, trackedIds.size());
-        const std::size_t count = std::min<std::size_t>(
-            kTrackedQuestIdsPerPage, trackedIds.size() - start);
-        const bool hasMore = start + count < trackedIds.size();
-        return EncodeQuestIds(trackedIds.subspan(start, count), hasMore);
     }
 
     ///  Encodes one quest's raw type and bounded localized title.
@@ -128,15 +105,13 @@ class TrackedQuestPageCodec final {
     ///  Each entry carries its authored index, instance ID, raw state, and nullable localized text.
     ///  @param questId The nonzero runtime quest FormID.
     ///  @param nextCursor The first objective offset after this page.
-    ///  @param hasMore Whether another objective page remains.
+    ///  @param hasMore Whether more raw matching objective records remain.
     ///  @param objectives The complete set of facts selected for this page.
     ///  @return The encoded page, or `std::nullopt` for invalid or oversized facts.
     static std::optional<CapturedPayload> EncodeObjectives(
         std::uint32_t questId, std::uint16_t nextCursor, bool hasMore,
         std::span<const TrackedQuestObjectiveFact> objectives) {
-        if (questId == 0 || (objectives.empty() && hasMore) ||
-            nextCursor > kMaxTrackedQuestObjectives ||
-            (hasMore && nextCursor == kMaxTrackedQuestObjectives)) {
+        if (questId == 0 || (objectives.empty() && hasMore)) {
             return std::nullopt;
         }
         CapturedPayload payload;

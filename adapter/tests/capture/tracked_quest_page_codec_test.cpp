@@ -3,13 +3,37 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <limits>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "capture/tracked_quest_page_codec.hpp"
 #include "capture/tracked_quest_page_request.hpp"
+#include "capture/tracked_quest_page_scanner.hpp"
 
 using namespace dovahlink::adapter::capture;
+
+///  Represents one test quest candidate, including entries the engine scan skips.
+struct FakeQuest {
+    ///  Whether the engine enumeration contains a null quest pointer.
+    bool isNull = false;
+    ///  Whether the quest's engine tracking predicate is active.
+    bool isTracked = false;
+    ///  The quest's runtime FormID.
+    std::uint32_t questId = 0;
+};
+
+///  Represents one raw objective instance and whether it belongs to the requested quest.
+struct FakeObjectiveInstance {
+    ///  Whether this record belongs to the requested quest.
+    bool belongsToQuest = true;
+    ///  Whether its authored text is valid for page capture.
+    bool hasValidText = true;
+    ///  The copied objective facts.
+    TrackedQuestObjectiveFact fact{};
+};
 
 TEST_CASE("tracked quest ID page encoding is bounded and little-endian") {
     std::array<std::uint32_t, kTrackedQuestIdsPerPage> ids{};
@@ -30,25 +54,242 @@ TEST_CASE("tracked quest ID page encoding is bounded and little-endian") {
     CHECK(payload->bytes[payload->size - 4] == std::byte{0x04});
 }
 
-TEST_CASE("tracked quest ID page selection continues by cursor and enforces the full-list bound") {
-    std::array<std::uint32_t, kMaxTrackedQuests> ids{};
-    for (std::size_t index = 0; index < ids.size(); ++index) {
-        ids[index] = static_cast<std::uint32_t>(index + 1);
+TEST_CASE("tracked quest ID scanning returns short pages without counting skipped quests") {
+    const std::array<FakeQuest, 6> quests{
+        FakeQuest{.isNull = true},
+        FakeQuest{.isTracked = false, .questId = 10},
+        FakeQuest{.isTracked = true, .questId = 1},
+        FakeQuest{.isNull = true, .isTracked = true},
+        FakeQuest{.isTracked = true, .questId = 2},
+        FakeQuest{.isTracked = false, .questId = 11},
+    };
+
+    const auto payload = ScanTrackedQuestIdsPage(
+        quests, 0,
+        [](const FakeQuest& quest) { return !quest.isNull && quest.isTracked; },
+        [](const FakeQuest& quest) { return quest.questId; });
+
+    REQUIRE(payload.has_value());
+    CHECK(payload->bytes[0] == std::byte{2});
+    CHECK(payload->bytes[1] == std::byte{0});
+    CHECK(payload->bytes[2] == std::byte{1});
+    CHECK(payload->bytes[6] == std::byte{2});
+}
+
+TEST_CASE("tracked quest ID scanning handles exact and multiple pages") {
+    std::vector<FakeQuest> quests;
+    for (std::uint32_t id = 1; id <= 33; ++id) {
+        quests.push_back(FakeQuest{.isTracked = true, .questId = id});
     }
 
-    auto secondPage = TrackedQuestPageCodec::EncodeQuestIdPage(ids, 32);
+    std::size_t predicateReads = 0;
+    std::size_t idReads = 0;
+    const auto firstPage = ScanTrackedQuestIdsPage(
+        quests, 0,
+        [&predicateReads](const FakeQuest& quest) {
+            ++predicateReads;
+            return quest.isTracked;
+        },
+        [&idReads](const FakeQuest& quest) {
+            ++idReads;
+            return quest.questId;
+        });
+    REQUIRE(firstPage.has_value());
+    CHECK(firstPage->bytes[0] == std::byte{32});
+    CHECK(firstPage->bytes[1] == std::byte{1});
+    CHECK(firstPage->bytes[2] == std::byte{1});
+    CHECK(firstPage->bytes[firstPage->size - 4] == std::byte{32});
+    CHECK(predicateReads == 33);
+    CHECK(idReads == 32);
+
+    const auto secondPage = ScanTrackedQuestIdsPage(
+        quests, 32, [](const FakeQuest& quest) { return quest.isTracked; },
+        [](const FakeQuest& quest) { return quest.questId; });
     REQUIRE(secondPage.has_value());
-    CHECK(secondPage->size == 2 + 4 * kTrackedQuestIdsPerPage);
-    CHECK(secondPage->bytes[1] == std::byte{1});
+    CHECK(secondPage->bytes[0] == std::byte{1});
+    CHECK(secondPage->bytes[1] == std::byte{0});
     CHECK(secondPage->bytes[2] == std::byte{33});
 
-    auto lastPage = TrackedQuestPageCodec::EncodeQuestIdPage(ids, 96);
-    REQUIRE(lastPage.has_value());
-    CHECK(lastPage->bytes[1] == std::byte{0});
-    CHECK(lastPage->bytes[2] == std::byte{97});
+    quests.pop_back();
+    const auto exactPage = ScanTrackedQuestIdsPage(
+        quests, 0, [](const FakeQuest& quest) { return quest.isTracked; },
+        [](const FakeQuest& quest) { return quest.questId; });
+    REQUIRE(exactPage.has_value());
+    CHECK(exactPage->bytes[0] == std::byte{32});
+    CHECK(exactPage->bytes[1] == std::byte{0});
+}
 
-    std::array<std::uint32_t, kMaxTrackedQuests + 1> oversized{};
-    CHECK_FALSE(TrackedQuestPageCodec::EncodeQuestIdPage(oversized, 0));
+TEST_CASE("tracked quest ID scanning pages beyond the Host complete-collection limit") {
+    std::vector<FakeQuest> quests;
+    for (std::uint32_t id = 1; id <= 160; ++id) {
+        quests.push_back(FakeQuest{.isTracked = true, .questId = id});
+    }
+
+    const auto payload = ScanTrackedQuestIdsPage(
+        quests, 0, [](const FakeQuest& quest) { return quest.isTracked; },
+        [](const FakeQuest& quest) { return quest.questId; });
+
+    REQUIRE(payload.has_value());
+    CHECK(payload->bytes[0] == std::byte{32});
+    CHECK(payload->bytes[1] == std::byte{1});
+}
+
+TEST_CASE("tracked quest ID scanning rejects zero runtime IDs") {
+    const std::array<FakeQuest, 1> zeroId{FakeQuest{.isTracked = true}};
+    CHECK_FALSE(ScanTrackedQuestIdsPage(
+        zeroId, 0, [](const FakeQuest& quest) { return quest.isTracked; },
+        [](const FakeQuest& quest) { return quest.questId; }));
+}
+
+TEST_CASE("objective scanning pages by raw quest-owned record offsets") {
+    std::vector<FakeObjectiveInstance> instances;
+    //  Alternating instance IDs model current and prior quest instances in the raw engine sequence.
+    for (std::uint16_t index = 0; index < 34; ++index) {
+        instances.push_back(FakeObjectiveInstance{
+            .belongsToQuest = index != 1,
+            .fact = TrackedQuestObjectiveFact{
+                .index = index,
+                .instanceId = index % 2 == 0 ? 2u : 1u,
+                .state = 1,
+                .text = std::nullopt,
+            },
+        });
+    }
+
+    const auto firstPage = ScanTrackedQuestObjectivesPage(
+        1, 0, instances,
+        [](const FakeObjectiveInstance& instance) { return instance.belongsToQuest; },
+        [](const FakeObjectiveInstance& instance) -> std::optional<TrackedQuestObjectiveFact> {
+            return instance.hasValidText ? std::optional(instance.fact) : std::nullopt;
+        });
+    REQUIRE(firstPage.has_value());
+    CHECK(firstPage->bytes[4] == std::byte{30});
+    CHECK(firstPage->bytes[7] == std::byte{30});
+    CHECK(firstPage->bytes[8] == std::byte{0});
+    CHECK(firstPage->bytes[10] == std::byte{2});
+    CHECK(firstPage->bytes[firstPage->size - 8] == std::byte{30});
+
+    const auto secondPage = ScanTrackedQuestObjectivesPage(
+        1, 30, instances,
+        [](const FakeObjectiveInstance& instance) { return instance.belongsToQuest; },
+        [](const FakeObjectiveInstance& instance) -> std::optional<TrackedQuestObjectiveFact> {
+            return instance.hasValidText ? std::optional(instance.fact) : std::nullopt;
+        });
+    REQUIRE(secondPage.has_value());
+    CHECK(secondPage->bytes[4] == std::byte{33});
+    CHECK(secondPage->bytes[7] == std::byte{3});
+    CHECK(secondPage->bytes[6] == std::byte{0});
+    CHECK(secondPage->bytes[8] == std::byte{31});
+    CHECK(secondPage->bytes[10] == std::byte{1});
+}
+
+TEST_CASE("objective scanning uses UTF-8 byte sizes for page boundaries") {
+    std::string firstUtf8;
+    std::string secondUtf8;
+    for (int index = 0; index < 63; ++index) {
+        firstUtf8 += "é";
+    }
+    for (int index = 0; index < 47; ++index) {
+        secondUtf8 += "é";
+    }
+    secondUtf8 += "x";
+    const std::array<FakeObjectiveInstance, 4> instances{
+        FakeObjectiveInstance{.fact = TrackedQuestObjectiveFact{
+                                  .index = 1, .instanceId = 1, .state = 1, .text = std::string_view(firstUtf8)}},
+        FakeObjectiveInstance{.fact = TrackedQuestObjectiveFact{.index = 2, .instanceId = 1, .state = 1, .text = std::string_view(secondUtf8)}},
+        FakeObjectiveInstance{.fact = TrackedQuestObjectiveFact{.index = 3, .instanceId = 1, .state = 1, .text = std::string_view("yz")}},
+        FakeObjectiveInstance{.fact = TrackedQuestObjectiveFact{.index = 4, .instanceId = 1, .state = 1, .text = std::nullopt}},
+    };
+
+    const auto firstPage = ScanTrackedQuestObjectivesPage(
+        1, 0, instances,
+        [](const FakeObjectiveInstance& instance) { return instance.belongsToQuest; },
+        [](const FakeObjectiveInstance& instance) -> std::optional<TrackedQuestObjectiveFact> {
+            return instance.hasValidText ? std::optional(instance.fact) : std::nullopt;
+        });
+
+    REQUIRE(firstPage.has_value());
+    CHECK(firstPage->size == 255);
+    CHECK(firstPage->bytes[4] == std::byte{3});
+    CHECK(firstPage->bytes[6] == std::byte{1});
+    CHECK(firstPage->bytes[8] == std::byte{1});
+    CHECK(firstPage->bytes[142] == std::byte{2});
+    CHECK(firstPage->bytes[245] == std::byte{3});
+
+    const auto nextPage = ScanTrackedQuestObjectivesPage(
+        1, 3, instances,
+        [](const FakeObjectiveInstance& instance) { return instance.belongsToQuest; },
+        [](const FakeObjectiveInstance& instance) -> std::optional<TrackedQuestObjectiveFact> {
+            return instance.hasValidText ? std::optional(instance.fact) : std::nullopt;
+        });
+
+    REQUIRE(nextPage.has_value());
+    CHECK(nextPage->bytes[4] == std::byte{4});
+    CHECK(nextPage->bytes[6] == std::byte{0});
+    CHECK(nextPage->bytes[7] == std::byte{1});
+    CHECK(nextPage->bytes[8] == std::byte{4});
+}
+
+TEST_CASE("objective scanning rejects invalid captured text") {
+    const std::array<FakeObjectiveInstance, 1> instances{
+        FakeObjectiveInstance{.hasValidText = false},
+    };
+
+    CHECK_FALSE(ScanTrackedQuestObjectivesPage(
+        1, 0, instances,
+        [](const FakeObjectiveInstance& instance) { return instance.belongsToQuest; },
+        [](const FakeObjectiveInstance& instance) -> std::optional<TrackedQuestObjectiveFact> {
+            return instance.hasValidText ? std::optional(instance.fact) : std::nullopt;
+        }));
+}
+
+TEST_CASE("objective scanning fails closed when another cursor cannot be represented") {
+    std::vector<FakeObjectiveInstance> instances;
+    for (std::uint32_t index = 0; index <= 65535; ++index) {
+        instances.push_back(FakeObjectiveInstance{
+            .fact = TrackedQuestObjectiveFact{.index = 1, .instanceId = 1, .state = 1}});
+    }
+
+    CHECK_FALSE(ScanTrackedQuestObjectivesPage(
+        1, (std::numeric_limits<std::uint16_t>::max)(), instances,
+        [](const FakeObjectiveInstance& instance) { return instance.belongsToQuest; },
+        [](const FakeObjectiveInstance& instance) -> std::optional<TrackedQuestObjectiveFact> {
+            return instance.hasValidText ? std::optional(instance.fact) : std::nullopt;
+        }));
+
+    const std::vector<FakeObjectiveInstance> noInstances;
+    const auto emptyPage = ScanTrackedQuestObjectivesPage(
+        1, (std::numeric_limits<std::uint16_t>::max)(), noInstances,
+        [](const FakeObjectiveInstance& instance) { return instance.belongsToQuest; },
+        [](const FakeObjectiveInstance& instance) -> std::optional<TrackedQuestObjectiveFact> {
+            return instance.hasValidText ? std::optional(instance.fact) : std::nullopt;
+        });
+
+    REQUIRE(emptyPage.has_value());
+    CHECK(emptyPage->bytes[4] == std::byte{0xFF});
+    CHECK(emptyPage->bytes[5] == std::byte{0xFF});
+    CHECK(emptyPage->bytes[6] == std::byte{0});
+    CHECK(emptyPage->bytes[7] == std::byte{0});
+}
+
+TEST_CASE("objective scanning stays pageable after the Host aggregate limit") {
+    std::vector<FakeObjectiveInstance> instances;
+    for (std::uint16_t index = 0; index < 1100; ++index) {
+        instances.push_back(FakeObjectiveInstance{
+            .fact = TrackedQuestObjectiveFact{.index = index, .instanceId = 1, .state = 1}});
+    }
+
+    const auto page = ScanTrackedQuestObjectivesPage(
+        1, 1024, instances,
+        [](const FakeObjectiveInstance& instance) { return instance.belongsToQuest; },
+        [](const FakeObjectiveInstance& instance) -> std::optional<TrackedQuestObjectiveFact> {
+            return instance.hasValidText ? std::optional(instance.fact) : std::nullopt;
+        });
+
+    REQUIRE(page.has_value());
+    CHECK(page->bytes[4] == std::byte{30});
+    CHECK(page->bytes[6] == std::byte{1});
+    CHECK(page->bytes[7] == std::byte{30});
 }
 
 TEST_CASE("tracked quest page encoding rejects malformed IDs and text") {
@@ -94,6 +335,28 @@ TEST_CASE("objective page encoding retains instance state and nullable text") {
     CHECK(payload->bytes[secondEntry + 7] == std::byte{0xFF});
 }
 
+TEST_CASE("objective page encoding preserves every raw engine state and zero instance IDs") {
+    const std::array<TrackedQuestObjectiveFact, 6> objectives{
+        TrackedQuestObjectiveFact{.index = 0, .instanceId = 0, .state = 0},
+        TrackedQuestObjectiveFact{.index = 1, .instanceId = 1, .state = 1},
+        TrackedQuestObjectiveFact{.index = 2, .instanceId = 2, .state = 2},
+        TrackedQuestObjectiveFact{.index = 3, .instanceId = 3, .state = 3},
+        TrackedQuestObjectiveFact{.index = 4, .instanceId = 4, .state = 4},
+        TrackedQuestObjectiveFact{.index = 5, .instanceId = 5, .state = 5},
+    };
+
+    const auto payload = TrackedQuestPageCodec::EncodeObjectives(1, 6, false, objectives);
+
+    REQUIRE(payload.has_value());
+    for (std::size_t index = 0; index < objectives.size(); ++index) {
+        CHECK(payload->bytes[8 + index * 8 + 6] == static_cast<std::byte>(index));
+    }
+    CHECK(payload->bytes[10] == std::byte{0});
+    CHECK(payload->bytes[11] == std::byte{0});
+    CHECK(payload->bytes[12] == std::byte{0});
+    CHECK(payload->bytes[13] == std::byte{0});
+}
+
 TEST_CASE("objective page encoding fails instead of truncating an oversized page") {
     std::array<TrackedQuestObjectiveFact, 31> objectives{};
     for (std::size_t index = 0; index < objectives.size(); ++index) {
@@ -124,7 +387,7 @@ TEST_CASE("objective page encoding accepts the exact 255-byte payload bound") {
 
 TEST_CASE("tracked quest page requests enforce operation-specific bounds") {
     CHECK(IsValidTrackedQuestPageRequest({.kind = TrackedQuestPageKind::kTrackedQuestIds,
-                                          .cursor = 96}));
+                                          .cursor = 65504}));
     CHECK_FALSE(IsValidTrackedQuestPageRequest({.kind = TrackedQuestPageKind::kTrackedQuestIds,
                                                 .questId = 1}));
     CHECK_FALSE(IsValidTrackedQuestPageRequest({.kind = TrackedQuestPageKind::kTrackedQuestIds,
@@ -136,14 +399,9 @@ TEST_CASE("tracked quest page requests enforce operation-specific bounds") {
                                                 .cursor = 1}));
     CHECK(IsValidTrackedQuestPageRequest({.kind = TrackedQuestPageKind::kObjectives,
                                           .questId = 1,
-                                          .cursor = 1024}));
+                                          .cursor = (std::numeric_limits<std::uint16_t>::max)()}));
     CHECK_FALSE(IsValidTrackedQuestPageRequest({.kind = TrackedQuestPageKind::kObjectives,
                                                 .questId = 0}));
-}
-
-TEST_CASE("tracked quest objective count fails closed exactly past its aggregate bound") {
-    CHECK(IsTrackedQuestObjectiveCountWithinLimit(kMaxTrackedQuestObjectives));
-    CHECK_FALSE(IsTrackedQuestObjectiveCountWithinLimit(kMaxTrackedQuestObjectives + 1));
 }
 
 TEST_CASE("quest text extraction handles missing, malformed, and oversized runtime strings") {
