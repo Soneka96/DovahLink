@@ -550,7 +550,10 @@ enum DovahLinkStateArea {
   playerLocation('player_location'),
 
   /// The current Skyrim calendar time.
-  gameTime('game_time');
+  gameTime('game_time'),
+
+  /// Every quest currently tracked by the player and its current objectives.
+  trackedQuests('tracked_quests');
 
   /// The canonical protocol value for this area.
   final String protocolValue;

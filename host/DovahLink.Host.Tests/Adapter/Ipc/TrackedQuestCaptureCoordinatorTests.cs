@@ -185,6 +185,7 @@ public class TrackedQuestCaptureCoordinatorTests
     /// <param name="fixture">The scripted page source.</param>
     /// <param name="questId">The quest runtime FormID.</param>
     /// <param name="objectiveCount">The number of raw current-instance objective facts.</param>
+    /// <param name="objectiveInstanceId">The engine instance ID attached to each objective.</param>
     private static void AddQuestWithManyObjectives(
         CaptureFixture fixture,
         uint questId,
