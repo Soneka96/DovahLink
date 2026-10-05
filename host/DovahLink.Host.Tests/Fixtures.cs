@@ -60,22 +60,42 @@ public static class Fixtures
 
     /// <summary>Builds a detached local result whose peer frame is the vector client Bootstrap.</summary>
     /// <param name="ceremonyIdentityFill">The byte every ceremony-identity byte is set to.</param>
+    /// <param name="peerRole">The peer's role.</param>
+    /// <param name="profileVersion">The profile version.</param>
+    /// <param name="peerBootstrap">The authenticated peer frame, or <see langword="null"/> for <see cref="BuildClientCandidateFrame"/>.</param>
+    /// <param name="sharedContext">The authenticated shared context, or <see langword="null"/> for the DovahLink constant.</param>
+    /// <param name="profileIdentifier">The profile identifier, or <see langword="null"/> for the frozen profile's.</param>
     /// <returns>The snapshot.</returns>
-    public static CeremonyResultSnapshot BuildCeremonyResultSnapshot(byte ceremonyIdentityFill = 0x5a)
-    {
-        DovahLinkBootstrap client = DovahLinkBootstrap.ForClientCandidate(
-            new ClientId(Guid.Parse("0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0")),
-            P256PublicKey.FromSubjectPublicKeyInfo(BuildP256SubjectPublicKeyInfo(
-                "3059301306072a8648ce3d020106082a8648ce3d03010703420004fdf05d25acd08029eabaf4dbafefda88f9df6acc278a88cff9d67934b71e15cbe8be70c2230db3aa58ac0bd5fd14dbb15e6c94a249aee685890665d145a07484")));
-        return new CeremonyResultSnapshot(
+    public static CeremonyResultSnapshot BuildCeremonyResultSnapshot(
+        byte ceremonyIdentityFill = 0x5a,
+        CeremonyPeerRole peerRole = CeremonyPeerRole.Initiator,
+        uint profileVersion = 1,
+        byte[]? peerBootstrap = null,
+        byte[]? sharedContext = null,
+        byte[]? profileIdentifier = null) =>
+        new(
             Enumerable.Repeat(ceremonyIdentityFill, 32).ToArray(),
-            CeremonyPeerRole.Initiator,
-            1,
+            peerRole,
+            profileVersion,
             new byte[16],
-            client.EncodeCanonicalFrame(),
-            client.SharedContext,
-            "sas-pairing-vodozemac-profile-draft-01"u8);
-    }
+            peerBootstrap ?? BuildClientCandidateFrame(),
+            sharedContext ?? "dovahlink.sas-pairing.bootstrap-v1.pairing"u8.ToArray(),
+            profileIdentifier ?? "sas-pairing-vodozemac-profile-draft-01"u8.ToArray());
+
+    /// <summary>
+    /// Builds the canonical client Bootstrap frame from candidate values; the defaults are the vector
+    /// client ID and published test client key.
+    /// </summary>
+    /// <param name="clientUuid">The candidate client ID text.</param>
+    /// <param name="clientKeyHex">The candidate client key SPKI hex.</param>
+    /// <returns>The canonical frame.</returns>
+    public static byte[] BuildClientCandidateFrame(
+        string clientUuid = "0f1e2d3c-4b5a-6978-8796-a5b4c3d2e1f0",
+        string clientKeyHex =
+            "3059301306072a8648ce3d020106082a8648ce3d03010703420004fdf05d25acd08029eabaf4dbafefda88f9df6acc278a88cff9d67934b71e15cbe8be70c2230db3aa58ac0bd5fd14dbb15e6c94a249aee685890665d145a07484") =>
+        DovahLinkBootstrap.ForClientCandidate(
+            new ClientId(Guid.Parse(clientUuid)),
+            P256PublicKey.FromSubjectPublicKeyInfo(BuildP256SubjectPublicKeyInfo(clientKeyHex))).EncodeCanonicalFrame();
 
     // ---- Protocol ----
 

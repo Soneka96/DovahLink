@@ -60,6 +60,22 @@ public enum CeremonyPeerRole
     Responder = 2,
 }
 
+/// <summary>Why a local result was not accepted as evidence; it is a pairing failure, never a trust verdict on the peer.</summary>
+public enum CeremonyEvidenceRejection
+{
+    /// <summary>The peer was not the Initiator this Responder Host expects.</summary>
+    UnexpectedPeerRole,
+
+    /// <summary>The result names another protocol profile identifier or version.</summary>
+    UnexpectedProfile,
+
+    /// <summary>The authenticated shared context is not this Host's own locally compiled context.</summary>
+    SharedContextMismatch,
+
+    /// <summary>The authenticated peer Bootstrap frame is not exactly the expected candidate frame.</summary>
+    PeerBootstrapMismatch,
+}
+
 /// <summary>Where one Responder attempt stands; the owner thread advances it only on native events and explicit local decisions.</summary>
 internal enum CeremonyAttemptStage
 {

@@ -26,4 +26,12 @@ internal static class Constants
 
     /// <summary>The backlog of the loopback pairing listener.</summary>
     public const int ListenerBacklog = 4;
+
+    // ---- Result evidence ----
+
+    /// <summary>The ASCII identifier of the one sas-pairing protocol profile this integration accepts.</summary>
+    public static ReadOnlySpan<byte> ExpectedProfileIdentifier => "sas-pairing-vodozemac-profile-draft-01"u8;
+
+    /// <summary>The one sas-pairing protocol profile version this integration accepts.</summary>
+    public const uint ExpectedProfileVersion = 1;
 }
