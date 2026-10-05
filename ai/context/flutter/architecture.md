@@ -127,6 +127,35 @@ and pending-confirmation recovery. `client.pairing.confirmCode` completes confir
 credential acknowledgement. Flutter maps the returned typed result and failures; it never sequences
 those protocol exchanges or sends a mapped Host snapshot as an SDK command.
 
+## Live gameplay state
+
+`features/live_state/` owns the Flutter projection of the eight currently available gameplay
+domains: Character Vitals, XP, Level, Identity, Supernatural Traits, Location, Skyrim Game Time, and
+Tracked Quests. `LiveStateMiddleware` observes only the public SDK `currentHost` streams and requests
+the required areas after SDK trust is established. `LiveStateMapper` maps SDK values into
+app-owned typed values before Redux receives them. The projection keeps every domain's status,
+revision, `stateAuthorityId`, and `playContextId`; it does not reproduce SDK synchronization or
+recovery logic.
+
+Gameplay observation follows the admitted session, not the Session Shell route. Returning to
+Connections leaves the session and its listeners active. Ordinary reconnect keeps those listeners
+attached so the SDK can publish stale/recovering states and restore desired intent. A disconnected
+or administratively invalidated session cancels gameplay listeners and resets the projected slice;
+the middleware does not send unsubscribe requests after session teardown. The SDK owns whether
+desired intent is cleared or dormant. A later trusted session attaches to the SDK's current streams
+and projects its fresh baselines without comparing Host IDs or play-context IDs in Flutter.
+
+Keep the domain distinctions in Redux: Vitals remain one coherent group with raw `current` and `max`
+values; XP stays numeric without a percentage; Identity remains complete; the three supernatural
+predicates remain independent; Location retains cell, selected location, and worldspace; Game Time
+remains Skyrim calendar data; and Tracked Quests remains the complete plural collection with every
+objective instance. An empty tracked-quest list, unavailable nullable values, all-false traits, and
+stale retained values remain distinguishable through synchronization status.
+
+`SessionOverviewViewModel` exposes these selector results to the future Overview owner. Widgets must
+not read SDK streams or raw SDK values directly. The current Session Shell remains a navigation
+surface; the separate Overview convergence work owns its later presentation.
+
 ## Feature structure
 
 Feature-owned data, domain, and presentation code lives under its feature boundary. Application-wide
@@ -322,13 +351,15 @@ app-owned values before it enters app state or other layers.
 ## Application shutdown
 
 `AppShutdownService` is platform-neutral and owns one idempotent, three-second cleanup budget. It
-starts `PairingMiddleware.shutdown()` first and then starts SDK close before awaiting either
-operation. Pairing shutdown immediately blocks new pairing work; SDK close stops its Known Host
-monitor and invalidates pending authentication and reconnect work. The pairing client registration
-records its instance in the app lifecycle holder; shutdown must not resolve the lazy client
-registration just to close an unused client. Late authentication, code-request, or confirmation
-results cannot dispatch follow-up pairing work after shutdown begins. SDK close is the final cleanup
-step, so late completions start no further application work. Windows registers `WindowsLifecycleBridge`,
+starts `ConnectionMiddleware.shutdown()`, `LiveStateMiddleware.shutdown()`, and
+`PairingMiddleware.shutdown()` before awaiting any of them, then closes the existing SDK client.
+Pairing shutdown immediately blocks new pairing work; live-state shutdown cancels lifecycle and
+gameplay listeners; SDK close stops its Known Host monitor and invalidates pending authentication
+and reconnect work. The pairing client registration records its instance in the app lifecycle
+holder; shutdown must not resolve the lazy client registration just to close an unused client. Late
+authentication, code-request, or confirmation results cannot dispatch follow-up pairing work after
+shutdown begins. SDK close is the final cleanup step, so late completions start no further
+application work. Windows registers `WindowsLifecycleBridge`,
 which forwards native close and session-ending requests to the shared service. Android and iOS do not
 register that bridge, and
 ordinary background/pause lifecycle events do not invoke application shutdown.

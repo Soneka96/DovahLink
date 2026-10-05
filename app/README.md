@@ -10,15 +10,30 @@ and adapters consume that contract without redefining it.
 
 ## SDK integration
 
-The app consumes the SDK's `hosts`, `connections`, and `pairing` API groups from one shared
-[`DovahLinkClient`](../sdk/README.md); `currentHost` exposes typed game-state APIs for a later app
-integration. The `features/connection/` area owns Host selection and navigation while mirroring the
-SDK's Known Host and candidate streams. Candidate membership and identity reconciliation stay in
-the SDK. Initial connection retries and bounded established-session recovery also stay in the SDK
-as separate policies. Flutter does not implement live-state synchronization. Flutter conventions
-point to [`ai/context/sdk/`](../ai/context/sdk/) for SDK-owned protocol behavior rather than
-duplicating it in the app. The SDK pairing group also owns authentication plus pending-confirmation recovery and
-the confirmation/credential-acknowledgement sequence; Flutter maps the typed result for presentation.
+The app consumes the SDK's `hosts`, `connections`, `pairing`, and `currentHost` API groups from one
+shared [`DovahLinkClient`](../sdk/README.md). The `features/connection/` area owns Host selection
+and navigation while mirroring the SDK's Known Host and candidate streams. Candidate membership and
+identity reconciliation stay in the SDK. Initial connection retries, bounded established-session
+recovery, protocol handling, and live-state synchronization also remain SDK-owned.
+
+The `features/live_state/` boundary maps the eight public gameplay streams into app-owned typed
+values and projects them through Redux actions, reducers, selectors, and the Session Overview
+ViewModel. It preserves synchronization status and authority/context metadata, nullable Location
+facts, independent Supernatural Traits, Skyrim calendar fields, and the complete plural quest list.
+The middleware requests desired state only after SDK trust is established and keeps observation tied
+to the admitted session rather than the Session Shell route. Returning to Connections leaves the
+admitted session and its state observation active. Ordinary reconnect and administrative recovery
+remain SDK-owned; Flutter projects the SDK's status transitions and clears its live-state slice when
+the session ends or is invalidated. The Phase 5.4 visible proof surface has not been delivered. Its
+acceptance still includes XP, Vitals, and Level values; unavailable/stale/recovering states;
+compatibility and connection lifecycle; and slow-consumer diagnostics, which the current public SDK
+does not expose. PR #121 is the next intended task for prototype Overview convergence; Stage 8
+remains planned.
+
+The SDK pairing group also owns authentication, pending-confirmation recovery, and the
+confirmation/credential-acknowledgement sequence; Flutter maps typed results for presentation.
+Flutter conventions point to [`ai/context/sdk/`](../ai/context/sdk/) for SDK-owned protocol behavior
+rather than duplicating it in the app.
 
 ## Development checks
 
