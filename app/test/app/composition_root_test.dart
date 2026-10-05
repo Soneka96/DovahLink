@@ -10,7 +10,9 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/app/composition_root.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
+import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/session/presentation/state/session_shell.actions.dart';
 import 'package:dovahlink_client/features/session/presentation/state/session_shell.middleware.dart';
@@ -30,17 +32,31 @@ import 'package:flutter/foundation.dart'
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
+        CharacterIdentityState,
+        CharacterLevelState,
+        CharacterSupernaturalTraitsState,
+        CharacterVitalsState,
+        CharacterXpState,
+        DovahLinkConnectionState,
         DovahLinkHost,
         DovahLinkHostAvailability,
         DovahLinkKnownHostInvalidation,
         DovahLinkKnownHostState,
+        DovahLinkStateArea,
+        DovahLinkStateStatus,
         DovahLinkClient,
         DovahLinkTrustState,
+        GameTimeState,
         HelloResult,
+        IDovahLinkCharacter,
         IDovahLinkConnections,
+        IDovahLinkCurrentHost,
         IDovahLinkHosts,
         IDovahLinkPairing,
-        IClientStorage;
+        IClientStorage,
+        PlayerLocationState,
+        StateSynchronization,
+        TrackedQuestsState;
 
 /// Mocks async preference reads for composition-root tests.
 class MockSharedPreferencesAsync extends Mock
@@ -56,7 +72,25 @@ class MockDovahLinkHosts extends Mock implements IDovahLinkHosts {}
 class MockDovahLinkPairing extends Mock implements IDovahLinkPairing {}
 
 /// Mocks the SDK client's grouped connection API.
-class MockDovahLinkConnections extends Mock implements IDovahLinkConnections {}
+class MockDovahLinkConnections extends Mock implements IDovahLinkConnections {
+  /// Current state used when trust admission reaches live-state middleware.
+  DovahLinkConnectionState currentState = DovahLinkConnectionState.disconnected;
+
+  /// Returns the configured current SDK state.
+  @override
+  DovahLinkConnectionState get state => currentState;
+
+  /// Replays the configured current SDK lifecycle state to every listener.
+  @override
+  Stream<DovahLinkConnectionState> get stateChanges =>
+      Stream<DovahLinkConnectionState>.value(currentState);
+}
+
+/// Mocks the current-Host stream and subscription contract for app composition.
+class MockDovahLinkCurrentHost extends Mock implements IDovahLinkCurrentHost {}
+
+/// Mocks the grouped Character stream contract for app composition.
+class MockDovahLinkCharacter extends Mock implements IDovahLinkCharacter {}
 
 /// Mocks supported client storage for Known Host store-composition coverage.
 class MockClientStorage extends Mock implements IClientStorage {}
@@ -69,6 +103,7 @@ void main() {
 
   setUp(() async {
     TestWidgetsFlutterBinding.ensureInitialized();
+    registerFallbackValue(DovahLinkStateArea.gameTime);
     await sl.reset();
     await initDependencies();
     preferences = MockSharedPreferencesAsync();
@@ -129,6 +164,7 @@ void main() {
 
     test('createStore dependencies register Session Shell navigation', () {
       expect(sl<ISessionShellMiddleware>(), isA<SessionShellMiddleware>());
+      expect(sl<ILiveStateMiddleware>(), isA<LiveStateMiddleware>());
     });
 
     test(
@@ -230,6 +266,114 @@ void main() {
             ),
             availability: HostAvailability.online,
           ),
+        ]);
+      },
+    );
+
+    test(
+      'Method createStore initializes live-state projection from the SDK',
+      () async {
+        final MockDovahLinkClient client = MockDovahLinkClient();
+        final MockDovahLinkHosts hosts = MockDovahLinkHosts();
+        final MockDovahLinkPairing pairing = MockDovahLinkPairing();
+        final MockDovahLinkConnections connections = MockDovahLinkConnections();
+        final MockDovahLinkCurrentHost currentHost = MockDovahLinkCurrentHost();
+        final MockDovahLinkCharacter character = MockDovahLinkCharacter();
+        final List<DovahLinkStateArea> requestedAreas = <DovahLinkStateArea>[];
+        when(() => client.hosts).thenReturn(hosts);
+        when(() => client.pairing).thenReturn(pairing);
+        when(() => client.connections).thenReturn(connections);
+        when(() => client.currentHost).thenReturn(currentHost);
+        connections.currentState = DovahLinkConnectionState.connected;
+        when(
+          () => currentHost.trustState,
+        ).thenReturn(DovahLinkTrustState.trusted);
+        when(() => currentHost.character).thenReturn(character);
+        when(() => connections.knownHostInvalidations).thenAnswer(
+          (_) => const Stream<DovahLinkKnownHostInvalidation>.empty(),
+        );
+        when(() => hosts.knownHostStatesChanges).thenAnswer(
+          (_) => const Stream<List<DovahLinkKnownHostState>>.empty(),
+        );
+        when(
+          () => pairing.candidates,
+        ).thenAnswer((_) => const Stream<List<DovahLinkHost>>.empty());
+        when(() => character.vitalsChanges).thenAnswer(
+          (_) =>
+              const Stream<StateSynchronization<CharacterVitalsState>>.empty(),
+        );
+        when(() => character.xpChanges).thenAnswer(
+          (_) => Stream<StateSynchronization<CharacterXpState>>.value(
+            StateSynchronization<CharacterXpState>(
+              status: DovahLinkStateStatus.synchronized,
+              value: Fixtures.buildCharacterXp(value: 61.5),
+              stateAuthorityId: 'authority-a',
+              playContextId: 'context-a',
+              revision: 2,
+            ),
+          ),
+        );
+        when(() => character.levelChanges).thenAnswer(
+          (_) =>
+              const Stream<StateSynchronization<CharacterLevelState>>.empty(),
+        );
+        when(() => character.identityChanges).thenAnswer(
+          (_) =>
+              const Stream<
+                StateSynchronization<CharacterIdentityState?>
+              >.empty(),
+        );
+        when(() => character.supernaturalTraitsChanges).thenAnswer(
+          (_) =>
+              const Stream<
+                StateSynchronization<CharacterSupernaturalTraitsState?>
+              >.empty(),
+        );
+        when(() => currentHost.playerLocationChanges).thenAnswer(
+          (_) =>
+              const Stream<StateSynchronization<PlayerLocationState?>>.empty(),
+        );
+        when(() => currentHost.gameTimeChanges).thenAnswer(
+          (_) => const Stream<StateSynchronization<GameTimeState?>>.empty(),
+        );
+        when(() => currentHost.trackedQuestsChanges).thenAnswer(
+          (_) =>
+              const Stream<StateSynchronization<TrackedQuestsState?>>.empty(),
+        );
+        when(() => currentHost.subscribeStateArea(any())).thenAnswer((
+          Invocation invocation,
+        ) async {
+          requestedAreas.add(
+            invocation.positionalArguments.single as DovahLinkStateArea,
+          );
+          return <DovahLinkStateArea>{};
+        });
+        await sl.unregister<IClientStorage>();
+        sl.registerSingleton<IClientStorage>(MockClientStorage());
+        await sl.unregister<DovahLinkClient>();
+        sl.registerSingleton<DovahLinkClient>(client);
+        addTearDown(() async => sl<ILiveStateMiddleware>().shutdown());
+
+        final Store<AppState> store = await const AppCompositionRoot()
+            .createStore();
+        store.dispatch(const PairingSessionTrustedAction());
+        await pumpEventQueue();
+
+        expect(
+          store.state.liveState.characterXp.status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(store.state.liveState.characterXp.value?.value, 61.5);
+        expect(store.state.liveState.characterXp.playContextId, 'context-a');
+        expect(requestedAreas, [
+          DovahLinkStateArea.characterVitals,
+          DovahLinkStateArea.characterXp,
+          DovahLinkStateArea.characterLevel,
+          DovahLinkStateArea.characterIdentity,
+          DovahLinkStateArea.characterSupernaturalTraits,
+          DovahLinkStateArea.playerLocation,
+          DovahLinkStateArea.gameTime,
+          DovahLinkStateArea.trackedQuests,
         ]);
       },
     );

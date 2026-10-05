@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/appearance/presentation/state/appearance.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/session_live_state.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -86,5 +87,25 @@ void main() {
 
       expect(state.deviceIdentity, deviceIdentity);
     });
+  });
+
+  group('Property liveState behaves correctly', () {
+    test('AppState initial creates a fresh SessionLiveState projection', () {
+      final AppState state = AppState.initial();
+
+      expect(state.liveState, isA<SessionLiveState>());
+      expect(state.liveState, const SessionLiveState.initial());
+    });
+
+    test(
+      'AppState initial uses an explicitly supplied live-state projection',
+      () {
+        const SessionLiveState liveState = SessionLiveState.initial();
+
+        final AppState state = AppState.initial(liveState: liveState);
+
+        expect(identical(state.liveState, liveState), isTrue);
+      },
+    );
   });
 }

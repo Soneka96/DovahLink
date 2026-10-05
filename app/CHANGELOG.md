@@ -37,6 +37,8 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Redux carries the SDK's public gameplay models and `StateSynchronization<T>` values unchanged
+  through live-state middleware, selectors, and the Overview ViewModel.
 - Connections uses the approved prototype tagline and Discover details, and the Session Shell now matches its header chrome without exposing endpoint metadata or adding game content.
 - Pair again cards show the prototype confirmation before starting the existing pairing flow.
 - Pairing matches the prototype’s code redisplay row, countdown emphasis, confirmation copy, and expired or attempt-limit actions.

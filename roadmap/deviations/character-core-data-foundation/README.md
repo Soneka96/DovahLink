@@ -195,11 +195,13 @@ After this foundation, the separately scoped phases are:
 
 1. **World Context Data Foundation:** location, game time, and tracked quest summary. Runtime and
    source research is recorded in the [World Context Data Foundation research report](../world-context-data-foundation/README.md).
-2. **Active Play Context Lifecycle:** main menu, New Game, loading, save switching, return to menu,
-   and gameplay-session admission/closure.
-3. **Session Overview convergence:** connect the approved prototype Overview to the trustworthy
-   backend/SDK data after the foundations above.
+2. **Session Overview app-state integration (PR #120):** project the character and world-context
+   SDK domains into app-owned Redux state while preserving synchronization truth.
+3. **Session Overview prototype convergence (PR #121):** connect the approved Overview prototype
+   to the Redux state and its typed ViewModel. This presentation work can proceed without redesigning
+   main-menu or save-switch admission behavior.
+4. **Active Play Context Lifecycle:** main menu, New Game, loading, save switching, return to menu,
+   and gameplay-session admission/closure remain a later, separately scoped phase.
 
-These are follow-on phases, not implementation scope for this deviation. Normal roadmap progression
-resumes only after this deviation and its explicitly ordered follow-on work are complete or
-re-planned by the maintainer.
+These are follow-on phases, not implementation scope for this deviation. Stage 8 remains planned;
+data integration alone does not complete its presentation acceptance.

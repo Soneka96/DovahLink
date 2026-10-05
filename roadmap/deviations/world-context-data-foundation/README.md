@@ -127,3 +127,16 @@ their own source and runtime validation during the corresponding implementation 
   `SetActive`, and objective state functions.
 - [SKSE console command reference](https://skse.silverlock.org/vanilla_commands.html) for
   `SetObjectiveFailed` and `GetObjectiveFailed`.
+
+## Flutter state integration
+
+PR #120 projects `player_location`, `game_time`, and the complete `tracked_quests` collection into
+the app-owned live-state Redux boundary. The projection retains distinct cell, selected-location,
+and worldspace facts; Skyrim calendar fields; and every tracked quest with its current objective
+instances. It preserves SDK synchronization status so an available empty quest list remains distinct
+from unavailable quest state. Route navigation does not own these subscriptions; the SDK owns
+desired-intent restoration and reconnect recovery.
+
+The next intended presentation change is PR #121 — Session Overview Prototype Convergence. It
+consumes this state through the typed Session Overview ViewModel; it does not add quest navigation or
+change the frozen capture contract above.

@@ -1355,14 +1355,14 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn(
             "**Current phase:** Phase 5.4 — Flutter Middleware and Minimal Live-State "
-            "Proof (**Planned**).",
+            "Proof (**Active**).",
             current_position,
         )
         ordered_stages = root_roadmap.split("## Ordered stages", 1)[1].split(
             "## Major dependencies", 1
         )[0]
         self.assertIn(
-            "| 5 | Active. Phases 5.1–5.3 are complete; Phase 5.4 is next.",
+            "| 5 | Active. Phases 5.1–5.3 are complete; Phase 5.4's app state pipeline is implemented, while its minimal proof acceptance remains open.",
             ordered_stages,
         )
         self.assertIn(
@@ -1371,7 +1371,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("recommends `0.4.0`", current_position)
         self.assertNotIn("Stage 4 remains Active", current_position)
-        # Stage 5 is active because Phases 5.1–5.3 are complete and Phase 5.4 is next;
+        # Stage 5 is active because Phase 5.4's minimal proof acceptance remains open;
         # the status line also records work pulled forward for Phase 3's pairing needs.
         phase_5_status = (
             "**Status:** Active. The package scaffold, protocol/transport layer, and "
@@ -1389,8 +1389,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             phase_5_summary,
         )
         self.assertIn(
-            "Phase 5.4's Flutter middleware integration remains, followed by Phase 5.5's "
-            "version-impact audit",
+            "Phase 5.4's Flutter application state pipeline is implemented by PR #120; its minimal "
+            "proof acceptance remains open, followed by Phase 5.5's version-impact audit",
             phase_5_summary,
         )
 
@@ -2473,7 +2473,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
 
         self.assertIn("## SDK integration", app_readme)
         self.assertIn(
-            "The app consumes the SDK's `hosts`, `connections`, and `pairing` API groups from one shared",
+            "The app consumes the SDK's `hosts`, `connections`, `pairing`, and `currentHost` API groups from one",
             app_readme,
         )
         self.assertIn(
@@ -2483,7 +2483,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_app_readme,
         )
         self.assertIn(
-            "Flutter does not implement live-state synchronization.",
+            "live-state synchronization also remain SDK-owned.", normalized_app_readme
+        )
+        for integration_rule in (
+            "boundary consumes the SDK's eight public gameplay streams",
+            "SDK public domain models remain canonical",
+            "`StateSynchronization<T>` remains the canonical synchronization truth",
+            "Redux carries those values unchanged without redefining or copying their domain fields",
+            "Presentation-specific models may be derived later only when they add real UI semantics",
+        ):
+            self.assertIn(integration_rule, normalized_app_readme)
+        self.assertIn(
+            "Returning to Connections leaves the admitted session and its state observation active.",
             normalized_app_readme,
         )
         self.assertIn(
@@ -2498,6 +2509,356 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "definitions.",
             protocol_readme,
         )
+
+    def test_phase_5_4_app_passthrough_and_follow_on_are_documented(self) -> None:
+        """Keep Phase 5.4's delivered pipeline and incomplete proof boundary explicit."""
+        phase_5 = self._read("roadmap/05-dart-client-sdk-foundation.md")
+        roadmap = self._read("ROADMAP.md")
+        architecture = self._read("ai/context/flutter/architecture.md")
+        character_deviation = self._read(
+            "roadmap/deviations/character-core-data-foundation/README.md"
+        )
+        world_deviation = self._read(
+            "roadmap/deviations/world-context-data-foundation/README.md"
+        )
+        phase_54_match = re.search(
+            r"(?ms)^#### 5\.4[^\n]*\n(?P<body>.*?)(?=^#### 5\.5|\Z)",
+            phase_5,
+        )
+        self.assertIsNotNone(phase_54_match)
+        phase_54 = phase_54_match.group("body")
+        normalized_phase_54 = self._normalize_whitespace(phase_54)
+
+        for area in (
+            "character_vitals",
+            "character_xp",
+            "character_level",
+            "character_identity",
+            "character_supernatural_traits",
+            "player_location",
+            "game_time",
+            "tracked_quests",
+        ):
+            self.assertIn(area, phase_54)
+        self.assertIn("complete tracked-quest collection", normalized_phase_54)
+        self.assertIn("all objective instances", normalized_phase_54)
+        self.assertIn(
+            "Empty tracked quests and unavailable quest state remain distinct",
+            normalized_phase_54,
+        )
+        self.assertIn("authority/context IDs, and revision", normalized_phase_54)
+        for integration_rule in (
+            "typed Redux actions, reducers, selectors, and the `SessionOverviewViewModel`",
+            "passes SDK public domain models and `StateSynchronization<T>` directly through Redux",
+            "without app-owned duplicate domain models or field redefinitions",
+        ):
+            self.assertIn(integration_rule, normalized_phase_54)
+        self.assertIn(
+            "route returns to Connections; routes do not own subscription lifetime",
+            normalized_phase_54,
+        )
+        self.assertIn(
+            "keeps those listeners through ordinary reconnect", normalized_phase_54
+        )
+        self.assertIn(
+            "cancels gameplay listeners and resets the Redux slice", normalized_phase_54
+        )
+        self.assertIn(
+            "Phase 5.4 — Flutter Middleware and Minimal Live-State Proof (**Active**).",
+            roadmap,
+        )
+        self.assertIn(
+            "PR #120 establishes the app-owned SDK-to-Redux pipeline", roadmap
+        )
+        self.assertIn(
+            "Phase 5.4 remains **Active** because its specified visible proof surface has not been delivered",
+            normalized_phase_54,
+        )
+        for proof_requirement in (
+            "XP, Vitals, and Level values",
+            "unavailable/stale/recovering states",
+            "compatibility and connection lifecycle",
+            "slow-consumer diagnostics",
+        ):
+            self.assertIn(proof_requirement, normalized_phase_54)
+        self.assertIn(
+            "current public SDK does not expose slow-consumer diagnostics",
+            normalized_phase_54,
+        )
+        self.assertIn(
+            "does not add that diagnostic API or a temporary proof UI",
+            normalized_phase_54,
+        )
+        self.assertIn("Session Overview Prototype Convergence", phase_54)
+        self.assertIn(
+            "does not by itself complete Stage 8 or this proof acceptance",
+            normalized_phase_54,
+        )
+        self.assertIn("| 8 | Planned |", roadmap)
+        self.assertIn(
+            "The Phase 5.4 visible proof surface has not been delivered",
+            self._read("app/README.md"),
+        )
+        self.assertIn(
+            "Redux carries the SDK's public gameplay models and `StateSynchronization<T>` values",
+            self._read("app/CHANGELOG.md"),
+        )
+        self.assertIn(
+            "Gameplay observation follows the admitted session, not the Session Shell route.",
+            architecture,
+        )
+        self.assertIn(
+            "The SDK owns whether desired intent is cleared or dormant.",
+            self._normalize_whitespace(architecture),
+        )
+        self.assertIn(
+            "Session Overview prototype convergence (PR #121)", character_deviation
+        )
+        self.assertIn(
+            "PR #120 projects `player_location`, `game_time`", world_deviation
+        )
+        self.assertIn("Stage 8 remains planned", character_deviation)
+
+    def test_flutter_live_state_keeps_sdk_streams_inside_middleware(self) -> None:
+        """Keep gameplay observation inside middleware and the SDK public API."""
+        middleware_path = (
+            "app/lib/features/live_state/presentation/state/live_state.middleware.dart"
+        )
+        middleware = self._read(middleware_path)
+        self.assertIn(
+            "package:dovahlink_client_sdk/dovahlink_client.dart",
+            middleware,
+        )
+        for required_stream in (
+            "vitalsChanges",
+            "xpChanges",
+            "levelChanges",
+            "identityChanges",
+            "supernaturalTraitsChanges",
+            "playerLocationChanges",
+            "gameTimeChanges",
+            "trackedQuestsChanges",
+        ):
+            self.assertIn(required_stream, middleware)
+
+        architecture = self._normalize_whitespace(
+            self._read("ai/context/flutter/architecture.md")
+        )
+        for required_rule in (
+            "Flutter may depend on the Dart SDK's public API",
+            "the SDK must never depend on Flutter",
+            "Flutter must never import `package:dovahlink_client_sdk/src/`",
+            "that model is the canonical Redux integration-state value and must pass through unchanged",
+            "that SDK type is the canonical synchronization truth",
+            "Do not create app-owned copies of SDK domain fields",
+            "Presentation-derived models belong at the ViewModel or presentation boundary",
+            "Adding a field to an existing public SDK domain model must require no integration-pipeline edits",
+            "Ordinary reconnect keeps those listeners attached under the same observation token",
+            "Each admitted observation has an app-local token captured by its stream callbacks",
+            "A later trusted session receives a new token",
+            "Widgets must not subscribe directly to SDK streams, call SDK live-state subscription APIs",
+            "bypass the approved Redux, selector, and ViewModel boundary",
+            "Widgets may consume SDK public domain models after those values reach presentation",
+            "Presentation-specific derived models remain allowed when they add real UI semantics",
+        ):
+            self.assertIn(required_rule, architecture)
+
+        live_state_root = REPOSITORY_ROOT / "app" / "lib" / "features" / "live_state"
+        for duplicate_concept in (
+            "LiveStateMapper",
+            "LiveDomainState",
+            "LiveStateStatus",
+            "LiveCellKind",
+            "LiveQuestObjectiveStatus",
+            "LiveTrackedQuest",
+        ):
+            for source_path in live_state_root.rglob("*.dart"):
+                self.assertNotIn(
+                    duplicate_concept,
+                    source_path.read_text(encoding="utf-8"),
+                    str(source_path),
+                )
+
+        for source_path in live_state_root.rglob("*.dart"):
+            source = source_path.read_text(encoding="utf-8")
+            self.assertNotIn("dovahlink_client_sdk/src/", source, str(source_path))
+            self.assertNotIn(
+                "dovahlink_client_sdk/src/protocol/", source, str(source_path)
+            )
+            for protocol_type in (
+                "Envelope",
+                "SubscribePayload",
+                "ProtocolMessageType",
+            ):
+                self.assertNotIn(protocol_type, source, str(source_path))
+            if source_path.name.endswith(".reducer.dart"):
+                self.assertNotIn("DovahLinkClient", source, str(source_path))
+                self.assertNotIn("subscribeStateArea", source, str(source_path))
+
+            for sdk_import in re.findall(
+                r"package:dovahlink_client_sdk/[^'\"]+", source
+            ):
+                self.assertEqual(
+                    sdk_import,
+                    "package:dovahlink_client_sdk/dovahlink_client.dart",
+                    f"Live-state code must import only the SDK public barrel: {source_path}",
+                )
+
+        sdk_state_types = (
+            "CharacterVitalsState",
+            "CharacterXpState",
+            "CharacterLevelState",
+            "CharacterIdentityState\\?",
+            "CharacterSupernaturalTraitsState\\?",
+            "PlayerLocationState\\?",
+            "GameTimeState\\?",
+            "TrackedQuestsState\\?",
+        )
+        for relative_path in (
+            "app/lib/features/live_state/presentation/state/session_live_state.state.dart",
+            "app/lib/features/live_state/presentation/state/live_state.actions.dart",
+            "app/lib/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart",
+        ):
+            source = self._read(relative_path)
+            for sdk_type in sdk_state_types:
+                self.assertRegex(
+                    source,
+                    rf"StateSynchronization\s*<\s*{sdk_type}\s*>",
+                    f"{relative_path} must carry the SDK synchronization type {sdk_type}",
+                )
+
+        overview_view_model = self._read(
+            "app/lib/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart"
+        )
+        self.assertNotIn("dovahlink_client_sdk/src/", overview_view_model)
+        for sdk_import in re.findall(
+            r"package:dovahlink_client_sdk/[^'\"]+", overview_view_model
+        ):
+            self.assertEqual(
+                sdk_import,
+                "package:dovahlink_client_sdk/dovahlink_client.dart",
+                "The Session Overview ViewModel must use only the SDK public barrel.",
+            )
+
+        middleware = self._read(middleware_path)
+        self.assertIn("store.dispatch(action(synchronization))", middleware)
+        self.assertIn("_activeObservationTokens", middleware)
+        self.assertIn("_isCurrentObservation(store, token)", middleware)
+
+        stream_access = re.compile(
+            r"\.(?:vitalsChanges|xpChanges|levelChanges|identityChanges|"
+            r"supernaturalTraitsChanges|playerLocationChanges|gameTimeChanges|"
+            r"trackedQuestsChanges|subscribeStateArea)\b"
+        )
+        sdk_gameplay_stream_type = re.compile(
+            r"\bStream\s*<\s*StateSynchronization\s*<"
+        )
+        sdk_gameplay_subscription_type = re.compile(
+            r"\bStreamSubscription\s*<\s*StateSynchronization\s*<"
+        )
+        stream_listen = re.compile(r"\.listen\s*\(")
+        self.assertIsNone(stream_access.search("localChanges.listen(handleChange)"))
+        indirect_sdk_subscription = (
+            "Stream<StateSynchronization<CharacterVitalsState>> changes; "
+            "changes.listen(handleChange)"
+        )
+        self.assertIsNotNone(sdk_gameplay_stream_type.search(indirect_sdk_subscription))
+        self.assertIsNotNone(stream_listen.search(indirect_sdk_subscription))
+        local_stream = "Stream<LocalChange> changes; changes.listen(handleChange)"
+        self.assertIsNone(sdk_gameplay_stream_type.search(local_stream))
+        self.assertIsNotNone(stream_listen.search(local_stream))
+        self.assertIsNotNone(
+            sdk_gameplay_subscription_type.search(
+                "StreamSubscription<StateSynchronization<CharacterVitalsState>> subscription"
+            )
+        )
+        self.assertIsNone(
+            sdk_gameplay_subscription_type.search(
+                "StreamSubscription<LocalChange> subscription"
+            )
+        )
+        for forbidden_widget_access in (
+            "character.vitalsChanges.listen(handleChange)",
+            "currentHost.subscribeStateArea(area)",
+        ):
+            self.assertIsNotNone(stream_access.search(forbidden_widget_access))
+
+        for source_path in (REPOSITORY_ROOT / "app" / "lib").rglob("*.dart"):
+            relative_path = source_path.relative_to(REPOSITORY_ROOT).as_posix()
+            source = source_path.read_text(encoding="utf-8")
+            if relative_path != middleware_path:
+                self.assertIsNone(
+                    stream_access.search(source),
+                    f"SDK live-state stream access escaped its middleware: {relative_path}",
+                )
+
+        app_tests_root = REPOSITORY_ROOT / "app" / "test"
+        fixture_catalog = "app/test/fixtures/fixtures.dart"
+        sdk_domain_constructors = re.compile(
+            r"\b(?:CharacterVital|CharacterVitalsState|CharacterXpState|"
+            r"CharacterLevelState|CharacterIdentityState|"
+            r"CharacterSupernaturalTraitsState|PlayerLocationState|GameTimeState|"
+            r"QuestObjective|TrackedQuest|TrackedQuestsState)\s*\("
+        )
+        for source_path in app_tests_root.rglob("*.dart"):
+            relative_path = source_path.relative_to(REPOSITORY_ROOT).as_posix()
+            source = source_path.read_text(encoding="utf-8")
+            self.assertNotIn("dovahlink_client_sdk/src/", source, relative_path)
+            enforces_live_state_api = (
+                relative_path.startswith("app/test/features/live_state/")
+                or relative_path == fixture_catalog
+                or relative_path
+                in {
+                    "app/test/app/composition_root_test.dart",
+                    "app/test/features/session/session.injection_container_test.dart",
+                    "app/test/features/session/presentation/state/viewmodels/session_overview.viewmodel_test.dart",
+                    "app/test/shared/state/app_reducer_test.dart",
+                }
+            )
+            for sdk_import in re.findall(
+                r"package:dovahlink_client_sdk/[^'\"]+", source
+            ):
+                if enforces_live_state_api:
+                    self.assertEqual(
+                        sdk_import,
+                        "package:dovahlink_client_sdk/dovahlink_client.dart",
+                        f"Live-state tests must use the SDK public barrel: {relative_path}",
+                    )
+            if relative_path != fixture_catalog:
+                self.assertIsNone(
+                    sdk_domain_constructors.search(source),
+                    f"SDK live-state models must be built through Fixtures: {relative_path}",
+                )
+
+        for feature in ("session", "live_state"):
+            presentation = (
+                REPOSITORY_ROOT / "app" / "lib" / "features" / feature / "presentation"
+            )
+            if not presentation.exists():
+                continue
+            for source_path in presentation.rglob("*.dart"):
+                if not source_path.name.endswith(
+                    (".screen.dart", ".widget.dart", ".section.dart")
+                ):
+                    continue
+                source = source_path.read_text(encoding="utf-8")
+                self.assertNotIn("dovahlink_client_sdk/src/", source, str(source_path))
+                self.assertNotRegex(
+                    source,
+                    r"\.(?:vitalsChanges|xpChanges|levelChanges|identityChanges|"
+                    r"supernaturalTraitsChanges|playerLocationChanges|gameTimeChanges|"
+                    r"trackedQuestsChanges|subscribeStateArea)\b",
+                    str(source_path),
+                )
+                self.assertIsNone(
+                    sdk_gameplay_subscription_type.search(source),
+                    f"Widgets cannot own SDK gameplay stream subscriptions: {source_path}",
+                )
+                if sdk_gameplay_stream_type.search(source):
+                    self.assertIsNone(
+                        stream_listen.search(source),
+                        f"Widgets cannot subscribe to SDK synchronization streams: {source_path}",
+                    )
 
     def test_protocol_docs_describe_host_not_the_retired_native_plugin(self) -> None:
         """Guard protocol/README.md and ai/context/protocol/conventions.md against describing
