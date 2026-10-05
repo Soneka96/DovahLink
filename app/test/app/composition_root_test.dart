@@ -10,6 +10,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:dovahlink_client/app/composition_root.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/features/session/presentation/state/session_shell.actions.dart';
@@ -32,6 +33,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
         DovahLinkHost,
         DovahLinkHostAvailability,
+        DovahLinkConnectionState,
         DovahLinkKnownHostInvalidation,
         DovahLinkKnownHostState,
         DovahLinkClient,
@@ -56,7 +58,12 @@ class MockDovahLinkHosts extends Mock implements IDovahLinkHosts {}
 class MockDovahLinkPairing extends Mock implements IDovahLinkPairing {}
 
 /// Mocks the SDK client's grouped connection API.
-class MockDovahLinkConnections extends Mock implements IDovahLinkConnections {}
+class MockDovahLinkConnections extends Mock implements IDovahLinkConnections {
+  /// Keeps unrelated composition tests at the initial disconnected lifecycle state.
+  @override
+  Stream<DovahLinkConnectionState> get stateChanges =>
+      const Stream<DovahLinkConnectionState>.empty();
+}
 
 /// Mocks supported client storage for Known Host store-composition coverage.
 class MockClientStorage extends Mock implements IClientStorage {}
@@ -129,6 +136,7 @@ void main() {
 
     test('createStore dependencies register Session Shell navigation', () {
       expect(sl<ISessionShellMiddleware>(), isA<SessionShellMiddleware>());
+      expect(sl<ILiveStateMiddleware>(), isA<LiveStateMiddleware>());
     });
 
     test(

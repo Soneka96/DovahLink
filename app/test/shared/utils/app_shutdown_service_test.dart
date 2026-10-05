@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
 import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
@@ -15,6 +16,9 @@ class MockPairingMiddleware extends Mock implements IPairingMiddleware {}
 /// Mocks cancellation of the connection middleware's SDK stream listener.
 class MockConnectionMiddleware extends Mock implements IConnectionMiddleware {}
 
+/// Mocks cancellation of the live-state middleware's SDK listeners.
+class MockLiveStateMiddleware extends Mock implements ILiveStateMiddleware {}
+
 /// Mocks shutdown access to an existing SDK client.
 class MockExistingDovahLinkClient extends Mock
     implements IExistingDovahLinkClient {}
@@ -23,18 +27,22 @@ class MockExistingDovahLinkClient extends Mock
 void main() {
   late MockPairingMiddleware pairingMiddleware;
   late MockConnectionMiddleware connectionMiddleware;
+  late MockLiveStateMiddleware liveStateMiddleware;
   late MockExistingDovahLinkClient existingClient;
   late AppShutdownService service;
 
   setUp(() {
     pairingMiddleware = MockPairingMiddleware();
     connectionMiddleware = MockConnectionMiddleware();
+    liveStateMiddleware = MockLiveStateMiddleware();
     existingClient = MockExistingDovahLinkClient();
     when(() => pairingMiddleware.shutdown()).thenAnswer((_) async {});
     when(() => connectionMiddleware.shutdown()).thenAnswer((_) async {});
+    when(() => liveStateMiddleware.shutdown()).thenAnswer((_) async {});
     when(() => existingClient.closeIfCreated()).thenAnswer((_) async {});
     service = AppShutdownService(
       connectionMiddleware: connectionMiddleware,
+      liveStateMiddleware: liveStateMiddleware,
       pairingMiddleware: pairingMiddleware,
       existingClient: existingClient,
     );
@@ -51,13 +59,21 @@ void main() {
         when(() => connectionMiddleware.shutdown()).thenAnswer((_) async {
           cleanupOrder.add('connection');
         });
+        when(() => liveStateMiddleware.shutdown()).thenAnswer((_) async {
+          cleanupOrder.add('live-state');
+        });
         when(() => existingClient.closeIfCreated()).thenAnswer((_) async {
           cleanupOrder.add('client');
         });
 
         await service.shutdown();
 
-        expect(cleanupOrder, <String>['connection', 'pairing', 'client']);
+        expect(cleanupOrder, <String>[
+          'connection',
+          'live-state',
+          'pairing',
+          'client',
+        ]);
       },
     );
 
@@ -77,6 +93,7 @@ void main() {
         await Future.wait(<Future<void>>[first, second]);
         verify(() => pairingMiddleware.shutdown()).called(1);
         verify(() => connectionMiddleware.shutdown()).called(1);
+        verify(() => liveStateMiddleware.shutdown()).called(1);
         verify(() => existingClient.closeIfCreated()).called(1);
       },
     );
@@ -92,6 +109,7 @@ void main() {
       await expectLater(service.shutdown(), completes);
       verify(() => pairingMiddleware.shutdown()).called(1);
       verify(() => connectionMiddleware.shutdown()).called(1);
+      verify(() => liveStateMiddleware.shutdown()).called(1);
       verify(() => existingClient.closeIfCreated()).called(1);
     });
 
@@ -106,6 +124,7 @@ void main() {
       await expectLater(service.shutdown(), completes);
       verify(() => pairingMiddleware.shutdown()).called(1);
       verify(() => connectionMiddleware.shutdown()).called(1);
+      verify(() => liveStateMiddleware.shutdown()).called(1);
       verify(() => existingClient.closeIfCreated()).called(1);
     });
 
@@ -157,6 +176,7 @@ void main() {
           connectionCompleter.complete();
           async.flushMicrotasks();
           verify(() => connectionMiddleware.shutdown()).called(1);
+          verify(() => liveStateMiddleware.shutdown()).called(1);
           verify(() => pairingMiddleware.shutdown()).called(1);
           verify(() => existingClient.closeIfCreated()).called(1);
         });

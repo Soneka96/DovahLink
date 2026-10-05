@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
 
@@ -19,6 +20,9 @@ class AppShutdownService implements IAppShutdownService {
   /// Connection middleware whose SDK state observation belongs to the app lifecycle.
   final IConnectionMiddleware _connectionMiddleware;
 
+  /// Live-state middleware whose lifecycle and domain listeners belong to the app.
+  final ILiveStateMiddleware _liveStateMiddleware;
+
   /// Pairing middleware whose retry timer and connection subscription belong to the app.
   final IPairingMiddleware _pairingMiddleware;
 
@@ -33,13 +37,16 @@ class AppShutdownService implements IAppShutdownService {
 
   /// Creates the shared shutdown owner from app-owned resource contracts.
   /// @param connectionMiddleware Cancels SDK Known Host observation.
+  /// @param liveStateMiddleware Cancels SDK lifecycle and gameplay observation.
   /// @param pairingMiddleware The middleware owning app-level retry and status observation.
   /// @param existingClient The holder that disconnects only an SDK client already constructed.
   AppShutdownService({
     required IConnectionMiddleware connectionMiddleware,
+    required ILiveStateMiddleware liveStateMiddleware,
     required IPairingMiddleware pairingMiddleware,
     required IExistingDovahLinkClient existingClient,
   }) : _connectionMiddleware = connectionMiddleware,
+       _liveStateMiddleware = liveStateMiddleware,
        _pairingMiddleware = pairingMiddleware,
        _existingClient = existingClient;
 
@@ -55,10 +62,16 @@ class AppShutdownService implements IAppShutdownService {
     final Timer timer = Timer(_shutdownTimeout, deadline.complete);
     try {
       final Future<void> connectionCleanup = _stopConnection();
+      final Future<void> liveStateCleanup = _stopLiveState();
       final Future<void> pairingCleanup = _stopPairing();
       final Future<void> clientClose = _closeExistingClient();
       await Future.any<void>([
-        Future.wait<void>([connectionCleanup, pairingCleanup, clientClose]),
+        Future.wait<void>([
+          connectionCleanup,
+          liveStateCleanup,
+          pairingCleanup,
+          clientClose,
+        ]),
         deadline.future,
       ]);
     } on Object {
@@ -72,6 +85,15 @@ class AppShutdownService implements IAppShutdownService {
   Future<void> _stopConnection() async {
     try {
       await _connectionMiddleware.shutdown();
+    } on Object {
+      // Keep pairing cleanup and client close running within the shutdown budget.
+    }
+  }
+
+  /// Stops gameplay-state observation and contains cancellation failures.
+  Future<void> _stopLiveState() async {
+    try {
+      await _liveStateMiddleware.shutdown();
     } on Object {
       // Keep pairing cleanup and client close running within the shutdown budget.
     }
