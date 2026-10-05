@@ -176,6 +176,68 @@ void main() {
     });
   });
 
+  group('Property characterRace behaves correctly', () {
+    test('Property characterRace returns the trimmed SDK race', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(race: '  Nord  '),
+          ),
+        ),
+      );
+
+      expect(viewModel.characterRace, 'Nord');
+    });
+
+    test('Property characterRace omits a missing or blank SDK race', () {
+      final SessionOverviewViewModel missing = _buildViewModel(
+        _buildLiveState(),
+      );
+      final SessionOverviewViewModel blank = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(race: '  '),
+          ),
+        ),
+      );
+
+      expect(missing.characterRace, isNull);
+      expect(blank.characterRace, isNull);
+    });
+  });
+
+  group('Property characterLevelText behaves correctly', () {
+    test('Property characterLevelText omits XP from the card level', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterLevel: _synchronized<CharacterLevelState>(
+            Fixtures.buildCharacterLevel(value: 43),
+          ),
+          characterXp: _synchronized<CharacterXpState>(
+            Fixtures.buildCharacterXp(value: 320),
+          ),
+        ),
+      );
+
+      expect(viewModel.characterLevelText, 'Level 43');
+    });
+
+    test('Property characterLevelText omits an unavailable level', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterLevel: _synchronized<CharacterLevelState>(
+            Fixtures.buildCharacterLevel(value: null),
+          ),
+          characterXp: _synchronized<CharacterXpState>(
+            Fixtures.buildCharacterXp(value: 320),
+          ),
+        ),
+      );
+
+      expect(viewModel.characterLevelText, isNull);
+    });
+  });
+
   group('Property locationName behaves correctly', () {
     test('Property locationName prefers the selected location name', () {
       final SessionOverviewViewModel viewModel = _buildViewModel(

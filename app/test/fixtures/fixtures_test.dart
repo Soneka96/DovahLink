@@ -9,6 +9,8 @@ import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -64,6 +66,38 @@ void main() {
         expect(synchronization.stateAuthorityId, isNull);
         expect(synchronization.playContextId, isNull);
         expect(synchronization.revision, isNull);
+      },
+    );
+  });
+
+  group('Method buildSessionOverviewVitalsViewData behaves correctly', () {
+    test(
+      'Method buildSessionOverviewVitalsViewData carries ratios and status',
+      () {
+        final SessionOverviewVitalsViewData viewData =
+            Fixtures.buildSessionOverviewVitalsViewData(
+              value: Fixtures.buildCharacterVitals(),
+              status: DovahLinkStateStatus.stale,
+            );
+
+        expect(viewData.status, DovahLinkStateStatus.stale);
+        expect(viewData.healthRatio, closeTo(0.8, 0.0001));
+        expect(viewData.healthCurrent, 80);
+      },
+    );
+  });
+
+  group('Method buildSessionOverviewQuestViewData behaves correctly', () {
+    test(
+      'Method buildSessionOverviewQuestViewData carries an empty summary',
+      () {
+        final SessionOverviewQuestViewData viewData =
+            Fixtures.buildSessionOverviewQuestViewData(
+              value: Fixtures.buildTrackedQuests(quests: <TrackedQuest>[]),
+            );
+
+        expect(viewData.title, 'NO QUEST TRACKED');
+        expect(viewData.detail, 'No path is marked.');
       },
     );
   });

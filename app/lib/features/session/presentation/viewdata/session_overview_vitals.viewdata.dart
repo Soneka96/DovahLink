@@ -21,16 +21,31 @@ class SessionOverviewVitalsViewData extends Equatable {
   /// The clamped Stamina ratio, or `null` when it has no usable maximum.
   final double? staminaRatio;
 
+  /// The last accepted Health current value, when available.
+  final double? healthCurrent;
+
+  /// The last accepted Magicka current value, when available.
+  final double? magickaCurrent;
+
+  /// The last accepted Stamina current value, when available.
+  final double? staminaCurrent;
+
   /// Creates presentation ratios from one SDK Vitals synchronization value.
   /// @param status The synchronization standing for the complete Vitals group.
   /// @param healthRatio The safe Health ratio, if available.
   /// @param magickaRatio The safe Magicka ratio, if available.
   /// @param staminaRatio The safe Stamina ratio, if available.
+  /// @param healthCurrent The accepted Health current value, if available.
+  /// @param magickaCurrent The accepted Magicka current value, if available.
+  /// @param staminaCurrent The accepted Stamina current value, if available.
   const SessionOverviewVitalsViewData({
     required this.status,
     required this.healthRatio,
     required this.magickaRatio,
     required this.staminaRatio,
+    required this.healthCurrent,
+    required this.magickaCurrent,
+    required this.staminaCurrent,
   });
 
   /// Derives safe ratios without replacing the SDK synchronization value.
@@ -43,11 +58,22 @@ class SessionOverviewVitalsViewData extends Equatable {
     healthRatio: _progress(synchronization.value?.health),
     magickaRatio: _progress(synchronization.value?.magicka),
     staminaRatio: _progress(synchronization.value?.stamina),
+    healthCurrent: synchronization.value?.health?.current,
+    magickaCurrent: synchronization.value?.magicka?.current,
+    staminaCurrent: synchronization.value?.stamina?.current,
   );
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [status, healthRatio, magickaRatio, staminaRatio];
+  List<Object?> get props => [
+    status,
+    healthRatio,
+    magickaRatio,
+    staminaRatio,
+    healthCurrent,
+    magickaCurrent,
+    staminaCurrent,
+  ];
 }
 
 /// Returns a clamped current-to-maximum ratio for a usable vital.

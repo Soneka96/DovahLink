@@ -24,6 +24,9 @@ void main() {
       expect(viewData.healthRatio, closeTo(0.86, 0.0001));
       expect(viewData.magickaRatio, closeTo(0.62, 0.0001));
       expect(viewData.staminaRatio, closeTo(0.74, 0.0001));
+      expect(viewData.healthCurrent, 86);
+      expect(viewData.magickaCurrent, 62);
+      expect(viewData.staminaCurrent, 74);
     });
 
     test('Method fromSynchronization clamps values outside their bounds', () {

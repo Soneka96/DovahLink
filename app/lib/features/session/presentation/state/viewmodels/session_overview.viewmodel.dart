@@ -66,20 +66,25 @@ class SessionOverviewViewModel extends Equatable {
   });
 
   /// The character name when the SDK currently has a meaningful one.
-  String? get characterName {
-    final String? name = characterIdentity.value?.name.trim();
-    return name == null || name.isEmpty ? null : name;
+  String? get characterName => _meaningfulText(characterIdentity.value?.name);
+
+  /// The character race when the SDK currently has a meaningful one.
+  String? get characterRace => _meaningfulText(characterIdentity.value?.race);
+
+  /// The character level, without XP, when the SDK currently has a value.
+  String? get characterLevelText {
+    final int? value = characterLevel.value?.value;
+    return value == null ? null : 'Level $value';
   }
 
   /// The character level with current XP when both values are available.
   String? get characterLevelLabel {
-    final int? value = characterLevel.value?.value;
-    if (value == null) {
+    final String? level = characterLevelText;
+    if (level == null) {
       return null;
     }
 
     final double? experience = characterXp.value?.value;
-    final String level = 'Level $value';
     return experience == null
         ? level
         : '$level (${_formatExperience(experience)} XP)';
@@ -187,4 +192,10 @@ class SessionOverviewViewModel extends Equatable {
   String _formatExperience(double value) => value == value.truncateToDouble()
       ? value.toInt().toString()
       : value.toString();
+
+  /// Trims a localized display value and omits it when it contains only whitespace.
+  String? _meaningfulText(String? value) {
+    final String? trimmed = value?.trim();
+    return trimmed == null || trimmed.isEmpty ? null : trimmed;
+  }
 }

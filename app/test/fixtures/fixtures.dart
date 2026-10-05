@@ -7,6 +7,8 @@ import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -60,6 +62,34 @@ abstract final class Fixtures {
     stateAuthorityId: stateAuthorityId,
     playContextId: playContextId,
     revision: revision,
+  );
+
+  /// Builds the Overview's Vitals presentation value.
+  static SessionOverviewVitalsViewData buildSessionOverviewVitalsViewData({
+    /// The coherent SDK Vitals value, or `null` when no value is usable.
+    CharacterVitalsState? value,
+
+    /// The Vitals synchronization standing.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+  }) => SessionOverviewVitalsViewData.fromSynchronization(
+    buildStateSynchronization<CharacterVitalsState>(
+      value: value,
+      status: status,
+    ),
+  );
+
+  /// Builds the Overview's tracked-quest presentation value.
+  static SessionOverviewQuestViewData buildSessionOverviewQuestViewData({
+    /// The complete tracked-quest value, or `null` when no value is usable.
+    TrackedQuestsState? value,
+
+    /// The tracked-quest synchronization standing.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+  }) => SessionOverviewQuestViewData.fromSynchronization(
+    buildStateSynchronization<TrackedQuestsState?>(
+      value: value,
+      status: status,
+    ),
   );
 
   // ---- Connection ----
