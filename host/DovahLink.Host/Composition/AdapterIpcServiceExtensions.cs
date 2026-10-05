@@ -2,6 +2,7 @@ using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Process;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.State;
 using DovahLink.Host.Time;
 using Microsoft.Extensions.DependencyInjection;
@@ -53,6 +54,7 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IStatePublisher<CharacterSupernaturalTraits?>, StatePublisher<CharacterSupernaturalTraits?>>();
         services.AddSingleton<IStatePublisher<PlayerLocation?>, StatePublisher<PlayerLocation?>>();
         services.AddSingleton<IStatePublisher<GameTime?>, StatePublisher<GameTime?>>();
+        services.AddSingleton<IStatePublisher<TrackedQuests?>, StatePublisher<TrackedQuests?>>();
         services.AddSingleton<IResynchronizationTransactionCoordinator>(sp => new ResynchronizationTransactionCoordinator(
             sp.GetRequiredService<LiveStateCatalog>(),
             sp.GetRequiredService<IAdapterAvailabilityTracker>(),
@@ -65,6 +67,15 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<PlayerLocationCaptureHandler>());
         services.AddSingleton<GameTimeCaptureHandler>();
         services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<GameTimeCaptureHandler>());
+        services.AddSingleton<ITrackedQuestCaptureCoordinator>(sp => new TrackedQuestCaptureCoordinator(
+            () => sp.GetRequiredService<IAdapterIpcListener>(),
+            sp.GetRequiredService<IAdapterAvailabilityTracker>(),
+            sp.GetRequiredService<IPlayContextTracker>(),
+            sp.GetRequiredService<IStatePublisher<TrackedQuests?>>(),
+            sp.GetRequiredService<ILiveStateApplication>(),
+            sp.GetRequiredService<IClock>()));
+        services.AddSingleton<TrackedQuestCaptureHandler>();
+        services.AddSingleton<ILiveCaptureHandler>(sp => sp.GetRequiredService<TrackedQuestCaptureHandler>());
         services.AddSingleton<ILiveCaptureSink, LiveCaptureSink>();
         services.AddSingleton<LiveStateScheduler>();
         services.AddSingleton<ILiveStateScheduler>(sp => sp.GetRequiredService<LiveStateScheduler>());

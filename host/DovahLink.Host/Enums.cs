@@ -444,6 +444,12 @@ public enum SynchronizationRole
     /// updates; registering it produces no baseline value of its own.
     /// </summary>
     PersistentEvent,
+
+    /// <summary>
+    /// A Host-orchestrated multi-request Snapshot capture; the Host obtains its baseline without
+    /// adding a generic sample token to the Adapter's resynchronization plan.
+    /// </summary>
+    HostOrchestratedBaseline,
 }
 
 /// <summary>
@@ -457,6 +463,37 @@ public enum UpdateMode
 
     /// <summary>An ordered complete post-change state, reliable within one authenticated session.</summary>
     Event,
+}
+
+// ---- Tracked Quests ----
+
+/// <summary>The six raw Skyrim objective-state meanings preserved in <c>tracked_quests</c>.</summary>
+[JsonConverter(typeof(JsonStringEnumConverter<TrackedQuestObjectiveState>))]
+public enum TrackedQuestObjectiveState : byte
+{
+    /// <summary>The objective instance is dormant.</summary>
+    [JsonStringEnumMemberName("dormant")]
+    Dormant = 0,
+
+    /// <summary>The objective instance is displayed.</summary>
+    [JsonStringEnumMemberName("displayed")]
+    Displayed = 1,
+
+    /// <summary>The objective instance is completed.</summary>
+    [JsonStringEnumMemberName("completed")]
+    Completed = 2,
+
+    /// <summary>The objective instance is completed and displayed.</summary>
+    [JsonStringEnumMemberName("completed_and_displayed")]
+    CompletedAndDisplayed = 3,
+
+    /// <summary>The objective instance is failed.</summary>
+    [JsonStringEnumMemberName("failed")]
+    Failed = 4,
+
+    /// <summary>The objective instance is failed and displayed.</summary>
+    [JsonStringEnumMemberName("failed_and_displayed")]
+    FailedAndDisplayed = 5,
 }
 
 /// <summary>Why a private IPC channel is being closed.</summary>

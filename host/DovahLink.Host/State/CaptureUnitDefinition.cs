@@ -10,17 +10,14 @@ namespace DovahLink.Host.State;
 /// feed <c>character_level</c>).
 /// </summary>
 /// <param name="Source">Which host-owned key namespace <paramref name="CaptureKey"/> belongs to.</param>
-/// <param name="CaptureKey">The sample token or event key, matching a <c>CharacterSampleToken</c> or <c>CharacterEventKey</c> value.</param>
+/// <param name="CaptureKey">The sample token, event key, or host-owned private capture key for this unit.</param>
 /// <param name="RateClass">
 /// The cadence a scheduler polls this capture unit at, or <see langword="null"/> when it is not
-/// polled on any cadence -- either because it is event-sourced, or because it is a sample used only
-/// to establish a resynchronization baseline.
+/// polled on any cadence -- either because it is event-sourced, because it is a sample used only
+/// to establish a resynchronization baseline, or because the Host orchestrates a bounded multi-page
+/// baseline collection itself.
 /// </param>
-/// <param name="SynchronizationRole">
-/// This unit's role in resynchronization, independent of <paramref name="RateClass"/>: see
-/// <see cref="DovahLink.Host.SynchronizationRole"/>'s own documentation for why the two cannot be
-/// inferred from each other.
-/// </param>
+/// <param name="SynchronizationRole">This unit's role in resynchronization, independent of <paramref name="RateClass"/>.</param>
 /// <param name="StateAreas">Every state area this capture unit's value is applied to.</param>
 public sealed record CaptureUnitDefinition(
     CaptureSourceKind Source,

@@ -60,6 +60,41 @@ public class ResynchronizationTransactionCoordinatorTests
         Assert.Equal(1, resynchronizedCount);
     }
 
+    /// <summary>Verifies a Host-orchestrated tracked-quest baseline is required without adding an Adapter sample token.</summary>
+    [Fact]
+    public void DefaultCatalog_TracksQuestBaselineAcceptanceWithoutAddingResynchronizationToken()
+    {
+        LiveStateCatalog catalog = LiveStateCatalog.Default;
+        ResynchronizationPlan plan = catalog.BuildResynchronizationPlan();
+        Assert.DoesNotContain((uint)TrackedQuestCaptureKey.Page, plan.BaselineSampleTokens);
+
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var coordinator = CreateCoordinator(catalog, tracker);
+        PlayContextId context = PlayContextId.NewId();
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+
+        StateAreaId questArea = new(Constants.TrackedQuestsStateArea);
+        StateAreaId[] otherAreas = catalog.CaptureUnits
+            .Where(unit => unit.SynchronizationRole is
+                SynchronizationRole.BaselineSample or SynchronizationRole.HostOrchestratedBaseline)
+            .SelectMany(unit => unit.StateAreas)
+            .Where(area => area != questArea)
+            .Distinct()
+            .ToArray();
+        foreach (StateAreaId area in otherAreas)
+        {
+            Assert.NotNull(coordinator.AcquireToken(instanceId, 1, context, 1));
+            coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
+        }
+
+        Assert.True(tracker.NeedsResynchronization);
+        Assert.NotNull(coordinator.AcquireToken(instanceId, 1, context, 1));
+        coordinator.RecordAreaAccepted(questArea, instanceId, 1, context, 1);
+        Assert.False(tracker.NeedsResynchronization);
+    }
+
     /// <summary>Verifies that every required area being accepted never completes the transaction on its own when the adapter's own plan was reported not accepted (for example a failed event registration).</summary>
     [Fact]
     public void AllAreasAcceptedButPlanNotAccepted_NeverCompletes()

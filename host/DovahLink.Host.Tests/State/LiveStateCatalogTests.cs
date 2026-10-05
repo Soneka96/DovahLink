@@ -20,6 +20,7 @@ public class LiveStateCatalogTests
             [Constants.CharacterSupernaturalTraitsStateArea] = UpdateMode.Snapshot,
             [Constants.PlayerLocationStateArea] = UpdateMode.Snapshot,
             [Constants.GameTimeStateArea] = UpdateMode.Snapshot,
+            [Constants.TrackedQuestsStateArea] = UpdateMode.Snapshot,
             [Constants.CharacterLevelStateArea] = UpdateMode.Event,
         };
 
@@ -75,6 +76,21 @@ public class LiveStateCatalogTests
             Assert.Equal(UpdateMode.Snapshot, LiveStateCatalog.Default.StateAreas
                 .Single(area => area.Id == new StateAreaId(stateArea)).UpdateMode);
         }
+    }
+
+    /// <summary>Verifies tracked quests remain a Slow Snapshot backed by Host-orchestrated pages.</summary>
+    [Fact]
+    public void Default_TrackedQuestsCapture_IsHostOrchestratedAndNotAnAdapterSampleLoop()
+    {
+        CaptureUnitDefinition unit = LiveStateCatalog.Default.CaptureUnits.Single(
+            candidate => candidate.Source == CaptureSourceKind.Sample
+                && candidate.CaptureKey == (uint)TrackedQuestCaptureKey.Page);
+
+        Assert.Null(unit.RateClass);
+        Assert.Equal(SynchronizationRole.HostOrchestratedBaseline, unit.SynchronizationRole);
+        Assert.Equal([new StateAreaId(Constants.TrackedQuestsStateArea)], unit.StateAreas);
+        Assert.Equal(UpdateMode.Snapshot, LiveStateCatalog.Default.StateAreas
+            .Single(area => area.Id == new StateAreaId(Constants.TrackedQuestsStateArea)).UpdateMode);
     }
 
     /// <summary>Verifies that Level keeps its baseline sample and persistent Event sources.</summary>

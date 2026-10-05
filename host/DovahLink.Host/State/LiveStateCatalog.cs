@@ -2,7 +2,7 @@ namespace DovahLink.Host.State;
 
 /// <summary>
 /// The Host-owned declaration of capture units and state areas. It can derive bounded
-/// resynchronization plans through <see cref="BuildResynchronizationPlan"/>, but does not decode
+/// Adapter resynchronization plans through <see cref="BuildResynchronizationPlan"/>, but does not decode
 /// payload bytes, schedule captures, or apply state; those remain the composed
 /// <see cref="DovahLink.Host.Adapter.Ipc.LiveCaptureSink"/> and
 /// <see cref="DovahLink.Host.Adapter.Ipc.LiveStateScheduler"/>'s jobs. The catalog remains
@@ -42,9 +42,9 @@ public sealed class LiveStateCatalog
     public IReadOnlyList<StateAreaDefinition> StateAreas { get; }
 
     /// <summary>
-    /// The production catalog: one fast coherent Vitals sample, one medium XP sample, two slow
-    /// metadata samples, and one Level event with its own baseline sample. Each sample feeds one
-    /// independently authoritative Snapshot area.
+    /// The production catalog: one fast coherent Vitals sample, one medium XP sample, three slow
+    /// Snapshot domains (including the Host-orchestrated quest capture), and one Level event with
+    /// its own baseline sample.
     /// </summary>
     public static LiveStateCatalog Default { get; } = new(
         captureUnits:
@@ -87,6 +87,12 @@ public sealed class LiveStateCatalog
                 [new StateAreaId(Constants.GameTimeStateArea)]),
             new CaptureUnitDefinition(
                 CaptureSourceKind.Sample,
+                (uint)TrackedQuestCaptureKey.Page,
+                RateClass: null,
+                SynchronizationRole.HostOrchestratedBaseline,
+                [new StateAreaId(Constants.TrackedQuestsStateArea)]),
+            new CaptureUnitDefinition(
+                CaptureSourceKind.Sample,
                 (uint)CharacterSampleToken.CharacterLevelBaseline,
                 RateClass: null,
                 SynchronizationRole: SynchronizationRole.BaselineSample,
@@ -106,12 +112,14 @@ public sealed class LiveStateCatalog
             new StateAreaDefinition(new StateAreaId(Constants.CharacterSupernaturalTraitsStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.PlayerLocationStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.GameTimeStateArea), UpdateMode.Snapshot),
+            new StateAreaDefinition(new StateAreaId(Constants.TrackedQuestsStateArea), UpdateMode.Snapshot),
             new StateAreaDefinition(new StateAreaId(Constants.CharacterLevelStateArea), UpdateMode.Event),
         ]);
 
     /// <summary>
-    /// Builds the bounded event and sample intents from synchronization roles, preserving catalog
-    /// order for each unique key.
+    /// Builds the bounded Adapter event and sample intents from roles owned by the Adapter, preserving
+    /// catalog order for each unique key. Host-orchestrated baselines remain transaction requirements
+    /// but add no Adapter resynchronization token.
     /// </summary>
     /// <returns>The plan derived from this catalog's capture units.</returns>
     /// <exception cref="InvalidOperationException">A capture has an invalid source/role, zero key, or exceeds a plan bound.</exception>
@@ -154,6 +162,18 @@ public sealed class LiveStateCatalog
                         seenSampleTokens,
                         Constants.MaxResynchronizationSampleTokens,
                         "baseline sample");
+                    break;
+
+                case SynchronizationRole.HostOrchestratedBaseline:
+                    if (unit.Source != CaptureSourceKind.Sample || unit.RateClass is not null)
+                    {
+                        throw new InvalidOperationException(
+                            $"Capture key {unit.CaptureKey} has invalid source or rate class for Host-orchestrated baseline role.");
+                    }
+                    if (unit.CaptureKey == 0)
+                    {
+                        throw new InvalidOperationException("A Host-orchestrated baseline capture key must be nonzero.");
+                    }
                     break;
 
                 default:

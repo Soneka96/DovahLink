@@ -664,13 +664,15 @@ public class AdapterIpcConnectionTests
         (Stream server, Stream client) = await CreateConnectedStreamPairAsync();
         var codec = new IpcFrameCodec();
         var expected = new IpcReadTrackedQuestPageMessage(9, TrackedQuestPageKind.Objectives, 0x12345678, 4);
-        var fakeSession = new FakeAdapterIpcSession { TrackedQuestPageResult = expected };
+        var fakeSession = new FakeAdapterIpcSession { ConnectionGeneration = 1, TrackedQuestPageResult = expected };
         var connection = new AdapterIpcConnection(server, codec, fakeSession, new SystemClock());
         await client.WriteAsync(codec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), [])));
 
         Task runTask = connection.RunAsync(CancellationToken.None);
         await ReadOneFrameAsync(client, codec); // ack
-        bool enqueued = connection.TrySendTrackedQuestPage(expected.PageKind, expected.QuestId, expected.Cursor, out ulong correlationId);
+        IpcReadTrackedQuestPageMessage prepared = Assert.IsType<IpcReadTrackedQuestPageMessage>(
+            connection.PrepareReadTrackedQuestPage(expected.PageKind, expected.QuestId, expected.Cursor));
+        bool enqueued = connection.TrySendPreparedTrackedQuestPage(prepared, 1, out ulong correlationId);
         IpcMessage delivered = await ReadOneFrameAsync(client, codec);
         client.Dispose();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -687,10 +689,11 @@ public class AdapterIpcConnectionTests
         var connection = new AdapterIpcConnection(
             new MemoryStream(), new IpcFrameCodec(), new FakeAdapterIpcSession(), new SystemClock());
 
-        bool enqueued = connection.TrySendTrackedQuestPage(TrackedQuestPageKind.TrackedQuestIds, 0, 0, out ulong correlationId);
+        IpcReadTrackedQuestPageMessage? prepared = connection.PrepareReadTrackedQuestPage(TrackedQuestPageKind.TrackedQuestIds, 0, 0);
+        bool enqueued = prepared is not null && connection.TrySendPreparedTrackedQuestPage(prepared, 1, out ulong correlationId);
 
         Assert.False(enqueued);
-        Assert.Equal(0UL, correlationId);
+        Assert.Null(prepared);
     }
 
     /// <summary>Verifies an outbound-queue rejection clears a prepared quest-page correlation.</summary>
@@ -709,7 +712,9 @@ public class AdapterIpcConnectionTests
             Assert.True(connection.TrySendListenEvent(1, out _));
         }
 
-        bool enqueued = connection.TrySendTrackedQuestPage(TrackedQuestPageKind.TrackedQuestIds, 0, 0, out ulong correlationId);
+        IpcReadTrackedQuestPageMessage prepared = Assert.IsType<IpcReadTrackedQuestPageMessage>(
+            connection.PrepareReadTrackedQuestPage(TrackedQuestPageKind.TrackedQuestIds, 0, 0));
+        bool enqueued = connection.TrySendPreparedTrackedQuestPage(prepared, 1, out ulong correlationId);
 
         Assert.False(enqueued);
         Assert.Equal(0UL, correlationId);

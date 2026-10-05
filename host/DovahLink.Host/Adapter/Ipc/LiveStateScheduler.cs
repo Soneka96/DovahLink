@@ -10,9 +10,8 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// per-unit loop that waits its unit's interval, then sends a read-sample request on the adapter
 /// listener's currently active connection -- but only when that unit has no outstanding request
 /// already awaiting a reply. A capture unit whose <see cref="CaptureUnitDefinition.RateClass"/> is
-/// <see langword="null"/> is never polled here -- it is either event-sourced or a
-/// resynchronization-only baseline sample, both handled entirely by the adapter's own
-/// resynchronization sequence, not by this scheduler.
+/// <see langword="null"/> is never polled here: it may be event-sourced, an Adapter-captured
+/// baseline sample, or a Host-orchestrated baseline collection.
 /// </summary>
 public interface ILiveStateScheduler
 {
