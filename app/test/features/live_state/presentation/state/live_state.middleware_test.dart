@@ -50,6 +50,82 @@ class MockDovahLinkCurrentHost extends Mock implements IDovahLinkCurrentHost {}
 /// Mocks the Redux store and records dispatched actions.
 class MockStore extends Mock implements Store<AppState> {}
 
+/// Delays stream cancellation so tests can deliver a callback from an ended session.
+class _DelayedCancelStream<T> extends Stream<T> {
+  /// Creates a wrapper over [source] whose subscriptions await [cancelGate].
+  _DelayedCancelStream(this.source, this.cancelGate);
+
+  /// The source stream that receives test-controlled values.
+  final Stream<T> source;
+
+  /// The gate that holds source cancellation after middleware requests it.
+  final Future<void> cancelGate;
+
+  /// Subscribes to [source] and delays only the returned cancellation operation.
+  @override
+  StreamSubscription<T> listen(
+    void Function(T)? onData, {
+    Function? onError,
+    void Function()? onDone,
+    bool? cancelOnError,
+  }) => _DelayedCancelSubscription<T>(
+    source.listen(
+      onData,
+      onError: onError,
+      onDone: onDone,
+      cancelOnError: cancelOnError,
+    ),
+    cancelGate,
+  );
+}
+
+/// Holds a source subscription active until the test releases its cancellation gate.
+class _DelayedCancelSubscription<T> implements StreamSubscription<T> {
+  /// Creates a wrapper over [source] and [cancelGate].
+  _DelayedCancelSubscription(this.source, this.cancelGate);
+
+  /// The source subscription controlled by the test.
+  final StreamSubscription<T> source;
+
+  /// The gate that delays forwarding [cancel].
+  final Future<void> cancelGate;
+
+  /// Implements [StreamSubscription.asFuture].
+  @override
+  Future<E> asFuture<E>([E? futureValue]) => source.asFuture<E>(futureValue);
+
+  /// Implements [StreamSubscription.cancel] after the test releases the gate.
+  @override
+  Future<void> cancel() async {
+    await cancelGate;
+    await source.cancel();
+  }
+
+  /// Implements [StreamSubscription.isPaused].
+  @override
+  bool get isPaused => source.isPaused;
+
+  /// Implements [StreamSubscription.onData].
+  @override
+  void onData(void Function(T)? handleData) => source.onData(handleData);
+
+  /// Implements [StreamSubscription.onDone].
+  @override
+  void onDone(void Function()? handleDone) => source.onDone(handleDone);
+
+  /// Implements [StreamSubscription.onError].
+  @override
+  void onError(Function? handleError) => source.onError(handleError);
+
+  /// Implements [StreamSubscription.pause].
+  @override
+  void pause([Future<void>? resumeSignal]) => source.pause(resumeSignal);
+
+  /// Implements [StreamSubscription.resume].
+  @override
+  void resume() => source.resume();
+}
+
 /// Controls SDK lifecycle and typed domain streams for middleware tests.
 class LiveStateSdkFake {
   /// The mocked SDK client wired to these controllable views.
@@ -142,6 +218,20 @@ class LiveStateSdkFake {
   /// Completes a delayed subscription response.
   Completer<Set<DovahLinkStateArea>>? pendingSubscription;
 
+  /// A replacement XP stream supplied for a particular admitted session.
+  Stream<StateSynchronization<CharacterXpState>>? xpStreamOverride;
+
+  /// Whether XP subscriptions should delay forwarding cancellation.
+  bool delayXpCancellation = false;
+
+  /// Holds a delayed XP cancellation until a test releases it.
+  final Completer<void> xpCancellationGate = Completer<void>();
+
+  /// Additional XP sources used to separate old and replacement sessions.
+  final List<StreamController<StateSynchronization<CharacterXpState>>>
+  additionalXpSources =
+      <StreamController<StateSynchronization<CharacterXpState>>>[];
+
   /// Reads of the SDK Vitals stream getter.
   int vitalsStreamReads = 0;
 
@@ -180,7 +270,14 @@ class LiveStateSdkFake {
     });
     when(() => character.xpChanges).thenAnswer((_) {
       xpStreamReads++;
-      return xp.stream;
+      final Stream<StateSynchronization<CharacterXpState>> changes =
+          xpStreamOverride ?? xp.stream;
+      return delayXpCancellation
+          ? _DelayedCancelStream<StateSynchronization<CharacterXpState>>(
+              changes,
+              xpCancellationGate.future,
+            )
+          : changes;
     });
     when(() => character.levelChanges).thenAnswer((_) {
       levelStreamReads++;
@@ -253,6 +350,9 @@ class LiveStateSdkFake {
       location.close(),
       gameTime.close(),
       quests.close(),
+      for (final StreamController<StateSynchronization<CharacterXpState>> source
+          in additionalXpSources)
+        source.close(),
     ]);
   }
 }
@@ -282,6 +382,9 @@ void main() {
   });
 
   tearDown(() async {
+    if (!sdk.xpCancellationGate.isCompleted) {
+      sdk.xpCancellationGate.complete();
+    }
     await middleware.shutdown();
     await sdk.close();
     await sl.reset();
@@ -396,6 +499,91 @@ void main() {
 
         expect(sdk.requestedAreas, [DovahLinkStateArea.characterVitals]);
         expect(actions.whereType<SessionLiveStateResetAction>(), hasLength(1));
+      },
+    );
+
+    test(
+      'a delayed session failure cannot continue requests or report in a replacement session',
+      () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
+        sdk.pendingArea = DovahLinkStateArea.characterVitals;
+        final Completer<Set<DovahLinkStateArea>> sessionAResponse =
+            Completer<Set<DovahLinkStateArea>>();
+        sdk.pendingSubscription = sessionAResponse;
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        expect(sdk.requestedAreas, [DovahLinkStateArea.characterVitals]);
+        sdk.emitConnectionState(DovahLinkConnectionState.disconnected);
+        sdk.pendingArea = null;
+        sdk.pendingSubscription = null;
+        sdk.emitConnectionState(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+        await pumpEventQueue();
+
+        expect(sdk.requestedAreas, [
+          DovahLinkStateArea.characterVitals,
+          ..._expectedAreas,
+        ]);
+        sessionAResponse.completeError(
+          StateError('Session A subscription failed late.'),
+          StackTrace.current,
+        );
+        await pumpEventQueue();
+
+        expect(sdk.requestedAreas, [
+          DovahLinkStateArea.characterVitals,
+          ..._expectedAreas,
+        ]);
+        expect(reported, isEmpty);
+      },
+    );
+
+    test(
+      'a delayed session rejection cannot continue requests or report in a replacement session',
+      () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
+        sdk.pendingArea = DovahLinkStateArea.characterVitals;
+        final Completer<Set<DovahLinkStateArea>> sessionAResponse =
+            Completer<Set<DovahLinkStateArea>>();
+        sdk.pendingSubscription = sessionAResponse;
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        expect(sdk.requestedAreas, [DovahLinkStateArea.characterVitals]);
+        sdk.emitConnectionState(DovahLinkConnectionState.disconnected);
+        sdk.pendingArea = null;
+        sdk.pendingSubscription = null;
+        sdk.emitConnectionState(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+        await pumpEventQueue();
+
+        expect(sdk.requestedAreas, [
+          DovahLinkStateArea.characterVitals,
+          ..._expectedAreas,
+        ]);
+        sessionAResponse.complete(<DovahLinkStateArea>{
+          DovahLinkStateArea.characterVitals,
+        });
+        await pumpEventQueue();
+
+        expect(sdk.requestedAreas, [
+          DovahLinkStateArea.characterVitals,
+          ..._expectedAreas,
+        ]);
+        expect(reported, isEmpty);
       },
     );
 
@@ -571,6 +759,97 @@ void main() {
     );
 
     test(
+      'late callbacks from an ended session are ignored while cancellation is pending',
+      () async {
+        final originalHandler = FlutterError.onError;
+        final List<FlutterErrorDetails> reported = <FlutterErrorDetails>[];
+        FlutterError.onError = reported.add;
+        addTearDown(() => FlutterError.onError = originalHandler);
+        final StreamController<StateSynchronization<CharacterXpState>>
+        sessionAXp =
+            StreamController<StateSynchronization<CharacterXpState>>.broadcast(
+              sync: true,
+            );
+        final StreamController<StateSynchronization<CharacterXpState>>
+        sessionBXp =
+            StreamController<StateSynchronization<CharacterXpState>>.broadcast(
+              sync: true,
+            );
+        sdk.additionalXpSources.addAll([sessionAXp, sessionBXp]);
+        sdk.delayXpCancellation = true;
+        sdk.xpStreamOverride = sessionAXp.stream;
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        sdk.emitConnectionState(DovahLinkConnectionState.disconnected);
+        expect(sessionAXp.hasListener, isTrue);
+        sdk.delayXpCancellation = false;
+        sdk.xpStreamOverride = sessionBXp.stream;
+        sdk.emitConnectionState(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+        await _trustCurrentSession(sdk, middleware, store);
+
+        expect(sdk.vitalsStreamReads, 2);
+        expect(sdk.xpStreamReads, 2);
+        expect(sdk.levelStreamReads, 2);
+        expect(sdk.identityStreamReads, 2);
+        expect(sdk.supernaturalTraitsStreamReads, 2);
+        expect(sdk.locationStreamReads, 2);
+        expect(sdk.gameTimeStreamReads, 2);
+        expect(sdk.questsStreamReads, 2);
+        expect(sessionBXp.hasListener, isTrue);
+
+        sessionAXp.add(
+          const StateSynchronization<CharacterXpState>(
+            status: DovahLinkStateStatus.synchronized,
+            value: CharacterXpState(value: 11),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 1,
+          ),
+        );
+        await pumpEventQueue();
+        expect(
+          actions.whereType<CharacterXpSynchronizationChangedAction>(),
+          isEmpty,
+        );
+        sessionAXp.addError(
+          StateError('Session A stream failed after replacement.'),
+          StackTrace.current,
+        );
+        await pumpEventQueue();
+        expect(reported, isEmpty);
+
+        const StateSynchronization<CharacterXpState> sessionBSynchronization =
+            StateSynchronization<CharacterXpState>(
+              status: DovahLinkStateStatus.synchronized,
+              value: CharacterXpState(value: 52),
+              stateAuthorityId: 'authority-b',
+              playContextId: 'context-b',
+              revision: 1,
+            );
+        sessionBXp.add(sessionBSynchronization);
+        await pumpEventQueue();
+
+        final CharacterXpSynchronizationChangedAction accepted = actions
+            .whereType<CharacterXpSynchronizationChangedAction>()
+            .single;
+        expect(
+          identical(accepted.synchronization, sessionBSynchronization),
+          isTrue,
+        );
+
+        sdk.xpCancellationGate.complete();
+        await pumpEventQueue();
+        expect(sessionAXp.hasListener, isFalse);
+        expect(sessionBXp.hasListener, isTrue);
+      },
+    );
+
+    test(
       'actual disconnect cancels listeners and resets every projected domain',
       () async {
         sdk.connectionState = DovahLinkConnectionState.connected;
@@ -664,7 +943,7 @@ void main() {
         sdk.emitConnectionState(DovahLinkConnectionState.connected);
         await pumpEventQueue();
         await _trustCurrentSession(sdk, middleware, store);
-        expect(sdk.requestedAreas, _expectedAreas);
+        expect(sdk.requestedAreas, [..._expectedAreas, ..._expectedAreas]);
         expect(sdk.vitalsStreamReads, 2);
       },
     );
@@ -756,6 +1035,27 @@ void main() {
         await replacement.shutdown();
       },
     );
+
+    test('shutdown waits until delayed stream cancellation finishes', () async {
+      sdk.delayXpCancellation = true;
+      sdk.connectionState = DovahLinkConnectionState.connected;
+      middleware.initialize(store);
+      await pumpEventQueue();
+      await _trustCurrentSession(sdk, middleware, store);
+
+      final Future<void> shutdown = middleware.shutdown();
+      bool isShutdownComplete = false;
+      unawaited(shutdown.then((_) => isShutdownComplete = true));
+      await pumpEventQueue();
+
+      expect(isShutdownComplete, isFalse);
+      expect(sdk.xp.hasListener, isTrue);
+      sdk.xpCancellationGate.complete();
+      await shutdown;
+
+      expect(isShutdownComplete, isTrue);
+      expect(sdk.xp.hasListener, isFalse);
+    });
   });
 
   group('LiveStateMiddleware projects SDK domain streams', () {

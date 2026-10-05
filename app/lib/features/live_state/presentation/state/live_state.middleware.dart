@@ -60,6 +60,10 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
   _stateSubscriptionCancellations =
       <Store<AppState>, List<Future<void> Function()>>{};
 
+  /// Active admitted-session observation identities keyed by the stores they serve.
+  final Map<Store<AppState>, Object> _activeObservationTokens =
+      <Store<AppState>, Object>{};
+
   /// Stores whose SDK desired areas were established for this middleware lifetime.
   final Set<Store<AppState>> _requestedDesiredAreaStores = <Store<AppState>>{};
 
@@ -107,6 +111,7 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
   @override
   Future<void> shutdown() {
     _isShuttingDown = true;
+    _activeObservationTokens.clear();
     return _shutdownFuture ??=
         Future.wait<void>([
           for (final StreamSubscription<DovahLinkConnectionState> subscription
@@ -119,6 +124,7 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
         ]).then((_) {
           _lifecycleSubscriptions.clear();
           _stateSubscriptionCancellations.clear();
+          _activeObservationTokens.clear();
           _requestedDesiredAreaStores.clear();
         });
   }
@@ -147,6 +153,7 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
       return;
     }
     if (state == DovahLinkConnectionState.administrativelyInvalidated) {
+      _requestedDesiredAreaStores.remove(store);
       _endAdmittedSession(store);
     }
   }
@@ -161,8 +168,9 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     if (client.connections.state == DovahLinkConnectionState.connected &&
         client.currentHost.trustState == DovahLinkTrustState.trusted) {
       _attachStateStreams(store, client);
-      if (_requestedDesiredAreaStores.add(store)) {
-        unawaited(_requestRequiredAreas(store, client.currentHost));
+      final Object? token = _activeObservationTokens[store];
+      if (token != null && _requestedDesiredAreaStores.add(store)) {
+        unawaited(_requestRequiredAreas(store, client.currentHost, token));
       }
     }
   }
@@ -174,46 +182,56 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
     if (_isShuttingDown || _stateSubscriptionCancellations.containsKey(store)) {
       return;
     }
+    final Object token = Object();
+    _activeObservationTokens[store] = token;
     _stateSubscriptionCancellations[store] = <Future<void> Function()>[];
     final currentHost = client.currentHost;
     final character = currentHost.character;
     _observe(
       store,
+      token,
       character.vitalsChanges,
       CharacterVitalsSynchronizationChangedAction.new,
     );
     _observe(
       store,
+      token,
       character.xpChanges,
       CharacterXpSynchronizationChangedAction.new,
     );
     _observe(
       store,
+      token,
       character.levelChanges,
       CharacterLevelSynchronizationChangedAction.new,
     );
     _observe(
       store,
+      token,
       character.identityChanges,
       CharacterIdentitySynchronizationChangedAction.new,
     );
     _observe(
       store,
+      token,
       character.supernaturalTraitsChanges,
       CharacterSupernaturalTraitsSynchronizationChangedAction.new,
     );
     _observe(
       store,
+      token,
       currentHost.playerLocationChanges,
       PlayerLocationSynchronizationChangedAction.new,
     );
     _observe(
       store,
+      token,
       currentHost.gameTimeChanges,
       GameTimeSynchronizationChangedAction.new,
     );
     _observe(
       store,
+      token,
       currentHost.trackedQuestsChanges,
       TrackedQuestsSynchronizationChangedAction.new,
     );
@@ -230,23 +248,27 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
 
   /// Subscribes to one typed SDK stream and forwards its value unchanged.
   /// @param store The store receiving the typed action.
+  /// @param token The observation identity that owns this stream listener.
   /// @param changes The SDK synchronization stream for one domain.
   /// @param action Creates the domain-specific Redux action.
   void _observe<T>(
     Store<AppState> store,
+    Object token,
     Stream<StateSynchronization<T>> changes,
     Object Function(StateSynchronization<T>) action,
   ) {
     final StreamSubscription<StateSynchronization<T>> subscription = changes
         .listen(
           (StateSynchronization<T> synchronization) {
-            if (!_isShuttingDown &&
-                _stateSubscriptionCancellations.containsKey(store)) {
+            if (_isCurrentObservation(store, token)) {
               store.dispatch(action(synchronization));
             }
           },
-          onError: (Object error, StackTrace stackTrace) =>
-              _reportObservationFailure(error, stackTrace),
+          onError: (Object error, StackTrace stackTrace) {
+            if (_isCurrentObservation(store, token)) {
+              _reportObservationFailure(error, stackTrace);
+            }
+          },
         );
     _stateSubscriptionCancellations[store]?.add(subscription.cancel);
   }
@@ -254,23 +276,27 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
   /// Adds every required domain through the SDK's additive desired-set API.
   /// @param store The store whose session remains observed.
   /// @param currentHost The SDK current-Host view owning subscription intent.
+  /// @param token The observation identity that owns the request sequence.
   Future<void> _requestRequiredAreas(
     Store<AppState> store,
     IDovahLinkCurrentHost currentHost,
+    Object token,
   ) async {
     for (final DovahLinkStateArea area in _requiredAreas) {
-      if (_isShuttingDown ||
-          !_stateSubscriptionCancellations.containsKey(store)) {
+      if (!_isCurrentObservation(store, token)) {
         return;
       }
       try {
         final Set<DovahLinkStateArea> rejected = await currentHost
             .subscribeStateArea(area);
+        if (!_isCurrentObservation(store, token)) {
+          return;
+        }
         if (rejected.contains(area)) {
           _reportSubscriptionRejection(area);
         }
       } on Object catch (error, stackTrace) {
-        if (!_stateSubscriptionCancellations.containsKey(store)) {
+        if (!_isCurrentObservation(store, token)) {
           return;
         }
         _reportObservationFailure(error, stackTrace);
@@ -281,6 +307,7 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
   /// Cancels gameplay listeners and clears the ended session's Redux projection.
   /// @param store The store whose admitted session has ended.
   void _endAdmittedSession(Store<AppState> store) {
+    _activeObservationTokens.remove(store);
     final List<Future<void> Function()>? cancellations =
         _stateSubscriptionCancellations.remove(store);
     if (cancellations == null) {
@@ -293,6 +320,13 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
       store.dispatch(const SessionLiveStateResetAction());
     }
   }
+
+  /// Checks whether callbacks or asynchronous work still belong to the active session.
+  /// @param store The Redux store owning the observation.
+  /// @param token The observation identity captured by that work.
+  /// @return Whether the middleware still accepts work for this observation.
+  bool _isCurrentObservation(Store<AppState> store, Object token) =>
+      !_isShuttingDown && identical(_activeObservationTokens[store], token);
 
   /// Reports an SDK stream or subscription failure through Flutter's diagnostics channel.
   /// @param error The observed exception.
