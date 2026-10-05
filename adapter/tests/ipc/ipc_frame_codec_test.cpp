@@ -23,6 +23,7 @@
 
 using dovahlink::adapter::capture::CaptureAvailability;
 using dovahlink::adapter::capture::CaptureSourceKind;
+namespace capture = dovahlink::adapter::capture;
 using dovahlink::adapter::ipc::IIpcFrameCodec;
 using dovahlink::adapter::ipc::IpcCancelMessage;
 using dovahlink::adapter::ipc::IpcCaptureResultMessage;
@@ -42,6 +43,7 @@ using dovahlink::adapter::ipc::IpcPairingDisplayMessage;
 using dovahlink::adapter::ipc::IpcPlayContextChangedMessage;
 using dovahlink::adapter::ipc::IpcPlayContextEndedMessage;
 using dovahlink::adapter::ipc::IpcReadSampleMessage;
+using dovahlink::adapter::ipc::IpcReadTrackedQuestPageMessage;
 using dovahlink::adapter::ipc::IpcRejectMessage;
 using dovahlink::adapter::ipc::IpcRejectReason;
 using dovahlink::adapter::ipc::IpcResynchronizeRequestMessage;
@@ -484,6 +486,85 @@ TEST_CASE("read-sample intent round-trips its opaque token",
 
         REQUIRE(result.has_value());
         CHECK(*result == IpcMessage{original});
+    }
+}
+
+TEST_CASE("tracked-quest page requests round-trip each bounded operation",
+          "[ipc][ipc_frame_codec][tracked_quests]") {
+    IpcFrameCodec codec;
+    for (const capture::TrackedQuestPageRequest request : {
+             capture::TrackedQuestPageRequest{
+                 .kind = capture::TrackedQuestPageKind::kTrackedQuestIds,
+                 .cursor = 96},
+             capture::TrackedQuestPageRequest{
+                 .kind = capture::TrackedQuestPageKind::kQuestMetadata,
+                 .questId = 0x12345678},
+             capture::TrackedQuestPageRequest{
+                 .kind = capture::TrackedQuestPageKind::kObjectives,
+                 .questId = 0x12345678,
+                 .cursor = 1024}}) {
+        IpcReadTrackedQuestPageMessage original{.correlationId = 7,
+                                                .request = request};
+
+        auto result = EncodeThenDecode(codec, IpcMessage{original});
+
+        REQUIRE(result.has_value());
+        CHECK(*result == IpcMessage{original});
+    }
+}
+
+TEST_CASE("tracked-quest page requests reject invalid operation arguments",
+          "[ipc][ipc_frame_codec][tracked_quests]") {
+    IpcFrameCodec codec;
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcReadTrackedQuestPageMessage{
+                        .correlationId = 0,
+                        .request = {.kind = capture::TrackedQuestPageKind::kTrackedQuestIds}}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcReadTrackedQuestPageMessage{
+                        .correlationId = 1,
+                        .request = {.kind = capture::TrackedQuestPageKind::kTrackedQuestIds,
+                                    .questId = 1}}}),
+                    std::invalid_argument);
+    CHECK_THROWS_AS(codec.Encode(IpcMessage{IpcReadTrackedQuestPageMessage{
+                        .correlationId = 1,
+                        .request = {.kind = capture::TrackedQuestPageKind::kObjectives,
+                                    .questId = 1,
+                                    .cursor = 1025}}}),
+                    std::invalid_argument);
+}
+
+TEST_CASE("tracked-quest page requests fail closed on malformed payloads",
+          "[ipc][ipc_frame_codec][tracked_quests]") {
+    IpcFrameCodec codec;
+    auto shortFrame = codec.Decode(BuildFrame(
+        IpcMessageKind::kReadTrackedQuestPage, 1, std::vector<std::byte>(6)));
+    CHECK_FALSE(shortFrame.has_value());
+    CHECK(shortFrame.error() == IpcRejectReason::kMalformedPayload);
+    const auto decode = [&codec](std::uint64_t correlationId, std::uint8_t kind,
+                                 std::uint32_t questId, std::uint16_t cursor) {
+        std::vector<std::byte> payload(7);
+        payload[0] = static_cast<std::byte>(kind);
+        payload[1] = static_cast<std::byte>(questId & 0xFFu);
+        payload[2] = static_cast<std::byte>((questId >> 8) & 0xFFu);
+        payload[3] = static_cast<std::byte>((questId >> 16) & 0xFFu);
+        payload[4] = static_cast<std::byte>((questId >> 24) & 0xFFu);
+        payload[5] = static_cast<std::byte>(cursor & 0xFFu);
+        payload[6] = static_cast<std::byte>((cursor >> 8) & 0xFFu);
+        return codec.Decode(BuildFrame(IpcMessageKind::kReadTrackedQuestPage,
+                                       correlationId, payload));
+    };
+    for (const auto [correlationId, kind, questId, cursor] : {
+             std::tuple{std::uint64_t{0}, std::uint8_t{0}, std::uint32_t{0}, std::uint16_t{0}},
+             std::tuple{std::uint64_t{1}, std::uint8_t{255}, std::uint32_t{0}, std::uint16_t{0}},
+             std::tuple{std::uint64_t{1}, std::uint8_t{0}, std::uint32_t{1}, std::uint16_t{0}},
+             std::tuple{std::uint64_t{1}, std::uint8_t{0}, std::uint32_t{0}, std::uint16_t{33}},
+             std::tuple{std::uint64_t{1}, std::uint8_t{0}, std::uint32_t{0}, std::uint16_t{160}},
+             std::tuple{std::uint64_t{1}, std::uint8_t{1}, std::uint32_t{1}, std::uint16_t{1}},
+             std::tuple{std::uint64_t{1}, std::uint8_t{2}, std::uint32_t{0}, std::uint16_t{0}},
+             std::tuple{std::uint64_t{1}, std::uint8_t{2}, std::uint32_t{1}, std::uint16_t{1025}}}) {
+        auto result = decode(correlationId, kind, questId, cursor);
+        CHECK_FALSE(result.has_value());
+        CHECK(result.error() == IpcRejectReason::kMalformedPayload);
     }
 }
 
@@ -1108,10 +1189,10 @@ TEST_CASE("a length prefix of the wrong byte count is rejected",
 TEST_CASE("a frame declaring an unrecognized message kind fails closed",
           "[ipc][ipc_frame_codec]") {
     IpcFrameCodec codec;
-    //  19 is the value immediately past the currently highest defined kind
-    //  (kPlayContextEnded = 18); update this alongside any future kind
+    //  20 is the value immediately past the currently highest defined kind
+    //  (kReadTrackedQuestPage = 19); update this alongside any future kind
     //  addition so it keeps testing the actual boundary.
-    for (std::byte kindByte : {std::byte{0}, std::byte{19}, std::byte{250}}) {
+    for (std::byte kindByte : {std::byte{0}, std::byte{20}, std::byte{250}}) {
         std::vector<std::byte> frame =
             codec.Encode(IpcMessage{IpcCancelMessage{.correlationId = 1}});
         frame[4] = kindByte;
@@ -2028,6 +2109,12 @@ TEST_CASE("host and adapter share exact no-version golden wire vectors",
                                          .sampleToken = 0xA1B2C3D4}},
          Bytes({0x0D, 0x00, 0x00, 0x00, 0x09, 0x88, 0x77, 0x66, 0x55, 0x44, 0x33,
                 0x22, 0x11, 0xD4, 0xC3, 0xB2, 0xA1})},
+        {IpcMessage{IpcReadTrackedQuestPageMessage{
+             .correlationId = 14,
+             .request = {.kind = capture::TrackedQuestPageKind::kTrackedQuestIds,
+                         .cursor = 96}}},
+         Bytes({0x10, 0x00, 0x00, 0x00, 0x13, 0x0E, 0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x60, 0x00})},
         //  7-byte payload: 1 mode byte + 6 ASCII code digits.
         {IpcMessage{
              IpcPairingDisplayMessage{.correlationId = 8,

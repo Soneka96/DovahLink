@@ -311,12 +311,35 @@ public enum IpcMessageKind : byte
 
     /// <summary>Sent by the adapter to notify the host the play context has ended. See <see cref="Adapter.Ipc.IpcPlayContextEndedMessage"/>.</summary>
     PlayContextEnded = 18,
+
+    /// <summary>Sent by the host to request one bounded tracked-quest page.</summary>
+    ReadTrackedQuestPage = 19,
+}
+
+/// <summary>The bounded tracked-quest fact page requested from the Adapter.</summary>
+public enum TrackedQuestPageKind : byte
+{
+    /// <summary>A page of currently tracked runtime quest FormIDs.</summary>
+    TrackedQuestIds = 0,
+
+    /// <summary>The title and type for one tracked quest.</summary>
+    QuestMetadata = 1,
+
+    /// <summary>A page of current objective instances for one tracked quest.</summary>
+    Objectives = 2,
+}
+
+/// <summary>The capture-result key used for tracked-quest page replies.</summary>
+public enum TrackedQuestCaptureKey : uint
+{
+    /// <summary>One response to a tracked-quest page request.</summary>
+    Page = 8,
 }
 
 /// <summary>Which host-owned key namespace a captured value's key belongs to.</summary>
 public enum CaptureSourceKind : byte
 {
-    /// <summary>A host-owned sample token, read synchronously in response to a <see cref="Adapter.Ipc.IpcReadSampleMessage"/>.</summary>
+    /// <summary>A host-directed capture read, including sample tokens and tracked-quest page requests.</summary>
     Sample = 0,
 
     /// <summary>A host-owned event key, captured asynchronously once a registered native event fires.</summary>

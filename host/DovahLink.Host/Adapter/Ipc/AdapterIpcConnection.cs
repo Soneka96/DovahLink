@@ -51,6 +51,14 @@ public interface IAdapterIpcConnection
     /// <returns>The prepared intent, or <see langword="null"/> when this connection cannot prepare it.</returns>
     IpcReadSampleMessage? PrepareReadSample(uint sampleToken);
 
+    /// <summary>Attempts to enqueue one bounded tracked-quest page request.</summary>
+    /// <param name="pageKind">The requested page operation.</param>
+    /// <param name="questId">The runtime quest FormID, or zero for quest-ID pages.</param>
+    /// <param name="cursor">The tracked-ID or objective offset.</param>
+    /// <param name="correlationId">The request identity when enqueued; otherwise zero.</param>
+    /// <returns>Whether the request entered the bounded outbound queue.</returns>
+    bool TrySendTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor, out ulong correlationId);
+
     /// <summary>
     /// Attempts to enqueue a sample intent prepared by this connection, provided this connection's
     /// generation still matches the expected generation. This method performs only a bounded
@@ -326,6 +334,20 @@ public sealed class AdapterIpcConnection : IAdapterIpcConnection
 
     /// <inheritdoc/>
     public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => session.PrepareReadSample(sampleToken);
+
+    /// <inheritdoc/>
+    public bool TrySendTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor, out ulong correlationId)
+    {
+        IpcReadTrackedQuestPageMessage? request = session.PrepareReadTrackedQuestPage(pageKind, questId, cursor);
+        if (request is null || !outbound.Writer.TryWrite(codec.Encode(request)))
+        {
+            correlationId = 0;
+            return false;
+        }
+
+        correlationId = request.CorrelationId;
+        return true;
+    }
 
     /// <inheritdoc/>
     public bool TrySendPreparedReadSample(IpcReadSampleMessage message, long expectedConnectionGeneration, out ulong correlationId)

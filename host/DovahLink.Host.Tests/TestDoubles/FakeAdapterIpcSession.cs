@@ -54,6 +54,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
     /// <summary>The message <see cref="PrepareReadSample"/> returns.</summary>
     public IpcReadSampleMessage? ReadSampleResult { get; set; }
 
+    /// <summary>The message <see cref="PrepareReadTrackedQuestPage"/> returns.</summary>
+    public IpcReadTrackedQuestPageMessage? TrackedQuestPageResult { get; set; }
+
     /// <summary>
     /// Whether <see cref="PrepareCancel"/> returns <see langword="null"/> instead of a message,
     /// simulating the session declining to prepare a cancellation (for example an inactive lease).
@@ -154,6 +157,9 @@ public sealed class FakeAdapterIpcSession : IAdapterIpcSession
 
     /// <inheritdoc/>
     public IpcReadSampleMessage? PrepareReadSample(uint sampleToken) => ReadSampleResult;
+
+    /// <inheritdoc/>
+    public IpcReadTrackedQuestPageMessage? PrepareReadTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor) => TrackedQuestPageResult;
 
     /// <inheritdoc/>
     public IpcCancelMessage? PrepareCancel(ulong correlationId)

@@ -55,6 +55,8 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             IpcCancelMessage cancel => (IpcMessageKind.Cancel, EncodeCancel(cancel)),
             IpcListenEventMessage listenEvent => (IpcMessageKind.ListenEvent, EncodeListenEvent(listenEvent)),
             IpcReadSampleMessage readSample => (IpcMessageKind.ReadSample, EncodeReadSample(readSample)),
+            IpcReadTrackedQuestPageMessage questPage =>
+                (IpcMessageKind.ReadTrackedQuestPage, EncodeReadTrackedQuestPage(questPage)),
             IpcPairingDisplayMessage pairingDisplay => (IpcMessageKind.PairingDisplay, EncodePairingDisplay(pairingDisplay)),
             IpcPairingDisplayAckMessage pairingDisplayAck => (IpcMessageKind.PairingDisplayAck, EncodePairingDisplayAck(pairingDisplayAck)),
             IpcPairingAttemptsExhaustedMessage pairingAttemptsExhausted =>
@@ -127,6 +129,7 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
                 : IpcDecodeResult.Success(new IpcCancelMessage(correlationId)),
             IpcMessageKind.ListenEvent => DecodeListenEvent(correlationId, payload),
             IpcMessageKind.ReadSample => DecodeReadSample(correlationId, payload),
+            IpcMessageKind.ReadTrackedQuestPage => DecodeReadTrackedQuestPage(correlationId, payload),
             IpcMessageKind.PairingDisplay => DecodePairingDisplay(correlationId, payload),
             IpcMessageKind.PairingDisplayAck => DecodePairingDisplayAck(correlationId, payload),
             IpcMessageKind.PairingAttemptsExhausted => DecodePairingAttemptsExhausted(correlationId, payload),
@@ -232,6 +235,23 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
         ValidateCaptureIntent(readSample.CorrelationId, readSample.SampleToken, nameof(readSample));
         byte[] payload = new byte[sizeof(uint)];
         BinaryPrimitives.WriteUInt32LittleEndian(payload, readSample.SampleToken);
+        return payload;
+    }
+
+    /// <summary>Encodes the tracked-quest page kind, runtime quest ID, and cursor.</summary>
+    /// <param name="request">The page request to encode.</param>
+    /// <exception cref="ArgumentException">The request correlation or argument shape is invalid.</exception>
+    private static byte[] EncodeReadTrackedQuestPage(IpcReadTrackedQuestPageMessage request)
+    {
+        if (request.CorrelationId == 0 || !IsValidTrackedQuestPageRequest(request.PageKind, request.QuestId, request.Cursor))
+        {
+            throw new ArgumentException("A tracked-quest page request is malformed.", nameof(request));
+        }
+
+        byte[] payload = new byte[7];
+        payload[0] = (byte)request.PageKind;
+        BinaryPrimitives.WriteUInt32LittleEndian(payload.AsSpan(1, sizeof(uint)), request.QuestId);
+        BinaryPrimitives.WriteUInt16LittleEndian(payload.AsSpan(5, sizeof(ushort)), request.Cursor);
         return payload;
     }
 
@@ -461,6 +481,36 @@ public sealed class IpcFrameCodec : IIpcFrameCodec
             ? IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload)
             : IpcDecodeResult.Success(new IpcReadSampleMessage(correlationId, sampleToken));
     }
+
+    /// <summary>Decodes and validates one bounded tracked-quest page request.</summary>
+    /// <param name="correlationId">The request correlation id from the frame header.</param>
+    /// <param name="payload">The page kind, runtime quest ID, and cursor.</param>
+    private static IpcDecodeResult DecodeReadTrackedQuestPage(ulong correlationId, ReadOnlySpan<byte> payload)
+    {
+        if (correlationId == 0 || payload.Length != 7 || !Enum.IsDefined((TrackedQuestPageKind)payload[0]))
+        {
+            return IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload);
+        }
+
+        var kind = (TrackedQuestPageKind)payload[0];
+        uint questId = BinaryPrimitives.ReadUInt32LittleEndian(payload.Slice(1, sizeof(uint)));
+        ushort cursor = BinaryPrimitives.ReadUInt16LittleEndian(payload.Slice(5, sizeof(ushort)));
+        return !IsValidTrackedQuestPageRequest(kind, questId, cursor)
+            ? IpcDecodeResult.Failure(IpcRejectReason.MalformedPayload)
+            : IpcDecodeResult.Success(new IpcReadTrackedQuestPageMessage(correlationId, kind, questId, cursor));
+    }
+
+    /// <summary>Checks the request's operation-specific quest ID and cursor bounds.</summary>
+    /// <param name="kind">The requested page kind.</param>
+    /// <param name="questId">The runtime quest FormID.</param>
+    /// <param name="cursor">The page offset.</param>
+    private static bool IsValidTrackedQuestPageRequest(TrackedQuestPageKind kind, uint questId, ushort cursor) => kind switch
+    {
+        TrackedQuestPageKind.TrackedQuestIds => questId == 0 && cursor <= 128 && cursor % 32 == 0,
+        TrackedQuestPageKind.QuestMetadata => questId != 0 && cursor == 0,
+        TrackedQuestPageKind.Objectives => questId != 0 && cursor <= 1024,
+        _ => false,
+    };
 
     /// <summary>Encodes a pairing-display request: one mode byte followed by the fixed-length code digits.</summary>
     /// <param name="pairingDisplay">The display request to encode.</param>

@@ -44,5 +44,14 @@ namespace DovahLink.Host.Tests.State
 
             Assert.Equal((uint)CharacterEventKey.CharacterLevelChanged, eventKeys.GetProperty("characterLevelChanged").GetUInt32());
         }
+
+        /// <summary>Verifies that the Host and Adapter use the same tracked-quest capture-result key.</summary>
+        [Fact]
+        public void TrackedQuestCaptureKeys_MatchSharedCatalogFixture()
+        {
+            JsonElement questCaptureKeys = ReadFixture().GetProperty("trackedQuestCaptureKeys");
+
+            Assert.Equal((uint)TrackedQuestCaptureKey.Page, questCaptureKeys.GetProperty("page").GetUInt32());
+        }
     }
 }

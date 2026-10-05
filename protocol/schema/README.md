@@ -134,13 +134,15 @@ it one-based; the Host derives `minute` by flooring the fractional game hour. `m
 the running game's localization. Do not treat this value as a Gregorian date/time or infer an era.
 
 `tracked_quests` includes only quests whose authoritative `TESQuest.IsActive()` tracking predicate
-is true during collection. The Adapter examines `PlayerCharacter.objectives` and includes an
-instance only when its objective pointer is non-null, its definition's `ownerQuest` is the exact
-tracked quest, and its `instanceID` matches that quest's `currentInstanceID`; it takes the objective
-index and authored display text from the definition and state plus `instanceId` from the
-player-owned instance record. This excludes definition-only objectives, prior quest-instance
-records, unrelated or unowned instance records, quests merely known to the save, and the
-Miscellaneous journal heading. The Adapter does not traverse the quest log. `questId` is the nonzero runtime
+is true during collection. The Adapter examines `PlayerCharacter.objectives` and returns an
+instance only when its objective pointer is non-null and its definition's `ownerQuest` is the exact
+tracked quest; it takes the objective index and authored display text from the definition and state
+plus `instanceId` from the player-owned instance record. The private quest metadata page also carries
+the engine's `currentInstanceID`. The Host's inclusion rule accepts only instances whose
+`instanceId` matches that current ID, excluding prior quest-instance records while preserving raw
+capture ownership at the Adapter boundary. Definition-only objectives, unrelated or unowned
+instance records, quests merely known to the save, and the Miscellaneous journal heading are
+excluded; the Adapter does not traverse the quest log. `questId` is the nonzero runtime
 FormID and is meaningful only for the active runtime/load order; it is not a durable cross-install
 identity. `type` preserves the raw `QUEST_DATA::Type` code (unsigned 8-bit) and does not create
 product categories; unrecognized codes are retained as raw values, not replaced with a guessed

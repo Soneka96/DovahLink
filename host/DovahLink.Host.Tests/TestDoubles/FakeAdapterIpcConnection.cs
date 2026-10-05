@@ -85,6 +85,13 @@ public sealed class FakeAdapterIpcConnection : IAdapterIpcConnection
         return TrySendReadSampleResult;
     }
 
+    /// <inheritdoc/>
+    public bool TrySendTrackedQuestPage(TrackedQuestPageKind pageKind, uint questId, ushort cursor, out ulong correlationId)
+    {
+        correlationId = TrySendReadSampleResult ? TrySendReadSampleCorrelationId : 0;
+        return TrySendReadSampleResult;
+    }
+
     /// <summary>Invoked when a scheduler prepares a sample request, before its final availability check.</summary>
     public Action<uint>? OnPrepareReadSample { get; set; }
 
