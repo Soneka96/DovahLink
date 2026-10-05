@@ -69,9 +69,13 @@ jobs:
         run: flutter pub get
 
       - name: Set up .NET
+        # .NET 10 restores and formats the Host projects; .NET 9 stays for DovahLinkBuilder and the
+        # security-feasibility POC, which still target net9.0-windows.
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: |
+            9.0.x
+            10.0.x
 
       - name: Install formatter tools
         run: |

@@ -27,6 +27,7 @@ for the player-facing summary posted with each Nexus Mods package. See
   `character_vitals` snapshot instead of three scalar state areas.
 - Pairing outcomes now expose Host-calculated attempts remaining and the committed renotify cooldown.
 - Raw public connection capacity is bounded separately from authenticated session capacity.
+- The packaged Host now targets and bundles .NET 10 instead of .NET 9.
 
 ## [0.5.0] - 2026-09-24
 

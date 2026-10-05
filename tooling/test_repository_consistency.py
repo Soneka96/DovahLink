@@ -286,13 +286,55 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for fragment in (
             "dotnet restore host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj",
             "dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-incremental",
-            "host/DovahLink.Host/bin/Release/net9.0-windows/DovahLink.Host.exe",
+            "host/DovahLink.Host/bin/Release/net10.0-windows/DovahLink.Host.exe",
             "dotnet test host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-build",
             "-p:GenerateDocumentationFile=true",
             "-p:TreatWarningsAsErrors=true",
         ):
             self.assertIn(fragment, workflow)
         self.assertNotIn("continue-on-error:", workflow)
+
+    def test_host_target_framework_agrees_across_build_paths(self) -> None:
+        """Keep the Host's target framework, built executable paths, and CI SDK major in agreement."""
+        frameworks = {
+            project: re.findall(
+                r"<TargetFramework>([^<]+)</TargetFramework>", self._read(project)
+            )
+            for project in (
+                "host/DovahLink.Host/DovahLink.Host.csproj",
+                "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj",
+            )
+        }
+        self.assertEqual(
+            list(frameworks.values()), [["net10.0-windows"], ["net10.0-windows"]]
+        )
+        host_ci = self._read(".github/workflows/host-ci.yml")
+        self.assertEqual(re.findall(r"dotnet-version: (\S+)", host_ci), ["10.0.x"])
+        self.assertIn(
+            "host/DovahLink.Host/bin/Release/net10.0-windows/DovahLink.Host.exe",
+            host_ci,
+        )
+        self.assertIn(
+            "/net10.0-windows/DovahLink.Host.exe", self._read("adapter/CMakeLists.txt")
+        )
+        self.assertIn(
+            "host\\DovahLink.Host\\bin\\Release\\net10.0-windows\\DovahLink.Host.exe",
+            self._read("tooling/run-local-ci.ps1"),
+        )
+        adapter_ci = self._read(".github/workflows/adapter-ci.yml")
+        self.assertIn("dotnet-version: 10.0.x", adapter_ci)
+        self.assertNotIn("dotnet-version: 9.0.x", adapter_ci)
+        for path in (
+            ".github/workflows/host-ci.yml",
+            ".github/workflows/adapter-ci.yml",
+            "adapter/CMakeLists.txt",
+            "tooling/run-local-ci.ps1",
+        ):
+            self.assertNotRegex(
+                self._read(path),
+                r"DovahLink\.Host[\\/]bin[\\/][^\s\"]*net9\.0-windows",
+                f"{path} still points at the old Host target framework.",
+            )
 
     def test_builder_ci_covers_build_and_tests(self) -> None:
         """Require the DovahLinkBuilder solution to restore, build, test, and publish on Windows CI."""
@@ -915,7 +957,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
             '"tooling/format_staged.py", "--check", "--base-ref", "main"',
             'Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(',
             '"restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"',
-            '$hostExecutablePath = Join-Path $repoRoot "host\\DovahLink.Host\\bin\\Release\\net9.0-windows\\DovahLink.Host.exe"',
+            '$hostExecutablePath = Join-Path $repoRoot "host\\DovahLink.Host\\bin\\Release\\net10.0-windows\\DovahLink.Host.exe"',
             "Test-Path -LiteralPath $hostExecutablePath -PathType Leaf",
             'Invoke-LocalCommand -WorkingDirectory $appDirectory -FilePath "flutter" -ArgumentList @("pub", "get")',
             'Invoke-LocalCommand -WorkingDirectory $sdkDirectory -FilePath "dart" -ArgumentList @("analyze")',

@@ -117,7 +117,7 @@ if(NOT DEFINED DOVAHLINK_HOST_BUILD_CONFIGURATION OR DOVAHLINK_HOST_BUILD_CONFIG
     endif()
 endif()
 set(DOVAHLINK_HOST_EXECUTABLE
-    "${CMAKE_CURRENT_SOURCE_DIR}/../host/DovahLink.Host/bin/${DOVAHLINK_HOST_BUILD_CONFIGURATION}/net9.0-windows/DovahLink.Host.exe"
+    "${CMAKE_CURRENT_SOURCE_DIR}/../host/DovahLink.Host/bin/${DOVAHLINK_HOST_BUILD_CONFIGURATION}/net10.0-windows/DovahLink.Host.exe"
     CACHE FILEPATH
     "Built DovahLink.Host.exe used by the native cross-process lifecycle test")
 
