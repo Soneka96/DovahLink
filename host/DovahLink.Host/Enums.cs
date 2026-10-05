@@ -39,6 +39,19 @@ public enum HostKeyStatus
     KeyLockTimedOut,
 }
 
+/// <summary>
+/// The DovahLink installation role encoded as one byte in pairing application identities and
+/// authority scopes. The numeric values are the encoded bytes and never change.
+/// </summary>
+public enum DovahLinkPairingRole : byte
+{
+    /// <summary>A DovahLink Host installation, encoded as <c>0x01</c>.</summary>
+    Host = 0x01,
+
+    /// <summary>A DovahLink client installation, encoded as <c>0x02</c>.</summary>
+    Client = 0x02,
+}
+
 // ---- Trust ----
 
 /// <summary>The persistent trust state of a device the host has issued or previously issued a pairing credential to.</summary>

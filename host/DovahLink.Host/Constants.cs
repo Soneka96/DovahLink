@@ -59,6 +59,33 @@ public static class Constants
         0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07, 0x03, 0x42, 0x00, 0x04,
     ];
 
+    /// <summary>The versioned ASCII domain that starts every DovahLink pairing application identity.</summary>
+    public const string PairingApplicationIdentityDomain = "dovahlink.application-identity.v1";
+
+    /// <summary>The ASCII key-algorithm identifier of a DER-SPKI ECDSA P-256 long-term key, for both roles.</summary>
+    public const string PairingKeyAlgorithm = "dovahlink.ecdsa-p256.spki-der.v1";
+
+    /// <summary>
+    /// The ASCII pairing shared context. Each side compiles this constant itself; it is never taken from
+    /// the peer, the network, or a pairing result.
+    /// </summary>
+    public const string PairingSharedContext = "dovahlink.sas-pairing.bootstrap-v1.pairing";
+
+    /// <summary>The versioned ASCII domain that starts every DovahLink pairing authority scope.</summary>
+    public const string PairingAuthorityScopeDomain = "dovahlink.pairing-authority.v1";
+
+    /// <summary>The exact length of a DovahLink pairing application identity: domain, role byte, and 16 UUID bytes.</summary>
+    public const int PairingApplicationIdentityLength = 50;
+
+    /// <summary>The exact length of a DovahLink pairing authority scope: domain, role byte, and 16 UUID bytes.</summary>
+    public const int PairingAuthorityScopeLength = 47;
+
+    /// <summary>
+    /// The fixed header of a canonical pairing Bootstrap record: ASCII <c>SASPAIR</c>, record version 1
+    /// as a big-endian 16-bit value, and record type <c>0x20</c>.
+    /// </summary>
+    public static ReadOnlySpan<byte> PairingBootstrapFrameHeader => [0x53, 0x41, 0x53, 0x50, 0x41, 0x49, 0x52, 0x00, 0x01, 0x20];
+
     // ---- Trust ----
 
     /// <summary>The default per-Windows-user file the trust store is persisted to.</summary>
