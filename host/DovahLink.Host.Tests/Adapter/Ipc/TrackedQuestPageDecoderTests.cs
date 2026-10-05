@@ -88,7 +88,7 @@ public class TrackedQuestPageDecoderTests
     {
         List<byte> payload = BuildObjectivePage(0x12345678, 6, false,
         [
-            (1, 5u, (byte)0, (string?)null),
+            (1, 0u, (byte)0, (string?)null),
             (2, 5u, (byte)1, "Dragonborn — meet Delphine"),
             (3, 5u, (byte)2, (string?)null),
             (4, 5u, (byte)3, (string?)null),
@@ -116,7 +116,39 @@ public class TrackedQuestPageDecoderTests
             ],
             objectives.Select(objective => objective.State));
         Assert.Null(objectives[0].Text);
+        Assert.Equal(0u, objectives[0].InstanceId);
         Assert.Equal("Dragonborn — meet Delphine", objectives[1].Text);
+    }
+
+    /// <summary>Decodes representable objective offsets beyond the Host's complete-list bound.</summary>
+    [Fact]
+    public void TryDecodeObjectives_AcceptsRepresentableCursorBeyondAggregateBound()
+    {
+        byte[] payload = BuildObjectivePage(1, 1025, false, [(1, 1u, (byte)0, (string?)null)]).ToArray();
+
+        bool decoded = TrackedQuestPageDecoder.TryDecodeObjectives(
+            payload, 1, 1024, out ushort nextCursor, out bool hasMore, out QuestObjective[] objectives);
+
+        Assert.True(decoded);
+        Assert.Equal((ushort)1025, nextCursor);
+        Assert.False(hasMore);
+        Assert.Single(objectives);
+    }
+
+    /// <summary>Accepts an empty final page at the largest representable objective cursor.</summary>
+    [Fact]
+    public void TryDecodeObjectives_AcceptsEmptyFinalPageAtCursorMaximum()
+    {
+        ushort cursor = ushort.MaxValue;
+        byte[] payload = BuildObjectivePage(1, cursor, false, []).ToArray();
+
+        bool decoded = TrackedQuestPageDecoder.TryDecodeObjectives(
+            payload, 1, cursor, out ushort nextCursor, out bool hasMore, out QuestObjective[] objectives);
+
+        Assert.True(decoded);
+        Assert.Equal(cursor, nextCursor);
+        Assert.False(hasMore);
+        Assert.Empty(objectives);
     }
 
     /// <summary>Rejects objective-page identity, cursor, state, text, and exact-length violations.</summary>
@@ -126,6 +158,12 @@ public class TrackedQuestPageDecoderTests
         byte[] valid = BuildObjectivePage(1, 1, true, [(1, 1u, (byte)0, (string?)null)]).ToArray();
         Assert.False(TrackedQuestPageDecoder.TryDecodeObjectives(valid, 2, 1, out _, out _, out _));
         Assert.False(TrackedQuestPageDecoder.TryDecodeObjectives(valid, 1, 1, out _, out _, out _));
+        byte[] nonProgressing = BuildObjectivePage(1, 0, true, []).ToArray();
+        Assert.False(TrackedQuestPageDecoder.TryDecodeObjectives(nonProgressing, 1, 0, out _, out _, out _));
+
+        byte[] unrepresentableProgress = BuildObjectivePage(1, 0, false, [(1, 1u, (byte)0, (string?)null)]).ToArray();
+        Assert.False(TrackedQuestPageDecoder.TryDecodeObjectives(
+            unrepresentableProgress, 1, ushort.MaxValue, out _, out _, out _));
 
         byte[] unknownState = BuildObjectivePage(1, 1, false, [(1, 1u, (byte)6, (string?)null)]).ToArray();
         Assert.False(TrackedQuestPageDecoder.TryDecodeObjectives(unknownState, 1, 0, out _, out _, out _));

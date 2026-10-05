@@ -128,8 +128,7 @@ internal static class TrackedQuestPageDecoder
             || hasMoreByte > 1
             || count > (Constants.MaxTrackedQuestCapturePageBytes - 8) / 8
             || pageCursor != requestedCursor + count
-            || pageCursor > Constants.MaxTrackedQuestObjectives
-            || (hasMoreByte == 1 && (count == 0 || pageCursor >= Constants.MaxTrackedQuestObjectives)))
+            || (hasMoreByte == 1 && count == 0))
         {
             return false;
         }

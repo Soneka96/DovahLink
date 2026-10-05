@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Identity;
 using DovahLink.Host.PlayContext;
@@ -21,8 +20,8 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
     /// <summary>The Host's owning loopback connection to the Adapter.</summary>
     private readonly Func<IAdapterIpcListener> listenerAccessor;
 
-    /// <summary>Reads bounded private pages and owns their request correlations.</summary>
-    private readonly ITrackedQuestPageReader pageReader;
+    /// <summary>Builds one complete bounded value from private pages.</summary>
+    private readonly ITrackedQuestSnapshotCollector snapshotCollector;
 
     /// <summary>Provides one coherent adapter identity, generation, and resynchronization view.</summary>
     private readonly IAdapterAvailabilityTracker adapterAvailabilityTracker;
@@ -41,7 +40,7 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
 
     /// <summary>Creates the Host-owned quest capture cycle and publisher.</summary>
     /// <param name="listenerAccessor">Defers reading the Host's current Adapter connection until a collection runs, avoiding the connection factory's capture-handler dependency cycle.</param>
-    /// <param name="pageReader">Reads each bounded Adapter page under the collection's captured authority.</param>
+    /// <param name="snapshotCollector">Collects one complete bounded tracked-quest value.</param>
     /// <param name="adapterAvailabilityTracker">Provides adapter identity and resynchronization provenance.</param>
     /// <param name="playContextTracker">Provides the current play-context identity and transition generation.</param>
     /// <param name="publisher">Publishes the complete tracked-quest Snapshot.</param>
@@ -49,7 +48,7 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
     /// <param name="clock">Stamps each completed Snapshot.</param>
     public TrackedQuestCaptureCoordinator(
         Func<IAdapterIpcListener> listenerAccessor,
-        ITrackedQuestPageReader pageReader,
+        ITrackedQuestSnapshotCollector snapshotCollector,
         IAdapterAvailabilityTracker adapterAvailabilityTracker,
         IPlayContextTracker playContextTracker,
         IStatePublisher<TrackedQuests?> publisher,
@@ -57,7 +56,7 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
         IClock clock)
     {
         this.listenerAccessor = listenerAccessor;
-        this.pageReader = pageReader;
+        this.snapshotCollector = snapshotCollector;
         this.adapterAvailabilityTracker = adapterAvailabilityTracker;
         this.playContextTracker = playContextTracker;
         this.publisher = publisher;
@@ -76,8 +75,10 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
                 CaptureAuthority? authority = TryGetCurrentAuthority();
                 if (authority is CaptureAuthority current)
                 {
-                    TrackedQuests? value = await CaptureCompleteSnapshotAsync(current, cancellationToken)
-                        .ConfigureAwait(false);
+                    var source = new AdapterCaptureSource(current.InstanceId, current.ConnectionGeneration);
+                    var playContext = new PlayContextSnapshot(current.PlayContextId, current.PlayContextGeneration);
+                    TrackedQuests? value = await snapshotCollector.CollectAsync(
+                        source, playContext, cancellationToken).ConfigureAwait(false);
                     if (IsAuthorityCurrent(current))
                     {
                         ApplySnapshot(current, value);
@@ -93,230 +94,6 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
         }
     }
 
-    /// <summary>Captures quest IDs, metadata, and all required objective pages as one complete value.</summary>
-    /// <param name="authority">The connection and play context this collection is bound to.</param>
-    /// <param name="cancellationToken">The Host lifetime cancellation token.</param>
-    /// <returns>A complete collection, or <see langword="null"/> when it cannot be trusted as complete.</returns>
-    private async Task<TrackedQuests?> CaptureCompleteSnapshotAsync(
-        CaptureAuthority authority,
-        CancellationToken cancellationToken)
-    {
-        uint[]? initialQuestIds = await ReadAllTrackedQuestIdsAsync(authority, cancellationToken).ConfigureAwait(false);
-        if (initialQuestIds is null)
-        {
-            return null;
-        }
-
-        List<TrackedQuest> quests = [];
-        int totalObjectiveCount = 0;
-        foreach (uint questId in initialQuestIds)
-        {
-            (TrackedQuest Quest, int ObjectiveRecordCount)? capture = await ReadTrackedQuestAsync(
-                authority, questId, totalObjectiveCount, cancellationToken).ConfigureAwait(false);
-            if (capture is not { } questCapture)
-            {
-                return null;
-            }
-
-            totalObjectiveCount += questCapture.ObjectiveRecordCount;
-            if (totalObjectiveCount > Constants.MaxTrackedQuestObjectives)
-            {
-                return null;
-            }
-
-            quests.Add(questCapture.Quest);
-        }
-
-        uint[]? finalQuestIds = await ReadAllTrackedQuestIdsAsync(authority, cancellationToken).ConfigureAwait(false);
-        if (finalQuestIds is null || !initialQuestIds.SequenceEqual(finalQuestIds))
-        {
-            return null;
-        }
-
-        var value = new TrackedQuests(quests);
-        byte[] serializedState = JsonSerializer.SerializeToUtf8Bytes(new { value });
-        return serializedState.Length <= Constants.MaxTrackedQuestsSerializedBytes ? value : null;
-    }
-
-    /// <summary>Reads every bounded tracked-ID page and returns a distinct, deterministic set.</summary>
-    /// <param name="authority">The connection and play context this list read is bound to.</param>
-    /// <param name="cancellationToken">The Host lifetime cancellation token.</param>
-    /// <returns>Sorted unique runtime IDs, or <see langword="null"/> for any invalid or incomplete page.</returns>
-    private async Task<uint[]?> ReadAllTrackedQuestIdsAsync(
-        CaptureAuthority authority,
-        CancellationToken cancellationToken)
-    {
-        HashSet<uint> questIds = [];
-        ushort cursor = 0;
-        while (true)
-        {
-            LiveCaptureContext? context = await RequestPageAsync(
-                authority, TrackedQuestPageKind.TrackedQuestIds, 0, cursor, cancellationToken)
-                .ConfigureAwait(false);
-            if (context is null
-                || !TryGetAvailablePayload(context.CaptureResult, out byte[] payload)
-                || !TrackedQuestPageDecoder.TryDecodeQuestIds(payload, out uint[] pageIds, out bool hasMore))
-            {
-                return null;
-            }
-
-            foreach (uint questId in pageIds)
-            {
-                questIds.Add(questId);
-            }
-
-            if (questIds.Count > Constants.MaxTrackedQuests)
-            {
-                return null;
-            }
-
-            if (!hasMore)
-            {
-                return questIds.Order().ToArray();
-            }
-
-            if (pageIds.Length != Constants.TrackedQuestIdsPerPage
-                || cursor + pageIds.Length >= Constants.MaxTrackedQuests)
-            {
-                return null;
-            }
-
-            cursor = (ushort)(cursor + pageIds.Length);
-        }
-    }
-
-    /// <summary>Reads one quest's metadata and raw objective pages, retaining its current instance.</summary>
-    /// <param name="authority">The connection and play context this quest read is bound to.</param>
-    /// <param name="questId">The runtime quest FormID.</param>
-    /// <param name="alreadyCollectedObjectives">The number of public objectives already assembled.</param>
-    /// <param name="cancellationToken">The Host lifetime cancellation token.</param>
-    /// <returns>The complete tracked quest and raw record count, or <see langword="null"/> for invalid or incomplete data.</returns>
-    private async Task<(TrackedQuest Quest, int ObjectiveRecordCount)?> ReadTrackedQuestAsync(
-        CaptureAuthority authority,
-        uint questId,
-        int alreadyCollectedObjectives,
-        CancellationToken cancellationToken)
-    {
-        (string Title, byte Type, uint CurrentInstanceId)? metadata = await ReadMetadataAsync(
-            authority, questId, cancellationToken).ConfigureAwait(false);
-        if (metadata is not { } questMetadata)
-        {
-            return null;
-        }
-
-        Dictionary<(ushort Index, uint InstanceId), QuestObjective> currentObjectives = [];
-        int objectiveRecordCount = 0;
-        ushort cursor = 0;
-        while (true)
-        {
-            LiveCaptureContext? context = await RequestPageAsync(
-                authority, TrackedQuestPageKind.Objectives, questId, cursor, cancellationToken)
-                .ConfigureAwait(false);
-            if (context is null
-                || !TryGetAvailablePayload(context.CaptureResult, out byte[] payload)
-                || !TrackedQuestPageDecoder.TryDecodeObjectives(
-                    payload, questId, cursor, out ushort nextCursor, out bool hasMore, out QuestObjective[] objectives))
-            {
-                return null;
-            }
-
-            objectiveRecordCount += objectives.Length;
-            if (alreadyCollectedObjectives + objectiveRecordCount > Constants.MaxTrackedQuestObjectives)
-            {
-                return null;
-            }
-
-            foreach (QuestObjective objective in objectives)
-            {
-                if (objective.InstanceId != questMetadata.CurrentInstanceId)
-                {
-                    continue;
-                }
-
-                var identity = (objective.Index, objective.InstanceId);
-                if (currentObjectives.TryGetValue(identity, out QuestObjective? existing))
-                {
-                    if (!existing.Equals(objective))
-                    {
-                        return null;
-                    }
-                }
-                else
-                {
-                    currentObjectives.Add(identity, objective);
-                }
-            }
-
-            cursor = nextCursor;
-            if (!hasMore)
-            {
-                break;
-            }
-        }
-
-        (string Title, byte Type, uint CurrentInstanceId)? finalMetadata = await ReadMetadataAsync(
-            authority, questId, cancellationToken).ConfigureAwait(false);
-        if (finalMetadata is not { } confirmedMetadata || confirmedMetadata != questMetadata)
-        {
-            return null;
-        }
-
-        QuestObjective[] orderedObjectives = currentObjectives.Values
-            .OrderBy(objective => objective.Index)
-            .ThenBy(objective => objective.InstanceId)
-            .ToArray();
-        return (new TrackedQuest(questId, questMetadata.Title, questMetadata.Type, orderedObjectives), objectiveRecordCount);
-    }
-
-    /// <summary>Reads one tracked quest's localized title, raw type, and current instance ID.</summary>
-    /// <param name="authority">The connection and play context this metadata read is bound to.</param>
-    /// <param name="questId">The runtime quest FormID.</param>
-    /// <param name="cancellationToken">The Host lifetime cancellation token.</param>
-    /// <returns>The complete metadata tuple, or <see langword="null"/> when unavailable or malformed.</returns>
-    private async Task<(string Title, byte Type, uint CurrentInstanceId)?> ReadMetadataAsync(
-        CaptureAuthority authority,
-        uint questId,
-        CancellationToken cancellationToken)
-    {
-        LiveCaptureContext? context = await RequestPageAsync(
-            authority, TrackedQuestPageKind.QuestMetadata, questId, 0, cancellationToken)
-            .ConfigureAwait(false);
-        if (context is null
-            || !TryGetAvailablePayload(context.CaptureResult, out byte[] payload)
-            || !TrackedQuestPageDecoder.TryDecodeMetadata(
-                payload, questId, out string? title, out byte type, out uint currentInstanceId)
-            || title is null)
-        {
-            return null;
-        }
-
-        return (title, type, currentInstanceId);
-    }
-
-    /// <summary>Reads one page only while the collection's original authority remains current.</summary>
-    /// <param name="authority">The connection and play context this request belongs to.</param>
-    /// <param name="kind">The requested bounded page.</param>
-    /// <param name="questId">The runtime quest FormID, or zero for ID pages.</param>
-    /// <param name="cursor">The tracked-ID or objective offset.</param>
-    /// <param name="cancellationToken">The Host lifetime cancellation token.</param>
-    /// <returns>The matching page context, or <see langword="null"/> when authority or transport validation fails.</returns>
-    private async Task<LiveCaptureContext?> RequestPageAsync(
-        CaptureAuthority authority,
-        TrackedQuestPageKind kind,
-        uint questId,
-        ushort cursor,
-        CancellationToken cancellationToken)
-    {
-        if (!IsAuthorityCurrent(authority))
-        {
-            return null;
-        }
-
-        var source = new AdapterCaptureSource(authority.InstanceId, authority.ConnectionGeneration);
-        var playContext = new PlayContextSnapshot(authority.PlayContextId, authority.PlayContextGeneration);
-        return await pageReader.ReadPageAsync(
-            source, playContext, kind, questId, cursor, cancellationToken).ConfigureAwait(false);
-    }
 
     /// <summary>Applies the complete value or explicit unavailability under the current Host authority.</summary>
     /// <param name="authority">The connection and play context that produced the complete capture attempt.</param>
@@ -375,24 +152,6 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
             && connection?.ConnectionGeneration == authority.ConnectionGeneration
             && playContext.Current == authority.PlayContextId
             && playContext.TransitionGeneration == authority.PlayContextGeneration;
-    }
-
-    /// <summary>Requires an available capture to carry a nonempty payload, or an unavailable capture to carry none.</summary>
-    /// <param name="capture">The page response.</param>
-    /// <param name="payload">The available payload bytes.</param>
-    /// <returns>Whether the availability/payload relationship is valid.</returns>
-    private static bool TryGetAvailablePayload(IpcCaptureResultMessage capture, out byte[] payload)
-    {
-        payload = [];
-        if (capture.Availability != CaptureAvailability.Available
-            || capture.Payload.Length == 0
-            || capture.Payload.Length > Constants.MaxTrackedQuestCapturePageBytes)
-        {
-            return false;
-        }
-
-        payload = capture.Payload;
-        return true;
     }
 
     /// <summary>The source authority that must remain unchanged for one collection.</summary>

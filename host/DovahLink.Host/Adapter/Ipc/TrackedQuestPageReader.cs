@@ -38,6 +38,12 @@ public sealed class TrackedQuestPageReader : ITrackedQuestPageReader
     /// <summary>Resolves the current listener without creating a capture-handler dependency cycle.</summary>
     private readonly Func<IAdapterIpcListener> listenerAccessor;
 
+    /// <summary>Provides the current Adapter source authority.</summary>
+    private readonly IAdapterAvailabilityTracker adapterAvailabilityTracker;
+
+    /// <summary>Provides the current play-context authority.</summary>
+    private readonly IPlayContextTracker playContextTracker;
+
     /// <summary>Protects the one page response currently awaited by the reader.</summary>
     private readonly object gate = new();
 
@@ -46,9 +52,16 @@ public sealed class TrackedQuestPageReader : ITrackedQuestPageReader
 
     /// <summary>Creates the private page reader.</summary>
     /// <param name="listenerAccessor">Resolves the Host's current Adapter connection on each read.</param>
-    public TrackedQuestPageReader(Func<IAdapterIpcListener> listenerAccessor)
+    /// <param name="adapterAvailabilityTracker">Provides the current Adapter instance and connection generation.</param>
+    /// <param name="playContextTracker">Provides the current play context and transition generation.</param>
+    public TrackedQuestPageReader(
+        Func<IAdapterIpcListener> listenerAccessor,
+        IAdapterAvailabilityTracker adapterAvailabilityTracker,
+        IPlayContextTracker playContextTracker)
     {
         this.listenerAccessor = listenerAccessor;
+        this.adapterAvailabilityTracker = adapterAvailabilityTracker;
+        this.playContextTracker = playContextTracker;
     }
 
     /// <inheritdoc/>
@@ -61,6 +74,16 @@ public sealed class TrackedQuestPageReader : ITrackedQuestPageReader
         CancellationToken cancellationToken)
     {
         if (playContext.Current is not PlayContextId playContextId)
+        {
+            return null;
+        }
+
+        AdapterAvailabilitySnapshot adapter = adapterAvailabilityTracker.GetSnapshot();
+        PlayContextSnapshot currentPlayContext = playContextTracker.GetSnapshot();
+        if (adapter.Current != AdapterAvailability.Available
+            || adapter.CurrentInstanceId != source.InstanceId
+            || adapter.ConnectionGeneration != source.ConnectionGeneration
+            || currentPlayContext != playContext)
         {
             return null;
         }

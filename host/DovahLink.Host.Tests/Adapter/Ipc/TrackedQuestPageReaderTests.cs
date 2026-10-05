@@ -212,6 +212,12 @@ public class TrackedQuestPageReaderTests
         /// <summary>The Host's current fake private-IPC connection.</summary>
         private readonly FakeAdapterIpcListener listener = new();
 
+        /// <summary>The current Adapter identity and connection generation.</summary>
+        private readonly AdapterAvailabilityTracker adapterTracker = new();
+
+        /// <summary>The current play-context identity and transition generation.</summary>
+        private readonly FakePlayContextTracker playContextTracker = new();
+
         /// <summary>The page reader under test.</summary>
         public TrackedQuestPageReader Reader { get; }
 
@@ -231,7 +237,9 @@ public class TrackedQuestPageReaderTests
         public ReaderFixture()
         {
             Source = new AdapterCaptureSource(instanceId, 1);
-            PlayContext = new PlayContextSnapshot(playContextId, 3);
+            adapterTracker.CommitConnected(instanceId, 1);
+            playContextTracker.NotifyTransition(playContextId);
+            PlayContext = playContextTracker.GetSnapshot();
             Connection = new FakeAdapterIpcConnection(new MemoryStream())
             {
                 ConnectionGeneration = 1,
@@ -239,7 +247,7 @@ public class TrackedQuestPageReaderTests
                 OnTrySendTrackedQuestPage = request => SentRequest = request,
             };
             listener.CurrentConnection = Connection;
-            Reader = new TrackedQuestPageReader(() => listener);
+            Reader = new TrackedQuestPageReader(() => listener, adapterTracker, playContextTracker);
         }
 
         /// <summary>Sends one objective page request using this fixture's capture authority.</summary>

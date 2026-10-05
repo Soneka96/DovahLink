@@ -59,6 +59,7 @@ public class AdapterIpcServiceExtensionsTests
         Assert.Same(gameTimeCaptureHandler, provider.GetRequiredService<GameTimeCaptureHandler>());
         Assert.Same(trackedQuestCaptureHandler, provider.GetRequiredService<TrackedQuestCaptureHandler>());
         Assert.IsType<TrackedQuestPageReader>(provider.GetRequiredService<ITrackedQuestPageReader>());
+        Assert.IsType<TrackedQuestSnapshotCollector>(provider.GetRequiredService<ITrackedQuestSnapshotCollector>());
         Assert.IsType<TrackedQuestCaptureCoordinator>(provider.GetRequiredService<ITrackedQuestCaptureCoordinator>());
         Assert.NotNull(provider.GetRequiredService<ILiveCaptureSink>());
         Assert.NotNull(provider.GetRequiredService<LiveStateScheduler>());

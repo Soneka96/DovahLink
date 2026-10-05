@@ -253,12 +253,13 @@ public class TrackedQuestCaptureCoordinatorTests
                     new IpcReadTrackedQuestPageMessage(nextCorrelationId++, kind, questId, cursor),
             };
             listener.CurrentConnection = connection;
-            pageReader = new TrackedQuestPageReader(() => listener);
+            pageReader = new TrackedQuestPageReader(() => listener, adapterTracker, playContextTracker);
             connection.OnTrySendTrackedQuestPage = DeliverNextResponse;
+            var snapshotCollector = new TrackedQuestSnapshotCollector(pageReader);
             var publisher = new StatePublisher<TrackedQuests?>(new RevisionTracker(), playContextTracker, adapterTracker);
             Coordinator = new TrackedQuestCaptureCoordinator(
                 () => listener,
-                pageReader,
+                snapshotCollector,
                 adapterTracker,
                 playContextTracker,
                 publisher,
