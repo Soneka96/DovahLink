@@ -61,6 +61,9 @@ class SessionOverviewScreen extends StatelessWidget {
               if (contextLine case final String line)
                 Text(
                   line,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  softWrap: false,
                   key: const Key('session-overview-context'),
                   style: TextStyle(
                     color: isContextStale

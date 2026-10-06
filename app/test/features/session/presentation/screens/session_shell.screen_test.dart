@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -277,6 +278,37 @@ void main() {
         expect(summary.style?.fontStyle, isNull);
       },
     );
+
+    testWidgets('SessionShellScreen keeps header text ellipsized', (
+      WidgetTester tester,
+    ) async {
+      const String longHostName =
+          'A Skyrim host name that needs to be shortened to fit the header';
+      const String longCharacterName =
+          'A modded character name that needs to be shortened in the header';
+      viewModel = SessionShellViewModel(
+        host: Fixtures.buildHostCardViewData(title: longHostName),
+        onBack: () => backCalls++,
+        characterName: longCharacterName,
+        characterLevelLabel: 'Level 43 (320 XP)',
+      );
+
+      setDovahTestWindow(tester, const Size(720, 480));
+      await tester.pumpWidget(buildWidget());
+
+      for (final Key key in [
+        const Key('session-shell-host-name'),
+        const Key('session-shell-character-summary'),
+      ]) {
+        final Finder textFinder = find.byKey(key);
+        final Text text = tester.widget(textFinder);
+        final RenderParagraph paragraph = tester.renderObject(textFinder);
+        expect(text.maxLines, 1);
+        expect(text.overflow, TextOverflow.ellipsis);
+        expect(paragraph.didExceedMaxLines, isTrue);
+      }
+      expect(tester.takeException(), isNull);
+    });
 
     testWidgets('SessionShellScreen navigates to prototype placeholders', (
       WidgetTester tester,

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/semantics.dart';
+import 'package:flutter/rendering.dart';
 
 import 'package:flutter_redux/flutter_redux.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -438,6 +438,35 @@ void main() {
         );
 
         expect(tester.takeException(), isNull);
+      },
+    );
+
+    testWidgets(
+      'SessionOverviewScreen keeps a long context line to one ellipsized line',
+      (WidgetTester tester) async {
+        const String longContext =
+            'A modded character name · A very long current location name · Skyrim calendar day · 4E 201, 6:42 PM';
+        when(() => viewModel.contextLine).thenReturn(longContext);
+
+        for (final Size size in dovahResponsiveTestSizes) {
+          setDovahTestWindow(tester, size);
+          await tester.pumpWidget(buildWidget());
+
+          final Text context = tester.widget(
+            find.byKey(const Key('session-overview-context')),
+          );
+          expect(context.data, longContext);
+          expect(context.maxLines, 1);
+          expect(context.overflow, TextOverflow.ellipsis);
+          expect(context.softWrap, isFalse);
+          if (size.width == dovahResponsiveTestSizes.first.width) {
+            final RenderParagraph paragraph = tester.renderObject(
+              find.byKey(const Key('session-overview-context')),
+            );
+            expect(paragraph.didExceedMaxLines, isTrue);
+          }
+          expect(tester.takeException(), isNull);
+        }
       },
     );
   });

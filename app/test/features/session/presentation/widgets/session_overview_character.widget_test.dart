@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -151,16 +152,31 @@ void main() {
         testWidgets(
           'SessionOverviewCharacterPanel renders $preset at $size without overflow',
           (WidgetTester tester) async {
+            const String longName =
+                'A modded character name long enough to require hero ellipsis';
             await pumpDovahThemedWidget(
               tester,
               _buildPanel(
-                name: 'A modded character name long enough to wrap in the hero',
+                name: longName,
                 supernaturalLabel: 'Vampire Lord · Werewolf',
               ),
               preset: preset,
               size: size,
             );
 
+            final Text name = tester.widget(
+              find.byKey(const Key('session-overview-character-name')),
+            );
+            expect(name.data, longName);
+            expect(name.maxLines, 1);
+            expect(name.overflow, TextOverflow.ellipsis);
+            expect(name.softWrap, isFalse);
+            if (size.width == dovahResponsiveTestSizes.first.width) {
+              final RenderParagraph paragraph = tester.renderObject(
+                find.byKey(const Key('session-overview-character-name')),
+              );
+              expect(paragraph.didExceedMaxLines, isTrue);
+            }
             expect(tester.takeException(), isNull);
           },
         );

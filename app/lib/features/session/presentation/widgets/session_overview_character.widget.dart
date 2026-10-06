@@ -153,6 +153,9 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
                         ),
                         Text(
                           name ?? ' ',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          softWrap: false,
                           key: const Key('session-overview-character-name'),
                           style: TextStyle(
                             color: _characterNameColor(tokens, nameStatus),
