@@ -19,8 +19,9 @@ visually.
 
 The audit covers visual and interaction parity, navigation and responsive behavior, connection and
 pairing presentation, post-pair handoff, accessibility, and integration with authoritative domain
-state. This approved pass covers Connections, Discover, real Pairing states, and the minimal Session
-Shell. It does not implement full game tabs, gameplay content, or notification surfaces.
+state. This approved pass covers Connections, Discover, real Pairing states, the Session Shell, its
+Overview and secondary navigation, and prototype-faithful placeholders for the four unimplemented
+tabs. It does not implement full Map, Quests, Inventory, Character, or notification features.
 
 ## Non-goals
 
@@ -70,6 +71,23 @@ The 30 focused `LiveStateSchedulerTests` passed on each of two runs. Historical 
 verification is retained below and describes its own run only. Visual prototype comparison remains
 unverified.
 
+### Session Overview implementation verification — 2026-10-06
+
+| Capability | Command | Result |
+| --- | --- | --- |
+| Flutter analysis and tests | `flutter analyze`; `flutter test --reporter compact` from `app` | Passed; no analyzer issues and 3,012 tests, including the 48px navigation hit-target fix. |
+| Repository consistency | `python -m unittest discover -s tooling -p "test_*.py"` from the repository root | Passed; 195 tests and 73 protocol fixtures. |
+| Windows client build | `flutter build windows --debug` from `app` | Passed. |
+| Windows lifecycle policy | `cmake --build build/windows/x64 --config Debug --target window_lifecycle_tests`; `ctest --test-dir build/windows/x64 -C Debug --output-on-failure` from `app` | Passed; one CTest target. |
+| Dart formatting and imports | `dart format --output=none --set-exit-if-changed` on changed Dart files; `dart run tidy_imports` from `app` | Passed; no formatting changes and no import changes remaining. |
+| Diff hygiene | `git diff --check` | Passed. |
+
+The approved prototype HTML and theme CSS were directly inspected and their layout values were
+compared with the Flutter metrics and structure. Screenshot comparison is still unverified: the
+computer-use browser rejected the prototype's local `file://` URL, so no rendered prototype/Flutter
+pair was captured. The app remains structurally and interactively verified, but this audit stays
+partial until a screenshot comparison can be completed.
+
 A previously recorded full-app run passed 2,627 Flutter tests, 1,069 Dart SDK tests, both analyzers,
 the Windows debug build, and the Windows lifecycle policy test. Its exact local commands and outcomes
 were:
@@ -88,12 +106,13 @@ were:
 | Connections and Offline dialog | Implemented; Online, Offline, Connected, Reconnecting, Checking, Unknown, and Pair again remain semantically distinct. | Unverified — no Flutter screenshot captured. |
 | Discover | Implemented for searching, available, checking, empty, failure, and embedded pairing. | Unverified — no Flutter screenshot captured. |
 | Pairing | Implemented for the currently typed code, redisplay, cooldown, confirming, success, failure, blocked, and repair states. | Unverified — no Flutter screenshot captured. |
-| Session Shell | Implemented with real Host context, SDK-connected entry, theme-aware header, empty body, and Back that preserves the admitted session. | Unverified — no Flutter screenshot captured. |
+| Session Shell | Real Host context/status, live character header summary, Overview-first navigation, four prototype placeholders, and Back that preserves the admitted session. | Unverified — no Flutter/prototype screenshot pair captured. |
+| Session Overview | SDK/Redux-backed context, character/supernatural card, truthful vitals and tracked quests, across all themes. | Unverified — no Flutter/prototype screenshot pair captured. |
 
-The workspace's UI automation cannot capture the running Windows Flutter client, and the local
-prototype source is outside the repository. Its markup and theme CSS were inspected for source-level
-values; that does not substitute for pixel comparison. Historical 03.4–03.10 convergence slices
-remain paused for re-planning and are not marked complete here.
+The prototype source is outside the repository, and the browser policy blocked opening its local
+`file://` URL. Its markup and theme CSS were inspected for source-level values; that does not
+substitute for pixel comparison. Historical 03.4–03.10 convergence slices remain paused for
+re-planning and are not marked complete here.
 
 ## Next action
 

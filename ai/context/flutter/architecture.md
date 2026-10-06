@@ -173,12 +173,13 @@ remains Skyrim calendar data; and Tracked Quests remains the complete plural col
 objective instance. An empty tracked-quest list, unavailable nullable values, all-false traits, and
 stale retained values remain distinguishable through synchronization status.
 
-`SessionOverviewViewModel` exposes these selector results to the future Overview owner. Widgets must
+`SessionOverviewViewModel` exposes these selector results to the Session Overview. Widgets must
 not subscribe directly to SDK streams, call SDK live-state subscription APIs, or bypass the approved
 Redux, selector, and ViewModel boundary. Widgets may consume SDK public domain models after those
 values reach presentation through that boundary. Presentation-specific derived models remain allowed
-when they add real UI semantics. The current Session Shell remains a navigation surface; the separate
-Overview convergence work owns its later presentation.
+when they add real UI semantics. The Session Shell opens on the real Overview and keeps the Map,
+Quests, Inventory, and Character destinations as prototype-faithful placeholders until their features
+are approved and implemented.
 
 ## Feature structure
 
@@ -505,3 +506,14 @@ finishes. Neither path shuts down the separate Host.
 - Do not hardcode colors, typography, spacing, icon sizes, or corner radii inside widgets once the theme system exists.
 - Use the existing theme and layout tokens; add a new token before adding a repeated literal.
 - Keep the native DovahLink theme complete and usable without installed-resource detection or a UI mod adapter; missing or unsupported adapter values must fall back to it.
+
+## Immersive second-screen presentation
+
+DovahLink should feel like a natural extension of the game, not an external telemetry dashboard.
+Player-facing copy describes character, world, and gameplay state. Technical synchronization truth
+remains available to the presentation, but components normally express it visually: stale values keep
+their last accepted content with reduced emphasis, recovering values use a subtle theme treatment,
+and unavailable values retain their geometry without fabricated values or developer-facing status
+copy. Use technical terms such as SDK, Host, stale, recovering, or synchronization only when the
+player needs them to understand or resolve a problem. Never invent game-world information to hide
+uncertainty.
