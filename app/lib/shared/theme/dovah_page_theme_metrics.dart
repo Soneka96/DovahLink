@@ -20,6 +20,7 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
     regularIntroBottomGap: 14,
     compactIntroBottomGap: 14,
     introPadding: EdgeInsets.zero,
+    introCornerRadius: 0,
     regularPanelPadding: EdgeInsets.all(14),
     compactPanelPadding: EdgeInsets.all(14),
   );
@@ -32,6 +33,7 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
     regularIntroBottomGap: 20,
     compactIntroBottomGap: 14,
     introPadding: EdgeInsets.zero,
+    introCornerRadius: 0,
     regularPanelPadding: EdgeInsets.all(18),
     compactPanelPadding: EdgeInsets.all(15),
   );
@@ -44,6 +46,7 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
     regularIntroBottomGap: 20,
     compactIntroBottomGap: 14,
     introPadding: EdgeInsets.symmetric(vertical: 10, horizontal: 13),
+    introCornerRadius: 10,
     regularPanelPadding: EdgeInsets.all(18),
     compactPanelPadding: EdgeInsets.all(15),
   );
@@ -65,6 +68,9 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
   /// elsewhere.
   final EdgeInsets introPadding;
 
+  /// Corner radius of the boxed page intro (the Hearth `.page-intro` rule).
+  final double introCornerRadius;
+
   /// Padding inside a content panel in a regular or narrow window.
   final EdgeInsets regularPanelPadding;
 
@@ -79,6 +85,7 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
     required this.regularIntroBottomGap,
     required this.compactIntroBottomGap,
     required this.introPadding,
+    required this.introCornerRadius,
     required this.regularPanelPadding,
     required this.compactPanelPadding,
   });
@@ -91,6 +98,7 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
     double? regularIntroBottomGap,
     double? compactIntroBottomGap,
     EdgeInsets? introPadding,
+    double? introCornerRadius,
     EdgeInsets? regularPanelPadding,
     EdgeInsets? compactPanelPadding,
   }) => DovahPageThemeMetrics(
@@ -101,6 +109,7 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
     regularIntroBottomGap: regularIntroBottomGap ?? this.regularIntroBottomGap,
     compactIntroBottomGap: compactIntroBottomGap ?? this.compactIntroBottomGap,
     introPadding: introPadding ?? this.introPadding,
+    introCornerRadius: introCornerRadius ?? this.introCornerRadius,
     regularPanelPadding: regularPanelPadding ?? this.regularPanelPadding,
     compactPanelPadding: compactPanelPadding ?? this.compactPanelPadding,
   );
@@ -136,6 +145,11 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
         t,
       )!,
       introPadding: EdgeInsets.lerp(introPadding, other.introPadding, t)!,
+      introCornerRadius: lerpDouble(
+        introCornerRadius,
+        other.introCornerRadius,
+        t,
+      )!,
       regularPanelPadding: EdgeInsets.lerp(
         regularPanelPadding,
         other.regularPanelPadding,
@@ -157,6 +171,7 @@ class DovahPageThemeMetrics extends ThemeExtension<DovahPageThemeMetrics>
     regularIntroBottomGap,
     compactIntroBottomGap,
     introPadding,
+    introCornerRadius,
     regularPanelPadding,
     compactPanelPadding,
   ];

@@ -9,6 +9,8 @@ import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -20,11 +22,13 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         CharacterSupernaturalTraitsState,
         CharacterVitalsState,
         CredentialRejectionReason,
+        DovahLinkStateStatus,
         DovahLinkTrustState,
         GameTimeState,
         PlayerLocationCellKind,
         PlayerLocationState,
         QuestObjective,
+        StateSynchronization,
         TrackedQuest,
         TrackedQuestObjectiveState,
         TrackedQuestsState,
@@ -32,6 +36,72 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
 
 /// Exercises the Flutter app's representative typed fixture builders.
 void main() {
+  group('Method buildStateSynchronization behaves correctly', () {
+    test('Method buildStateSynchronization keeps value and status', () {
+      final StateSynchronization<int> synchronization =
+          Fixtures.buildStateSynchronization<int>(value: 43);
+
+      expect(synchronization.status, DovahLinkStateStatus.synchronized);
+      expect(synchronization.value, isA<int>());
+      expect(synchronization.value, 43);
+      expect(synchronization.stateAuthorityId, 'authority-a');
+      expect(synchronization.playContextId, 'context-a');
+      expect(synchronization.revision, 1);
+    });
+
+    test(
+      'Method buildStateSynchronization keeps explicit unavailable values',
+      () {
+        final StateSynchronization<int> synchronization =
+            Fixtures.buildStateSynchronization<int>(
+              status: DovahLinkStateStatus.failed,
+              value: null,
+              stateAuthorityId: null,
+              playContextId: null,
+              revision: null,
+            );
+
+        expect(synchronization.status, DovahLinkStateStatus.failed);
+        expect(synchronization.value, isNull);
+        expect(synchronization.stateAuthorityId, isNull);
+        expect(synchronization.playContextId, isNull);
+        expect(synchronization.revision, isNull);
+      },
+    );
+  });
+
+  group('Method buildSessionOverviewVitalsViewData behaves correctly', () {
+    test(
+      'Method buildSessionOverviewVitalsViewData carries ratios and status',
+      () {
+        final SessionOverviewVitalsViewData viewData =
+            Fixtures.buildSessionOverviewVitalsViewData(
+              value: Fixtures.buildCharacterVitals(),
+              status: DovahLinkStateStatus.stale,
+            );
+
+        expect(viewData.status, DovahLinkStateStatus.stale);
+        expect(viewData.healthRatio, closeTo(0.8, 0.0001));
+        expect(viewData.healthCurrent, 80);
+      },
+    );
+  });
+
+  group('Method buildSessionOverviewQuestViewData behaves correctly', () {
+    test(
+      'Method buildSessionOverviewQuestViewData carries an empty summary',
+      () {
+        final SessionOverviewQuestViewData viewData =
+            Fixtures.buildSessionOverviewQuestViewData(
+              value: Fixtures.buildTrackedQuests(quests: <TrackedQuest>[]),
+            );
+
+        expect(viewData.title, 'NO QUEST TRACKED');
+        expect(viewData.detail, 'No path is marked.');
+      },
+    );
+  });
+
   group('Method buildHost behaves correctly', () {
     test('Method buildHost builds representative defaults', () {
       final Host host = Fixtures.buildHost();

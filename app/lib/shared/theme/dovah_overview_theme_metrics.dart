@@ -21,6 +21,8 @@ class DovahOverviewThemeMetrics
     compactHeroMinHeight: 205,
     regularStatsTopGap: 14,
     compactStatsTopGap: 14,
+    heroTitleLetterSpacingEm: 0.025,
+    panelTitleLetterSpacingEm: 0.025,
   );
 
   /// The Dovah preset's values, from the prototype's `index.html` media queries and `themes.css`
@@ -31,6 +33,8 @@ class DovahOverviewThemeMetrics
     compactHeroMinHeight: 210,
     regularStatsTopGap: 20,
     compactStatsTopGap: 14,
+    heroTitleLetterSpacingEm: 0,
+    panelTitleLetterSpacingEm: 0,
   );
 
   /// Hearth's values, from the prototype's `index.html` media queries and `themes.css` per-theme
@@ -41,6 +45,8 @@ class DovahOverviewThemeMetrics
     compactHeroMinHeight: 215,
     regularStatsTopGap: 20,
     compactStatsTopGap: 14,
+    heroTitleLetterSpacingEm: 0,
+    panelTitleLetterSpacingEm: 0,
   );
 
   /// Gap between the grid's columns and between the side column's panels in every window mode.
@@ -59,6 +65,12 @@ class DovahOverviewThemeMetrics
   /// Gap above the hero panel's stats in a compact-height window.
   final double compactStatsTopGap;
 
+  /// Letter spacing of the hero title in ems (the Frostbound `.hero-panel h2`).
+  final double heroTitleLetterSpacingEm;
+
+  /// Letter spacing of side-panel headings in ems (the Frostbound `.panel-title b`).
+  final double panelTitleLetterSpacingEm;
+
   /// Creates a complete set. Every value is required so a set cannot be assembled with an
   /// accidentally-inherited default.
   const DovahOverviewThemeMetrics({
@@ -67,6 +79,8 @@ class DovahOverviewThemeMetrics
     required this.compactHeroMinHeight,
     required this.regularStatsTopGap,
     required this.compactStatsTopGap,
+    required this.heroTitleLetterSpacingEm,
+    required this.panelTitleLetterSpacingEm,
   });
 
   /// Returns a copy with the given values replaced.
@@ -77,12 +91,18 @@ class DovahOverviewThemeMetrics
     double? compactHeroMinHeight,
     double? regularStatsTopGap,
     double? compactStatsTopGap,
+    double? heroTitleLetterSpacingEm,
+    double? panelTitleLetterSpacingEm,
   }) => DovahOverviewThemeMetrics(
     gridGap: gridGap ?? this.gridGap,
     regularHeroMinHeight: regularHeroMinHeight ?? this.regularHeroMinHeight,
     compactHeroMinHeight: compactHeroMinHeight ?? this.compactHeroMinHeight,
     regularStatsTopGap: regularStatsTopGap ?? this.regularStatsTopGap,
     compactStatsTopGap: compactStatsTopGap ?? this.compactStatsTopGap,
+    heroTitleLetterSpacingEm:
+        heroTitleLetterSpacingEm ?? this.heroTitleLetterSpacingEm,
+    panelTitleLetterSpacingEm:
+        panelTitleLetterSpacingEm ?? this.panelTitleLetterSpacingEm,
   );
 
   /// Interpolates every value; each is a continuous measurement with no discrete counterpart.
@@ -116,6 +136,16 @@ class DovahOverviewThemeMetrics
         other.compactStatsTopGap,
         t,
       )!,
+      heroTitleLetterSpacingEm: lerpDouble(
+        heroTitleLetterSpacingEm,
+        other.heroTitleLetterSpacingEm,
+        t,
+      )!,
+      panelTitleLetterSpacingEm: lerpDouble(
+        panelTitleLetterSpacingEm,
+        other.panelTitleLetterSpacingEm,
+        t,
+      )!,
     );
   }
 
@@ -127,5 +157,7 @@ class DovahOverviewThemeMetrics
     compactHeroMinHeight,
     regularStatsTopGap,
     compactStatsTopGap,
+    heroTitleLetterSpacingEm,
+    panelTitleLetterSpacingEm,
   ];
 }

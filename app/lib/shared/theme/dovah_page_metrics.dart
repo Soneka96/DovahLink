@@ -25,6 +25,9 @@ class DovahPageMetrics extends Equatable {
   /// margin).
   static const double introTitleBottomGap = 5;
 
+  /// Letter spacing, in ems, of a game-page title (the prototype's `.page-intro h1`).
+  static const double introTitleLetterSpacingEm = 0.02;
+
   /// Font size of a page description and its sync note (the prototype's `.page-intro p`/`.sync`
   /// as themed).
   static const double introDescriptionFontSize = 13;
@@ -62,6 +65,9 @@ class DovahPageMetrics extends Equatable {
   /// Padding inside the page intro: only Hearth boxes it, so it is zero elsewhere.
   final EdgeInsets introPadding;
 
+  /// Corner radius of the boxed page intro.
+  final double introCornerRadius;
+
   /// Padding inside a content panel.
   final EdgeInsets panelPadding;
 
@@ -76,6 +82,7 @@ class DovahPageMetrics extends Equatable {
     required this.introBottomGap,
     required this.introTitleFontSize,
     required this.introPadding,
+    required this.introCornerRadius,
     required this.panelPadding,
     required this.placeholderColumns,
   });
@@ -103,6 +110,7 @@ class DovahPageMetrics extends Equatable {
           : themeMetrics.regularIntroBottomGap,
       introTitleFontSize: compact ? 26 : 31,
       introPadding: themeMetrics.introPadding,
+      introCornerRadius: themeMetrics.introCornerRadius,
       panelPadding: compact
           ? themeMetrics.compactPanelPadding
           : themeMetrics.regularPanelPadding,
@@ -118,6 +126,7 @@ class DovahPageMetrics extends Equatable {
     introBottomGap,
     introTitleFontSize,
     introPadding,
+    introCornerRadius,
     panelPadding,
     placeholderColumns,
   ];

@@ -33,6 +33,8 @@ void main() {
       expect(DovahPageMetrics.contentBottomPadding, 42);
       expect(DovahPageMetrics.introTitleBottomGap, isA<double>());
       expect(DovahPageMetrics.introTitleBottomGap, 5);
+      expect(DovahPageMetrics.introTitleLetterSpacingEm, isA<double>());
+      expect(DovahPageMetrics.introTitleLetterSpacingEm, 0.02);
       expect(DovahPageMetrics.introDescriptionFontSize, isA<double>());
       expect(DovahPageMetrics.introDescriptionFontSize, 13);
     });
@@ -184,6 +186,25 @@ void main() {
         },
       );
     }
+
+    test('Method forWindow resolves the Hearth intro corner radius', () {
+      final DovahPageMetrics frostbound = DovahPageMetrics.forWindow(
+        themeMetrics: DovahPageThemeMetrics.frostbound,
+        window: const Size(1280, 720),
+      );
+      final DovahPageMetrics dovah = DovahPageMetrics.forWindow(
+        themeMetrics: DovahPageThemeMetrics.dovah,
+        window: const Size(1280, 720),
+      );
+      final DovahPageMetrics hearth = DovahPageMetrics.forWindow(
+        themeMetrics: DovahPageThemeMetrics.hearth,
+        window: const Size(1280, 720),
+      );
+
+      expect(frostbound.introCornerRadius, 0);
+      expect(dovah.introCornerRadius, 0);
+      expect(hearth.introCornerRadius, 10);
+    });
 
     test(
       'Method forWindow keeps window-only values identical across themes',

@@ -21,6 +21,8 @@ void main() {
       expect(metrics.regularHeroMinHeight, 226);
       expect(metrics.compactHeroMinHeight, isA<double>());
       expect(metrics.compactHeroMinHeight, 205);
+      expect(metrics.heroTitleLetterSpacingEm, 0.025);
+      expect(metrics.panelTitleLetterSpacingEm, 0.025);
       expect(metrics.regularStatsTopGap, isA<double>());
       expect(metrics.regularStatsTopGap, 14);
       expect(metrics.compactStatsTopGap, isA<double>());
@@ -33,6 +35,8 @@ void main() {
       expect(metrics.gridGap, 14);
       expect(metrics.regularHeroMinHeight, 270);
       expect(metrics.compactHeroMinHeight, 210);
+      expect(metrics.heroTitleLetterSpacingEm, 0);
+      expect(metrics.panelTitleLetterSpacingEm, 0);
       expect(metrics.regularStatsTopGap, 20);
       expect(metrics.compactStatsTopGap, 14);
     });
@@ -44,6 +48,8 @@ void main() {
       expect(metrics.gridGap, 14);
       expect(metrics.regularHeroMinHeight, 278);
       expect(metrics.compactHeroMinHeight, 215);
+      expect(metrics.heroTitleLetterSpacingEm, 0);
+      expect(metrics.panelTitleLetterSpacingEm, 0);
       expect(metrics.regularStatsTopGap, 20);
       expect(metrics.compactStatsTopGap, 14);
     });
@@ -102,6 +108,8 @@ void main() {
       expect(mid.regularStatsTopGap, 17);
       expect(mid.regularHeroMinHeight, 248);
       expect(mid.compactHeroMinHeight, 207.5);
+      expect(mid.heroTitleLetterSpacingEm, 0.0125);
+      expect(mid.panelTitleLetterSpacingEm, 0.0125);
     });
 
     test('Method lerp between identical metrics keeps every value', () {
@@ -193,6 +201,8 @@ void main() {
             compactHeroMinHeight: 3,
             regularStatsTopGap: 4,
             compactStatsTopGap: 5,
+            heroTitleLetterSpacingEm: 6,
+            panelTitleLetterSpacingEm: 7,
           );
 
       expect(copy.gridGap, 1);
@@ -200,6 +210,8 @@ void main() {
       expect(copy.compactHeroMinHeight, 3);
       expect(copy.regularStatsTopGap, 4);
       expect(copy.compactStatsTopGap, 5);
+      expect(copy.heroTitleLetterSpacingEm, 6);
+      expect(copy.panelTitleLetterSpacingEm, 7);
     });
 
     test('Method copyWith keeps the values it is not given', () {
@@ -245,6 +257,8 @@ void main() {
             base.copyWith(compactHeroMinHeight: 1),
             base.copyWith(regularStatsTopGap: 1),
             base.copyWith(compactStatsTopGap: 1),
+            base.copyWith(heroTitleLetterSpacingEm: 1),
+            base.copyWith(panelTitleLetterSpacingEm: 1),
           ]) {
         expect(changed, isNot(base));
       }
