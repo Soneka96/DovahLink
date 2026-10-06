@@ -42,6 +42,9 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>The number of times <see cref="RequestClose"/> has been called.</summary>
     public int RequestCloseCalls { get; private set; }
 
+    /// <summary>The number of times <see cref="PurgePendingData"/> has been called.</summary>
+    public int PurgePendingDataCalls { get; private set; }
+
     /// <summary>Every lane passed to <see cref="TrySend"/> so far, in call order, index-aligned with <see cref="SentPayloads"/>.</summary>
     public List<PublicOutboundLane> SentLanes { get; } = [];
 
@@ -72,6 +75,9 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <inheritdoc/>
     public void RequestClose() => RequestCloseCalls++;
+
+    /// <inheritdoc/>
+    public void PurgePendingData() => PurgePendingDataCalls++;
 
     /// <inheritdoc/>
     public int RemainingOutboundCapacity(PublicOutboundLane lane) => RemainingOutboundCapacityResult;

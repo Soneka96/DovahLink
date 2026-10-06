@@ -3208,6 +3208,57 @@ public class PublicWebSocketConnectionTests
     }
 
     /// <summary>
+    /// Verifies that a Data-lane purge releases queued bytes while preserving the reservation for a
+    /// frame already inside the serialized writer's blocked send.
+    /// </summary>
+    [Fact]
+    public async Task PurgePendingData_ReleasesQueuedStateBytesButKeepsInFlightFrameReserved()
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream());
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(outboundQueueMaxBytes: 15, dataOutboundQueueMaxMessages: 2);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("busy!"), PublicOutboundLane.ControlOrRecovery));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(connection.TrySend(Encoding.UTF8.GetBytes("event"), PublicOutboundLane.Data));
+        Assert.True(connection.TrySendSnapshot(new StateAreaId("queued_area"), Encoding.UTF8.GetBytes("snap")));
+        Assert.Equal(0, connection.RemainingOutboundCapacity(PublicOutboundLane.Data));
+        Assert.False(connection.TrySendSnapshot(new StateAreaId("dirty_area"), Encoding.UTF8.GetBytes("dirty")));
+
+        connection.PurgePendingData();
+
+        Assert.Equal(2, connection.RemainingOutboundCapacity(PublicOutboundLane.Data));
+        Assert.True(connection.TrySend(new byte[10], PublicOutboundLane.ControlOrRecovery));
+        connection.PurgePendingData();
+        Assert.Equal(2, connection.RemainingOutboundCapacity(PublicOutboundLane.Data));
+        Assert.False(connection.TrySendSnapshot(new StateAreaId("new_dirty_area"), new byte[] { 1 }));
+        blockingStream.Release();
+
+        byte[] buffer = new byte[32];
+        WebSocketReceiveResult inFlightResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal("busy!", Encoding.UTF8.GetString(buffer, 0, inFlightResult.Count));
+        WebSocketReceiveResult controlResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(10, controlResult.Count);
+        Assert.All(buffer.Take(controlResult.Count), value => Assert.Equal((byte)0, value));
+        WebSocketReceiveResult snapshotResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(new byte[] { 1 }, buffer.Take(snapshotResult.Count));
+
+        listener.Stop();
+        connection.RequestClose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
     /// Verifies end-to-end that a snapshot replacement declined only because the shared outbound byte
     /// budget was exhausted -- while the area's old value is still queued, never yet sent -- is
     /// replaced in place once an unrelated Control/Recovery-lane send frees enough of that budget: the

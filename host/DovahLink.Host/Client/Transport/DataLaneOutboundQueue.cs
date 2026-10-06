@@ -54,6 +54,10 @@ public interface IDataLaneOutboundQueue
     /// <returns><see langword="true"/> when the event is now queued; <see langword="false"/> when it was declined.</returns>
     bool TryAdmitEvent(byte[] payload, int maxOutstandingMessages, Func<long, bool> canAffordBytes);
 
+    /// <summary>Removes every queued Event, queued Snapshot, and deferred Snapshot.</summary>
+    /// <returns>The queued message reservations and shared payload bytes removed; dequeued frames remain outstanding.</returns>
+    (int RemovedMessages, long RemovedBytes) PurgePending();
+
     /// <summary>Tries to dequeue the entry at the front of the queue, in admission order.</summary>
     /// <param name="payload">The dequeued entry's bytes, if any.</param>
     /// <returns><see langword="true"/> when an entry was dequeued.</returns>
@@ -208,6 +212,26 @@ public sealed class DataLaneOutboundQueue : IDataLaneOutboundQueue
             outstandingMessages++;
             readySignal.Writer.TryWrite(true);
             return true;
+        }
+    }
+
+    /// <inheritdoc/>
+    public (int RemovedMessages, long RemovedBytes) PurgePending()
+    {
+        lock (gate)
+        {
+            int removedMessages = entries.Count;
+            long removedBytes = 0;
+            foreach (Entry entry in entries)
+            {
+                removedBytes += entry.Bytes.Length;
+            }
+
+            entries.Clear();
+            snapshotNodesByArea.Clear();
+            dirtySnapshotsByArea.Clear();
+            outstandingMessages -= removedMessages;
+            return (removedMessages, removedBytes);
         }
     }
 
