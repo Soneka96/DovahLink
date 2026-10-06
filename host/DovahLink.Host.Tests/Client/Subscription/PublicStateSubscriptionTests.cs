@@ -167,7 +167,7 @@ public class PublicStateSubscriptionTests
         Assert.Equal(["area_b"], rejected);
     }
 
-    /// <summary>Verifies that an accepted area with an available snapshot sends it as a baseline through the Control/Recovery lane, correlated to the subscribe message id.</summary>
+    /// <summary>Verifies that a snapshot already current before subscription is sent as the baseline without a later mutation.</summary>
     [Fact]
     public void HandleSubscribe_RegisteredAreaWithAvailableSnapshot_SendsBaselineOnControlLaneCorrelatedToSubscribeMessageId()
     {
@@ -188,6 +188,7 @@ public class PublicStateSubscriptionTests
         Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
         Assert.Equal("area_a", payload!.StateArea);
         Assert.Equal(7UL, payload.Revision);
+        Assert.Equal(42, payload.Data.GetProperty("value").GetInt32());
     }
 
     /// <summary>
