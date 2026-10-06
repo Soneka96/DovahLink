@@ -100,6 +100,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- An already connected trusted Host now starts live-state subscriptions when the app begins observing the session.
 - Invalid operating-system device names now fall back safely before pairing.
 - Disposing pairing while secure storage is unavailable still cancels retry observation and ignores
   pending authentication results.

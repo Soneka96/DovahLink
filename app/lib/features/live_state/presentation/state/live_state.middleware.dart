@@ -142,9 +142,7 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
       return;
     }
     if (state == DovahLinkConnectionState.connected) {
-      if (client.currentHost.trustState == DovahLinkTrustState.trusted) {
-        _attachStateStreams(store, client);
-      }
+      _ensureTrustedSession(store, client);
       return;
     }
     if (state == DovahLinkConnectionState.disconnected) {
@@ -165,13 +163,23 @@ class LiveStateMiddleware extends MiddlewareClass<AppState>
       return;
     }
     final DovahLinkClient client = sl<DovahLinkClient>();
-    if (client.connections.state == DovahLinkConnectionState.connected &&
-        client.currentHost.trustState == DovahLinkTrustState.trusted) {
-      _attachStateStreams(store, client);
-      final Object? token = _activeObservationTokens[store];
-      if (token != null && _requestedDesiredAreaStores.add(store)) {
-        unawaited(_requestRequiredAreas(store, client.currentHost, token));
-      }
+    _ensureTrustedSession(store, client);
+  }
+
+  /// Attaches streams and establishes desired areas for one connected trusted session.
+  /// @param store The store receiving projected gameplay state.
+  /// @param client The SDK client owning the admitted session.
+  void _ensureTrustedSession(Store<AppState> store, DovahLinkClient client) {
+    if (_isShuttingDown ||
+        client.connections.state != DovahLinkConnectionState.connected ||
+        client.currentHost.trustState != DovahLinkTrustState.trusted) {
+      return;
+    }
+
+    _attachStateStreams(store, client);
+    final Object? token = _activeObservationTokens[store];
+    if (token != null && _requestedDesiredAreaStores.add(store)) {
+      unawaited(_requestRequiredAreas(store, client.currentHost, token));
     }
   }
 
