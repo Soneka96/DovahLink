@@ -258,6 +258,54 @@ void main() {
           ),
           isSemantics(isButton: true, isSelected: true),
         );
+        const List<String> tabs = [
+          'Overview',
+          'Map',
+          'Quests',
+          'Inventory',
+          'Character',
+        ];
+        for (final String tab in tabs) {
+          expect(find.text(tab), findsOneWidget);
+          expect(
+            find.descendant(
+              of: find.byKey(Key('session-shell-$tab-tab')),
+              matching: find.byType(Icon),
+            ),
+            findsNothing,
+          );
+        }
+        for (int index = 0; index < tabs.length - 1; index++) {
+          expect(
+            tester
+                    .getTopLeft(
+                      find.byKey(Key('session-shell-${tabs[index + 1]}-tab')),
+                    )
+                    .dx -
+                tester
+                    .getTopRight(
+                      find.byKey(Key('session-shell-${tabs[index]}-tab')),
+                    )
+                    .dx,
+            DovahSessionMetrics.tabGap,
+          );
+        }
+        for (final String tab in tabs) {
+          final Finder tabFinder = find.byKey(Key('session-shell-$tab-tab'));
+          expect(
+            find.descendant(
+              of: tabFinder,
+              matching: find.byWidgetPredicate(
+                (Widget widget) =>
+                    widget is Container &&
+                    widget.constraints?.maxHeight ==
+                        DovahSessionMetrics.activeRuleHeight &&
+                    widget.decoration is BoxDecoration,
+              ),
+            ),
+            tab == 'Overview' ? findsOneWidget : findsNothing,
+          );
+        }
 
         for (final (String tab, String title) in [
           ('Map', 'World Map'),
@@ -272,6 +320,34 @@ void main() {
             tester.getSemantics(find.byKey(Key('session-shell-$tab-tab'))),
             isSemantics(isButton: true, isSelected: true),
           );
+          for (final String otherTab in [
+            'Overview',
+            'Map',
+            'Quests',
+            'Inventory',
+            'Character',
+          ]) {
+            final Finder otherTabFinder = find.byKey(
+              Key('session-shell-$otherTab-tab'),
+            );
+            expect(
+              tester.getSemantics(otherTabFinder),
+              isSemantics(isButton: true, isSelected: otherTab == tab),
+            );
+            expect(
+              find.descendant(
+                of: otherTabFinder,
+                matching: find.byWidgetPredicate(
+                  (Widget widget) =>
+                      widget is Container &&
+                      widget.constraints?.maxHeight ==
+                          DovahSessionMetrics.activeRuleHeight &&
+                      widget.decoration is BoxDecoration,
+                ),
+              ),
+              otherTab == tab ? findsOneWidget : findsNothing,
+            );
+          }
           expect(
             find.byKey(const Key('session-shell-placeholder-page')),
             findsOneWidget,

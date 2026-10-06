@@ -255,17 +255,27 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
                               child: SingleChildScrollView(
                                 scrollDirection: Axis.horizontal,
                                 child: Row(
-                                  children: List<Widget>.generate(
-                                    _tabs.length,
-                                    (int index) => SessionNavigationTab(
-                                      label: _tabs[index],
-                                      selected: _selectedTab == index,
-                                      tokens: tokens,
-                                      metrics: metrics,
-                                      onTap: () =>
-                                          setState(() => _selectedTab = index),
-                                    ),
-                                  ),
+                                  children: [
+                                    for (
+                                      int index = 0;
+                                      index < _tabs.length;
+                                      index++
+                                    ) ...[
+                                      if (index > 0)
+                                        const SizedBox(
+                                          width: DovahSessionMetrics.tabGap,
+                                        ),
+                                      SessionNavigationTab(
+                                        label: _tabs[index],
+                                        selected: _selectedTab == index,
+                                        tokens: tokens,
+                                        metrics: metrics,
+                                        onTap: () => setState(
+                                          () => _selectedTab = index,
+                                        ),
+                                      ),
+                                    ],
+                                  ],
                                 ),
                               ),
                             ),
