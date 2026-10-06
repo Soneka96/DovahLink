@@ -11,7 +11,16 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 abstract interface class IStateMessageHandler {
   /// Replaces the areas whose state messages this client may apply, marking new areas as recovering.
   /// @param stateAreas The complete accepted set for the current Host session.
-  void setSubscribedStateAreas(Set<String> stateAreas);
+  /// @param baselineCorrelationId The `subscribe` request ID authorizing delayed initial baselines.
+  void setSubscribedStateAreas(
+    Set<String> stateAreas, {
+    String? baselineCorrelationId,
+  });
+
+  /// Whether [correlationId] still identifies an accepted area's initial baseline.
+  /// @param correlationId The Host response correlation to check.
+  /// @return Whether the correlation belongs to a baseline still being established.
+  bool isPendingBaselineCorrelation(String correlationId);
 
   /// Handles one canonical state Snapshot or Event envelope.
   /// @param envelope The state envelope from the single inbound reader.
@@ -29,6 +38,9 @@ class StateMessageHandler implements IStateMessageHandler {
   /// State areas the current Host session accepted for this client.
   final Set<String> _subscribedStateAreas = <String>{};
 
+  /// Current subscribe correlation for accepted areas still waiting for their first Snapshot.
+  final Map<String, String> _pendingBaselineCorrelations = <String, String>{};
+
   /// Creates a handler over the supplied state-area registrations.
   /// @param sessionService Reports malformed messages to the lifecycle.
   /// @param domains The typed definitions for supported state areas.
@@ -43,7 +55,10 @@ class StateMessageHandler implements IStateMessageHandler {
 
   /// Implements [IStateMessageHandler.setSubscribedStateAreas].
   @override
-  void setSubscribedStateAreas(Set<String> stateAreas) {
+  void setSubscribedStateAreas(
+    Set<String> stateAreas, {
+    String? baselineCorrelationId,
+  }) {
     final Set<String> addedAreas = stateAreas.difference(_subscribedStateAreas);
     for (final String area in addedAreas) {
       _domains[area]?.tracker.beginRecovery();
@@ -53,11 +68,25 @@ class StateMessageHandler implements IStateMessageHandler {
     );
     for (final String area in removedAreas) {
       _domains[area]?.tracker.resetToNotSubscribed();
+      _pendingBaselineCorrelations.remove(area);
+    }
+    if (baselineCorrelationId != null) {
+      for (final String area in stateAreas) {
+        if (addedAreas.contains(area) ||
+            _pendingBaselineCorrelations.containsKey(area)) {
+          _pendingBaselineCorrelations[area] = baselineCorrelationId;
+        }
+      }
     }
     _subscribedStateAreas
       ..clear()
       ..addAll(stateAreas);
   }
+
+  /// Implements [IStateMessageHandler.isPendingBaselineCorrelation].
+  @override
+  bool isPendingBaselineCorrelation(String correlationId) =>
+      _pendingBaselineCorrelations.values.contains(correlationId);
 
   /// See [IStateMessageHandler.handle].
   @override
@@ -82,6 +111,7 @@ class StateMessageHandler implements IStateMessageHandler {
             break;
           }
           domain.applySnapshot(envelope: envelope, payload: payload);
+          _pendingBaselineCorrelations.remove(payload.stateArea);
           break;
         case ProtocolMessageType.stateEvent:
           final StateEventPayload payload = ProtocolPayloadDecoder.decode(

@@ -25,11 +25,12 @@ Envelope buildSnapshotEnvelope({
   required String area,
   required int revision,
   required JsonMap data,
+  String? correlationId,
 }) => Envelope(
   messageType: ProtocolMessageType.stateSnapshot,
   messageId: 'snapshot-$revision',
   sessionId: 'session-1',
-  correlationId: null,
+  correlationId: correlationId,
   payload: <String, dynamic>{
     'stateArea': area,
     'revision': revision,
@@ -597,6 +598,26 @@ void main() {
         expect(error.retryable, isFalse);
       },
     );
+
+    test(
+      'Method handle retires a baseline correlation after applying its Snapshot',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_b',
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            correlationId: 'subscribe-1',
+          ),
+        );
+
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isFalse);
+      },
+    );
   });
 
   group('Method setSubscribedStateAreas behaves correctly', () {
@@ -611,6 +632,61 @@ void main() {
 
         verify(() => trackerB.beginRecovery()).called(1);
         verifyNever(() => trackerA.beginRecovery());
+      },
+    );
+
+    test(
+      'Method setSubscribedStateAreas authorizes only baselines for accepted areas still pending',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isTrue);
+        expect(handler.isPendingBaselineCorrelation('unknown'), isFalse);
+
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-2');
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isFalse);
+        expect(handler.isPendingBaselineCorrelation('subscribe-2'), isTrue);
+
+        handler.setSubscribedStateAreas(<String>{});
+        expect(handler.isPendingBaselineCorrelation('subscribe-2'), isFalse);
+      },
+    );
+  });
+
+  group('Behavior shared subscribe baseline correlations behave correctly', () {
+    test(
+      'Behavior shared subscribe baseline correlations remain pending until every accepted area receives a Snapshot',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+          'area_c',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_b',
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            correlationId: 'subscribe-1',
+          ),
+        );
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isTrue);
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_c',
+            revision: 1,
+            data: const <String, dynamic>{'value': 20},
+            correlationId: 'subscribe-1',
+          ),
+        );
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isFalse);
       },
     );
   });

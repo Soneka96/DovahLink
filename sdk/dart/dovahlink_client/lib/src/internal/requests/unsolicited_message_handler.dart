@@ -12,6 +12,11 @@ abstract interface class IUnsolicitedMessageHandler {
   /// Handles one unsolicited Host message.
   /// @param envelope The decoded, uncorrelated protocol envelope.
   void handle(Envelope envelope);
+
+  /// Handles a correlated baseline error when it belongs to a pending accepted subscription.
+  /// @param envelope The Host error envelope whose request already received its acknowledgement.
+  /// @return Whether this handler consumed the response; unknown correlations return `false`.
+  bool handleCorrelatedBaselineError(Envelope envelope);
 }
 
 /// Routes decoded unsolicited messages to their typed SDK lifecycle surface.
@@ -77,5 +82,33 @@ class UnsolicitedMessageHandler implements IUnsolicitedMessageHandler {
         // was already rejected while decoding [Envelope].
         break;
     }
+  }
+
+  /// Implements [IUnsolicitedMessageHandler.handleCorrelatedBaselineError].
+  @override
+  bool handleCorrelatedBaselineError(Envelope envelope) {
+    final String? correlationId = envelope.correlationId;
+    if (envelope.messageType != ProtocolMessageType.error ||
+        correlationId == null) {
+      return false;
+    }
+
+    final ErrorPayload error;
+    try {
+      error = ProtocolPayloadDecoder.decode(
+        ErrorPayload.fromJson,
+        envelope.payload,
+      );
+    } on DovahLinkProtocolException catch (protocolError) {
+      _sessionService.onProtocolViolation(
+        protocolError,
+        orphanRetrySafeOperations: false,
+      );
+      return true;
+    }
+
+    return error.code == ProtocolErrorCode.temporarilyUnavailable &&
+        error.retryable &&
+        _stateMessageHandler.isPendingBaselineCorrelation(correlationId);
   }
 }
