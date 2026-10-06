@@ -611,7 +611,7 @@ void main() {
       );
 
       expect(result, StateEventApplyResult.recoveryRequired);
-      expect(tracker.current.status, DovahLinkStateStatus.recovering);
+      expect(tracker.current.status, DovahLinkStateStatus.stale);
       expect(tracker.current.value, isNull);
       expect(tracker.current.revision, isNull);
     });
@@ -638,7 +638,7 @@ void main() {
         );
 
         expect(result, StateEventApplyResult.recoveryRequired);
-        expect(tracker.current.status, DovahLinkStateStatus.recovering);
+        expect(tracker.current.status, DovahLinkStateStatus.stale);
         expect(tracker.current.value, isNull);
         expect(tracker.current.stateAuthorityId, 'authority-2');
         expect(tracker.current.playContextId, 'context-1');
@@ -668,7 +668,7 @@ void main() {
         );
 
         expect(result, StateEventApplyResult.recoveryRequired);
-        expect(tracker.current.status, DovahLinkStateStatus.recovering);
+        expect(tracker.current.status, DovahLinkStateStatus.stale);
         expect(tracker.current.value, isNull);
         expect(tracker.current.stateAuthorityId, 'authority-1');
         expect(tracker.current.playContextId, 'context-2');
@@ -836,7 +836,7 @@ void main() {
     );
 
     test(
-      'Method applyEvent requests recovery without repeating the transition',
+      'Method applyEvent marks an unbased Event stale without repeating the transition',
       () {
         final MockCurrentValueStream<StateSynchronization<int?>> state =
             buildStateSynchronizationStream(
@@ -869,9 +869,9 @@ void main() {
 
         expect(first, StateEventApplyResult.buffered);
         expect(repeated, StateEventApplyResult.buffered);
-        expect(tracker.current.status, DovahLinkStateStatus.recovering);
+        expect(tracker.current.status, DovahLinkStateStatus.stale);
         expect(tracker.current.revision, isNull);
-        verifyNever(() => state.update(any()));
+        verify(() => state.update(any())).called(1);
       },
     );
   });

@@ -169,7 +169,8 @@ void main() {
         );
         state = await module.changes.first;
         expect(state.status, DovahLinkStateStatus.unavailable);
-        expect(state.value, isNull);
+        expect(state.value?.locationName, 'Whiterun');
+        expect(state.value?.cellName, 'WhiterunWorld');
         expect(state.revision, 2);
 
         module.domain.tracker.failRecovery();

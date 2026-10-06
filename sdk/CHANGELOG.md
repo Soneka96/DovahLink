@@ -54,6 +54,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 - A new authority or play context clears all subscribed state trackers before new-identity state is routed.
 - Same-identity unavailable state retains its last usable value while advancing the accepted revision.
+- An identity reset waits for its initial Host baseline, while an Event without a baseline still triggers Level recovery.
 - Retryable timeout errors for accepted subscription baselines no longer terminate the SDK session as unmatched-correlation violations.
 - Successful code confirmation clears the Known Host repair hint even if credential
   acknowledgement is interrupted.

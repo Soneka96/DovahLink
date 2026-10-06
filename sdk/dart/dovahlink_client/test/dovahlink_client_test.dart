@@ -2546,8 +2546,8 @@ void main() {
             value: 14,
           ),
         );
-        await recoveredLevelReceived;
 
+        await pumpEventQueue();
         final JsonMap snapshotRequest =
             jsonDecode(transport.sent.last) as JsonMap;
         expect(snapshotRequest['messageType'], 'snapshot_request');
@@ -2555,6 +2555,12 @@ void main() {
           'stateArea': 'character_level',
           'knownRevision': 2,
         });
+        final StateSynchronization<CharacterLevelState> recoveredLevel =
+            await client.currentHost.character.levelChanges.first;
+        expect(recoveredLevel.status, DovahLinkStateStatus.synchronized);
+        expect(recoveredLevel.value?.value, 14);
+        expect(recoveredLevel.revision, 5);
+        await recoveredLevelReceived;
 
         final Future<void> correlatedLevelBaselineReceived = expectLater(
           client.currentHost.character.levelChanges,
@@ -2576,6 +2582,30 @@ void main() {
           ),
         );
         await correlatedLevelBaselineReceived;
+
+        final int sentBeforeLaterLevelEvent = transport.sent.length;
+        final Future<void> laterLevelEventReceived = expectLater(
+          client.currentHost.character.levelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 7 &&
+                  state.value?.value == 16,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: 6,
+            revision: 7,
+            value: 16,
+          ),
+        );
+        await laterLevelEventReceived;
+
+        expect(transport.sent, hasLength(sentBeforeLaterLevelEvent));
         expect(client.connections.state, DovahLinkConnectionState.connected);
       },
     );

@@ -284,7 +284,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
         _bufferedEvents.clear();
         _state.update(
           StateSynchronization<T>(
-            status: DovahLinkStateStatus.recovering,
+            status: DovahLinkStateStatus.stale,
             value: null,
             stateAuthorityId: stateAuthorityId,
             playContextId: playContextId,
@@ -293,6 +293,17 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
         );
       } else if (previousRevision != null && revision <= previousRevision) {
         return StateEventApplyResult.ignored;
+      } else if (previous.status == DovahLinkStateStatus.recovering &&
+          previousRevision == null) {
+        _state.update(
+          StateSynchronization<T>(
+            status: DovahLinkStateStatus.stale,
+            value: previous.value,
+            stateAuthorityId: previous.stateAuthorityId,
+            playContextId: previous.playContextId,
+            revision: null,
+          ),
+        );
       }
 
       if (_bufferedEvents.length == kStateRecoveryEventBufferLimit) {
@@ -323,7 +334,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
     if (!sameIdentity || previousRevision == null) {
       _state.update(
         StateSynchronization<T>(
-          status: DovahLinkStateStatus.recovering,
+          status: DovahLinkStateStatus.stale,
           value: null,
           stateAuthorityId: stateAuthorityId,
           playContextId: playContextId,

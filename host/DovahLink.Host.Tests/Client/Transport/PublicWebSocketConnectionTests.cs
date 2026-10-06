@@ -3325,33 +3325,37 @@ public class PublicWebSocketConnectionTests
             OccurredAt = DateTimeOffset.UtcNow,
             Data = JsonSerializer.SerializeToElement(new { value = "old-in-flight" }),
         };
-        byte[] oldInFlightEvent = codec.Encode(
+        StateAuthorityId oldAuthority = authorityLifecycle.Current;
+        byte[] oldInFlightEvent = codec.EncodeStatePublication(
             PublicMessageType.StateEvent,
             "old-in-flight-event",
             sessionId.ToString(),
             null,
             oldContext.ToString(),
             null,
+            oldAuthority,
             oldEventPayload);
         Assert.True(connection.TrySend(oldInFlightEvent, PublicOutboundLane.Data));
         await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
 
-        byte[] queuedOldEvent = codec.Encode(
+        byte[] queuedOldEvent = codec.EncodeStatePublication(
             PublicMessageType.StateEvent,
             "old-queued-event",
             sessionId.ToString(),
             null,
             oldContext.ToString(),
             null,
+            oldAuthority,
             oldEventPayload with { Data = JsonSerializer.SerializeToElement(new { value = "old-queued-event" }) });
         Assert.True(connection.TrySend(queuedOldEvent, PublicOutboundLane.Data));
-        byte[] queuedOldSnapshot = codec.Encode(
+        byte[] queuedOldSnapshot = codec.EncodeStatePublication(
             PublicMessageType.StateSnapshot,
             "old-queued-snapshot",
             sessionId.ToString(),
             null,
             oldContext.ToString(),
             null,
+            oldAuthority,
             new StateSnapshotPayload
             {
                 StateArea = "future_area_a",

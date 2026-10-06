@@ -2187,7 +2187,10 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId, out _);
 
-        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        byte[] message = messageType == PublicMessageType.StateSnapshot
+            ? context.Codec.EncodeStatePublication(
+                messageType, "msg-2", sessionId, null, null, null, TestStateAuthorityLifecycle.Current, new object())
+            : context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
@@ -2250,7 +2253,10 @@ public class PublicHelloAdmissionTests
         var context = new TestContext();
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out _);
 
-        byte[] message = context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
+        byte[] message = messageType == PublicMessageType.StateSnapshot
+            ? context.Codec.EncodeStatePublication(
+                messageType, "msg-2", sessionId, null, null, null, TestStateAuthorityLifecycle.Current, new object())
+            : context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
         context.Handler.HandleMessageAsync(context.Connection, message, CancellationToken.None);
 
         (_, ErrorPayload error) = DecodeSent<ErrorPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
