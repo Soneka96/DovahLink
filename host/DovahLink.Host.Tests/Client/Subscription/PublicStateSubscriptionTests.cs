@@ -1858,6 +1858,122 @@ public class PublicStateSubscriptionTests
         Assert.Equal(8UL, recoveredPayload!.Revision);
     }
 
+    /// <summary>Verifies a rotation in the final publication-encoding window drops the old value and admits the new authority's R0 baseline.</summary>
+    [Fact]
+    public void TryEstablishBaseline_AuthorityRotatesAfterValidation_DropsOldPublicationThenSendsNewBoundary()
+    {
+        var authorityLifecycle = new FakeStateAuthorityLifecycle();
+        StateAuthorityId oldAuthority = authorityLifecycle.Current;
+        var playContextTracker = new FakePlayContextTracker();
+        var feed = new FakeStatePublicationFeed
+        {
+            CurrentStateAuthorityId = oldAuthority,
+            CurrentStateAuthorityIdProvider = () => authorityLifecycle.Current,
+        };
+        feed.SetSnapshot(
+            new StateAreaId("area_a"),
+            BuildSnapshot("area_a", revision: 7, stateAuthorityId: oldAuthority));
+        (PublicStateSubscription subscription, _, _) = BuildSubscription(
+            ["area_a"],
+            feed: feed,
+            playContextTracker: playContextTracker,
+            stateAuthorityLifecycle: authorityLifecycle,
+            envelopeCodec: new PublicEnvelopeCodec(authorityLifecycle));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        authorityLifecycle.OnCurrentRead = authorityLifecycle.NotifyRotated;
+
+        Subscribe(subscription, "sub-rotation-race", ["area_a"]);
+
+        StateAuthorityId newAuthority = authorityLifecycle.Current;
+        Assert.NotEqual(oldAuthority, newAuthority);
+        (byte[] bytes, PublicOutboundLane lane) = Assert.Single(connectionContext.SentPayloads);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(newAuthority.ToString(), envelope!.StateAuthorityId);
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(RevisionNumber.Initial.Value, payload!.Revision);
+        Assert.Equal(JsonValueKind.Null, payload.Data.GetProperty("value").ValueKind);
+        Assert.Empty(connectionContext.SentSnapshots);
+    }
+
+    /// <summary>Verifies a state Event that becomes stale during its initial freshness check is dropped before the new-authority boundary.</summary>
+    [Fact]
+    public void OnEventOccurred_AuthorityRotatesAfterInitialValidation_DropsEventBeforeNewBoundary()
+    {
+        var authorityLifecycle = new FakeStateAuthorityLifecycle();
+        StateAuthorityId oldAuthority = authorityLifecycle.Current;
+        var feed = new FakeStatePublicationFeed
+        {
+            CurrentStateAuthorityId = oldAuthority,
+            CurrentStateAuthorityIdProvider = () => authorityLifecycle.Current,
+        };
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", stateAuthorityId: oldAuthority));
+        (PublicStateSubscription subscription, _, _) = BuildSubscription(
+            ["area_a"],
+            feed: feed,
+            stateAuthorityLifecycle: authorityLifecycle,
+            envelopeCodec: new PublicEnvelopeCodec(authorityLifecycle));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-event-race", ["area_a"]);
+        int sentBeforeRotation = connectionContext.SentPayloads.Count;
+        authorityLifecycle.OnCurrentRead = authorityLifecycle.NotifyRotated;
+
+        feed.RaiseEvent(BuildEvent("area_a", 1, 2, stateAuthorityId: oldAuthority));
+
+        StateAuthorityId newAuthority = authorityLifecycle.Current;
+        Assert.NotEqual(oldAuthority, newAuthority);
+        Assert.Equal(sentBeforeRotation + 1, connectionContext.SentPayloads.Count);
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[^1];
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, envelope!.MessageType);
+        Assert.Equal(newAuthority.ToString(), envelope.StateAuthorityId);
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(RevisionNumber.Initial.Value, payload!.Revision);
+        Assert.Equal(JsonValueKind.Null, payload.Data.GetProperty("value").ValueKind);
+    }
+
+    /// <summary>Verifies a replaceable state Snapshot that becomes stale during its initial freshness check is dropped before the new-authority boundary.</summary>
+    [Fact]
+    public void OnSnapshotChanged_AuthorityRotatesAfterInitialValidation_DropsSnapshotBeforeNewBoundary()
+    {
+        var authorityLifecycle = new FakeStateAuthorityLifecycle();
+        StateAuthorityId oldAuthority = authorityLifecycle.Current;
+        var feed = new FakeStatePublicationFeed
+        {
+            CurrentStateAuthorityId = oldAuthority,
+            CurrentStateAuthorityIdProvider = () => authorityLifecycle.Current,
+        };
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", stateAuthorityId: oldAuthority));
+        (PublicStateSubscription subscription, _, _) = BuildSubscription(
+            ["area_a"],
+            feed: feed,
+            stateAuthorityLifecycle: authorityLifecycle,
+            envelopeCodec: new PublicEnvelopeCodec(authorityLifecycle));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-snapshot-race", ["area_a"]);
+        int sentBeforeRotation = connectionContext.SentPayloads.Count;
+        authorityLifecycle.OnCurrentRead = authorityLifecycle.NotifyRotated;
+
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 2, stateAuthorityId: oldAuthority));
+
+        StateAuthorityId newAuthority = authorityLifecycle.Current;
+        Assert.NotEqual(oldAuthority, newAuthority);
+        Assert.Equal(sentBeforeRotation + 1, connectionContext.SentPayloads.Count);
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[^1];
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, envelope!.MessageType);
+        Assert.Equal(newAuthority.ToString(), envelope.StateAuthorityId);
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(RevisionNumber.Initial.Value, payload!.Revision);
+        Assert.Equal(JsonValueKind.Null, payload.Data.GetProperty("value").ValueKind);
+        Assert.Empty(connectionContext.SentSnapshots);
+    }
+
     /// <summary>Verifies that a declined R0 reset leaves the area gated until a later reset baseline is actually admitted.</summary>
     [Fact]
     public void BoundaryResetDeclined_DoesNotForwardNewStateUntilRetryAdmitsBaseline()

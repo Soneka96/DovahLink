@@ -34,6 +34,7 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 - Play-context and authority boundaries now purge queued state and send generic revision-zero unavailable baselines before new-identity state.
 - Host state timestamps now use the canonical UTC RFC 3339 wire format accepted by the Dart SDK.
+- State Snapshots and Events now retain the authority identity captured with each publication if authority rotates during encoding.
 
 ## [0.5.0] - 2026-09-24
 

@@ -547,13 +547,14 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                     OccurredAt = boundaryBaseline.OccurredAt,
                     Data = boundaryBaseline.Data,
                 };
-                byte[] bytes = codec.Encode(
+                byte[] bytes = codec.EncodeStatePublication(
                     PublicMessageType.StateSnapshot,
                     NewMessageId(),
                     sessionId.Value.ToString(),
                     state.RecoveryCorrelationMessageId,
                     playContext.Current?.ToString(),
                     null,
+                    boundaryBaseline.StateAuthorityId,
                     payload);
                 bool admitted = connectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
                 if (!admitted)
@@ -1086,13 +1087,14 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 OccurredAt = snapshot.OccurredAt,
                 Data = snapshot.Data,
             };
-            bytes = codec.Encode(
+            bytes = codec.EncodeStatePublication(
                 PublicMessageType.StateSnapshot,
                 NewMessageId(),
                 currentSessionId.Value.ToString(),
                 correlationMessageId,
                 snapshot.PlayContextId?.ToString(),
                 null,
+                snapshot.StateAuthorityId,
                 payload);
         }
 
@@ -1332,6 +1334,12 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <param name="eventPublication">The event to send.</param>
     private void SendEventUnderGate(IPublicConnectionContext targetConnectionContext, SessionId targetSessionId, StateEventPublication eventPublication)
     {
+        // A reentrant rotation may have committed after the caller's earlier freshness check.
+        if (!IsCurrentStateAuthority(eventPublication.StateAuthorityId))
+        {
+            return;
+        }
+
         var payload = new StateEventPayload
         {
             StateArea = eventPublication.StateArea.Value,
@@ -1340,13 +1348,14 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             OccurredAt = eventPublication.OccurredAt,
             Data = eventPublication.Data,
         };
-        byte[] bytes = codec.Encode(
+        byte[] bytes = codec.EncodeStatePublication(
             PublicMessageType.StateEvent,
             NewMessageId(),
             targetSessionId.ToString(),
             null,
             eventPublication.PlayContextId?.ToString(),
             null,
+            eventPublication.StateAuthorityId,
             payload);
         targetConnectionContext.TrySend(bytes, PublicOutboundLane.Data);
     }
@@ -1364,6 +1373,12 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <param name="snapshotPublication">The snapshot value to send.</param>
     private void SendSnapshotUnderGate(IPublicConnectionContext targetConnectionContext, SessionId targetSessionId, StateSnapshotPublication snapshotPublication)
     {
+        // A reentrant rotation may have committed after the caller's earlier freshness check.
+        if (!IsCurrentStateAuthority(snapshotPublication.StateAuthorityId))
+        {
+            return;
+        }
+
         var payload = new StateSnapshotPayload
         {
             StateArea = snapshotPublication.StateArea.Value,
@@ -1371,13 +1386,14 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             OccurredAt = snapshotPublication.OccurredAt,
             Data = snapshotPublication.Data,
         };
-        byte[] bytes = codec.Encode(
+        byte[] bytes = codec.EncodeStatePublication(
             PublicMessageType.StateSnapshot,
             NewMessageId(),
             targetSessionId.ToString(),
             null,
             snapshotPublication.PlayContextId?.ToString(),
             null,
+            snapshotPublication.StateAuthorityId,
             payload);
         targetConnectionContext.TrySendSnapshot(snapshotPublication.StateArea, bytes);
     }
