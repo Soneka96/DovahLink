@@ -67,6 +67,8 @@ void main() {
     ).thenAnswer((_) => const Stream<AppState>.empty());
     when(() => store.state).thenReturn(AppState.initial());
     when(() => overviewViewModel.contextLine).thenReturn(null);
+    when(() => overviewViewModel.isContextStale).thenReturn(false);
+    when(() => overviewViewModel.isContextRecovering).thenReturn(false);
     when(() => overviewViewModel.characterName).thenReturn(null);
     when(() => overviewViewModel.characterIdentity).thenReturn(
       const StateSynchronization<CharacterIdentityState?>.notSubscribed(),
@@ -245,6 +247,36 @@ void main() {
       expect(summary.style?.color, tokens.textPrimary);
       expect(summary.style?.fontStyle, isNull);
     });
+
+    testWidgets(
+      'SessionShellScreen leaves the summary normal when omitted XP failed',
+      (WidgetTester tester) async {
+        viewModel = SessionShellViewModel(
+          host: Fixtures.buildHostCardViewData(
+            state: DovahConnectionCardState.connected,
+          ),
+          onBack: () => backCalls++,
+          characterName: 'Gonçalo',
+          characterLevelLabel: 'Level 43',
+          identityStatus: DovahLinkStateStatus.synchronized,
+          levelStatus: DovahLinkStateStatus.synchronized,
+          xpStatus: DovahLinkStateStatus.failed,
+          characterXpVisible: false,
+        );
+
+        await tester.pumpWidget(buildWidget());
+
+        final DovahThemeTokens tokens = dovahThemeDataFor(
+          DovahThemePreset.dovah,
+        ).extension<DovahThemeTokens>()!;
+        final Text summary = tester.widget(
+          find.byKey(const Key('session-shell-character-summary')),
+        );
+        expect(summary.data, 'Skyrim SE · Gonçalo · Level 43');
+        expect(summary.style?.color, tokens.textMuted);
+        expect(summary.style?.fontStyle, isNull);
+      },
+    );
 
     testWidgets('SessionShellScreen navigates to prototype placeholders', (
       WidgetTester tester,

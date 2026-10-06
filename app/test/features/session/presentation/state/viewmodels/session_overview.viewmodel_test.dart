@@ -441,6 +441,199 @@ void main() {
     });
   });
 
+  group('Property isContextStale behaves correctly', () {
+    test(
+      'Property isContextStale ignores failed identity without a visible name',
+      () {
+        final SessionOverviewViewModel viewModel = _buildViewModel(
+          _buildLiveState(
+            characterIdentity: _synchronized<CharacterIdentityState?>(
+              null,
+              status: DovahLinkStateStatus.failed,
+            ),
+            playerLocation: _synchronized<PlayerLocationState?>(
+              Fixtures.buildPlayerLocation(),
+            ),
+            gameTime: _synchronized<GameTimeState?>(
+              Fixtures.buildGameTime(year: 201, hour: 18, minute: 42),
+            ),
+          ),
+        );
+
+        expect(viewModel.contextLine, 'The Bannered Mare · 4E 201, 6:42 PM');
+        expect(viewModel.isContextStale, isFalse);
+        expect(viewModel.isContextRecovering, isFalse);
+      },
+    );
+
+    test('Property isContextStale includes a visible stale character name', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(name: 'Aela'),
+            status: DovahLinkStateStatus.stale,
+          ),
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(),
+          ),
+        ),
+      );
+
+      expect(viewModel.isContextStale, isTrue);
+      expect(viewModel.isContextRecovering, isFalse);
+    });
+
+    test(
+      'Property isContextStale ignores failed location without a visible place',
+      () {
+        final SessionOverviewViewModel viewModel = _buildViewModel(
+          _buildLiveState(
+            characterIdentity: _synchronized<CharacterIdentityState?>(
+              Fixtures.buildCharacterIdentity(name: 'Aela'),
+            ),
+            playerLocation: _synchronized<PlayerLocationState?>(
+              null,
+              status: DovahLinkStateStatus.failed,
+            ),
+            gameTime: _synchronized<GameTimeState?>(
+              Fixtures.buildGameTime(year: 201, hour: 18, minute: 42),
+            ),
+          ),
+        );
+
+        expect(viewModel.isContextStale, isFalse);
+        expect(viewModel.isContextRecovering, isFalse);
+      },
+    );
+
+    test('Property isContextStale includes a visible stale game time', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          gameTime: _synchronized<GameTimeState?>(
+            Fixtures.buildGameTime(year: 201, hour: 18, minute: 42),
+            status: DovahLinkStateStatus.stale,
+          ),
+        ),
+      );
+
+      expect(viewModel.contextLine, '4E 201, 6:42 PM');
+      expect(viewModel.isContextStale, isTrue);
+      expect(viewModel.isContextRecovering, isFalse);
+    });
+
+    test('Property isContextStale includes a visible failed location', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(),
+            status: DovahLinkStateStatus.failed,
+          ),
+        ),
+      );
+
+      expect(viewModel.contextLine, 'The Bannered Mare');
+      expect(viewModel.isContextStale, isTrue);
+      expect(viewModel.isContextRecovering, isFalse);
+    });
+
+    test(
+      'Property isContextStale ignores failed game time without a label',
+      () {
+        final SessionOverviewViewModel viewModel = _buildViewModel(
+          _buildLiveState(
+            characterIdentity: _synchronized<CharacterIdentityState?>(
+              Fixtures.buildCharacterIdentity(name: 'Aela'),
+            ),
+            gameTime: _synchronized<GameTimeState?>(
+              null,
+              status: DovahLinkStateStatus.failed,
+            ),
+          ),
+        );
+
+        expect(viewModel.contextLine, 'Aela');
+        expect(viewModel.isContextStale, isFalse);
+        expect(viewModel.isContextRecovering, isFalse);
+      },
+    );
+
+    test('Property isContextStale takes precedence over visible recovery', () {
+      final SessionOverviewViewModel viewModel = _buildViewModel(
+        _buildLiveState(
+          characterIdentity: _synchronized<CharacterIdentityState?>(
+            Fixtures.buildCharacterIdentity(name: 'Aela'),
+            status: DovahLinkStateStatus.stale,
+          ),
+          playerLocation: _synchronized<PlayerLocationState?>(
+            Fixtures.buildPlayerLocation(),
+            status: DovahLinkStateStatus.recovering,
+          ),
+        ),
+      );
+
+      expect(viewModel.isContextStale, isTrue);
+      expect(viewModel.isContextRecovering, isFalse);
+    });
+  });
+
+  group('Property isContextRecovering behaves correctly', () {
+    test(
+      'Property isContextRecovering includes a visible recovering character',
+      () {
+        final SessionOverviewViewModel viewModel = _buildViewModel(
+          _buildLiveState(
+            characterIdentity: _synchronized<CharacterIdentityState?>(
+              Fixtures.buildCharacterIdentity(name: 'Aela'),
+              status: DovahLinkStateStatus.recovering,
+            ),
+          ),
+        );
+
+        expect(viewModel.contextLine, 'Aela');
+        expect(viewModel.isContextStale, isFalse);
+        expect(viewModel.isContextRecovering, isTrue);
+      },
+    );
+
+    test(
+      'Property isContextRecovering includes a visible recovering location',
+      () {
+        final SessionOverviewViewModel viewModel = _buildViewModel(
+          _buildLiveState(
+            characterIdentity: _synchronized<CharacterIdentityState?>(
+              Fixtures.buildCharacterIdentity(name: 'Aela'),
+            ),
+            playerLocation: _synchronized<PlayerLocationState?>(
+              Fixtures.buildPlayerLocation(),
+              status: DovahLinkStateStatus.recovering,
+            ),
+          ),
+        );
+
+        expect(viewModel.isContextStale, isFalse);
+        expect(viewModel.isContextRecovering, isTrue);
+      },
+    );
+
+    test(
+      'Property isContextRecovering includes a visible recovering game time',
+      () {
+        final SessionOverviewViewModel viewModel = _buildViewModel(
+          _buildLiveState(
+            gameTime: _synchronized<GameTimeState?>(
+              Fixtures.buildGameTime(year: 201, hour: 18, minute: 42),
+              status: DovahLinkStateStatus.recovering,
+            ),
+          ),
+        );
+
+        expect(viewModel.contextLine, '4E 201, 6:42 PM');
+        expect(viewModel.isContextStale, isFalse);
+        expect(viewModel.isContextRecovering, isTrue);
+      },
+    );
+  });
+
   group('Property supernaturalLabel behaves correctly', () {
     for (final (
           String description,

@@ -64,6 +64,8 @@ void main() {
     ).thenAnswer((_) => const Stream<AppState>.empty());
     when(() => store.state).thenReturn(AppState.initial());
     when(() => viewModel.contextLine).thenReturn(null);
+    when(() => viewModel.isContextStale).thenReturn(false);
+    when(() => viewModel.isContextRecovering).thenReturn(false);
     when(() => viewModel.characterName).thenReturn(null);
     when(() => viewModel.characterIdentity).thenReturn(
       const StateSynchronization<CharacterIdentityState?>.notSubscribed(),
@@ -333,6 +335,8 @@ void main() {
               status: identityStatus,
             ),
           );
+          when(() => viewModel.isContextStale).thenReturn(isStale);
+          when(() => viewModel.isContextRecovering).thenReturn(isRecovering);
           when(() => viewModel.playerLocation).thenReturn(
             Fixtures.buildStateSynchronization<PlayerLocationState?>(
               value: Fixtures.buildPlayerLocation(),
@@ -373,6 +377,7 @@ void main() {
           status: DovahLinkStateStatus.stale,
         ),
       );
+      when(() => viewModel.isContextStale).thenReturn(true);
       for (final DovahThemePreset preset in DovahThemePreset.values) {
         setDovahTestWindow(tester, const Size(1280, 720));
         await tester.pumpWidget(buildWidget(preset: preset));

@@ -16,9 +16,6 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
-import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show DovahLinkStateStatus;
-
 /// The prototype-shaped Overview content inside the Session Shell.
 class SessionOverviewScreen extends StatelessWidget {
   /// Creates the Redux-backed Session Overview content.
@@ -37,19 +34,8 @@ class SessionOverviewScreen extends StatelessWidget {
               context.dovahOverviewMetrics;
           final DovahThemeTokens tokens = context.dovahTokens;
           final String? contextLine = viewModel.contextLine;
-          final List<DovahLinkStateStatus> contextStatuses = [
-            viewModel.characterIdentity.status,
-            viewModel.playerLocation.status,
-            viewModel.gameTime.status,
-          ];
-          final bool isContextStale = contextStatuses.any(
-            (DovahLinkStateStatus status) =>
-                status == DovahLinkStateStatus.stale ||
-                status == DovahLinkStateStatus.failed,
-          );
-          final bool isContextRecovering = contextStatuses.contains(
-            DovahLinkStateStatus.recovering,
-          );
+          final bool isContextStale = viewModel.isContextStale;
+          final bool isContextRecovering = viewModel.isContextRecovering;
           final Widget introContent = Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [

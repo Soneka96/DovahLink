@@ -13,6 +13,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         CharacterSupernaturalTraitsState,
         CharacterVitalsState,
         CharacterXpState,
+        DovahLinkStateStatus,
         GameTimeState,
         PlayerLocationState,
         StateSynchronization,
@@ -129,6 +130,18 @@ class SessionOverviewViewModel extends Equatable {
     return segments.isEmpty ? null : segments.join(' · ');
   }
 
+  /// Whether a visible context segment has stale or failed synchronization.
+  bool get isContextStale => _visibleContextStatuses.any(
+    (DovahLinkStateStatus status) =>
+        status == DovahLinkStateStatus.stale ||
+        status == DovahLinkStateStatus.failed,
+  );
+
+  /// Whether a visible context segment is recovering without a stale or failed value.
+  bool get isContextRecovering =>
+      !isContextStale &&
+      _visibleContextStatuses.contains(DovahLinkStateStatus.recovering);
+
   /// The independent supernatural facts expressed as concise character labels.
   String? get supernaturalLabel {
     final CharacterSupernaturalTraitsState? traits = supernaturalTraits.value;
@@ -186,6 +199,13 @@ class SessionOverviewViewModel extends Equatable {
     playerLocation,
     gameTime,
     trackedQuests,
+  ];
+
+  /// Synchronization statuses for only the segments currently shown in [contextLine].
+  List<DovahLinkStateStatus> get _visibleContextStatuses => [
+    if (characterName != null) characterIdentity.status,
+    if (locationName != null) playerLocation.status,
+    if (gameTimeLabel != null) gameTime.status,
   ];
 
   /// Removes an unnecessary decimal suffix without changing the SDK value.

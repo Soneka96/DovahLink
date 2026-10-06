@@ -38,6 +38,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Session context and header summaries derive synchronization styling only from displayed values.
 - Session navigation follows the prototype's text-only tabs with a 6 px gap while preserving accessible
   hit targets.
 - The Session header shows the available character name, level, and current XP, styles stale and recovering values visually, and omits missing values without deriving a progress percentage.

@@ -21,6 +21,9 @@ class SessionShellViewModel extends Equatable {
   /// The truthful level and current XP label when the SDK provides a level.
   final String? characterLevelLabel;
 
+  /// Whether current XP appears inside [characterLevelLabel].
+  final bool characterXpVisible;
+
   /// The SDK synchronization status for the character identity.
   final DovahLinkStateStatus identityStatus;
 
@@ -34,11 +37,13 @@ class SessionShellViewModel extends Equatable {
   final void Function() onBack;
 
   /// Creates a Session Shell ViewModel.
+  /// @param characterXpVisible Whether the XP value appears in the level label.
   const SessionShellViewModel({
     required this.host,
     required this.onBack,
     this.characterName,
     this.characterLevelLabel,
+    this.characterXpVisible = false,
     this.identityStatus = DovahLinkStateStatus.notSubscribed,
     this.levelStatus = DovahLinkStateStatus.notSubscribed,
     this.xpStatus = DovahLinkStateStatus.notSubscribed,
@@ -49,21 +54,18 @@ class SessionShellViewModel extends Equatable {
       <String>['Skyrim SE', ?characterName, ?characterLevelLabel].join(' · ');
 
   /// Whether retained character data should use the stale visual treatment.
-  bool get isCharacterSummaryStale =>
-      [identityStatus, levelStatus, xpStatus].any(
-        (DovahLinkStateStatus status) =>
-            status == DovahLinkStateStatus.stale ||
-            status == DovahLinkStateStatus.failed,
-      );
+  bool get isCharacterSummaryStale => _visibleCharacterSummaryStatuses.any(
+    (DovahLinkStateStatus status) =>
+        status == DovahLinkStateStatus.stale ||
+        status == DovahLinkStateStatus.failed,
+  );
 
   /// Whether character data is recovering, unless stale/failed status takes priority.
   bool get isCharacterSummaryRecovering =>
       !isCharacterSummaryStale &&
-      [
-        identityStatus,
-        levelStatus,
-        xpStatus,
-      ].contains(DovahLinkStateStatus.recovering);
+      _visibleCharacterSummaryStatuses.contains(
+        DovahLinkStateStatus.recovering,
+      );
 
   /// Builds the presentation projection for [hostId] from Redux state.
   factory SessionShellViewModel.fromStore(
@@ -95,6 +97,7 @@ class SessionShellViewModel extends Equatable {
       onBack: () => store.dispatch(const SessionShellBackRequestedAction()),
       characterName: characterName,
       characterLevelLabel: characterLevelLabel,
+      characterXpVisible: level != null && experience != null,
       identityStatus: identity.status,
       levelStatus: levelState.status,
       xpStatus: xpState.status,
@@ -117,8 +120,16 @@ class SessionShellViewModel extends Equatable {
     host,
     characterName,
     characterLevelLabel,
+    characterXpVisible,
     identityStatus,
     levelStatus,
     xpStatus,
+  ];
+
+  /// Synchronization statuses for only the values shown in [characterSummary].
+  List<DovahLinkStateStatus> get _visibleCharacterSummaryStatuses => [
+    if (characterName != null) identityStatus,
+    if (characterLevelLabel != null) levelStatus,
+    if (characterLevelLabel != null && characterXpVisible) xpStatus,
   ];
 }

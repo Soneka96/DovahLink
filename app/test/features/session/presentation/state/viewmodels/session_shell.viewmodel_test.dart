@@ -20,7 +20,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
 /// Exercises Session Shell ViewModel projection and callbacks.
 void main() {
   group('Method fromStore behaves correctly', () {
-    test('fromStore projects the requested Known Host', () {
+    test('Method fromStore projects the requested Known Host', () {
       final host = Fixtures.buildHost(hostId: 'selected-host');
       final store = const CreateStore()();
       store.dispatch(
@@ -42,7 +42,7 @@ void main() {
       expect(viewModel.host?.state, DovahConnectionCardState.connected);
     });
 
-    test('fromStore leaves an absent Known Host unavailable', () {
+    test('Method fromStore leaves an absent Known Host unavailable', () {
       final SessionShellViewModel viewModel = SessionShellViewModel.fromStore(
         const CreateStore()(),
         hostId: 'missing-host',
@@ -51,7 +51,7 @@ void main() {
       expect(viewModel.host, isNull);
     });
 
-    test('fromStore projects the truthful character header details', () {
+    test('Method fromStore projects the truthful character header details', () {
       final SessionLiveState liveState = const SessionLiveState.initial()
           .copyWith(
             characterIdentity:
@@ -84,7 +84,7 @@ void main() {
       );
     });
 
-    test('fromStore omits level and XP when level is unavailable', () {
+    test('Method fromStore omits level and XP when level is unavailable', () {
       final SessionLiveState liveState = const SessionLiveState.initial()
           .copyWith(
             characterIdentity:
@@ -109,7 +109,7 @@ void main() {
       expect(viewModel.characterSummary, 'Skyrim SE · Aela');
     });
 
-    test('fromStore keeps level when the XP value is unavailable', () {
+    test('Method fromStore keeps level when the XP value is unavailable', () {
       final SessionLiveState liveState = const SessionLiveState.initial()
           .copyWith(
             characterLevel:
@@ -135,7 +135,7 @@ void main() {
     });
 
     test(
-      'fromStore preserves synchronization status precedence for the header',
+      'Method fromStore preserves synchronization status precedence for the header',
       () {
         final SessionLiveState liveState = const SessionLiveState.initial()
             .copyWith(
@@ -162,6 +162,208 @@ void main() {
 
         expect(viewModel.isCharacterSummaryStale, isTrue);
         expect(viewModel.isCharacterSummaryRecovering, isFalse);
+      },
+    );
+
+    test('Method fromStore ignores failed XP when its value is absent', () {
+      final SessionLiveState liveState = const SessionLiveState.initial()
+          .copyWith(
+            characterIdentity:
+                Fixtures.buildStateSynchronization<CharacterIdentityState?>(
+                  value: Fixtures.buildCharacterIdentity(name: 'Gonçalo'),
+                ),
+            characterLevel:
+                Fixtures.buildStateSynchronization<CharacterLevelState>(
+                  value: Fixtures.buildCharacterLevel(value: 43),
+                ),
+            characterXp: Fixtures.buildStateSynchronization<CharacterXpState>(
+              value: Fixtures.buildCharacterXp(value: null),
+              status: DovahLinkStateStatus.failed,
+            ),
+          );
+      final Store<AppState> store = Store<AppState>(
+        (AppState state, Object? action) => state,
+        initialState: AppState.initial(liveState: liveState),
+      );
+
+      final SessionShellViewModel viewModel = SessionShellViewModel.fromStore(
+        store,
+        hostId: 'selected-host',
+      );
+
+      expect(viewModel.characterSummary, 'Skyrim SE · Gonçalo · Level 43');
+      expect(viewModel.characterXpVisible, isFalse);
+      expect(viewModel.isCharacterSummaryStale, isFalse);
+      expect(viewModel.isCharacterSummaryRecovering, isFalse);
+    });
+
+    test('Method fromStore includes stale XP when its value is visible', () {
+      final SessionLiveState liveState = const SessionLiveState.initial()
+          .copyWith(
+            characterLevel:
+                Fixtures.buildStateSynchronization<CharacterLevelState>(
+                  value: Fixtures.buildCharacterLevel(value: 43),
+                ),
+            characterXp: Fixtures.buildStateSynchronization<CharacterXpState>(
+              value: Fixtures.buildCharacterXp(value: 320),
+              status: DovahLinkStateStatus.stale,
+            ),
+          );
+      final Store<AppState> store = Store<AppState>(
+        (AppState state, Object? action) => state,
+        initialState: AppState.initial(liveState: liveState),
+      );
+
+      final SessionShellViewModel viewModel = SessionShellViewModel.fromStore(
+        store,
+        hostId: 'selected-host',
+      );
+
+      expect(viewModel.characterLevelLabel, 'Level 43 (320 XP)');
+      expect(viewModel.characterXpVisible, isTrue);
+      expect(viewModel.isCharacterSummaryStale, isTrue);
+    });
+
+    test('Method fromStore includes failed XP when its value is visible', () {
+      final SessionLiveState liveState = const SessionLiveState.initial()
+          .copyWith(
+            characterLevel:
+                Fixtures.buildStateSynchronization<CharacterLevelState>(
+                  value: Fixtures.buildCharacterLevel(value: 43),
+                ),
+            characterXp: Fixtures.buildStateSynchronization<CharacterXpState>(
+              value: Fixtures.buildCharacterXp(value: 320),
+              status: DovahLinkStateStatus.failed,
+            ),
+          );
+      final Store<AppState> store = Store<AppState>(
+        (AppState state, Object? action) => state,
+        initialState: AppState.initial(liveState: liveState),
+      );
+
+      final SessionShellViewModel viewModel = SessionShellViewModel.fromStore(
+        store,
+        hostId: 'selected-host',
+      );
+
+      expect(viewModel.characterLevelLabel, 'Level 43 (320 XP)');
+      expect(viewModel.isCharacterSummaryStale, isTrue);
+      expect(viewModel.isCharacterSummaryRecovering, isFalse);
+    });
+
+    test(
+      'Method fromStore includes recovering XP when its value is visible',
+      () {
+        final SessionLiveState liveState = const SessionLiveState.initial()
+            .copyWith(
+              characterLevel:
+                  Fixtures.buildStateSynchronization<CharacterLevelState>(
+                    value: Fixtures.buildCharacterLevel(value: 43),
+                  ),
+              characterXp: Fixtures.buildStateSynchronization<CharacterXpState>(
+                value: Fixtures.buildCharacterXp(value: 320),
+                status: DovahLinkStateStatus.recovering,
+              ),
+            );
+        final Store<AppState> store = Store<AppState>(
+          (AppState state, Object? action) => state,
+          initialState: AppState.initial(liveState: liveState),
+        );
+
+        final SessionShellViewModel viewModel = SessionShellViewModel.fromStore(
+          store,
+          hostId: 'selected-host',
+        );
+
+        expect(viewModel.characterLevelLabel, 'Level 43 (320 XP)');
+        expect(viewModel.isCharacterSummaryStale, isFalse);
+        expect(viewModel.isCharacterSummaryRecovering, isTrue);
+      },
+    );
+
+    test(
+      'Method fromStore ignores failed identity when its name is absent',
+      () {
+        final SessionLiveState liveState = const SessionLiveState.initial()
+            .copyWith(
+              characterIdentity:
+                  Fixtures.buildStateSynchronization<CharacterIdentityState?>(
+                    value: null,
+                    status: DovahLinkStateStatus.failed,
+                  ),
+              characterLevel:
+                  Fixtures.buildStateSynchronization<CharacterLevelState>(
+                    value: Fixtures.buildCharacterLevel(value: 43),
+                  ),
+            );
+        final Store<AppState> store = Store<AppState>(
+          (AppState state, Object? action) => state,
+          initialState: AppState.initial(liveState: liveState),
+        );
+
+        final SessionShellViewModel viewModel = SessionShellViewModel.fromStore(
+          store,
+          hostId: 'selected-host',
+        );
+
+        expect(viewModel.characterSummary, 'Skyrim SE · Level 43');
+        expect(viewModel.isCharacterSummaryStale, isFalse);
+        expect(viewModel.isCharacterSummaryRecovering, isFalse);
+      },
+    );
+
+    test('Method fromStore includes recovery for a visible level', () {
+      final SessionLiveState liveState = const SessionLiveState.initial()
+          .copyWith(
+            characterLevel:
+                Fixtures.buildStateSynchronization<CharacterLevelState>(
+                  value: Fixtures.buildCharacterLevel(value: 43),
+                  status: DovahLinkStateStatus.recovering,
+                ),
+          );
+      final Store<AppState> store = Store<AppState>(
+        (AppState state, Object? action) => state,
+        initialState: AppState.initial(liveState: liveState),
+      );
+
+      final SessionShellViewModel viewModel = SessionShellViewModel.fromStore(
+        store,
+        hostId: 'selected-host',
+      );
+
+      expect(viewModel.characterSummary, 'Skyrim SE · Level 43');
+      expect(viewModel.isCharacterSummaryStale, isFalse);
+      expect(viewModel.isCharacterSummaryRecovering, isTrue);
+    });
+
+    test(
+      'Method fromStore keeps visible level recovery when absent XP has failed',
+      () {
+        final SessionLiveState liveState = const SessionLiveState.initial()
+            .copyWith(
+              characterLevel:
+                  Fixtures.buildStateSynchronization<CharacterLevelState>(
+                    value: Fixtures.buildCharacterLevel(value: 43),
+                    status: DovahLinkStateStatus.recovering,
+                  ),
+              characterXp: Fixtures.buildStateSynchronization<CharacterXpState>(
+                value: Fixtures.buildCharacterXp(value: null),
+                status: DovahLinkStateStatus.failed,
+              ),
+            );
+        final Store<AppState> store = Store<AppState>(
+          (AppState state, Object? action) => state,
+          initialState: AppState.initial(liveState: liveState),
+        );
+
+        final SessionShellViewModel viewModel = SessionShellViewModel.fromStore(
+          store,
+          hostId: 'selected-host',
+        );
+
+        expect(viewModel.characterSummary, 'Skyrim SE · Level 43');
+        expect(viewModel.isCharacterSummaryStale, isFalse);
+        expect(viewModel.isCharacterSummaryRecovering, isTrue);
       },
     );
   });
