@@ -41,6 +41,9 @@ class StateMessageHandler implements IStateMessageHandler {
   /// Current subscribe correlation for accepted areas still waiting for their first Snapshot.
   final Map<String, String> _pendingBaselineCorrelations = <String, String>{};
 
+  /// The authority and play context currently installed across subscribed trackers.
+  ({String stateAuthorityId, String? playContextId})? _currentIdentity;
+
   /// Creates a handler over the supplied state-area registrations.
   /// @param sessionService Reports malformed messages to the lifecycle.
   /// @param domains The typed definitions for supported state areas.
@@ -110,6 +113,7 @@ class StateMessageHandler implements IStateMessageHandler {
           if (!_subscribedStateAreas.contains(payload.stateArea)) {
             break;
           }
+          _observeIdentity(envelope);
           domain.applySnapshot(envelope: envelope, payload: payload);
           _pendingBaselineCorrelations.remove(payload.stateArea);
           break;
@@ -130,6 +134,7 @@ class StateMessageHandler implements IStateMessageHandler {
           if (!_subscribedStateAreas.contains(payload.stateArea)) {
             break;
           }
+          _observeIdentity(envelope);
           domain.applyEvent(envelope: envelope, payload: payload);
           break;
         default:
@@ -145,5 +150,36 @@ class StateMessageHandler implements IStateMessageHandler {
         orphanRetrySafeOperations: false,
       );
     }
+  }
+
+  /// Clears every accepted tracker before the first message for a new identity is routed.
+  /// @param envelope The state envelope carrying the newly observed identity pair.
+  /// @throws [DovahLinkProtocolException] when a state message has no authority identity.
+  void _observeIdentity(Envelope envelope) {
+    final String? stateAuthorityId = envelope.stateAuthorityId;
+    if (stateAuthorityId == null) {
+      throw const DovahLinkProtocolException(
+        code: ProtocolErrorCode.malformedMessage,
+        message: 'A state message has no authority identity.',
+        retryable: false,
+      );
+    }
+
+    final ({String stateAuthorityId, String? playContextId}) incomingIdentity =
+        (
+          stateAuthorityId: stateAuthorityId,
+          playContextId: envelope.playContextId,
+        );
+    if (_currentIdentity == incomingIdentity) {
+      return;
+    }
+
+    for (final String area in _subscribedStateAreas) {
+      _domains[area]?.tracker.resetForIdentity(
+        stateAuthorityId: incomingIdentity.stateAuthorityId,
+        playContextId: incomingIdentity.playContextId,
+      );
+    }
+    _currentIdentity = incomingIdentity;
   }
 }

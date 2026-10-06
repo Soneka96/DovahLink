@@ -590,32 +590,65 @@ void main() {
       expect(tracker.current.revision, isNull);
     });
 
-    test('Method applyEvent discards a cached value when identity changes', () {
-      final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
-      tracker.applySnapshot(
-        stateAuthorityId: 'authority-1',
-        playContextId: 'context-1',
-        revision: 4,
-        value: 40,
-        isUnavailable: false,
-      );
+    test(
+      'Method applyEvent discards a cached value when authority changes',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+        tracker.applySnapshot(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+          revision: 4,
+          value: 40,
+          isUnavailable: false,
+        );
 
-      final StateEventApplyResult result = tracker.applyEvent(
-        stateAuthorityId: 'authority-2',
-        playContextId: 'context-2',
-        baseRevision: 4,
-        revision: 5,
-        value: 50,
-        isUnavailable: false,
-      );
+        final StateEventApplyResult result = tracker.applyEvent(
+          stateAuthorityId: 'authority-2',
+          playContextId: 'context-1',
+          baseRevision: 4,
+          revision: 5,
+          value: 50,
+          isUnavailable: false,
+        );
 
-      expect(result, StateEventApplyResult.recoveryRequired);
-      expect(tracker.current.status, DovahLinkStateStatus.recovering);
-      expect(tracker.current.value, isNull);
-      expect(tracker.current.stateAuthorityId, 'authority-2');
-      expect(tracker.current.playContextId, 'context-2');
-      expect(tracker.current.revision, isNull);
-    });
+        expect(result, StateEventApplyResult.recoveryRequired);
+        expect(tracker.current.status, DovahLinkStateStatus.recovering);
+        expect(tracker.current.value, isNull);
+        expect(tracker.current.stateAuthorityId, 'authority-2');
+        expect(tracker.current.playContextId, 'context-1');
+        expect(tracker.current.revision, isNull);
+      },
+    );
+
+    test(
+      'Method applyEvent discards a cached value when play context changes',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+        tracker.applySnapshot(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+          revision: 4,
+          value: 40,
+          isUnavailable: false,
+        );
+
+        final StateEventApplyResult result = tracker.applyEvent(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-2',
+          baseRevision: 4,
+          revision: 5,
+          value: 50,
+          isUnavailable: false,
+        );
+
+        expect(result, StateEventApplyResult.recoveryRequired);
+        expect(tracker.current.status, DovahLinkStateStatus.recovering);
+        expect(tracker.current.value, isNull);
+        expect(tracker.current.stateAuthorityId, 'authority-1');
+        expect(tracker.current.playContextId, 'context-2');
+        expect(tracker.current.revision, isNull);
+      },
+    );
 
     test('Method applyEvent ignores newer Events until the stale baseline is '
         'restored', () {
@@ -870,6 +903,96 @@ void main() {
         tracker.resetToNotSubscribed();
 
         expect(identical(tracker.current, initial), isTrue);
+      },
+    );
+  });
+
+  group('Method resetForIdentity behaves correctly', () {
+    test(
+      'Method resetForIdentity clears old state and buffered Events while remaining subscribed',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+        tracker.applySnapshot(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'save-a',
+          revision: 10,
+          value: 10,
+          isUnavailable: false,
+        );
+        tracker.applyEvent(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'save-a',
+          baseRevision: 11,
+          revision: 12,
+          value: 12,
+          isUnavailable: false,
+        );
+
+        tracker.resetForIdentity(
+          stateAuthorityId: 'authority-2',
+          playContextId: null,
+        );
+
+        expect(tracker.current.status, DovahLinkStateStatus.recovering);
+        expect(tracker.current.value, isNull);
+        expect(tracker.current.stateAuthorityId, 'authority-2');
+        expect(tracker.current.playContextId, isNull);
+        expect(tracker.current.revision, isNull);
+
+        tracker.applySnapshot(
+          stateAuthorityId: 'authority-2',
+          playContextId: null,
+          revision: 0,
+          value: null,
+          isUnavailable: true,
+        );
+
+        expect(tracker.current.status, DovahLinkStateStatus.unavailable);
+        expect(tracker.current.value, isNull);
+        expect(tracker.current.revision, 0);
+      },
+    );
+
+    test(
+      'Method resetForIdentity clears recovery overflow and accepts the new baseline',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+        tracker.applySnapshot(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'save-a',
+          revision: 10,
+          value: 10,
+          isUnavailable: false,
+        );
+        tracker.beginRecovery();
+        for (int index = 0; index <= kStateRecoveryEventBufferLimit; index++) {
+          tracker.applyEvent(
+            stateAuthorityId: 'authority-1',
+            playContextId: 'save-a',
+            baseRevision: 10 + index,
+            revision: 11 + index,
+            value: 11 + index,
+            isUnavailable: false,
+          );
+        }
+        expect(tracker.recoveryBufferOverflowed, isTrue);
+
+        tracker.resetForIdentity(
+          stateAuthorityId: 'authority-2',
+          playContextId: null,
+        );
+
+        expect(tracker.recoveryBufferOverflowed, isFalse);
+        expect(
+          tracker.applySnapshot(
+            stateAuthorityId: 'authority-2',
+            playContextId: null,
+            revision: 0,
+            value: null,
+            isUnavailable: true,
+          ),
+          isTrue,
+        );
       },
     );
   });

@@ -52,6 +52,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- A new authority or play context clears all subscribed state trackers before new-identity state is routed.
 - Same-identity unavailable state retains its last usable value while advancing the accepted revision.
 - Retryable timeout errors for accepted subscription baselines no longer terminate the SDK session as unmatched-correlation violations.
 - Successful code confirmation clears the Known Host repair hint even if credential

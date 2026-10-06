@@ -22,6 +22,14 @@ abstract interface class IStateRevisionTracker<T> {
   /// Clears cached state after the consumer unsubscribes from this domain.
   void resetToNotSubscribed();
 
+  /// Keeps the domain subscribed while clearing its state for a new authority/context identity.
+  /// @param stateAuthorityId The newly observed Host continuity epoch.
+  /// @param playContextId The newly observed play-context identity, or `null` outside a loaded game.
+  void resetForIdentity({
+    required String stateAuthorityId,
+    required String? playContextId,
+  });
+
   /// Marks recovery as failed while retaining the last known state as diagnostics.
   void failRecovery();
 
@@ -129,6 +137,25 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
       return;
     }
     _state.update(StateSynchronization<T>.notSubscribed());
+  }
+
+  /// See [IStateRevisionTracker.resetForIdentity].
+  @override
+  void resetForIdentity({
+    required String stateAuthorityId,
+    required String? playContextId,
+  }) {
+    _bufferedEvents.clear();
+    _recoveryBufferOverflowed = false;
+    _state.update(
+      StateSynchronization<T>(
+        status: DovahLinkStateStatus.recovering,
+        value: null,
+        stateAuthorityId: stateAuthorityId,
+        playContextId: playContextId,
+        revision: null,
+      ),
+    );
   }
 
   /// See [IStateRevisionTracker.failRecovery].
