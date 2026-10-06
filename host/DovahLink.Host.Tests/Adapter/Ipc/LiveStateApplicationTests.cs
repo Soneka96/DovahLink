@@ -46,7 +46,7 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
             var registeredAreas = new RegisteredStateAreaPolicy();
             registeredAreas.TryRegister(XpArea);
             registeredAreas.TryRegister(LevelArea);
-            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas);
+            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas, Fixtures.BuildStateAuthorityLifecycle());
             var revisionTracker = new RevisionTracker();
             var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
             var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);

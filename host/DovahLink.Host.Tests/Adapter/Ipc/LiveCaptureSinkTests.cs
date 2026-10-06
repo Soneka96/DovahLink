@@ -134,7 +134,7 @@ public class LiveCaptureSinkTests
             registeredAreas.TryRegister(area.Id);
         }
 
-        var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas);
+        var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas, Fixtures.BuildStateAuthorityLifecycle());
         var revisionTracker = new RevisionTracker();
         var vitalsPublisher = new StatePublisher<CharacterVitals?>(revisionTracker, playContextTracker, adapterTracker);
         var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);

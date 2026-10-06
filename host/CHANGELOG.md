@@ -32,6 +32,7 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Fixed
 
+- Play-context and authority boundaries now purge queued state and send generic revision-zero unavailable baselines before new-identity state.
 - Host state timestamps now use the canonical UTC RFC 3339 wire format accepted by the Dart SDK.
 
 ## [0.5.0] - 2026-09-24

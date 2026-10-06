@@ -164,6 +164,32 @@ void main() {
     );
 
     test(
+      'Method applySnapshot retains the previous value for a typed unavailable sentinel',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+        tracker.applySnapshot(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+          revision: 10,
+          value: 10,
+          isUnavailable: false,
+        );
+
+        tracker.applySnapshot(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+          revision: 11,
+          value: -1,
+          isUnavailable: true,
+        );
+
+        expect(tracker.current.status, DovahLinkStateStatus.unavailable);
+        expect(tracker.current.value, 10);
+        expect(tracker.current.revision, 11);
+      },
+    );
+
+    test(
       'Method applySnapshot clears the previous value for a different identity',
       () {
         final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();

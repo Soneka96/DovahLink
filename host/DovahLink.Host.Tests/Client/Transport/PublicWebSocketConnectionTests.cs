@@ -6,10 +6,13 @@ using System.Text;
 using System.Text.Json;
 using System.Threading.Channels;
 using DovahLink.Host.Authentication;
+using DovahLink.Host.Adapter;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
@@ -3255,6 +3258,169 @@ public class PublicWebSocketConnectionTests
 
         listener.Stop();
         connection.RequestClose();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Verifies that a play-context or authority boundary lets the already-sending old Event finish,
+    /// purges every queued old Data-lane value, sends generic R0 resets next, and then sends new state.
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task IdentityBoundary_WhileOldEventIsBlocked_PurgesQueuedStateBeforeR0AndNewState(bool rotatesAuthority)
+    {
+        var handler = new FakePublicWebSocketMessageHandler();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var blockingStream = new BlockingAfterFirstWriteStream(serverTcpClient.GetStream());
+        var options = Fixtures.BuildPublicWebSocketTransportOptions(dataOutboundQueueMaxMessages: 3);
+        var connection = Fixtures.BuildPublicWebSocketConnection(blockingStream, handler, new SystemClock(), options);
+        var playContextTracker = new FakePlayContextTracker();
+        PlayContextId oldContext = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(oldContext);
+        var adapterTracker = new FakeAdapterAvailabilityTracker
+        {
+            Current = AdapterAvailability.Available,
+            CurrentConnectionGeneration = 1,
+            NeedsResynchronization = false,
+        };
+        IStateAuthorityLifecycle authorityLifecycle = new StateAuthorityLifecycle(adapterTracker);
+        var codec = new PublicEnvelopeCodec(authorityLifecycle);
+        var registeredAreas = new RegisteredStateAreaPolicy();
+        registeredAreas.TryRegister(new StateAreaId("future_area_a"));
+        registeredAreas.TryRegister(new StateAreaId("future_area_b"));
+        var feed = new FakeStatePublicationFeed();
+        feed.CurrentStateAuthorityId = authorityLifecycle.Current;
+        feed.CurrentStateAuthorityIdProvider = () => authorityLifecycle.Current;
+        var subscription = new PublicStateSubscription(
+            registeredAreas,
+            feed,
+            codec,
+            playContextTracker,
+            authorityLifecycle);
+        SessionId sessionId = SessionId.NewId();
+        handler.OnConnectionEstablished = context => subscription.Bind(context, sessionId);
+        Task runTask = connection.RunAsync(CancellationToken.None);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await WaitUntilAsync(() => handler.EstablishedConnection is not null, runTask);
+
+        (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe(
+            ["future_area_a", "future_area_b"],
+            reservedControlCapacity: 0,
+            baselineCorrelationMessageId: "subscribe-boundary");
+        Assert.Equal(["future_area_a", "future_area_b"], accepted);
+        Assert.Empty(rejected);
+        subscription.EstablishAcceptedBaselines(accepted, "subscribe-boundary");
+
+        var oldEventPayload = new StateEventPayload
+        {
+            StateArea = "future_area_a",
+            BaseRevision = 0,
+            Revision = 1,
+            OccurredAt = DateTimeOffset.UtcNow,
+            Data = JsonSerializer.SerializeToElement(new { value = "old-in-flight" }),
+        };
+        byte[] oldInFlightEvent = codec.Encode(
+            PublicMessageType.StateEvent,
+            "old-in-flight-event",
+            sessionId.ToString(),
+            null,
+            oldContext.ToString(),
+            null,
+            oldEventPayload);
+        Assert.True(connection.TrySend(oldInFlightEvent, PublicOutboundLane.Data));
+        await blockingStream.BlockedWriteStarted.WaitAsync(TimeSpan.FromSeconds(5));
+
+        byte[] queuedOldEvent = codec.Encode(
+            PublicMessageType.StateEvent,
+            "old-queued-event",
+            sessionId.ToString(),
+            null,
+            oldContext.ToString(),
+            null,
+            oldEventPayload with { Data = JsonSerializer.SerializeToElement(new { value = "old-queued-event" }) });
+        Assert.True(connection.TrySend(queuedOldEvent, PublicOutboundLane.Data));
+        byte[] queuedOldSnapshot = codec.Encode(
+            PublicMessageType.StateSnapshot,
+            "old-queued-snapshot",
+            sessionId.ToString(),
+            null,
+            oldContext.ToString(),
+            null,
+            new StateSnapshotPayload
+            {
+                StateArea = "future_area_a",
+                Revision = 1,
+                OccurredAt = DateTimeOffset.UtcNow,
+                Data = JsonSerializer.SerializeToElement(new { value = "old-queued-snapshot" }),
+            });
+        Assert.True(connection.TrySendSnapshot(new StateAreaId("future_area_a"), queuedOldSnapshot));
+        Assert.False(connection.TrySendSnapshot(new StateAreaId("dirty_area"), Encoding.UTF8.GetBytes("dirty-old-snapshot")));
+
+        PlayContextId newContext;
+        if (rotatesAuthority)
+        {
+            newContext = oldContext;
+            AdapterAvailabilityTransition transition = adapterTracker.CommitDisconnected(
+                adapterTracker.CurrentInstanceId!.Value,
+                adapterTracker.CurrentConnectionGeneration)!;
+            adapterTracker.PublishTransition(transition);
+        }
+        else
+        {
+            newContext = PlayContextId.NewId();
+            playContextTracker.NotifyTransition(newContext);
+        }
+        long newGeneration = playContextTracker.TransitionGeneration;
+        feed.RaiseSnapshotChanged(new StateSnapshotPublication(
+            new StateAreaId("future_area_a"),
+            authorityLifecycle.Current,
+            new RevisionNumber(rotatesAuthority ? 8UL : RevisionNumber.Initial.Next().Value),
+            DateTimeOffset.UtcNow,
+            JsonSerializer.SerializeToElement(new { value = "new-state" }),
+            newContext,
+            newGeneration));
+        blockingStream.Release();
+
+        byte[] receiveBuffer = new byte[1024];
+        WebSocketReceiveResult inFlightResult = await clientWebSocket.ReceiveAsync(receiveBuffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(oldInFlightEvent, receiveBuffer.Take(inFlightResult.Count).ToArray());
+
+        var resetAreas = new HashSet<string>();
+        for (int index = 0; index < 2; index++)
+        {
+            WebSocketReceiveResult resetResult = await clientWebSocket.ReceiveAsync(receiveBuffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            byte[] resetBytes = receiveBuffer.Take(resetResult.Count).ToArray();
+            Assert.True(codec.TryDecode(resetBytes, out PublicEnvelope? resetEnvelope));
+            Assert.Equal(PublicMessageType.StateSnapshot, resetEnvelope!.MessageType);
+            Assert.Equal("subscribe-boundary", resetEnvelope.CorrelationId);
+            Assert.Equal(newContext.ToString(), resetEnvelope.PlayContextId);
+            Assert.Equal(authorityLifecycle.Current.ToString(), resetEnvelope.StateAuthorityId);
+            Assert.True(codec.TryDecodePayload(resetEnvelope, out StateSnapshotPayload? resetPayload));
+            Assert.Equal(RevisionNumber.Initial.Value, resetPayload!.Revision);
+            Assert.Equal(JsonValueKind.Null, resetPayload.Data.GetProperty("value").ValueKind);
+            resetAreas.Add(resetPayload.StateArea);
+        }
+        Assert.Equal(new HashSet<string> { "future_area_a", "future_area_b" }, resetAreas);
+
+        WebSocketReceiveResult newStateResult = await clientWebSocket.ReceiveAsync(receiveBuffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(receiveBuffer.AsMemory(0, newStateResult.Count), out PublicEnvelope? newStateEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, newStateEnvelope!.MessageType);
+        Assert.Equal(newContext.ToString(), newStateEnvelope.PlayContextId);
+        Assert.Equal(authorityLifecycle.Current.ToString(), newStateEnvelope.StateAuthorityId);
+        Assert.True(codec.TryDecodePayload(newStateEnvelope, out StateSnapshotPayload? newStatePayload));
+        Assert.Equal(rotatesAuthority ? 8UL : RevisionNumber.Initial.Next().Value, newStatePayload!.Revision);
+        Assert.Equal("new-state", newStatePayload.Data.GetProperty("value").GetString());
+
+        await clientWebSocket.CloseOutputAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        WebSocketReceiveResult closeResult = await clientWebSocket.ReceiveAsync(receiveBuffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.Equal(WebSocketMessageType.Close, closeResult.MessageType);
+        listener.Stop();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 

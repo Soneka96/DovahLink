@@ -33,6 +33,9 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>The value <see cref="TrySendSnapshot"/> returns; defaults to <see langword="false"/>.</summary>
     public bool TrySendSnapshotResult { get; set; }
 
+    /// <summary>Invoked after each <see cref="TrySend"/> call is recorded.</summary>
+    public Action<byte[], PublicOutboundLane>? OnTrySend { get; set; }
+
     /// <summary>Every payload passed to <see cref="TrySend"/> so far, in call order.</summary>
     public List<byte[]> SentPayloads { get; } = [];
 
@@ -63,6 +66,7 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
     {
         SentPayloads.Add(payload.ToArray());
         SentLanes.Add(lane);
+        OnTrySend?.Invoke(SentPayloads[^1], lane);
         return TrySendResult;
     }
 

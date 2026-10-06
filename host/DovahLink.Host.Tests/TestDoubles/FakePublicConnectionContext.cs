@@ -21,6 +21,15 @@ public sealed class FakePublicConnectionContext : IPublicConnectionContext
     /// <summary>The number of times <see cref="RequestClose"/> has been called.</summary>
     public int RequestCloseCalls { get; private set; }
 
+    /// <summary>The number of times <see cref="PurgePendingData"/> has been called.</summary>
+    public int PurgePendingDataCalls { get; private set; }
+
+    /// <summary>Invoked synchronously after each <see cref="PurgePendingData"/> call is recorded.</summary>
+    public Action? OnPurgePendingData { get; set; }
+
+    /// <summary>Invoked synchronously after each send is recorded, with its payload and lane.</summary>
+    public Action<byte[], PublicOutboundLane>? OnTrySendPayload { get; set; }
+
     /// <summary>
     /// Invoked synchronously by every <see cref="TrySend"/> call, once this call's own payload/lane is
     /// already recorded in <see cref="SentPayloads"/> but before it resolves -- lets a test inject work
@@ -36,6 +45,7 @@ public sealed class FakePublicConnectionContext : IPublicConnectionContext
     {
         SentPayloads.Add((payload.ToArray(), lane));
         OnTrySend?.Invoke();
+        OnTrySendPayload?.Invoke(SentPayloads[^1].Payload, lane);
         return TrySendResult;
     }
 
@@ -44,6 +54,13 @@ public sealed class FakePublicConnectionContext : IPublicConnectionContext
     {
         SentSnapshots.Add((areaId, payload.ToArray()));
         return TrySendSnapshotResult;
+    }
+
+    /// <inheritdoc/>
+    public void PurgePendingData()
+    {
+        PurgePendingDataCalls++;
+        OnPurgePendingData?.Invoke();
     }
 
     /// <inheritdoc/>

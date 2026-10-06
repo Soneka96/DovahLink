@@ -25,6 +25,9 @@ public class PublicHelloAdmissionTests
     /// <summary>A second well-formed credential, distinct from <see cref="ValidCredential"/>, used wherever a test needs a wire-valid credential that does not match a seeded trust record.</summary>
     private const string WrongButValidCredential = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
 
+    /// <summary>The Host authority shared by subscription fixtures and the test connection codec.</summary>
+    private static readonly IStateAuthorityLifecycle TestStateAuthorityLifecycle = Fixtures.BuildStateAuthorityLifecycle();
+
     // ---- Successful admission ----
 
     /// <summary>Verifies that an unpaired hello admits a restricted session and sends hello_ack then capabilities.</summary>
@@ -1844,7 +1847,7 @@ public class PublicHelloAdmissionTests
     {
         var policy = new RegisteredStateAreaPolicy();
         policy.TryRegister(new StateAreaId("area_one"));
-        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker(), Fixtures.BuildStateAuthorityLifecycle());
+        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(TestStateAuthorityLifecycle), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
 
@@ -1870,7 +1873,7 @@ public class PublicHelloAdmissionTests
         policy.TryRegister(new StateAreaId("area_one"));
         var feed = new FakeStatePublicationFeed();
         feed.SetSnapshot(new StateAreaId("area_one"), BuildStateSnapshotPublication("area_one"));
-        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker(), Fixtures.BuildStateAuthorityLifecycle());
+        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(TestStateAuthorityLifecycle), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
 
@@ -1887,6 +1890,63 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicMessageType.StateSnapshot, snapshotEnvelope.MessageType);
     }
 
+    /// <summary>Verifies that an identity transition between subscription reconciliation and ACK completion retains the subscribe correlation and sends R0 afterward.</summary>
+    [Fact]
+    public void HandleSubscribe_ContextTransitionDuringAck_SendsCorrelatedR0AfterAck()
+    {
+        var tracker = new FakePlayContextTracker();
+        tracker.NotifyTransition(PlayContextId.NewId());
+        var policy = new RegisteredStateAreaPolicy();
+        policy.TryRegister(new StateAreaId("future_area"));
+        var feed = new FakeStatePublicationFeed
+        {
+            CurrentStateAuthorityId = TestStateAuthorityLifecycle.Current,
+        };
+        var subscription = new PublicStateSubscription(
+            policy,
+            feed,
+            new PublicEnvelopeCodec(TestStateAuthorityLifecycle),
+            tracker,
+            TestStateAuthorityLifecycle);
+        var context = new TestContext(subscription: subscription, playContextTracker: tracker);
+        AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
+        PlayContextId newContext = PlayContextId.NewId();
+        context.FakeConnection.OnTrySend = (bytes, lane) =>
+        {
+            if (lane == PublicOutboundLane.ControlOrRecovery
+                && context.Codec.TryDecode(bytes, out PublicEnvelope? envelope)
+                && envelope!.MessageType == PublicMessageType.SubscriptionAck)
+            {
+                context.FakeConnection.OnTrySend = null;
+                tracker.NotifyTransition(newContext);
+            }
+        };
+        byte[] subscribe = context.Codec.Encode(
+            PublicMessageType.Subscribe,
+            "subscribe-boundary",
+            sessionId,
+            null,
+            null,
+            clientId,
+            new SubscribePayload { StateAreas = ["future_area"] });
+
+        context.Handler.HandleMessageAsync(context.Connection, subscribe, CancellationToken.None);
+
+        Assert.Equal(4, context.FakeConnection.SentPayloads.Count);
+        Assert.Equal(1, context.FakeConnection.PurgePendingDataCalls);
+        (PublicEnvelope ackEnvelope, _) = DecodeSent<SubscriptionAckPayload>(context.Codec, context.FakeConnection.SentPayloads[2]);
+        Assert.Equal(PublicMessageType.SubscriptionAck, ackEnvelope.MessageType);
+        (PublicEnvelope resetEnvelope, StateSnapshotPayload resetPayload) = DecodeSent<StateSnapshotPayload>(
+            context.Codec,
+            context.FakeConnection.SentPayloads[3]);
+        Assert.Equal(PublicMessageType.StateSnapshot, resetEnvelope.MessageType);
+        Assert.Equal("subscribe-boundary", resetEnvelope.CorrelationId);
+        Assert.Equal(newContext.ToString(), resetEnvelope.PlayContextId);
+        Assert.Equal("future_area", resetPayload.StateArea);
+        Assert.Equal(RevisionNumber.Initial.Value, resetPayload.Revision);
+        Assert.Equal(JsonValueKind.Null, resetPayload.Data.GetProperty("value").ValueKind);
+    }
+
     /// <summary>
     /// Verifies that unsubscribing an area terminates its pending snapshot request exactly once,
     /// after the replacement acknowledgement, and that a later value is not published.
@@ -1900,9 +1960,9 @@ public class PublicHelloAdmissionTests
         var subscription = new PublicStateSubscription(
             policy,
             feed,
-            new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()),
+            new PublicEnvelopeCodec(TestStateAuthorityLifecycle),
             new FakePlayContextTracker(),
-            Fixtures.BuildStateAuthorityLifecycle());
+            TestStateAuthorityLifecycle);
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
 
@@ -2037,7 +2097,7 @@ public class PublicHelloAdmissionTests
     {
         var policy = new RegisteredStateAreaPolicy();
         policy.TryRegister(new StateAreaId("area_one"));
-        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker(), Fixtures.BuildStateAuthorityLifecycle());
+        var subscription = new PublicStateSubscription(policy, new FakeStatePublicationFeed(), new PublicEnvelopeCodec(TestStateAuthorityLifecycle), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
         int sentCountBeforeRequest = context.FakeConnection.SentPayloads.Count;
@@ -2679,7 +2739,7 @@ public class PublicHelloAdmissionTests
         var policy = new RegisteredStateAreaPolicy();
         policy.TryRegister(new StateAreaId("area_a"));
         var feed = new FakeStatePublicationFeed();
-        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker(), Fixtures.BuildStateAuthorityLifecycle());
+        var subscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(TestStateAuthorityLifecycle), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
         var context = new TestContext(subscription: subscription);
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out string clientId);
         byte[] subscribeMessage = context.Codec.Encode(
@@ -2713,7 +2773,7 @@ public class PublicHelloAdmissionTests
         feed.SetSnapshot(new StateAreaId("area_a"), BuildStateSnapshotPublication("area_a", revision: 1));
 
         // First connection subscribes and receives its own snapshot, then disconnects.
-        var firstSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker(), Fixtures.BuildStateAuthorityLifecycle());
+        var firstSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(TestStateAuthorityLifecycle), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
         var firstContext = new TestContext(subscription: firstSubscription);
         AdmitViaTrustedDeviceCredentialHello(firstContext, out string firstSessionId, out string firstClientId);
         byte[] firstSubscribeMessage = firstContext.Codec.Encode(
@@ -2731,7 +2791,7 @@ public class PublicHelloAdmissionTests
 
         // The reconnect: a fresh connection, fresh PublicStateSubscription, over the same shared
         // policy/feed. It never subscribed, so it must not have received anything either.
-        var secondSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakePlayContextTracker(), Fixtures.BuildStateAuthorityLifecycle());
+        var secondSubscription = new PublicStateSubscription(policy, feed, new PublicEnvelopeCodec(TestStateAuthorityLifecycle), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
         var secondContext = new TestContext(subscription: secondSubscription);
         AdmitViaTrustedDeviceCredentialHello(secondContext, out string secondSessionId, out string secondClientId);
 
@@ -2754,12 +2814,12 @@ public class PublicHelloAdmissionTests
     /// <summary>Builds a representative snapshot value for the given area.</summary>
     private static StateSnapshotPublication BuildStateSnapshotPublication(
         string area, ulong revision = 1, PlayContextId? playContextId = null, long playContextGeneration = 0) =>
-        new(new StateAreaId(area), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 42 }), playContextId, playContextGeneration);
+        new(new StateAreaId(area), TestStateAuthorityLifecycle.Current, new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 42 }), playContextId, playContextGeneration);
 
     /// <summary>Builds a representative event value for the given area.</summary>
     private static StateEventPublication BuildStateEventPublication(
         string area, ulong baseRevision, ulong revision, PlayContextId? playContextId = null, long playContextGeneration = 0) =>
-        new(new StateAreaId(area), new RevisionNumber(baseRevision), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 99 }), playContextId, playContextGeneration);
+        new(new StateAreaId(area), TestStateAuthorityLifecycle.Current, new RevisionNumber(baseRevision), new RevisionNumber(revision), DateTimeOffset.UtcNow, JsonSerializer.SerializeToElement(new { value = 99 }), playContextId, playContextGeneration);
 
     // ---- Helpers ----
 
@@ -2832,10 +2892,10 @@ public class PublicHelloAdmissionTests
         public TrustedCredentialFailureThrottle CredentialThrottle { get; }
 
         /// <summary>The play-context tracker the handler under test reads its outbound <c>playContextId</c> snapshot from.</summary>
-        public FakePlayContextTracker PlayContextTracker { get; } = new();
+        public FakePlayContextTracker PlayContextTracker { get; }
 
         /// <summary>The real codec used both by the handler under test and by this test to build inbound bytes and decode outbound ones, backed by a live state-authority lifecycle so hello_ack encodes successfully.</summary>
-        public PublicEnvelopeCodec Codec { get; } = new(Fixtures.BuildStateAuthorityLifecycle());
+        public PublicEnvelopeCodec Codec { get; } = new(TestStateAuthorityLifecycle);
 
         /// <summary>The dispatcher the handler under test routes ping, pairing, and rename_request messages to.</summary>
         public FakeClientMessageDispatcher Dispatcher { get; } = new();
@@ -2859,8 +2919,14 @@ public class PublicHelloAdmissionTests
         /// <param name="maxActiveSessions">The session registry's admission bound.</param>
         /// <param name="admissionDeadline">The handler's own pre-authentication admission deadline.</param>
         /// <param name="subscription">The handler's own state-area subscription capability. Defaults to <see langword="null"/>, under which subscribe and snapshot_request reject every request.</param>
-        public TestContext(int maxActiveSessions = int.MaxValue, TimeSpan? admissionDeadline = null, IPublicStateSubscription? subscription = null)
+        /// <param name="playContextTracker">The Host play-context identity source.</param>
+        public TestContext(
+            int maxActiveSessions = int.MaxValue,
+            TimeSpan? admissionDeadline = null,
+            IPublicStateSubscription? subscription = null,
+            FakePlayContextTracker? playContextTracker = null)
         {
+            PlayContextTracker = playContextTracker ?? new FakePlayContextTracker();
             SessionRegistry = new FakeSessionRegistry(maxActiveSessions);
             TokenAuthenticator = new LocalConnectionTokenAuthenticator(Clock);
             CredentialThrottle = new TrustedCredentialFailureThrottle(Clock);

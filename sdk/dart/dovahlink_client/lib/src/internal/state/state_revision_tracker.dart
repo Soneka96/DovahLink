@@ -208,7 +208,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
     }
 
     final T? acceptedValue =
-        sameIdentity && isUnavailable && value == null && previous.value != null
+        sameIdentity && isUnavailable && previous.value != null
         ? previous.value
         : value;
     _state.update(
@@ -388,7 +388,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
     }
 
     final T? acceptedValue =
-        sameIdentity && isUnavailable && value == null && previous.value != null
+        sameIdentity && isUnavailable && previous.value != null
         ? previous.value
         : value;
     _state.update(

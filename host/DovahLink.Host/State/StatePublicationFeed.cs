@@ -21,6 +21,9 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     /// <summary>The play-context tracker re-checked, atomic with every publish, before ever raising.</summary>
     private readonly IPlayContextTracker playContextTracker;
 
+    /// <summary>The Host continuity epoch assigned to every accepted publication.</summary>
+    private readonly IStateAuthorityLifecycle stateAuthorityLifecycle;
+
     /// <summary>The registered-area policy re-checked, atomic with every publish, before ever raising.</summary>
     private readonly IRegisteredStateAreaPolicy registeredStateAreaPolicy;
 
@@ -34,18 +37,21 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     /// </summary>
     private readonly Dictionary<StateAreaId, StateSnapshotPublication> latestByArea = new();
 
-    /// <summary>Creates a publication feed, subscribed to <paramref name="adapterAvailabilityTracker"/> and <paramref name="playContextTracker"/> for the host process's own lifetime; never unsubscribed.</summary>
+    /// <summary>Creates a publication feed, subscribed to the authority, adapter-availability, and play-context lifecycles for the Host process's lifetime.</summary>
     /// <param name="adapterAvailabilityTracker">The adapter availability tracker this feed re-validates freshness against.</param>
     /// <param name="playContextTracker">The play-context tracker this feed re-validates freshness against.</param>
     /// <param name="registeredStateAreaPolicy">The registered-area policy this feed never publishes outside of.</param>
+    /// <param name="stateAuthorityLifecycle">The Host continuity epoch stamped onto each accepted publication.</param>
     public StatePublicationFeed(
         IAdapterAvailabilityTracker adapterAvailabilityTracker,
         IPlayContextTracker playContextTracker,
-        IRegisteredStateAreaPolicy registeredStateAreaPolicy)
+        IRegisteredStateAreaPolicy registeredStateAreaPolicy,
+        IStateAuthorityLifecycle stateAuthorityLifecycle)
     {
         this.adapterAvailabilityTracker = adapterAvailabilityTracker;
         this.playContextTracker = playContextTracker;
         this.registeredStateAreaPolicy = registeredStateAreaPolicy;
+        this.stateAuthorityLifecycle = stateAuthorityLifecycle;
 
         adapterAvailabilityTracker.AvailabilityChanged += HandleAdapterAvailabilityChanged;
         adapterAvailabilityTracker.Resynchronized += (_, _) => RaiseSnapshotAvailabilityChanged();
@@ -78,6 +84,28 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     }
 
     /// <inheritdoc/>
+    public StateSnapshotPublication CreateUnavailableBoundaryBaseline(
+        StateAreaId areaId,
+        PlayContextSnapshot playContext,
+        DateTimeOffset occurredAt)
+    {
+        if (!registeredStateAreaPolicy.IsRegistered(areaId))
+        {
+            throw new ArgumentException("The state area is not registered.", nameof(areaId));
+        }
+
+        JsonElement unavailableData = JsonSerializer.SerializeToElement(new { value = (object?)null });
+        return new StateSnapshotPublication(
+            areaId,
+            stateAuthorityLifecycle.Current,
+            RevisionNumber.Initial,
+            occurredAt,
+            unavailableData,
+            playContext.Current,
+            playContext.TransitionGeneration);
+    }
+
+    /// <inheritdoc/>
     public void PublishSnapshot(
         StateAreaId areaId,
         RevisionNumber revision,
@@ -88,12 +116,12 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     {
         lock (gate)
         {
-            if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration))
+            if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
                 return;
             }
 
-            var publication = new StateSnapshotPublication(areaId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+            var publication = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
             latestByArea[areaId] = publication;
             RaiseSnapshotChanged(publication);
         }
@@ -111,13 +139,13 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     {
         lock (gate)
         {
-            if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration))
+            if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
                 return;
             }
 
-            latestByArea[areaId] = new StateSnapshotPublication(areaId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
-            RaiseEventOccurred(new StateEventPublication(areaId, baseRevision, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration));
+            latestByArea[areaId] = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+            RaiseEventOccurred(new StateEventPublication(areaId, stateAuthorityId, baseRevision, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration));
         }
     }
 
@@ -132,12 +160,12 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     {
         lock (gate)
         {
-            if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration))
+            if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
                 return;
             }
 
-            latestByArea[areaId] = new StateSnapshotPublication(areaId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+            latestByArea[areaId] = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
         }
     }
 
@@ -231,9 +259,24 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     /// exists only to catch the adapter dropping again, or the play context moving on, in the gap
     /// between that call and this one.
     /// </remarks>
-    private bool IsStillFreshLocked(StateAreaId areaId, PlayContextId capturedPlayContextId, long capturedPlayContextGeneration)
+    private bool IsStillFreshLocked(
+        StateAreaId areaId,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
+        out StateAuthorityId stateAuthorityId)
     {
+        stateAuthorityId = default;
         if (!registeredStateAreaPolicy.IsRegistered(areaId))
+        {
+            return false;
+        }
+
+        StateAuthorityId authorityBeforeCheck;
+        try
+        {
+            authorityBeforeCheck = stateAuthorityLifecycle.Current;
+        }
+        catch (InvalidOperationException)
         {
             return false;
         }
@@ -245,7 +288,26 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         }
 
         PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
-        return contextSnapshot.Current == capturedPlayContextId && contextSnapshot.TransitionGeneration == capturedPlayContextGeneration;
+        if (contextSnapshot.Current != capturedPlayContextId
+            || contextSnapshot.TransitionGeneration != capturedPlayContextGeneration)
+        {
+            return false;
+        }
+
+        try
+        {
+            if (authorityBeforeCheck != stateAuthorityLifecycle.Current)
+            {
+                return false;
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+
+        stateAuthorityId = authorityBeforeCheck;
+        return true;
     }
 
     /// <summary>
@@ -276,7 +338,16 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         }
 
         PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
-        return contextSnapshot.Current == publication.PlayContextId && contextSnapshot.TransitionGeneration == publication.PlayContextGeneration;
+        try
+        {
+            return publication.StateAuthorityId == stateAuthorityLifecycle.Current
+                && contextSnapshot.Current == publication.PlayContextId
+                && contextSnapshot.TransitionGeneration == publication.PlayContextGeneration;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

@@ -676,7 +676,7 @@ void main() {
             predicate<StateSynchronization<PlayerLocationState?>>(
               (StateSynchronization<PlayerLocationState?> state) =>
                   state.status == DovahLinkStateStatus.unavailable &&
-                  state.value == null &&
+                  state.value?.cellName == 'WhiterunWorld' &&
                   state.revision == 2,
             ),
           ),
@@ -771,7 +771,8 @@ void main() {
             predicate<StateSynchronization<GameTimeState?>>(
               (StateSynchronization<GameTimeState?> state) =>
                   state.status == DovahLinkStateStatus.unavailable &&
-                  state.value == null &&
+                  state.value?.year == 201 &&
+                  state.value?.monthName == 'Hearthfire' &&
                   state.revision == 2,
             ),
           ),
@@ -883,7 +884,7 @@ void main() {
             predicate<StateSynchronization<TrackedQuestsState?>>(
               (StateSynchronization<TrackedQuestsState?> state) =>
                   state.status == DovahLinkStateStatus.unavailable &&
-                  state.value == null &&
+                  state.value?.quests.isEmpty == true &&
                   state.revision == 3,
             ),
           ),
@@ -2503,7 +2504,9 @@ void main() {
               (StateSynchronization<CharacterVitalsState> state) =>
                   state.status == DovahLinkStateStatus.unavailable &&
                   state.revision == 2 &&
-                  state.value?.isUnavailable == true,
+                  state.value?.health?.current == 327.0 &&
+                  state.value?.magicka?.current == 180.0 &&
+                  state.value?.stamina?.current == 120.0,
             ),
           ),
         );

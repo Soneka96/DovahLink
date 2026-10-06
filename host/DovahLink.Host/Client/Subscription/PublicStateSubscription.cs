@@ -18,13 +18,11 @@ namespace DovahLink.Host.Client.Subscription;
 /// Events, in arrival order, only once the connection actually admits the baseline -- per
 /// <c>protocol/schema/README.md</c>'s "the host sends a snapshot before events for each accepted
 /// state area." A play-context transition, or a <see cref="IStateAuthorityLifecycle.Rotated"/>
-/// state-authority rotation, invalidates every area's live baseline and any Events held for it, so a
-/// later Event stops forwarding until this connection obtains a fresh baseline: incremental
-/// continuity from the previous <see cref="StateAuthorityId"/> is invalid until a fresh baseline is
-/// established under the new one. A registered area with no authoritative value available yet never
-/// hangs silently: the pending request is retried automatically the moment a value appears, restarted
-/// rather than abandoned across a play-context transition or state-authority rotation, and answered
-/// with an explicit, retryable <c>error</c> if none appears before its own bounded deadline.
+/// state-authority rotation, invalidates every area's live baseline, purges pending Data-lane state,
+/// and admits a generic revision-zero unavailable Snapshot for each accepted area before forwarding
+/// new-identity state. A registered area with no authoritative value available yet never hangs
+/// silently: its pending request is retried when a current value appears and answered with an
+/// explicit, retryable <c>error</c> if none appears before its own bounded deadline.
 /// </summary>
 public interface IPublicStateSubscription
 {
@@ -59,9 +57,12 @@ public interface IPublicStateSubscription
     /// (typically one, for its own <c>subscription_ack</c>) once this call returns -- excluded from
     /// the budget available to accepted areas' baselines.
     /// </param>
+    /// <param name="baselineCorrelationMessageId">The originating <c>subscribe</c> message id, retained so a concurrent identity boundary can correlate its revision-zero baseline.</param>
     /// <returns>The requested areas partitioned into accepted and rejected, for the caller's own <c>subscription_ack</c>.</returns>
     (IReadOnlyList<string> Accepted, IReadOnlyList<string> Rejected) HandleSubscribe(
-        IReadOnlyList<string> requestedStateAreas, int reservedControlCapacity);
+        IReadOnlyList<string> requestedStateAreas,
+        int reservedControlCapacity,
+        string? baselineCorrelationMessageId = null);
 
     /// <summary>Sends one retryable terminal error for each removed pending <c>snapshot_request</c>, after the replacement ACK has been sent.</summary>
     void SendSupersededSnapshotRequestErrors();
@@ -71,10 +72,10 @@ public interface IPublicStateSubscription
     /// <paramref name="acceptedStateAreas"/> that does not already have a live baseline and has a
     /// current value available -- the send <see cref="HandleSubscribe"/> itself never performs, so a
     /// caller can guarantee its own <c>subscription_ack</c> is sent first. An area with no current
-    /// value available yet is never fabricated: instead, the baseline is retained as a bounded pending
-    /// request for that area, delivered automatically once a value becomes available, or answered
-    /// with an explicit, retryable <c>error</c> if none does before its own bounded deadline -- an
-    /// accepted subscription is never left silently waiting forever.
+    /// value remains pending unless an identity boundary has established its explicit revision-zero
+    /// unavailable baseline; a pending request then uses that boundary baseline before a later current
+    /// value. Otherwise, the request is delivered once a value becomes available or receives an
+    /// explicit, retryable <c>error</c> after its bounded deadline.
     /// </summary>
     /// <param name="acceptedStateAreas">The areas <see cref="HandleSubscribe"/> just reported accepted.</param>
     /// <param name="correlationMessageId">The originating <c>subscribe</c> message's own id.</param>
@@ -142,6 +143,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
     /// <summary>The admitted session identity to stamp onto every message, once <see cref="Bind"/> has been called.</summary>
     private SessionId? sessionId;
+
 
     /// <summary>
     /// Whether this subscription currently owns a live registration on <see cref="feed"/>'s,
@@ -223,7 +225,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
     /// <inheritdoc/>
     public (IReadOnlyList<string> Accepted, IReadOnlyList<string> Rejected) HandleSubscribe(
-        IReadOnlyList<string> requestedStateAreas, int reservedControlCapacity)
+        IReadOnlyList<string> requestedStateAreas,
+        int reservedControlCapacity,
+        string? baselineCorrelationMessageId = null)
     {
         List<string> accepted = [];
         List<string> rejected = [];
@@ -293,6 +297,24 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             foreach (StateAreaId areaId in acceptedAreasForUpdate)
             {
                 acceptedAreas.Add(areaId);
+                AreaState state = GetOrCreateAreaState(areaId);
+                bool needsBaseline = state.Phase != AreaDeliveryPhase.Live;
+                if (needsBaseline
+                    && state.SnapshotRequestPending
+                    && state.RecoveryCorrelationMessageId is string supersededCorrelation)
+                {
+                    supersededSnapshotRequestCorrelations.Add(supersededCorrelation);
+                    CancelPendingBaselineDeadlineLocked(state);
+                    state.RecoveryEpoch++;
+                    state.RecoveryCorrelationMessageId = null;
+                    state.SnapshotRequestPending = false;
+                    state.HeldEvents.Clear();
+                    state.PendingSnapshot = null;
+                }
+
+                state.PendingSubscribeBaselineCorrelationMessageId = needsBaseline
+                    ? baselineCorrelationMessageId
+                    : null;
             }
         }
 
@@ -331,7 +353,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <inheritdoc/>
     public void EstablishAcceptedBaselines(IReadOnlyList<string> acceptedStateAreas, string correlationMessageId)
     {
-        List<StateAreaId> areasNeedingBaseline = [];
+        List<(StateAreaId AreaId, long RecoveryEpoch)> areasNeedingBaseline = [];
 
         lock (gate)
         {
@@ -341,14 +363,22 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 bool needsBaseline = !areaStates.TryGetValue(areaId, out AreaState? state) || state.Phase != AreaDeliveryPhase.Live;
                 if (needsBaseline)
                 {
-                    areasNeedingBaseline.Add(areaId);
+                    state = GetOrCreateAreaState(areaId);
+                    state.PendingSubscribeBaselineCorrelationMessageId = null;
+                    state.RecoveryCorrelationMessageId = correlationMessageId;
+                    state.SnapshotRequestPending = false;
+                    areasNeedingBaseline.Add((areaId, state.RecoveryEpoch));
                 }
             }
         }
 
-        foreach (StateAreaId areaId in areasNeedingBaseline)
+        foreach ((StateAreaId areaId, long recoveryEpoch) in areasNeedingBaseline)
         {
-            TryEstablishBaseline(areaId, correlationMessageId, isSnapshotRequest: false);
+            TryEstablishBaseline(
+                areaId,
+                correlationMessageId,
+                expectedRecoveryEpoch: recoveryEpoch,
+                isSnapshotRequest: false);
         }
     }
 
@@ -409,10 +439,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <param name="transition">The transition the tracker just committed.</param>
     private void OnPlayContextTransitioned(PlayContextTransition transition)
     {
-        lock (gate)
-        {
-            InvalidateAllAreasUnderGate();
-        }
+        EstablishIdentityBoundary();
     }
 
     /// <summary>
@@ -428,9 +455,183 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <param name="rotatedTo">The newly minted <see cref="StateAuthorityId"/>.</param>
     private void OnStateAuthorityRotated(StateAuthorityId rotatedTo)
     {
+        EstablishIdentityBoundary();
+    }
+
+    /// <summary>
+    /// Performs one ordered per-connection identity boundary: invalidates recovery state, purges
+    /// pending Data-lane frames, then admits generic revision-zero unavailable Snapshots before any
+    /// new-identity publication can be forwarded. The transport writer may finish its already
+    /// dequeued frame first; its reservation remains owned by the writer until that send completes.
+    /// </summary>
+    private void EstablishIdentityBoundary()
+    {
+        List<(StateAreaId AreaId, long RecoveryEpoch)> areasToCheckForNewState = [];
         lock (gate)
         {
+            if (connectionContext is null || sessionId is null)
+            {
+                InvalidateAllAreasUnderGate();
+                return;
+            }
+
+            PlayContextSnapshot playContext = playContextTracker.GetSnapshot();
+            var bufferedCurrentState = new Dictionary<
+                StateAreaId,
+                (StateEventPublication[] Events, StateSnapshotPublication? Snapshot, bool EventOverflowed)
+            >();
+            foreach ((StateAreaId areaId, AreaState state) in areaStates)
+            {
+                StateEventPublication[] events = state.HeldEvents
+                    .Where(publication => publication.PlayContextId == playContext.Current
+                        && publication.PlayContextGeneration == playContext.TransitionGeneration)
+                    .ToArray();
+                StateSnapshotPublication? snapshot = state.PendingSnapshot is StateSnapshotPublication pending
+                    && pending.PlayContextId == playContext.Current
+                    && pending.PlayContextGeneration == playContext.TransitionGeneration
+                        ? pending
+                        : null;
+                if (events.Length > 0 || snapshot is not null || state.BoundaryEventBufferOverflowed)
+                {
+                    bufferedCurrentState[areaId] = (events, snapshot, state.BoundaryEventBufferOverflowed);
+                }
+            }
+
             InvalidateAllAreasUnderGate();
+            connectionContext.PurgePendingData();
+
+            HashSet<StateAreaId> areasToReset = [.. acceptedAreas];
+            foreach ((StateAreaId areaId, AreaState state) in areaStates)
+            {
+                if (state.RecoveryCorrelationMessageId is not null || state.SnapshotRequestPending)
+                {
+                    areasToReset.Add(areaId);
+                }
+            }
+
+            foreach (StateAreaId areaId in areasToReset)
+            {
+                AreaState state = GetOrCreateAreaState(areaId);
+                StateSnapshotPublication boundaryBaseline = feed.CreateUnavailableBoundaryBaseline(
+                    areaId,
+                    playContext,
+                    DateTimeOffset.UtcNow);
+                state.BoundaryBaseline = boundaryBaseline;
+                state.BoundaryBaselinePending = true;
+                state.PlayContextGeneration = playContext.TransitionGeneration;
+                if (bufferedCurrentState.TryGetValue(areaId, out var buffered))
+                {
+                    state.HeldEvents.AddRange(buffered.Events);
+                    state.PendingSnapshot = buffered.Snapshot;
+                    state.BoundaryEventBufferOverflowed = buffered.EventOverflowed;
+                }
+
+                if (state.PendingSubscribeBaselineCorrelationMessageId is not null)
+                {
+                    state.Phase = AreaDeliveryPhase.Recovering;
+                    state.BarrierRevision = null;
+                    continue;
+                }
+
+                if (!IsCurrentStateAuthority(boundaryBaseline.StateAuthorityId))
+                {
+                    state.Phase = AreaDeliveryPhase.Recovering;
+                    state.BarrierRevision = null;
+                    continue;
+                }
+
+                StateSnapshotPayload payload = new()
+                {
+                    StateArea = areaId.Value,
+                    Revision = RevisionNumber.Initial.Value,
+                    OccurredAt = boundaryBaseline.OccurredAt,
+                    Data = boundaryBaseline.Data,
+                };
+                byte[] bytes = codec.Encode(
+                    PublicMessageType.StateSnapshot,
+                    NewMessageId(),
+                    sessionId.Value.ToString(),
+                    state.RecoveryCorrelationMessageId,
+                    playContext.Current?.ToString(),
+                    null,
+                    payload);
+                bool admitted = connectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
+                if (!admitted)
+                {
+                    state.Phase = AreaDeliveryPhase.AwaitingBaseline;
+                    state.BarrierRevision = null;
+                    continue;
+                }
+
+                CancelPendingBaselineDeadlineLocked(state);
+                state.Phase = AreaDeliveryPhase.Live;
+                state.BarrierRevision = RevisionNumber.Initial;
+                state.BoundaryBaselinePending = false;
+                state.RecoveryCorrelationMessageId = null;
+                state.SnapshotRequestPending = false;
+                state.PendingSubscribeBaselineCorrelationMessageId = null;
+                foreach (StateEventPublication pendingEvent in state.HeldEvents)
+                {
+                    SendEventUnderGate(connectionContext, sessionId.Value, pendingEvent);
+                }
+
+                state.HeldEvents.Clear();
+                if (state.PendingSnapshot is StateSnapshotPublication pendingSnapshot
+                    && pendingSnapshot.Revision.Value > RevisionNumber.Initial.Value)
+                {
+                    SendSnapshotUnderGate(connectionContext, sessionId.Value, pendingSnapshot);
+                    state.BoundaryBaseline = null;
+                }
+
+                state.PendingSnapshot = null;
+                state.BoundaryEventBufferOverflowed = false;
+                if (acceptedAreas.Contains(areaId))
+                {
+                    areasToCheckForNewState.Add((areaId, state.RecoveryEpoch));
+                }
+            }
+        }
+
+        foreach ((StateAreaId areaId, long recoveryEpoch) in areasToCheckForNewState)
+        {
+            ForwardCurrentSnapshotAfterBoundary(areaId, recoveryEpoch);
+        }
+    }
+
+    /// <summary>
+    /// Forwards a current capture that raced ahead of the boundary callback, after the new
+    /// unavailable baseline has already been admitted on the Control/Recovery lane.
+    /// </summary>
+    /// <param name="areaId">The accepted state area to re-check.</param>
+    /// <param name="recoveryEpoch">The boundary generation that must still own the area.</param>
+    private void ForwardCurrentSnapshotAfterBoundary(StateAreaId areaId, long recoveryEpoch)
+    {
+        if (!feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot))
+        {
+            return;
+        }
+
+        lock (gate)
+        {
+            if (connectionContext is null
+                || sessionId is null
+                || !acceptedAreas.Contains(areaId)
+                || !areaStates.TryGetValue(areaId, out AreaState? state)
+                || state.RecoveryEpoch != recoveryEpoch
+                || state.Phase != AreaDeliveryPhase.Live
+                || state.BoundaryBaseline is null
+                || !IsCurrentStateAuthority(snapshot!.StateAuthorityId)
+                || snapshot.PlayContextId != playContextTracker.GetSnapshot().Current
+                || snapshot!.PlayContextGeneration != state.PlayContextGeneration
+                || snapshot.Revision.Value <= RevisionNumber.Initial.Value)
+            {
+                return;
+            }
+
+            state.BoundaryBaseline = null;
+            state.BoundaryBaselinePending = false;
+            state.BarrierRevision = snapshot.Revision;
+            SendSnapshotUnderGate(connectionContext, sessionId.Value, snapshot);
         }
     }
 
@@ -440,12 +641,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// in-flight <see cref="TryEstablishBaseline"/> attempt from before this call is ignored when it
     /// completes. A genuinely pending request (a non-<see langword="null"/>
     /// <see cref="AreaState.RecoveryCorrelationMessageId"/>) is restarted rather than abandoned: its
-    /// own bounded deadline is re-armed fresh under the new context/authority, but -- unlike
-    /// <see cref="OnSnapshotChanged"/>'s wake -- this never synchronously re-queries <see cref="feed"/>
-    /// for a value here, since a value already sitting in the feed at this exact instant belongs to
-    /// whatever just stopped being current and must not be allowed to satisfy this request; only a
-    /// value the feed genuinely publishes afterward, under the new context/authority, ever can. Must
-    /// be called with <see cref="gate"/> already held by the calling thread.
+    /// own bounded deadline is re-armed fresh under the new context/authority. The ordered boundary
+    /// path then installs its explicit revision-zero unavailable baseline before it admits any
+    /// current feed value. Must be called with <see cref="gate"/> already held by the calling thread.
     /// </summary>
     private void InvalidateAllAreasUnderGate()
     {
@@ -456,6 +654,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             state.BarrierRevision = null;
             state.HeldEvents.Clear();
             state.PendingSnapshot = null;
+            state.BoundaryBaseline = null;
+            state.BoundaryBaselinePending = false;
+            state.BoundaryEventBufferOverflowed = false;
             long myEpoch = ++state.RecoveryEpoch;
             if (state.RecoveryCorrelationMessageId is string correlationMessageId)
             {
@@ -491,7 +692,14 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 return;
             }
 
-            if (eventPublication.PlayContextGeneration != playContextTracker.GetSnapshot().TransitionGeneration)
+            PlayContextSnapshot currentPlayContext = playContextTracker.GetSnapshot();
+            if (eventPublication.PlayContextId != currentPlayContext.Current
+                || eventPublication.PlayContextGeneration != currentPlayContext.TransitionGeneration)
+            {
+                return;
+            }
+
+            if (!IsCurrentStateAuthority(eventPublication.StateAuthorityId))
             {
                 return;
             }
@@ -500,9 +708,32 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             switch (state.Phase)
             {
                 case AreaDeliveryPhase.AwaitingBaseline:
+                    if (state.PendingSubscribeBaselineCorrelationMessageId is not null
+                        && IsCurrentPlayContextGeneration(
+                            eventPublication.PlayContextId,
+                            eventPublication.PlayContextGeneration))
+                    {
+                        state.Phase = AreaDeliveryPhase.Recovering;
+                        state.BarrierRevision = null;
+                        state.PlayContextGeneration = eventPublication.PlayContextGeneration;
+                        if (state.HeldEvents.Count < Constants.MaxHeldRecoveryEventsPerArea)
+                        {
+                            state.HeldEvents.Add(eventPublication);
+                        }
+                        else
+                        {
+                            state.HeldEvents.Clear();
+                            state.BoundaryEventBufferOverflowed = true;
+                        }
+                    }
                     break;
 
                 case AreaDeliveryPhase.Recovering:
+                    if (state.BoundaryEventBufferOverflowed)
+                    {
+                        break;
+                    }
+
                     if (state.BarrierRevision is RevisionNumber barrier && eventPublication.Revision.Value <= barrier.Value)
                     {
                         break; // superseded by the barrier
@@ -529,7 +760,27 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                     if (eventPublication.PlayContextGeneration == state.PlayContextGeneration
                         && connectionContext is not null && sessionId is not null)
                     {
+                        state.BoundaryBaseline = null;
+                        state.BoundaryBaselinePending = false;
                         SendEventUnderGate(connectionContext, sessionId.Value, eventPublication);
+                    }
+                    else if (IsCurrentPlayContextGeneration(eventPublication.PlayContextId, eventPublication.PlayContextGeneration))
+                    {
+                        state.Phase = AreaDeliveryPhase.Recovering;
+                        state.BarrierRevision = null;
+                        state.PlayContextGeneration = eventPublication.PlayContextGeneration;
+                        if (!state.BoundaryEventBufferOverflowed)
+                        {
+                            if (state.HeldEvents.Count >= Constants.MaxHeldRecoveryEventsPerArea)
+                            {
+                                state.HeldEvents.Clear();
+                                state.BoundaryEventBufferOverflowed = true;
+                            }
+                            else
+                            {
+                                state.HeldEvents.Add(eventPublication);
+                            }
+                        }
                     }
 
                     break;
@@ -578,7 +829,14 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 return;
             }
 
-            if (snapshotPublication.PlayContextGeneration != playContextTracker.GetSnapshot().TransitionGeneration)
+            PlayContextSnapshot currentPlayContext = playContextTracker.GetSnapshot();
+            if (snapshotPublication.PlayContextId != currentPlayContext.Current
+                || snapshotPublication.PlayContextGeneration != currentPlayContext.TransitionGeneration)
+            {
+                return;
+            }
+
+            if (!IsCurrentStateAuthority(snapshotPublication.StateAuthorityId))
             {
                 return;
             }
@@ -587,8 +845,16 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             switch (state.Phase)
             {
                 case AreaDeliveryPhase.AwaitingBaseline:
-                    pendingCorrelationMessageId = state.RecoveryCorrelationMessageId;
-                    pendingRecoveryEpoch = state.RecoveryEpoch;
+                    if (state.PendingSubscribeBaselineCorrelationMessageId is not null)
+                    {
+                        state.PlayContextGeneration = snapshotPublication.PlayContextGeneration;
+                        state.PendingSnapshot = snapshotPublication;
+                    }
+                    else
+                    {
+                        pendingCorrelationMessageId = state.RecoveryCorrelationMessageId;
+                        pendingRecoveryEpoch = state.RecoveryEpoch;
+                    }
                     break;
 
                 case AreaDeliveryPhase.Recovering:
@@ -599,7 +865,19 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                     if (snapshotPublication.PlayContextGeneration == state.PlayContextGeneration
                         && connectionContext is not null && sessionId is not null)
                     {
+                        state.BoundaryBaseline = null;
+                        state.BoundaryBaselinePending = false;
+                        state.BarrierRevision = snapshotPublication.Revision;
                         SendSnapshotUnderGate(connectionContext, sessionId.Value, snapshotPublication);
+                    }
+                    else if (IsCurrentPlayContextGeneration(
+                        snapshotPublication.PlayContextId,
+                        snapshotPublication.PlayContextGeneration))
+                    {
+                        state.Phase = AreaDeliveryPhase.Recovering;
+                        state.BarrierRevision = null;
+                        state.PlayContextGeneration = snapshotPublication.PlayContextGeneration;
+                        state.PendingSnapshot = snapshotPublication;
                     }
 
                     break;
@@ -621,10 +899,18 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     private void OnSnapshotAvailabilityChanged()
     {
         List<(StateAreaId AreaId, string CorrelationMessageId, long RecoveryEpoch)> pendingBaselines = [];
+        List<(StateAreaId AreaId, long RecoveryEpoch)> boundaryBaselines = [];
         lock (gate)
         {
             foreach ((StateAreaId areaId, AreaState state) in areaStates)
             {
+                if (acceptedAreas.Contains(areaId)
+                    && state.Phase == AreaDeliveryPhase.Live
+                    && state.BoundaryBaseline is not null)
+                {
+                    boundaryBaselines.Add((areaId, state.RecoveryEpoch));
+                }
+
                 if (state.Phase is AreaDeliveryPhase.AwaitingBaseline or AreaDeliveryPhase.Recovering
                     && state.RecoveryCorrelationMessageId is string correlationMessageId)
                 {
@@ -636,6 +922,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         foreach ((StateAreaId areaId, string correlationMessageId, long recoveryEpoch) in pendingBaselines)
         {
             TryEstablishBaseline(areaId, correlationMessageId, recoveryEpoch);
+        }
+
+        foreach ((StateAreaId areaId, long recoveryEpoch) in boundaryBaselines)
+        {
+            ForwardCurrentSnapshotAfterBoundary(areaId, recoveryEpoch);
         }
     }
 
@@ -686,6 +977,8 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         IPublicConnectionContext? currentConnectionContext;
         SessionId? currentSessionId;
         long myEpoch;
+        StateSnapshotPublication? boundaryBaseline;
+        bool boundaryBaselinePending;
         lock (gate)
         {
             currentConnectionContext = connectionContext;
@@ -696,6 +989,15 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             }
 
             AreaState state = GetOrCreateAreaState(areaId);
+            boundaryBaseline = state.BoundaryBaseline;
+            boundaryBaselinePending = state.BoundaryBaselinePending;
+            PlayContextSnapshot currentPlayContext = playContextTracker.GetSnapshot();
+            if (boundaryBaseline is not null
+                && (boundaryBaseline.PlayContextId != currentPlayContext.Current
+                    || boundaryBaseline.PlayContextGeneration != currentPlayContext.TransitionGeneration))
+            {
+                boundaryBaseline = null;
+            }
             if (expectedRecoveryEpoch is long expectedEpoch
                 && (state.RecoveryEpoch != expectedEpoch
                     || state.RecoveryCorrelationMessageId != correlationMessageId
@@ -730,7 +1032,27 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             }
         }
 
-        bool hasSnapshot = feed.TryGetSnapshot(areaId, out StateSnapshotPublication? snapshot);
+        bool hasSnapshot;
+        StateSnapshotPublication? snapshot;
+        bool hasFeedSnapshot = feed.TryGetSnapshot(areaId, out snapshot);
+        if (boundaryBaselinePending && boundaryBaseline is not null)
+        {
+            snapshot = boundaryBaseline;
+            hasSnapshot = true;
+        }
+        else if (hasFeedSnapshot)
+        {
+            hasSnapshot = true;
+        }
+        else if (boundaryBaseline is not null)
+        {
+            snapshot = boundaryBaseline;
+            hasSnapshot = true;
+        }
+        else
+        {
+            hasSnapshot = false;
+        }
 
         byte[]? bytes = null;
         lock (gate)
@@ -743,7 +1065,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 return;
             }
 
-            if (!hasSnapshot || snapshot!.PlayContextGeneration != playContextTracker.GetSnapshot().TransitionGeneration)
+            PlayContextSnapshot currentContext = playContextTracker.GetSnapshot();
+            if (!hasSnapshot
+                || !IsCurrentStateAuthority(snapshot!.StateAuthorityId)
+                || snapshot.PlayContextId != currentContext.Current
+                || snapshot.PlayContextGeneration != currentContext.TransitionGeneration)
             {
                 FallBackToAwaitingBaselineAndArmDeadlineLocked(areaId, state, myEpoch, correlationMessageId);
                 return;
@@ -775,6 +1101,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             return;
         }
 
+        bool shouldForwardCurrentSnapshot = false;
         lock (gate)
         {
             if (!areaStates.TryGetValue(areaId, out AreaState? state)
@@ -821,6 +1148,19 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             if (state.RecoveryEpoch == myEpoch)
             {
                 state.Phase = AreaDeliveryPhase.Live;
+                if (snapshot!.Revision.Value == RevisionNumber.Initial.Value
+                    && state.BoundaryBaseline is not null)
+                {
+                    state.BoundaryBaselinePending = false;
+                }
+                if (snapshot!.Revision.Value > RevisionNumber.Initial.Value)
+                {
+                    state.BoundaryBaseline = null;
+                }
+                else if (state.BoundaryBaseline is not null)
+                {
+                    shouldForwardCurrentSnapshot = true;
+                }
 
                 // A Snapshot buffered while Recovering is a complete replacement value, not a delta:
                 // superseded outright by this same baseline it raced against, or, if newer, the area's
@@ -830,8 +1170,14 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 if (pendingSnapshot is StateSnapshotPublication pending && pending.Revision.Value > snapshot!.Revision.Value)
                 {
                     SendSnapshotUnderGate(currentConnectionContext, currentSessionId.Value, pending);
+                    state.BoundaryBaseline = null;
                 }
             }
+        }
+
+        if (shouldForwardCurrentSnapshot)
+        {
+            ForwardCurrentSnapshotAfterBoundary(areaId, myEpoch);
         }
     }
 
@@ -1049,6 +1395,31 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         return state;
     }
 
+    /// <summary>Checks whether a publication belongs to the play context currently committed by the tracker.</summary>
+    /// <param name="playContextId">The publication's captured context.</param>
+    /// <param name="playContextGeneration">The publication's captured transition generation.</param>
+    /// <returns>Whether both identity components match the tracker's current snapshot.</returns>
+    private bool IsCurrentPlayContextGeneration(PlayContextId? playContextId, long playContextGeneration)
+    {
+        PlayContextSnapshot current = playContextTracker.GetSnapshot();
+        return current.Current == playContextId && current.TransitionGeneration == playContextGeneration;
+    }
+
+    /// <summary>Checks that a publication belongs to the Host's currently committed authority epoch.</summary>
+    /// <param name="stateAuthorityId">The publication's authority epoch.</param>
+    /// <returns>Whether the identity is current and the authority lifecycle has not faulted.</returns>
+    private bool IsCurrentStateAuthority(StateAuthorityId stateAuthorityId)
+    {
+        try
+        {
+            return stateAuthorityLifecycle.Current == stateAuthorityId;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
+        }
+    }
+
     /// <summary>Generates a fresh, cryptographically random host-originated message identifier.</summary>
     private static string NewMessageId() => Guid.NewGuid().ToString();
 
@@ -1073,6 +1444,15 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         /// against a not-yet-known barrier.
         /// </summary>
         public RevisionNumber? BarrierRevision;
+
+        /// <summary>The generic unavailable baseline established at the latest identity boundary, until a real state value replaces it.</summary>
+        public StateSnapshotPublication? BoundaryBaseline;
+
+        /// <summary>Whether this area's first R0 boundary Snapshot is still waiting for the subscribe acknowledgement.</summary>
+        public bool BoundaryBaselinePending;
+
+        /// <summary>Whether an early new-context Event buffer overflowed before its reset baseline was admitted.</summary>
+        public bool BoundaryEventBufferOverflowed;
 
         /// <summary>
         /// The play-context transition generation the current or establishing baseline belongs to.
@@ -1132,5 +1512,8 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         /// error, so at most one deadline is ever outstanding per area.
         /// </summary>
         public CancellationTokenSource? PendingBaselineDeadlineCancellation;
+
+        /// <summary>The <c>subscribe</c> request awaiting its ACK before an initial boundary baseline may be sent.</summary>
+        public string? PendingSubscribeBaselineCorrelationMessageId;
     }
 }
