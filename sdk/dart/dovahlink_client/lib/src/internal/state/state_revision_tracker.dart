@@ -180,12 +180,16 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
       }
     }
 
+    final T? acceptedValue =
+        sameIdentity && isUnavailable && value == null && previous.value != null
+        ? previous.value
+        : value;
     _state.update(
       StateSynchronization<T>(
         status: isUnavailable
             ? DovahLinkStateStatus.unavailable
             : DovahLinkStateStatus.synchronized,
-        value: value,
+        value: acceptedValue,
         stateAuthorityId: stateAuthorityId,
         playContextId: playContextId,
         revision: revision,
@@ -356,12 +360,16 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
       return StateEventApplyResult.recoveryRequired;
     }
 
+    final T? acceptedValue =
+        sameIdentity && isUnavailable && value == null && previous.value != null
+        ? previous.value
+        : value;
     _state.update(
       StateSynchronization<T>(
         status: isUnavailable
             ? DovahLinkStateStatus.unavailable
             : DovahLinkStateStatus.synchronized,
-        value: value,
+        value: acceptedValue,
         stateAuthorityId: stateAuthorityId,
         playContextId: playContextId,
         revision: revision,

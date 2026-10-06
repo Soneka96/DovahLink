@@ -5,9 +5,10 @@ class StateSynchronization<T> {
   /// The domain's current synchronization standing.
   final DovahLinkStateStatus status;
 
-  /// The latest accepted typed domain value. This is `null` before a baseline
-  /// exists and may also be `null` for an authoritative unavailable value when
-  /// [T] is nullable; use [status] to distinguish those cases.
+  /// The latest usable typed domain value. This is `null` before a baseline
+  /// exists or when no usable value has been captured; while unavailable within
+  /// the same identity, it may retain the previous usable value. Use [status]
+  /// to distinguish current availability from the retained value.
   final T? value;
 
   /// The Host continuity epoch that owns [revision], when a baseline exists.
@@ -21,8 +22,8 @@ class StateSynchronization<T> {
 
   /// Creates a state synchronization view.
   /// @param status The current domain synchronization standing.
-  /// @param value The latest typed value, which may be `null` before a baseline
-  /// exists or for an authoritative unavailable nullable domain; see [status].
+  /// @param value The latest usable typed value, which may remain available
+  /// while [status] is unavailable for the same identity.
   /// @param stateAuthorityId The authority identity associated with the baseline.
   /// @param playContextId The play-context identity associated with the baseline.
   /// @param revision The last accepted revision, or `null` before a baseline exists.
