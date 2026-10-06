@@ -44,6 +44,10 @@ class DovahSessionMetrics extends Equatable {
   /// Font size of the session name (the prototype's `.session-name`).
   static const double nameFontSize = 14;
 
+  /// Font size of the game and character summary under the session name, as themed by
+  /// `.session-meta`.
+  static const double metaFontSize = 12;
+
   /// Gap between the connection dot and its label (the prototype's `.session-status`
   /// `gap:8px`).
   static const double statusGap = 8;
@@ -98,6 +102,14 @@ class DovahSessionMetrics extends Equatable {
 
   /// Height of the navigation.
   final double navHeight;
+
+  /// Minimum hit height for a navigation tab, while [navHeight] remains prototype-exact.
+  static const double minimumTabTapTargetHeight = 48;
+
+  /// Navigation row height including the tab's minimum accessible hit target.
+  double get navTapTargetHeight => navHeight < minimumTabTapTargetHeight
+      ? minimumTabTapTargetHeight
+      : navHeight;
 
   /// Margin on each side of the header bar and navigation.
   final double barSideMargin;

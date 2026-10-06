@@ -8,6 +8,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/device_identity/domain/usecases/load_device_name.usecase.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.middleware.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/features/session/presentation/state/session_shell.middleware.dart';
 import 'package:dovahlink_client/injection_container.dart';
@@ -49,9 +50,11 @@ class AppCompositionRoot {
     );
     final IConnectionMiddleware connectionMiddleware =
         sl<IConnectionMiddleware>();
+    final ILiveStateMiddleware liveStateMiddleware = sl<ILiveStateMiddleware>();
     final Store<AppState> store = const CreateStore()(
       middleware: [
         connectionMiddleware.call,
+        liveStateMiddleware.call,
         sl<IPairingMiddleware>().call,
         sl<ISessionShellMiddleware>().call,
         AppearanceMiddleware().call,
@@ -66,6 +69,7 @@ class AppCompositionRoot {
       ),
     );
     connectionMiddleware.initialize(store);
+    liveStateMiddleware.initialize(store);
     return store;
   }
 }

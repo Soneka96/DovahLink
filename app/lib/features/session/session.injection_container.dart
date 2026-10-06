@@ -1,6 +1,7 @@
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/session/presentation/state/session_shell.middleware.dart';
+import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_shell.viewmodel.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/navigation/navigator_service.dart';
@@ -16,5 +17,11 @@ void initSessionDependencies() {
     String hostId,
   ) {
     return SessionShellViewModel.fromStore(store, hostId: hostId);
+  });
+  sl.registerFactoryParam<SessionOverviewViewModel, Store<AppState>, void>((
+    Store<AppState> store,
+    void _,
+  ) {
+    return SessionOverviewViewModel.fromStore(store);
   });
 }

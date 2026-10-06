@@ -13,6 +13,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Added
 
+- The Session Shell now opens on a state-backed Overview and provides the prototype's Map, Quests, Inventory, and Character placeholder tabs.
 - Connections and Session Shell share one Settings dialog with the existing Appearance picker and a persisted device-name editor; pairing uses the resolved name and active trusted-Host rename outcomes stay separate.
 - Known Host cards show Checking during startup and endpoint checks while retaining stable availability
   during periodic refresh.
@@ -37,6 +38,13 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Long Overview character names and context lines now truncate with a one-line ellipsis.
+- Session context and header summaries derive synchronization styling only from displayed values.
+- Session navigation follows the prototype's text-only tabs with a 6 px gap while preserving accessible
+  hit targets.
+- The Session header shows the available character name, level, and current XP, styles stale and recovering values visually, and omits missing values without deriving a progress percentage.
+- Redux carries the SDK's public gameplay models and `StateSynchronization<T>` values unchanged
+  through live-state middleware, selectors, and the Overview ViewModel.
 - Connections uses the approved prototype tagline and Discover details, and the Session Shell now matches its header chrome without exposing endpoint metadata or adding game content.
 - Pair again cards show the prototype confirmation before starting the existing pairing flow.
 - Pairing matches the prototype’s code redisplay row, countdown emphasis, confirmation copy, and expired or attempt-limit actions.

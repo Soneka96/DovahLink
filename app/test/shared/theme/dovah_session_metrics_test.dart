@@ -79,6 +79,7 @@ void main() {
       expect(DovahSessionMetrics.activeRuleInset, 19);
       expect(DovahSessionMetrics.activeRuleGlowBlurRadius, isA<double>());
       expect(DovahSessionMetrics.activeRuleGlowBlurRadius, 14);
+      expect(DovahSessionMetrics.minimumTabTapTargetHeight, 48);
       expect(DovahSessionMetrics.navRuleColor, const Color(0xA6293640));
     });
   });
@@ -111,6 +112,12 @@ void main() {
           expect(metrics.barHeight, testCase.$3);
           expect(metrics.navHeight, isA<double>());
           expect(metrics.navHeight, testCase.$4);
+          expect(
+            metrics.navTapTargetHeight,
+            testCase.$4 < DovahSessionMetrics.minimumTabTapTargetHeight
+                ? DovahSessionMetrics.minimumTabTapTargetHeight
+                : testCase.$4,
+          );
           expect(metrics.barSideMargin, isA<double>());
           expect(metrics.barSideMargin, testCase.$5);
           expect(metrics.tabHorizontalPadding, isA<double>());

@@ -112,6 +112,12 @@ class DovahOverviewMetrics extends Equatable {
   /// Gap above the hero panel's stats.
   final double statsTopGap;
 
+  /// Letter spacing of the hero title in ems.
+  final double heroTitleLetterSpacingEm;
+
+  /// Letter spacing of the side-panel titles in ems.
+  final double panelTitleLetterSpacingEm;
+
   /// Creates a complete measurement set. Every value is required so a set cannot be assembled
   /// with an accidentally-inherited default.
   const DovahOverviewMetrics({
@@ -120,6 +126,8 @@ class DovahOverviewMetrics extends Equatable {
     required this.gridGap,
     required this.heroMinHeight,
     required this.statsTopGap,
+    required this.heroTitleLetterSpacingEm,
+    required this.panelTitleLetterSpacingEm,
   });
 
   /// Resolves the measurements for a window of size [window] from [themeMetrics], the active
@@ -144,6 +152,8 @@ class DovahOverviewMetrics extends Equatable {
       statsTopGap: compact
           ? themeMetrics.compactStatsTopGap
           : themeMetrics.regularStatsTopGap,
+      heroTitleLetterSpacingEm: themeMetrics.heroTitleLetterSpacingEm,
+      panelTitleLetterSpacingEm: themeMetrics.panelTitleLetterSpacingEm,
     );
   }
 
@@ -155,5 +165,7 @@ class DovahOverviewMetrics extends Equatable {
     gridGap,
     heroMinHeight,
     statsTopGap,
+    heroTitleLetterSpacingEm,
+    panelTitleLetterSpacingEm,
   ];
 }

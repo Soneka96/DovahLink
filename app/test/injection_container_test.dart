@@ -19,6 +19,7 @@ import 'package:dovahlink_client/features/appearance/presentation/state/viewmode
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
@@ -168,12 +169,13 @@ void main() {
 
   group('injection_container — app and pairing registrations', () {
     test(
-      'initDependencies registers app shutdown and both lifecycle middlewares',
+      'initDependencies registers app shutdown and all lifecycle middlewares',
       () async {
         await initDependencies();
 
         expect(sl.isRegistered<IAppShutdownService>(), isTrue);
         expect(sl.isRegistered<IConnectionMiddleware>(), isTrue);
+        expect(sl.isRegistered<ILiveStateMiddleware>(), isTrue);
         expect(sl.isRegistered<IPairingMiddleware>(), isTrue);
       },
     );

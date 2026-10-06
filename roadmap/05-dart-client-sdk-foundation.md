@@ -16,8 +16,8 @@ subscription updates with Host reconciliation, SDK per-domain intent, ordinary r
 restoration, administrative dormancy until explicit recovery, and intentional-disconnect cleanup.
 Its complete-set subscription meaning is incompatible with released Host `0.4.0`'s additive behavior;
 the SDK's supported Host line is `0.5.x`. The repository release is `0.5.0`.
-Phase 5.4's Flutter middleware integration remains, followed by Phase 5.5's version-impact audit
-and Stage 5 closure.
+Phase 5.4's Flutter application state pipeline is implemented by PR #120; its minimal proof
+acceptance remains open, followed by Phase 5.5's version-impact audit and Stage 5 closure.
 The app's current `features/connection/` area owns Host selection and navigation rather than a
 separate protocol client. Phase 3.3 (`roadmap/03`) similarly pulled forward the single inbound SDK
 receiver/router and initial per-operation retry-safety/session-requirement/timeout-class policy,
@@ -126,6 +126,35 @@ failure, connection lifecycle, and slow-consumer diagnostics without introducing
 system, dashboard customization, discovery, or mobile presentation work. All six Vitals fields
 share the `character_vitals` domain's availability, synchronization status, and revision; do not
 model them as separate state areas or add a second composed resource view.
+
+##### App-state integration delivery
+
+PR #120 implements the SDK-to-Redux pipeline for the eight currently available Overview domains:
+`character_vitals`, `character_xp`, `character_level`, `character_identity`,
+`character_supernatural_traits`, `player_location`, `game_time`, and `tracked_quests`. The focused
+`features/live_state/` boundary owns typed Redux actions, reducers, selectors, and the
+`SessionOverviewViewModel`. It consumes the public SDK gameplay streams and passes SDK public domain
+models and `StateSynchronization<T>` directly through Redux without app-owned duplicate domain
+models or field redefinitions. `LiveStateMiddleware` owns the public SDK stream listeners and
+expresses all required subscription areas only after SDK trust is established. It remains active
+when the Session Shell route returns to Connections; routes do not own subscription lifetime. The
+middleware keeps those listeners through ordinary reconnect so the SDK can restore desired intent
+and publish stale, recovering, and fresh-baseline statuses. It cancels gameplay listeners and resets
+the Redux slice on disconnection or administrative invalidation.
+
+The integration preserves each domain's status, authority/context IDs, and revision alongside its
+typed value. It retains all independent Supernatural Traits predicates, all Location facts, Skyrim
+calendar fields, and the complete tracked-quest collection with all objective instances. Empty
+tracked quests and unavailable quest state remain distinct. No fake values or final Overview UI are
+part of this delivery.
+
+Phase 5.4 remains **Active** because its specified visible proof surface has not been delivered. Its
+acceptance still calls for XP, Vitals, and Level values; unavailable/stale/recovering states;
+compatibility and connection lifecycle; and slow-consumer diagnostics. The current public SDK does
+not expose slow-consumer diagnostics. PR #120 does not add that diagnostic API or a temporary proof
+UI. The next intended PR is **#121 — Session Overview Prototype Convergence**, which consumes the
+Redux state through its typed ViewModel; that UI work does not by itself complete Stage 8 or this
+proof acceptance.
 
 #### 5.5 Version-Impact Audit and Stage 5 Closure
 

@@ -9,16 +9,99 @@ import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'fixtures.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
-    show CredentialRejectionReason, DovahLinkTrustState, HelloResult;
+    show
+        CharacterIdentityState,
+        CharacterSupernaturalTraitsState,
+        CharacterVitalsState,
+        CredentialRejectionReason,
+        DovahLinkStateStatus,
+        DovahLinkTrustState,
+        GameTimeState,
+        PlayerLocationCellKind,
+        PlayerLocationState,
+        QuestObjective,
+        StateSynchronization,
+        TrackedQuest,
+        TrackedQuestObjectiveState,
+        TrackedQuestsState,
+        HelloResult;
 
 /// Exercises the Flutter app's representative typed fixture builders.
 void main() {
+  group('Method buildStateSynchronization behaves correctly', () {
+    test('Method buildStateSynchronization keeps value and status', () {
+      final StateSynchronization<int> synchronization =
+          Fixtures.buildStateSynchronization<int>(value: 43);
+
+      expect(synchronization.status, DovahLinkStateStatus.synchronized);
+      expect(synchronization.value, isA<int>());
+      expect(synchronization.value, 43);
+      expect(synchronization.stateAuthorityId, 'authority-a');
+      expect(synchronization.playContextId, 'context-a');
+      expect(synchronization.revision, 1);
+    });
+
+    test(
+      'Method buildStateSynchronization keeps explicit unavailable values',
+      () {
+        final StateSynchronization<int> synchronization =
+            Fixtures.buildStateSynchronization<int>(
+              status: DovahLinkStateStatus.failed,
+              value: null,
+              stateAuthorityId: null,
+              playContextId: null,
+              revision: null,
+            );
+
+        expect(synchronization.status, DovahLinkStateStatus.failed);
+        expect(synchronization.value, isNull);
+        expect(synchronization.stateAuthorityId, isNull);
+        expect(synchronization.playContextId, isNull);
+        expect(synchronization.revision, isNull);
+      },
+    );
+  });
+
+  group('Method buildSessionOverviewVitalsViewData behaves correctly', () {
+    test(
+      'Method buildSessionOverviewVitalsViewData carries ratios and status',
+      () {
+        final SessionOverviewVitalsViewData viewData =
+            Fixtures.buildSessionOverviewVitalsViewData(
+              value: Fixtures.buildCharacterVitals(),
+              status: DovahLinkStateStatus.stale,
+            );
+
+        expect(viewData.status, DovahLinkStateStatus.stale);
+        expect(viewData.healthRatio, closeTo(0.8, 0.0001));
+        expect(viewData.healthCurrent, 80);
+      },
+    );
+  });
+
+  group('Method buildSessionOverviewQuestViewData behaves correctly', () {
+    test(
+      'Method buildSessionOverviewQuestViewData carries an empty summary',
+      () {
+        final SessionOverviewQuestViewData viewData =
+            Fixtures.buildSessionOverviewQuestViewData(
+              value: Fixtures.buildTrackedQuests(quests: <TrackedQuest>[]),
+            );
+
+        expect(viewData.title, 'NO QUEST TRACKED');
+        expect(viewData.detail, 'No path is marked.');
+      },
+    );
+  });
+
   group('Method buildHost behaves correctly', () {
     test('Method buildHost builds representative defaults', () {
       final Host host = Fixtures.buildHost();
@@ -365,5 +448,154 @@ void main() {
       expect(first.hashCode, second.hashCode);
       expect(identical(first, second), isFalse);
     });
+  });
+
+  group('Method buildCharacterVitals behaves correctly', () {
+    test(
+      'buildCharacterVitals builds the coherent representative resources',
+      () {
+        final CharacterVitalsState state = Fixtures.buildCharacterVitals();
+
+        expect(state.health?.current, 80);
+        expect(state.health?.max, 100);
+        expect(state.magicka?.current, 40);
+        expect(state.magicka?.max, 80);
+        expect(state.stamina?.current, 50);
+        expect(state.stamina?.max, 90);
+      },
+    );
+
+    test('buildCharacterVitals can build explicit unavailability', () {
+      final CharacterVitalsState state = Fixtures.buildCharacterVitals(
+        isAvailable: false,
+      );
+
+      expect(state.isUnavailable, isTrue);
+    });
+  });
+
+  group('Method buildCharacterXp behaves correctly', () {
+    test('buildCharacterXp builds the representative XP value', () {
+      expect(Fixtures.buildCharacterXp().value, 63.25);
+    });
+
+    test('buildCharacterXp preserves nullable unavailability', () {
+      expect(Fixtures.buildCharacterXp(value: null).value, isNull);
+    });
+  });
+
+  group('Method buildCharacterLevel behaves correctly', () {
+    test('buildCharacterLevel builds the representative level', () {
+      expect(Fixtures.buildCharacterLevel().value, 43);
+    });
+
+    test('buildCharacterLevel preserves nullable unavailability', () {
+      expect(Fixtures.buildCharacterLevel(value: null).value, isNull);
+    });
+  });
+
+  group('Method buildCharacterIdentity behaves correctly', () {
+    test('buildCharacterIdentity builds the complete identity', () {
+      final CharacterIdentityState identity = Fixtures.buildCharacterIdentity();
+
+      expect(identity.name, 'Player');
+      expect(identity.race, 'Nord');
+      expect(
+        Fixtures.buildCharacterIdentity(name: 'Aela', race: 'Nord').name,
+        'Aela',
+      );
+    });
+  });
+
+  group('Method buildSupernaturalTraits behaves correctly', () {
+    test('buildSupernaturalTraits keeps the predicates independent', () {
+      final CharacterSupernaturalTraitsState defaults =
+          Fixtures.buildSupernaturalTraits();
+      final CharacterSupernaturalTraitsState customized =
+          Fixtures.buildSupernaturalTraits(
+            isVampire: true,
+            hasWerewolfForm: true,
+          );
+
+      expect(defaults.isVampire, isFalse);
+      expect(defaults.hasVampireLordForm, isFalse);
+      expect(defaults.hasWerewolfForm, isFalse);
+      expect(customized.isVampire, isTrue);
+      expect(customized.hasVampireLordForm, isFalse);
+      expect(customized.hasWerewolfForm, isTrue);
+    });
+  });
+
+  group('Method buildPlayerLocation behaves correctly', () {
+    test('buildPlayerLocation preserves separate optional location facts', () {
+      final PlayerLocationState location = Fixtures.buildPlayerLocation();
+
+      expect(location.cellId, 22);
+      expect(location.cellKind, PlayerLocationCellKind.interior);
+      expect(location.cellName, 'Whiterun');
+      expect(location.locationId, 23);
+      expect(location.locationName, 'The Bannered Mare');
+      expect(
+        Fixtures.buildPlayerLocation(
+          locationId: null,
+          locationName: null,
+        ).locationName,
+        isNull,
+      );
+    });
+  });
+
+  group('Method buildGameTime behaves correctly', () {
+    test('buildGameTime builds the representative Skyrim calendar values', () {
+      final GameTimeState time = Fixtures.buildGameTime();
+
+      expect(time.year, 4);
+      expect(time.month, 8);
+      expect(time.monthName, 'Last Seed');
+      expect(time.day, 12);
+      expect(time.hour, 14);
+      expect(time.minute, 30);
+    });
+  });
+
+  group('Method buildQuestObjective behaves correctly', () {
+    test('buildQuestObjective builds a representative objective', () {
+      final QuestObjective objective = Fixtures.buildQuestObjective();
+
+      expect(objective.index, 0);
+      expect(objective.instanceId, 1);
+      expect(objective.text, 'Complete the objective');
+      expect(objective.state, TrackedQuestObjectiveState.displayed);
+    });
+  });
+
+  group('Method buildTrackedQuest behaves correctly', () {
+    test('buildTrackedQuest builds the quest and its objective instance', () {
+      final TrackedQuest quest = Fixtures.buildTrackedQuest();
+
+      expect(quest.questId, 1);
+      expect(quest.title, 'Test Quest');
+      expect(quest.type, 0);
+      expect(quest.objectives.single.text, 'Complete the objective');
+      expect(
+        Fixtures.buildTrackedQuest(objectives: const []).objectives,
+        isEmpty,
+      );
+    });
+  });
+
+  group('Method buildTrackedQuests behaves correctly', () {
+    test(
+      'buildTrackedQuests distinguishes populated and empty collections',
+      () {
+        final TrackedQuestsState populated = Fixtures.buildTrackedQuests();
+        final TrackedQuestsState empty = Fixtures.buildTrackedQuests(
+          quests: const [],
+        );
+
+        expect(populated.quests.single.title, 'Test Quest');
+        expect(empty.quests, isEmpty);
+      },
+    );
   });
 }

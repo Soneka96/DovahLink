@@ -21,6 +21,7 @@ void main() {
       expect(metrics.regularIntroBottomGap, 14);
       expect(metrics.compactIntroBottomGap, 14);
       expect(metrics.introPadding, EdgeInsets.zero);
+      expect(metrics.introCornerRadius, 0);
       expect(metrics.regularPanelPadding, const EdgeInsets.all(14));
       expect(metrics.compactPanelPadding, const EdgeInsets.all(14));
     });
@@ -33,6 +34,7 @@ void main() {
       expect(metrics.regularIntroBottomGap, 20);
       expect(metrics.compactIntroBottomGap, 14);
       expect(metrics.introPadding, EdgeInsets.zero);
+      expect(metrics.introCornerRadius, 0);
       expect(metrics.regularPanelPadding, const EdgeInsets.all(18));
       expect(metrics.compactPanelPadding, const EdgeInsets.all(15));
     });
@@ -48,6 +50,7 @@ void main() {
         metrics.introPadding,
         const EdgeInsets.symmetric(vertical: 10, horizontal: 13),
       );
+      expect(metrics.introCornerRadius, 10);
       expect(metrics.regularPanelPadding, const EdgeInsets.all(18));
       expect(metrics.compactPanelPadding, const EdgeInsets.all(15));
     });
@@ -113,6 +116,7 @@ void main() {
         mid.introPadding,
         const EdgeInsets.symmetric(vertical: 5, horizontal: 6.5),
       );
+      expect(mid.introCornerRadius, 5);
     });
 
     test('Method lerp between identical metrics keeps every value', () {
@@ -176,6 +180,7 @@ void main() {
         regularIntroBottomGap: 3,
         compactIntroBottomGap: 4,
         introPadding: const EdgeInsets.all(5),
+        introCornerRadius: 5,
         regularPanelPadding: const EdgeInsets.all(6),
         compactPanelPadding: const EdgeInsets.all(7),
       );
@@ -185,6 +190,7 @@ void main() {
       expect(copy.regularIntroBottomGap, 3);
       expect(copy.compactIntroBottomGap, 4);
       expect(copy.introPadding, const EdgeInsets.all(5));
+      expect(copy.introCornerRadius, 5);
       expect(copy.regularPanelPadding, const EdgeInsets.all(6));
       expect(copy.compactPanelPadding, const EdgeInsets.all(7));
     });
@@ -228,6 +234,7 @@ void main() {
         base.copyWith(regularIntroBottomGap: 1),
         base.copyWith(compactIntroBottomGap: 1),
         base.copyWith(introPadding: const EdgeInsets.all(1)),
+        base.copyWith(introCornerRadius: 1),
         base.copyWith(regularPanelPadding: EdgeInsets.zero),
         base.copyWith(compactPanelPadding: EdgeInsets.zero),
       ]) {

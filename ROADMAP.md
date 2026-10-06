@@ -67,10 +67,19 @@ how progression resumes; they do not replace this roadmap or change its stage st
 ## Current position
 
 - **Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phases 5.1–5.3 are complete and
-  Phase 5.4 is the next planned delivery phase. Stages 3 and 3A are complete. Stage 4 — Live State
+  Phase 5.4's app state pipeline is implemented while its specified proof surface remains
+  undelivered. Stages 3 and
+  3A are complete. Stage 4 — Live State
   Synchronization Foundation is complete on Host + Adapter, including Phase 4.5's version-impact
   audit.
-- **Current phase:** Phase 5.4 — Flutter Middleware and Minimal Live-State Proof (**Planned**).
+- **Current phase:** Phase 5.4 — Flutter Middleware and Minimal Live-State Proof (**Active**).
+  PR #120 establishes the app-owned SDK-to-Redux pipeline for all currently available Overview
+  domains. The specified visible proof surface has not been delivered: it still calls for XP,
+  Vitals, and Level values; unavailable/stale/recovering states; compatibility and connection
+  lifecycle; and slow-consumer diagnostics. The current public SDK has no slow-consumer diagnostic
+  API. PR #120 stays within the approved state-integration scope, so Phase 5.4 remains active until
+  that complete proof acceptance is delivered or re-planned. The next intended PR, #121 — Session
+  Overview Prototype Convergence, consumes this Redux state; it does not complete Stage 8.
   Phase 5.3 completed per-domain subscribe/unsubscribe with Host complete-set reconciliation and
   trusted-session restoration, including ordinary reconnect, administrative dormancy, explicit
   pairing recovery, and intentional-disconnect cleanup. Phase 5.2 completed the SDK State
@@ -141,7 +150,7 @@ Stage 4+ development continues only on Host + Adapter.
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
 | 4 | Complete. Host/Adapter live-state delivery, real Skyrim capture, automated process-level proof, runtime validation, and the Phase 4.5 version-impact audit are complete. Phase 4.5 recommended 0.4.0, released on 2026-09-23. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
-| 5 | Active. Phases 5.1–5.3 are complete; Phase 5.4 is next. The package scaffold, protocol/transport layer, pairing persistence, and bounded reconnect were partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
+| 5 | Active. Phases 5.1–5.3 are complete; Phase 5.4's app state pipeline is implemented, while its minimal proof acceptance remains open. The package scaffold, protocol/transport layer, pairing persistence, and bounded reconnect were partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |

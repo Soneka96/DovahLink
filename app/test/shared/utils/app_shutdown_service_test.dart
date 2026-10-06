@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:dovahlink_client/features/connection/presentation/state/connection.middleware.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/shared/utils/app_shutdown_service.dart';
 import 'package:dovahlink_client/shared/utils/existing_dovahlink_client.dart';
@@ -15,6 +16,9 @@ class MockPairingMiddleware extends Mock implements IPairingMiddleware {}
 /// Mocks cancellation of the connection middleware's SDK stream listener.
 class MockConnectionMiddleware extends Mock implements IConnectionMiddleware {}
 
+/// Mocks cancellation of the live-state middleware's SDK listeners.
+class MockLiveStateMiddleware extends Mock implements ILiveStateMiddleware {}
+
 /// Mocks shutdown access to an existing SDK client.
 class MockExistingDovahLinkClient extends Mock
     implements IExistingDovahLinkClient {}
@@ -23,18 +27,22 @@ class MockExistingDovahLinkClient extends Mock
 void main() {
   late MockPairingMiddleware pairingMiddleware;
   late MockConnectionMiddleware connectionMiddleware;
+  late MockLiveStateMiddleware liveStateMiddleware;
   late MockExistingDovahLinkClient existingClient;
   late AppShutdownService service;
 
   setUp(() {
     pairingMiddleware = MockPairingMiddleware();
     connectionMiddleware = MockConnectionMiddleware();
+    liveStateMiddleware = MockLiveStateMiddleware();
     existingClient = MockExistingDovahLinkClient();
     when(() => pairingMiddleware.shutdown()).thenAnswer((_) async {});
     when(() => connectionMiddleware.shutdown()).thenAnswer((_) async {});
+    when(() => liveStateMiddleware.shutdown()).thenAnswer((_) async {});
     when(() => existingClient.closeIfCreated()).thenAnswer((_) async {});
     service = AppShutdownService(
       connectionMiddleware: connectionMiddleware,
+      liveStateMiddleware: liveStateMiddleware,
       pairingMiddleware: pairingMiddleware,
       existingClient: existingClient,
     );
@@ -51,13 +59,21 @@ void main() {
         when(() => connectionMiddleware.shutdown()).thenAnswer((_) async {
           cleanupOrder.add('connection');
         });
+        when(() => liveStateMiddleware.shutdown()).thenAnswer((_) async {
+          cleanupOrder.add('live-state');
+        });
         when(() => existingClient.closeIfCreated()).thenAnswer((_) async {
           cleanupOrder.add('client');
         });
 
         await service.shutdown();
 
-        expect(cleanupOrder, <String>['connection', 'pairing', 'client']);
+        expect(cleanupOrder, <String>[
+          'connection',
+          'live-state',
+          'pairing',
+          'client',
+        ]);
       },
     );
 
@@ -77,6 +93,7 @@ void main() {
         await Future.wait(<Future<void>>[first, second]);
         verify(() => pairingMiddleware.shutdown()).called(1);
         verify(() => connectionMiddleware.shutdown()).called(1);
+        verify(() => liveStateMiddleware.shutdown()).called(1);
         verify(() => existingClient.closeIfCreated()).called(1);
       },
     );
@@ -92,6 +109,7 @@ void main() {
       await expectLater(service.shutdown(), completes);
       verify(() => pairingMiddleware.shutdown()).called(1);
       verify(() => connectionMiddleware.shutdown()).called(1);
+      verify(() => liveStateMiddleware.shutdown()).called(1);
       verify(() => existingClient.closeIfCreated()).called(1);
     });
 
@@ -106,8 +124,60 @@ void main() {
       await expectLater(service.shutdown(), completes);
       verify(() => pairingMiddleware.shutdown()).called(1);
       verify(() => connectionMiddleware.shutdown()).called(1);
+      verify(() => liveStateMiddleware.shutdown()).called(1);
       verify(() => existingClient.closeIfCreated()).called(1);
     });
+
+    test(
+      'Method shutdown contains connection and live-state cleanup failures',
+      () async {
+        when(
+          () => connectionMiddleware.shutdown(),
+        ).thenThrow(StateError('connection cleanup failed'));
+        when(
+          () => liveStateMiddleware.shutdown(),
+        ).thenThrow(StateError('live-state cleanup failed'));
+
+        await expectLater(service.shutdown(), completes);
+
+        verify(() => connectionMiddleware.shutdown()).called(1);
+        verify(() => liveStateMiddleware.shutdown()).called(1);
+        verify(() => pairingMiddleware.shutdown()).called(1);
+        verify(() => existingClient.closeIfCreated()).called(1);
+      },
+    );
+
+    test(
+      'Method shutdown contains asynchronous live-state cleanup failures',
+      () async {
+        when(() => liveStateMiddleware.shutdown()).thenAnswer((_) async {
+          throw StateError('live-state cleanup failed');
+        });
+
+        await expectLater(service.shutdown(), completes);
+
+        verify(() => connectionMiddleware.shutdown()).called(1);
+        verify(() => liveStateMiddleware.shutdown()).called(1);
+        verify(() => pairingMiddleware.shutdown()).called(1);
+        verify(() => existingClient.closeIfCreated()).called(1);
+      },
+    );
+
+    test(
+      'Method shutdown contains asynchronous connection cleanup failures',
+      () async {
+        when(() => connectionMiddleware.shutdown()).thenAnswer((_) async {
+          throw StateError('connection cleanup failed');
+        });
+
+        await expectLater(service.shutdown(), completes);
+
+        verify(() => connectionMiddleware.shutdown()).called(1);
+        verify(() => liveStateMiddleware.shutdown()).called(1);
+        verify(() => pairingMiddleware.shutdown()).called(1);
+        verify(() => existingClient.closeIfCreated()).called(1);
+      },
+    );
 
     test('Method shutdown completes when client close exceeds its budget', () {
       fakeAsync((FakeAsync async) {
@@ -157,7 +227,41 @@ void main() {
           connectionCompleter.complete();
           async.flushMicrotasks();
           verify(() => connectionMiddleware.shutdown()).called(1);
+          verify(() => liveStateMiddleware.shutdown()).called(1);
           verify(() => pairingMiddleware.shutdown()).called(1);
+          verify(() => existingClient.closeIfCreated()).called(1);
+        });
+      },
+    );
+
+    test(
+      'Method shutdown keeps closing the client when live-state cleanup exceeds its budget',
+      () {
+        fakeAsync((FakeAsync async) {
+          final Completer<void> liveStateCompleter = Completer<void>();
+          final Completer<void> closeCompleter = Completer<void>();
+          when(
+            () => liveStateMiddleware.shutdown(),
+          ).thenAnswer((_) => liveStateCompleter.future);
+          bool closeStarted = false;
+          when(() => existingClient.closeIfCreated()).thenAnswer((_) {
+            closeStarted = true;
+            return closeCompleter.future;
+          });
+          bool shutdownCompleted = false;
+          service.shutdown().then((_) => shutdownCompleted = true);
+          async.flushMicrotasks();
+
+          expect(closeStarted, isTrue);
+          expect(shutdownCompleted, isFalse);
+          async.elapse(const Duration(seconds: 3));
+          async.flushMicrotasks();
+
+          expect(shutdownCompleted, isTrue);
+          liveStateCompleter.complete();
+          closeCompleter.complete();
+          async.flushMicrotasks();
+          verify(() => liveStateMiddleware.shutdown()).called(1);
           verify(() => existingClient.closeIfCreated()).called(1);
         });
       },

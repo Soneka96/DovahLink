@@ -127,6 +127,60 @@ and pending-confirmation recovery. `client.pairing.confirmCode` completes confir
 credential acknowledgement. Flutter maps the returned typed result and failures; it never sequences
 those protocol exchanges or sends a mapped Host snapshot as an SDK command.
 
+## Live gameplay state
+
+`features/live_state/` owns the Flutter projection of the eight currently available gameplay
+domains: Character Vitals, XP, Level, Identity, Supernatural Traits, Location, Skyrim Game Time, and
+Tracked Quests.
+
+### SDK public model reuse
+
+Flutter may depend on the Dart SDK's public API; the SDK must never depend on Flutter, and Flutter
+must never import `package:dovahlink_client_sdk/src/`. When the SDK already
+exposes the public domain model that represents the gameplay truth required by Flutter, that model
+is the canonical Redux integration-state value and must pass through unchanged. When its streams
+expose `StateSynchronization<T>`, that SDK type is the canonical synchronization truth, including
+status, value, authority, play context, and revision. Do not create app-owned copies of SDK domain
+fields, synchronization metadata, status enums, or domain enums merely to carry the same semantics.
+
+An app-owned model is appropriate only when it adds genuinely different app or presentation
+semantics, such as aggregation, formatting, screen-specific summaries, interaction state, navigation
+state, or user input. Presentation-derived models belong at the ViewModel or presentation boundary;
+they must not replace SDK models as the authoritative Redux integration state. Adding a field to an
+existing public SDK domain model must require no integration-pipeline edits merely to transport that
+field; only its acquisition and any presentation code that chooses to use it need to know the field
+exists.
+
+`LiveStateMiddleware` observes only the public SDK `currentHost` streams and requests the required
+areas after SDK trust is established. It forwards each SDK synchronization value directly to Redux;
+the app does not reproduce SDK domain models or synchronization semantics.
+
+Gameplay observation follows the admitted session, not the Session Shell route. Returning to
+Connections leaves the session and its listeners active. Ordinary reconnect keeps those listeners
+attached under the same observation token so the SDK can publish stale/recovering states and restore
+desired intent. Each admitted observation has an app-local token captured by its stream callbacks
+and required-area request sequence; work may dispatch, report, or continue only while that token is
+still current for its Redux store. A disconnected or administratively invalidated session invalidates
+its token before cancellation and resets the projected slice; the middleware does not send
+unsubscribe requests after session teardown. The SDK owns whether desired intent is cleared or
+dormant. A later trusted session receives a new token and observes the SDK's current streams without
+comparing Host IDs or play-context IDs in Flutter.
+
+Keep the domain distinctions in Redux: Vitals remain one coherent group with raw `current` and `max`
+values; XP stays numeric without a percentage; Identity remains complete; the three supernatural
+predicates remain independent; Location retains cell, selected location, and worldspace; Game Time
+remains Skyrim calendar data; and Tracked Quests remains the complete plural collection with every
+objective instance. An empty tracked-quest list, unavailable nullable values, all-false traits, and
+stale retained values remain distinguishable through synchronization status.
+
+`SessionOverviewViewModel` exposes these selector results to the Session Overview. Widgets must
+not subscribe directly to SDK streams, call SDK live-state subscription APIs, or bypass the approved
+Redux, selector, and ViewModel boundary. Widgets may consume SDK public domain models after those
+values reach presentation through that boundary. Presentation-specific derived models remain allowed
+when they add real UI semantics. The Session Shell opens on the real Overview and keeps the Map,
+Quests, Inventory, and Character destinations as prototype-faithful placeholders until their features
+are approved and implemented.
+
 ## Feature structure
 
 Feature-owned data, domain, and presentation code lives under its feature boundary. Application-wide
@@ -322,13 +376,15 @@ app-owned values before it enters app state or other layers.
 ## Application shutdown
 
 `AppShutdownService` is platform-neutral and owns one idempotent, three-second cleanup budget. It
-starts `PairingMiddleware.shutdown()` first and then starts SDK close before awaiting either
-operation. Pairing shutdown immediately blocks new pairing work; SDK close stops its Known Host
-monitor and invalidates pending authentication and reconnect work. The pairing client registration
-records its instance in the app lifecycle holder; shutdown must not resolve the lazy client
-registration just to close an unused client. Late authentication, code-request, or confirmation
-results cannot dispatch follow-up pairing work after shutdown begins. SDK close is the final cleanup
-step, so late completions start no further application work. Windows registers `WindowsLifecycleBridge`,
+starts `ConnectionMiddleware.shutdown()`, `LiveStateMiddleware.shutdown()`, and
+`PairingMiddleware.shutdown()` before awaiting any of them, then closes the existing SDK client.
+Pairing shutdown immediately blocks new pairing work; live-state shutdown cancels lifecycle and
+gameplay listeners; SDK close stops its Known Host monitor and invalidates pending authentication
+and reconnect work. The pairing client registration records its instance in the app lifecycle
+holder; shutdown must not resolve the lazy client registration just to close an unused client. Late
+authentication, code-request, or confirmation results cannot dispatch follow-up pairing work after
+shutdown begins. SDK close is the final cleanup step, so late completions start no further
+application work. Windows registers `WindowsLifecycleBridge`,
 which forwards native close and session-ending requests to the shared service. Android and iOS do not
 register that bridge, and
 ordinary background/pause lifecycle events do not invoke application shutdown.
@@ -450,3 +506,14 @@ finishes. Neither path shuts down the separate Host.
 - Do not hardcode colors, typography, spacing, icon sizes, or corner radii inside widgets once the theme system exists.
 - Use the existing theme and layout tokens; add a new token before adding a repeated literal.
 - Keep the native DovahLink theme complete and usable without installed-resource detection or a UI mod adapter; missing or unsupported adapter values must fall back to it.
+
+## Immersive second-screen presentation
+
+DovahLink should feel like a natural extension of the game, not an external telemetry dashboard.
+Player-facing copy describes character, world, and gameplay state. Technical synchronization truth
+remains available to the presentation, but components normally express it visually: stale values keep
+their last accepted content with reduced emphasis, recovering values use a subtle theme treatment,
+and unavailable values retain their geometry without fabricated values or developer-facing status
+copy. Use technical terms such as SDK, Host, stale, recovering, or synchronization only when the
+player needs them to understand or resolve a problem. Never invent game-world information to hide
+uncertainty.

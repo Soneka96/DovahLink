@@ -153,7 +153,7 @@ authority while using SDK/Redux state for connection and pairing truth.
 | Connections | Implemented for durable Known Hosts, checking/online/offline/connected/reconnecting/repair states, and the offline dialog. | Online selects; Offline and transient states do not start authentication; Pair again is gated by the saved SDK hint and Online availability. | Prototype metrics, card treatments, and copy are implemented. Screenshot comparison is unverified. |
 | Discover | Implemented for searching, available, empty, failed, candidate checking, and embedded pairing. | Real search/auth outcomes drive transitions; dismissing cleans up the owned lifecycle; trusted candidates enter the Session Shell only after SDK admission. | Prototype modal, candidate, status, and empty-state treatments are implemented. Screenshot comparison is unverified. |
 | Pairing | Implemented for code entry, redisplay, cooldown, confirming, success, failure, blocked, and repair states exposed by current typed app state. | Host-reported attempts, expiry, terminal outcomes, redisplay result, and retry timing drive the controls and copy. | Prototype spacing, copy, countdown emphasis, redisplay placement, and responsive metrics are implemented. Screenshot comparison is unverified. |
-| Session Shell | Implemented as real Host identity/status chrome and an empty body. | Entry requires the exact Known Host to be connected, including direct route navigation. The shell stays open during reconnecting/reauthenticating and returns to Connections only when that Host is administratively invalidated; Back preserves the admitted connection. | Theme-aware shell header and compact/regular metrics are implemented. Notifications remains a prototype-only control with a future-feature TODO. Screenshot comparison is unverified. |
+| Session Shell | Opens on the state-backed Overview, with prototype tabs and placeholders for Map, Quests, Inventory, and Character. | Entry requires the exact Known Host to be connected, including direct route navigation. Back preserves the admitted connection; reconnecting/reauthenticating keeps the shell open, and matching administrative invalidation returns to Connections. | Host status and the current character summary use real projections. The two-row header, active tab rule, page geometry, theme metrics, and placeholder cards follow the prototype. Notifications remains prototype-only. Screenshot comparison remains unverified. |
 
 ### Typed projection coverage
 
@@ -194,9 +194,9 @@ The maintainer approved a minimal Session Shell in this convergence pass. It ope
 trusted-session event and the selected Known Host's SDK session projection reports `connected`.
 Online availability, candidate discovery, opening Pairing, and trust without admitted connection are
 not sufficient. The router also rejects direct entry unless that exact route Host is connected. The
-shell receives the Host ID from the route, resolves the real Host context, and contains only
-theme-aware session header chrome and an empty body; it adds no game tabs, gameplay data, or pairing
-policy.
+shell receives the Host ID from the route and resolves the real Host context. The Overview is its
+default page; the other four prototype destinations remain placeholders and add no gameplay feature
+or pairing policy.
 
 Back returns to Connections without disconnecting or removing trust. This follows the existing
 trusted-flow disposal contract: `PairingDisposedAction(wasTrusted: true)` preserves the admitted
@@ -205,6 +205,36 @@ event returns the shell to Connections only when its Host ID matches the current
 and reauthenticating leave it open. The Notifications control remains visible for prototype parity
 but has no functionality; its implementation belongs to a future feature phase and is marked TODO
 in the screen.
+
+### Session Overview convergence — implemented; screenshot comparison pending
+
+The canonical `dist/index.html` `.session-top`, `.game-nav`, `.game-tab`, `.session-content`,
+`.game-page`, `.page-intro`, `.overview-grid`, `.hero-panel`, `.side-stack`, `.panel`, `.quest`,
+`.bars`, and `.placeholder-grid` rules define the implemented shell, Overview, and placeholder
+composition. `assets/themes.css` defines each theme's tab treatment, materials, and responsive
+changes. The Overview consumes the existing public SDK synchronization values through Redux selectors
+and its ViewModel; it adds no backend or domain state.
+
+The Session header shows the real Known Host name and status plus the available character name and
+level. Current XP appears beside Level as `Level X (Y XP)` only when both values exist; it is not
+converted into a progress percentage. The Overview context line uses the character, one most-specific
+meaningful place, and Skyrim calendar time, omitting unavailable segments. The character hero uses
+the actual identity/race/level and independent supernatural facts. Vitals retain raw current/max
+values and use bounded ratios only for visual fills. Quest content follows the complete plural
+tracked-quest contract: zero uses “No path is marked.”, one uses its real title/objective where
+available, and multiple uses “Multiple paths remain open.” No arbitrary current quest is selected.
+
+Overview status is visual: stale/failed values retain their content with reduced emphasis, recovering
+values receive a quiet theme treatment, and unavailable values remain dormant without fake zeroes or
+technical status copy. The header uses the same stale/recovering precedence for its retained character
+summary. The Map, Quests, Inventory, and Character tabs use the prototype's placeholder
+copy and card structure only; they do not claim implemented gameplay features. XP remains header
+content rather than an Overview progress widget, as required by the production SDK semantics.
+
+The permanent immersive second-screen copy rule is recorded in
+[`ai/context/flutter/architecture.md`](../../../ai/context/flutter/architecture.md). Flutter
+structural and interaction tests cover each theme and supported test size; exact screenshot parity
+remains pending until rendered images are compared.
 
 ### Known Host “Pair again” / repair projection — implemented
 

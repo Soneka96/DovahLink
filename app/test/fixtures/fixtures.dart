@@ -7,22 +7,91 @@ import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show
+        CharacterIdentityState,
+        CharacterLevelState,
+        CharacterSupernaturalTraitsState,
+        CharacterVital,
+        CharacterVitalsState,
+        CharacterXpState,
         CredentialRejectionReason,
+        DovahLinkStateStatus,
         DovahLinkHost,
         DovahLinkHostAvailability,
         DovahLinkKnownHostSessionState,
         DovahLinkKnownHostState,
         DovahLinkTrustState,
-        HelloResult;
+        GameTimeState,
+        HelloResult,
+        PlayerLocationCellKind,
+        PlayerLocationState,
+        QuestObjective,
+        StateSynchronization,
+        TrackedQuest,
+        TrackedQuestObjectiveState,
+        TrackedQuestsState;
 
 /// Central test-owned catalog of representative Flutter app values.
 abstract final class Fixtures {
+  /// Builds an SDK synchronization value for presentation tests.
+  static StateSynchronization<T> buildStateSynchronization<T>({
+    /// The accepted SDK value, or `null` when no value is usable.
+    T? value,
+
+    /// The synchronization standing to represent.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+
+    /// The authority identity for a value with an accepted baseline.
+    String? stateAuthorityId = 'authority-a',
+
+    /// The play context for a value with an accepted baseline.
+    String? playContextId = 'context-a',
+
+    /// The last accepted revision for a value with an accepted baseline.
+    int? revision = 1,
+  }) => StateSynchronization<T>(
+    status: status,
+    value: value,
+    stateAuthorityId: stateAuthorityId,
+    playContextId: playContextId,
+    revision: revision,
+  );
+
+  /// Builds the Overview's Vitals presentation value.
+  static SessionOverviewVitalsViewData buildSessionOverviewVitalsViewData({
+    /// The coherent SDK Vitals value, or `null` when no value is usable.
+    CharacterVitalsState? value,
+
+    /// The Vitals synchronization standing.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+  }) => SessionOverviewVitalsViewData.fromSynchronization(
+    buildStateSynchronization<CharacterVitalsState>(
+      value: value,
+      status: status,
+    ),
+  );
+
+  /// Builds the Overview's tracked-quest presentation value.
+  static SessionOverviewQuestViewData buildSessionOverviewQuestViewData({
+    /// The complete tracked-quest value, or `null` when no value is usable.
+    TrackedQuestsState? value,
+
+    /// The tracked-quest synchronization standing.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+  }) => SessionOverviewQuestViewData.fromSynchronization(
+    buildStateSynchronization<TrackedQuestsState?>(
+      value: value,
+      status: status,
+    ),
+  );
+
   // ---- Connection ----
 
   /// Builds a Host identity with the representative local endpoint.
@@ -309,4 +378,182 @@ abstract final class Fixtures {
           stops: [0, 0.72],
         ),
   );
+
+  // ---- SDK Live State ----
+
+  /// Builds one public SDK resource value.
+  static CharacterVital buildCharacterVital({
+    /// The observed current value.
+    double current = 80,
+
+    /// The observed effective maximum.
+    double max = 100,
+  }) => CharacterVital(current: current, max: max);
+
+  /// Builds the coherent public SDK Vitals model.
+  static CharacterVitalsState buildCharacterVitals({
+    /// Whether the complete Vitals capture is available.
+    bool isAvailable = true,
+
+    /// The Health value, when available.
+    CharacterVital? health,
+
+    /// The Magicka value, when available.
+    CharacterVital? magicka,
+
+    /// The Stamina value, when available.
+    CharacterVital? stamina,
+  }) => CharacterVitalsState(
+    health: isAvailable ? health ?? buildCharacterVital() : null,
+    magicka: isAvailable
+        ? magicka ?? buildCharacterVital(current: 40, max: 80)
+        : null,
+    stamina: isAvailable
+        ? stamina ?? buildCharacterVital(current: 50, max: 90)
+        : null,
+  );
+
+  /// Builds the public SDK XP model.
+  static CharacterXpState buildCharacterXp({
+    /// The current XP value, or `null` when the model represents unavailability.
+    double? value = 63.25,
+  }) => CharacterXpState(value: value);
+
+  /// Builds the public SDK Level model.
+  static CharacterLevelState buildCharacterLevel({
+    /// The current level, or `null` when the model represents unavailability.
+    int? value = 43,
+  }) => CharacterLevelState(value: value);
+
+  /// Builds the public SDK Identity model.
+  static CharacterIdentityState buildCharacterIdentity({
+    /// The player's display name.
+    String name = 'Player',
+
+    /// The game-provided identity race.
+    String race = 'Nord',
+  }) => CharacterIdentityState(name: name, race: race);
+
+  /// Builds all public SDK supernatural-traits predicates.
+  static CharacterSupernaturalTraitsState buildSupernaturalTraits({
+    /// Whether the character is a vampire.
+    bool isVampire = false,
+
+    /// Whether the character has the Vampire Lord form.
+    bool hasVampireLordForm = false,
+
+    /// Whether the character has the werewolf form.
+    bool hasWerewolfForm = false,
+  }) => CharacterSupernaturalTraitsState(
+    isVampire: isVampire,
+    hasVampireLordForm: hasVampireLordForm,
+    hasWerewolfForm: hasWerewolfForm,
+  );
+
+  /// Builds the public SDK Location model with distinct cell and world facts.
+  static PlayerLocationState buildPlayerLocation({
+    /// The current cell's runtime ID.
+    int cellId = 22,
+
+    /// The current cell classification.
+    PlayerLocationCellKind cellKind = PlayerLocationCellKind.interior,
+
+    /// The localized cell name, when available.
+    String? cellName = 'Whiterun',
+
+    /// The selected location ID, when available.
+    int? locationId = 23,
+
+    /// The selected location name, when available.
+    String? locationName = 'The Bannered Mare',
+
+    /// The worldspace ID, when available.
+    int? worldspaceId,
+
+    /// The worldspace name, when available.
+    String? worldspaceName,
+  }) => PlayerLocationState(
+    cellId: cellId,
+    cellKind: cellKind,
+    cellName: cellName,
+    locationId: locationId,
+    locationName: locationName,
+    worldspaceId: worldspaceId,
+    worldspaceName: worldspaceName,
+  );
+
+  /// Builds a Skyrim calendar value from the public SDK.
+  static GameTimeState buildGameTime({
+    /// The game year.
+    int year = 4,
+
+    /// The one-based Skyrim month.
+    int month = 8,
+
+    /// The localized Skyrim month name.
+    String monthName = 'Last Seed',
+
+    /// The day of the Skyrim month.
+    int day = 12,
+
+    /// The whole game hour.
+    int hour = 14,
+
+    /// The game minute.
+    int minute = 30,
+  }) => GameTimeState(
+    year: year,
+    month: month,
+    monthName: monthName,
+    day: day,
+    hour: hour,
+    minute: minute,
+  );
+
+  /// Builds one public SDK quest objective.
+  static QuestObjective buildQuestObjective({
+    /// The authored objective index.
+    int index = 0,
+
+    /// The engine quest-instance ID.
+    int instanceId = 1,
+
+    /// The localized objective text, when available.
+    String? text = 'Complete the objective',
+
+    /// The engine-reported objective state.
+    TrackedQuestObjectiveState state = TrackedQuestObjectiveState.displayed,
+  }) => QuestObjective(
+    index: index,
+    instanceId: instanceId,
+    text: text,
+    state: state,
+  );
+
+  /// Builds one complete public SDK tracked quest.
+  static TrackedQuest buildTrackedQuest({
+    /// The active-runtime quest ID.
+    int questId = 1,
+
+    /// The localized quest title.
+    String title = 'Test Quest',
+
+    /// The raw Skyrim quest type.
+    int type = 0,
+
+    /// The current objective instances.
+    List<QuestObjective>? objectives,
+  }) => TrackedQuest(
+    questId: questId,
+    title: title,
+    type: type,
+    objectives: objectives ?? <QuestObjective>[buildQuestObjective()],
+  );
+
+  /// Builds the complete public SDK tracked-quest collection.
+  static TrackedQuestsState buildTrackedQuests({
+    /// Every currently tracked quest; an empty list represents available empty state.
+    List<TrackedQuest>? quests,
+  }) =>
+      TrackedQuestsState(quests: quests ?? <TrackedQuest>[buildTrackedQuest()]);
 }

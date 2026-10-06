@@ -4,6 +4,8 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.reducer.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/live_state.reducer.dart';
+import 'package:dovahlink_client/features/live_state/presentation/state/session_live_state.state.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.reducer.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
@@ -28,10 +30,12 @@ AppState appReducer(AppState state, Object? action) {
     state.deviceIdentity,
     action,
   );
+  final SessionLiveState liveState = liveStateReducer(state.liveState, action);
   if (identical(connection, state.connection) &&
       identical(pairing, state.pairing) &&
       identical(appearance, state.appearance) &&
-      identical(deviceIdentity, state.deviceIdentity)) {
+      identical(deviceIdentity, state.deviceIdentity) &&
+      identical(liveState, state.liveState)) {
     return state;
   }
   return AppState(
@@ -39,5 +43,6 @@ AppState appReducer(AppState state, Object? action) {
     pairing: pairing,
     appearance: appearance,
     deviceIdentity: deviceIdentity,
+    liveState: liveState,
   );
 }

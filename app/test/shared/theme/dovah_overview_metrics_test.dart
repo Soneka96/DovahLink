@@ -131,6 +131,22 @@ void main() {
           expect(metrics.heroMinHeight, testCase.$6);
           expect(metrics.statsTopGap, isA<double>());
           expect(metrics.statsTopGap, testCase.$7);
+          expect(
+            metrics.heroTitleLetterSpacingEm,
+            testCase.$1 == DovahThemePreset.frostbound ? 0.025 : 0,
+          );
+          expect(
+            metrics.panelTitleLetterSpacingEm,
+            testCase.$1 == DovahThemePreset.frostbound ? 0.025 : 0,
+          );
+          expect(
+            metrics.heroTitleLetterSpacingEm,
+            testCase.$1 == DovahThemePreset.frostbound ? 0.025 : 0,
+          );
+          expect(
+            metrics.panelTitleLetterSpacingEm,
+            testCase.$1 == DovahThemePreset.frostbound ? 0.025 : 0,
+          );
         },
       );
     }
