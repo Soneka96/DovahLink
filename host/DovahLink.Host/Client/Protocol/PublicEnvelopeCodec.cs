@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -111,10 +112,33 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
+        Converters =
+        {
+            new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower),
+            new UtcRfc3339DateTimeOffsetConverter(),
+        },
         RespectNullableAnnotations = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
+
+    /// <summary>Formats payload timestamps in the canonical UTC RFC 3339 form accepted by clients.</summary>
+    private sealed class UtcRfc3339DateTimeOffsetConverter : JsonConverter<DateTimeOffset>
+    {
+        /// <summary>Reads a JSON timestamp as a <see cref="DateTimeOffset"/>.</summary>
+        /// <param name="reader">The JSON reader positioned at the timestamp.</param>
+        /// <param name="typeToConvert">The requested value type.</param>
+        /// <param name="options">The serializer options for this conversion.</param>
+        /// <returns>The decoded timestamp.</returns>
+        public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            reader.GetDateTimeOffset();
+
+        /// <summary>Writes the timestamp in UTC with at most microsecond precision and a <c>Z</c> suffix.</summary>
+        /// <param name="writer">The JSON writer receiving the timestamp.</param>
+        /// <param name="value">The timestamp to write.</param>
+        /// <param name="options">The serializer options for this conversion.</param>
+        public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options) =>
+            writer.WriteStringValue(value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture));
+    }
 
     /// <summary>Supplies <c>stateAuthorityId</c>'s live value for the message types that require it; <see langword="null"/> for a codec never wired to one.</summary>
     private readonly IStateAuthorityLifecycle? stateAuthorityLifecycle;

@@ -30,6 +30,10 @@ for the player-facing summary posted with each Nexus Mods package. See
 - Pairing outcomes now expose Host-calculated attempts remaining and the committed renotify cooldown.
 - Raw public connection capacity is bounded separately from authenticated session capacity.
 
+### Fixed
+
+- Host state timestamps now use the canonical UTC RFC 3339 wire format accepted by the Dart SDK.
+
 ## [0.5.0] - 2026-09-24
 
 ### Changed

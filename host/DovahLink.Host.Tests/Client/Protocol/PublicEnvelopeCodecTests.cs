@@ -129,6 +129,51 @@ public class PublicEnvelopeCodecTests
         Assert.Null(decoded!.KnownRevision);
     }
 
+    /// <summary>Verifies that snapshot timestamps use canonical UTC RFC 3339 wire formatting.</summary>
+    [Fact]
+    public void Encode_StateSnapshotPayload_UsesCanonicalUtcTimestamp()
+    {
+        DateTimeOffset occurredAt = DateTimeOffset.Parse(
+            "2026-10-06T00:06:07.5478936+01:00",
+            System.Globalization.CultureInfo.InvariantCulture);
+        using JsonDocument data = JsonDocument.Parse("{}");
+        var payload = new StateSnapshotPayload
+        {
+            StateArea = "example_area",
+            Revision = 1,
+            OccurredAt = occurredAt,
+            Data = data.RootElement.Clone(),
+        };
+
+        byte[] encoded = Codec.Encode(PublicMessageType.StateSnapshot, "msg-1", "session-1", null, null, "client-1", payload);
+        using JsonDocument document = JsonDocument.Parse(encoded);
+
+        Assert.Equal("2026-10-05T23:06:07.547893Z", document.RootElement.GetProperty("payload").GetProperty("occurredAt").GetString());
+    }
+
+    /// <summary>Verifies that event timestamps use canonical UTC RFC 3339 wire formatting.</summary>
+    [Fact]
+    public void Encode_StateEventPayload_UsesCanonicalUtcTimestamp()
+    {
+        DateTimeOffset occurredAt = DateTimeOffset.Parse(
+            "2026-10-05T23:06:07.5478936+00:00",
+            System.Globalization.CultureInfo.InvariantCulture);
+        using JsonDocument data = JsonDocument.Parse("{}");
+        var payload = new StateEventPayload
+        {
+            StateArea = "example_area",
+            BaseRevision = 1,
+            Revision = 2,
+            OccurredAt = occurredAt,
+            Data = data.RootElement.Clone(),
+        };
+
+        byte[] encoded = Codec.Encode(PublicMessageType.StateEvent, "msg-1", "session-1", null, null, "client-1", payload);
+        using JsonDocument document = JsonDocument.Parse(encoded);
+
+        Assert.Equal("2026-10-05T23:06:07.547893Z", document.RootElement.GetProperty("payload").GetProperty("occurredAt").GetString());
+    }
+
     /// <summary>Verifies that an error payload round-trips, including a null details field.</summary>
     [Fact]
     public void EncodeThenDecode_ErrorPayload_RoundTrips()
