@@ -7,6 +7,8 @@ import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
+import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
@@ -20,6 +22,7 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         CharacterVitalsState,
         CharacterXpState,
         CredentialRejectionReason,
+        DovahLinkStateStatus,
         DovahLinkHost,
         DovahLinkHostAvailability,
         DovahLinkKnownHostSessionState,
@@ -30,12 +33,65 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         PlayerLocationCellKind,
         PlayerLocationState,
         QuestObjective,
+        StateSynchronization,
         TrackedQuest,
         TrackedQuestObjectiveState,
         TrackedQuestsState;
 
 /// Central test-owned catalog of representative Flutter app values.
 abstract final class Fixtures {
+  /// Builds an SDK synchronization value for presentation tests.
+  static StateSynchronization<T> buildStateSynchronization<T>({
+    /// The accepted SDK value, or `null` when no value is usable.
+    T? value,
+
+    /// The synchronization standing to represent.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+
+    /// The authority identity for a value with an accepted baseline.
+    String? stateAuthorityId = 'authority-a',
+
+    /// The play context for a value with an accepted baseline.
+    String? playContextId = 'context-a',
+
+    /// The last accepted revision for a value with an accepted baseline.
+    int? revision = 1,
+  }) => StateSynchronization<T>(
+    status: status,
+    value: value,
+    stateAuthorityId: stateAuthorityId,
+    playContextId: playContextId,
+    revision: revision,
+  );
+
+  /// Builds the Overview's Vitals presentation value.
+  static SessionOverviewVitalsViewData buildSessionOverviewVitalsViewData({
+    /// The coherent SDK Vitals value, or `null` when no value is usable.
+    CharacterVitalsState? value,
+
+    /// The Vitals synchronization standing.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+  }) => SessionOverviewVitalsViewData.fromSynchronization(
+    buildStateSynchronization<CharacterVitalsState>(
+      value: value,
+      status: status,
+    ),
+  );
+
+  /// Builds the Overview's tracked-quest presentation value.
+  static SessionOverviewQuestViewData buildSessionOverviewQuestViewData({
+    /// The complete tracked-quest value, or `null` when no value is usable.
+    TrackedQuestsState? value,
+
+    /// The tracked-quest synchronization standing.
+    DovahLinkStateStatus status = DovahLinkStateStatus.synchronized,
+  }) => SessionOverviewQuestViewData.fromSynchronization(
+    buildStateSynchronization<TrackedQuestsState?>(
+      value: value,
+      status: status,
+    ),
+  );
+
   // ---- Connection ----
 
   /// Builds a Host identity with the representative local endpoint.
