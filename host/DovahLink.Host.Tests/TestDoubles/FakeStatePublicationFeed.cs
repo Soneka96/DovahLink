@@ -2,6 +2,7 @@ using System.Diagnostics.CodeAnalysis;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.State;
 
 namespace DovahLink.Host.Tests.TestDoubles;
@@ -11,6 +12,12 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
 {
     /// <summary>The value each area's <see cref="TryGetSnapshot"/> call returns.</summary>
     private readonly Dictionary<StateAreaId, StateSnapshotPublication> snapshotsByArea = [];
+
+    /// <summary>The authority identity used when this fake creates a boundary baseline.</summary>
+    public StateAuthorityId CurrentStateAuthorityId { get; set; } = new(Guid.Empty);
+
+    /// <summary>Optional live authority source used when this fake creates boundary baselines.</summary>
+    public Func<StateAuthorityId>? CurrentStateAuthorityIdProvider { get; set; }
 
     /// <inheritdoc/>
     public event Action<StateEventPublication>? EventOccurred;
@@ -26,6 +33,9 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
         EventOccurred is not null ||
         SnapshotChanged is not null ||
         SnapshotAvailabilityChanged is not null;
+
+    /// <summary>Invoked immediately before a generic unavailable boundary Snapshot is created.</summary>
+    public Action<StateAreaId>? OnCreateUnavailableBoundaryBaseline { get; set; }
 
     /// <summary>Sets the value <see cref="TryGetSnapshot"/> returns for <paramref name="areaId"/>.</summary>
     /// <param name="areaId">The state area to set a value for.</param>
@@ -45,6 +55,23 @@ public sealed class FakeStatePublicationFeed : IStatePublicationFeed
     {
         OnTryGetSnapshot?.Invoke();
         return snapshotsByArea.TryGetValue(areaId, out snapshot);
+    }
+
+    /// <inheritdoc/>
+    public StateSnapshotPublication CreateUnavailableBoundaryBaseline(
+        StateAreaId areaId,
+        PlayContextSnapshot playContext,
+        DateTimeOffset occurredAt)
+    {
+        OnCreateUnavailableBoundaryBaseline?.Invoke(areaId);
+        return new StateSnapshotPublication(
+            areaId,
+            CurrentStateAuthorityIdProvider?.Invoke() ?? CurrentStateAuthorityId,
+            RevisionNumber.Initial,
+            occurredAt,
+            System.Text.Json.JsonSerializer.SerializeToElement(new { value = (object?)null }),
+            playContext.Current,
+            playContext.TransitionGeneration);
     }
 
     /// <summary>Raises <see cref="EventOccurred"/>, as a real feed would when a registered area's value changes.</summary>

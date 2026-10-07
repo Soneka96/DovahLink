@@ -96,6 +96,51 @@ public class ResynchronizationTransactionCoordinatorTests
         Assert.False(tracker.NeedsResynchronization);
     }
 
+    /// <summary>Verifies a newly registered baseline area is automatically required to complete catalog-driven resynchronization.</summary>
+    [Fact]
+    public void CatalogAddedBaselineArea_IsRequiredBeforeResynchronizationCompletes()
+    {
+        LiveStateCatalog productionCatalog = LiveStateCatalog.Default;
+        const uint futureSampleToken = 999;
+        StateAreaId futureArea = new("character_future");
+        var catalog = new LiveStateCatalog(
+            [.. productionCatalog.CaptureUnits,
+                new CaptureUnitDefinition(
+                    CaptureSourceKind.Sample,
+                    futureSampleToken,
+                    null,
+                    SynchronizationRole.BaselineSample,
+                    [futureArea])],
+            [.. productionCatalog.StateAreas, new StateAreaDefinition(futureArea, UpdateMode.Snapshot)]);
+
+        Assert.Contains(futureSampleToken, catalog.BuildResynchronizationPlan().BaselineSampleTokens);
+
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(tracker, instanceId, 1);
+        var coordinator = CreateCoordinator(catalog, tracker);
+        PlayContextId context = PlayContextId.NewId();
+        coordinator.RecordAdapterPlanAccepted(true, instanceId, 1, context, 1);
+
+        StateAreaId[] otherRequiredAreas = catalog.CaptureUnits
+            .Where(unit => unit.SynchronizationRole is
+                SynchronizationRole.BaselineSample or SynchronizationRole.HostOrchestratedBaseline)
+            .SelectMany(unit => unit.StateAreas)
+            .Where(area => area != futureArea)
+            .Distinct()
+            .ToArray();
+        foreach (StateAreaId area in otherRequiredAreas)
+        {
+            Assert.NotNull(coordinator.AcquireToken(instanceId, 1, context, 1));
+            coordinator.RecordAreaAccepted(area, instanceId, 1, context, 1);
+        }
+
+        Assert.True(tracker.NeedsResynchronization);
+        Assert.NotNull(coordinator.AcquireToken(instanceId, 1, context, 1));
+        coordinator.RecordAreaAccepted(futureArea, instanceId, 1, context, 1);
+        Assert.False(tracker.NeedsResynchronization);
+    }
+
     /// <summary>Verifies a delayed Host-orchestrated quest baseline can complete before the production watchdog recovers.</summary>
     [Fact]
     public async Task DefaultCatalog_DelayedTrackedQuestBaselineCompletesBeforeProductionWatchdog()

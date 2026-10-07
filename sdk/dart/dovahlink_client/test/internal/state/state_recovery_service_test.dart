@@ -241,7 +241,7 @@ void main() {
     );
 
     test(
-      'Method start requests recovery for an identified recovering domain',
+      'Method start waits for an identity baseline until an unbased Event makes it stale',
       () async {
         currentState = Fixtures.buildStateSynchronization<int?>(
           status: DovahLinkStateStatus.recovering,
@@ -251,14 +251,27 @@ void main() {
         stateChanges.add(currentState);
         await Future<void>.delayed(Duration.zero);
 
+        expect(requests.requests, isEmpty);
+
+        currentState = Fixtures.buildStateSynchronization<int?>(
+          status: DovahLinkStateStatus.stale,
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+        );
+        stateChanges.add(currentState);
+        await Future<void>.delayed(Duration.zero);
+
         expect(requests.requests, hasLength(1));
+        expect(requests.requests.single.payload, <String, dynamic>{
+          'stateArea': 'test_area',
+        });
         requests.requests.single.reply.complete(
-          buildStateSnapshotEnvelope(revision: 5, value: 50),
+          buildStateSnapshotEnvelope(revision: 0, value: 50),
         );
         await service.recover();
 
         expect(currentState.status, DovahLinkStateStatus.synchronized);
-        expect(currentState.revision, 5);
+        expect(currentState.revision, 0);
       },
     );
 

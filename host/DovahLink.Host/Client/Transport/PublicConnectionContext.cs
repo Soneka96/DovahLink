@@ -31,6 +31,9 @@ public interface IPublicConnectionContext
     /// <returns><see langword="true"/> when the value is now the pending snapshot for <paramref name="areaId"/>.</returns>
     bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload);
 
+    /// <summary>Purges pending Data-lane state on the owning connection and releases its shared byte reservations.</summary>
+    void PurgePendingData();
+
     /// <summary>
     /// Requests the owning connection's own orderly close. See
     /// <see cref="IPublicWebSocketConnection.RequestClose"/> for the drain and teardown contract
@@ -65,6 +68,9 @@ public sealed class PublicConnectionContext : IPublicConnectionContext
 
     /// <inheritdoc/>
     public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload) => connection.TrySendSnapshot(areaId, payload);
+
+    /// <inheritdoc/>
+    public void PurgePendingData() => connection.PurgePendingData();
 
     /// <inheritdoc/>
     public void RequestClose() => connection.RequestClose();

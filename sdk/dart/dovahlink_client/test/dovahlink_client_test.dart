@@ -85,6 +85,9 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
   /// Queued [FakeDovahLinkTransport.queueResponse] replies not yet released, in queue order.
   final PendingReplyQueue _pendingReplies = PendingReplyQueue();
 
+  /// Host frames to emit together in response to the next client send.
+  List<String>? _responsesForNextSend;
+
   /// The current connection's inbound stream, or `null` before
   /// [IDovahLinkTransport.connect] or after [IDovahLinkTransport.close].
   StreamController<String>? _incoming;
@@ -137,6 +140,18 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
   /// test that deliberately wants an unrewritten or mismatched `correlationId`.
   void queueRawResponse(String rawJson) => _requireIncoming().add(rawJson);
 
+  /// Emits [rawJsonMessages] back-to-back when the next client message is sent.
+  ///
+  /// Each non-null `correlationId` is rewritten to that outgoing message's ID, allowing one
+  /// request to receive its immediate reply and later correlated baseline in wire order.
+  /// @param rawJsonMessages The Host frames to deliver in order.
+  void queueResponsesForNextSend(List<String> rawJsonMessages) {
+    if (_responsesForNextSend != null) {
+      throw StateError('A response batch is already queued for the next send.');
+    }
+    _responsesForNextSend = List<String>.unmodifiable(rawJsonMessages);
+  }
+
   /// Delivers [error] on the current connection's inbound stream, simulating a transport-level
   /// failure (e.g. a dropped socket) while a request may be pending.
   void failMessagesWith(Object error) => _requireIncoming().addError(error);
@@ -172,10 +187,21 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
       throw failure;
     }
     sent.add(text);
-    _pendingReplies.releaseFor(
-      (jsonDecode(text) as JsonMap)['messageId'] as String,
-      _requireIncoming(),
-    );
+    final String messageId =
+        (jsonDecode(text) as JsonMap)['messageId'] as String;
+    _pendingReplies.releaseFor(messageId, _requireIncoming());
+    final List<String>? responseBatch = _responsesForNextSend;
+    _responsesForNextSend = null;
+    if (responseBatch != null) {
+      final StreamController<String> incoming = _requireIncoming();
+      for (final String rawJson in responseBatch) {
+        final JsonMap response = jsonDecode(rawJson) as JsonMap;
+        if (response['correlationId'] != null) {
+          response['correlationId'] = messageId;
+        }
+        incoming.add(jsonEncode(response));
+      }
+    }
   }
 
   /// Implements [IDovahLinkTransport.messages].
@@ -300,6 +326,27 @@ String _rawSessionInvalidated(
   'sessionId': sessionId,
   'correlationId': null,
   'payload': <String, dynamic>{'reason': reason},
+  'playContextId': null,
+  'clientId': null,
+});
+
+/// Builds a retryable Host timeout for an accepted state baseline.
+/// @param correlationId The `subscribe` request awaiting its baseline.
+/// @param sessionId The authenticated Host session reporting the timeout.
+/// @return The raw correlated Host error envelope.
+String _rawTemporarilyUnavailableError({
+  required String correlationId,
+  String sessionId = 'session-paired-1',
+}) => jsonEncode(<String, dynamic>{
+  'messageType': 'error',
+  'messageId': 'message-temporarily-unavailable-1',
+  'sessionId': sessionId,
+  'correlationId': correlationId,
+  'payload': <String, dynamic>{
+    'code': 'temporarily_unavailable',
+    'message': 'No authoritative baseline is available yet.',
+    'retryable': true,
+  },
   'playContextId': null,
   'clientId': null,
 });
@@ -629,7 +676,7 @@ void main() {
             predicate<StateSynchronization<PlayerLocationState?>>(
               (StateSynchronization<PlayerLocationState?> state) =>
                   state.status == DovahLinkStateStatus.unavailable &&
-                  state.value == null &&
+                  state.value?.cellName == 'WhiterunWorld' &&
                   state.revision == 2,
             ),
           ),
@@ -724,7 +771,8 @@ void main() {
             predicate<StateSynchronization<GameTimeState?>>(
               (StateSynchronization<GameTimeState?> state) =>
                   state.status == DovahLinkStateStatus.unavailable &&
-                  state.value == null &&
+                  state.value?.year == 201 &&
+                  state.value?.monthName == 'Hearthfire' &&
                   state.revision == 2,
             ),
           ),
@@ -836,7 +884,7 @@ void main() {
             predicate<StateSynchronization<TrackedQuestsState?>>(
               (StateSynchronization<TrackedQuestsState?> state) =>
                   state.status == DovahLinkStateStatus.unavailable &&
-                  state.value == null &&
+                  state.value?.quests.isEmpty == true &&
                   state.revision == 3,
             ),
           ),
@@ -2456,7 +2504,9 @@ void main() {
               (StateSynchronization<CharacterVitalsState> state) =>
                   state.status == DovahLinkStateStatus.unavailable &&
                   state.revision == 2 &&
-                  state.value?.isUnavailable == true,
+                  state.value?.health?.current == 327.0 &&
+                  state.value?.magicka?.current == 180.0 &&
+                  state.value?.stamina?.current == 120.0,
             ),
           ),
         );
@@ -2496,8 +2546,8 @@ void main() {
             value: 14,
           ),
         );
-        await recoveredLevelReceived;
 
+        await pumpEventQueue();
         final JsonMap snapshotRequest =
             jsonDecode(transport.sent.last) as JsonMap;
         expect(snapshotRequest['messageType'], 'snapshot_request');
@@ -2505,6 +2555,12 @@ void main() {
           'stateArea': 'character_level',
           'knownRevision': 2,
         });
+        final StateSynchronization<CharacterLevelState> recoveredLevel =
+            await client.currentHost.character.levelChanges.first;
+        expect(recoveredLevel.status, DovahLinkStateStatus.synchronized);
+        expect(recoveredLevel.value?.value, 14);
+        expect(recoveredLevel.revision, 5);
+        await recoveredLevelReceived;
 
         final Future<void> correlatedLevelBaselineReceived = expectLater(
           client.currentHost.character.levelChanges,
@@ -2526,10 +2582,394 @@ void main() {
           ),
         );
         await correlatedLevelBaselineReceived;
+
+        final int sentBeforeLaterLevelEvent = transport.sent.length;
+        final Future<void> laterLevelEventReceived = expectLater(
+          client.currentHost.character.levelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 7 &&
+                  state.value?.value == 16,
+            ),
+          ),
+        );
+        transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: 6,
+            revision: 7,
+            value: 16,
+          ),
+        );
+        await laterLevelEventReceived;
+
+        expect(transport.sent, hasLength(sentBeforeLaterLevelEvent));
         expect(client.connections.state, DovahLinkConnectionState.connected);
       },
     );
   });
+
+  group('Behavior late accepted baseline recovery behaves correctly', () {
+    test(
+      'Behavior late accepted baseline recovery synchronizes Identity from an unsolicited Snapshot after timeout',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        final Future<void> recovering = expectLater(
+          client.currentHost.character.identityChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterIdentityState?>>(
+              (StateSynchronization<CharacterIdentityState?> state) =>
+                  state.status == DovahLinkStateStatus.recovering,
+            ),
+          ),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_identity']),
+        );
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.characterIdentity,
+        );
+        final JsonMap subscribe = jsonDecode(transport.sent.last) as JsonMap;
+
+        transport.queueRawResponse(
+          _rawTemporarilyUnavailableError(
+            correlationId: subscribe['messageId'] as String,
+          ),
+        );
+        await recovering;
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+
+        final Future<void> synchronized = expectLater(
+          client.currentHost.character.identityChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterIdentityState?>>(
+              (StateSynchronization<CharacterIdentityState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.value?.name == 'Gonçalo' &&
+                  state.value?.race == 'Nord',
+            ),
+          ),
+        );
+        final JsonMap lateSnapshot =
+            jsonDecode(
+                    _rawStateSnapshot(
+                      stateArea: 'character_identity',
+                      revision: 1,
+                      value: <String, dynamic>{
+                        'name': 'Gonçalo',
+                        'race': 'Nord',
+                      },
+                    ),
+                  )
+                  as JsonMap
+              ..['sessionId'] = 'session-paired-1';
+        transport.queueRawResponse(jsonEncode(lateSnapshot));
+        await synchronized;
+
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          transport.sent
+              .map((String raw) => (jsonDecode(raw) as JsonMap)['messageType'])
+              .where((Object? type) => type == 'snapshot_request'),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'Behavior late accepted baseline recovery establishes Level before applying its next Event',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        final Future<void> recovering = expectLater(
+          client.currentHost.character.levelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.recovering,
+            ),
+          ),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_level']),
+        );
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.characterLevel,
+        );
+        final JsonMap subscribe = jsonDecode(transport.sent.last) as JsonMap;
+
+        transport.queueRawResponse(
+          _rawTemporarilyUnavailableError(
+            correlationId: subscribe['messageId'] as String,
+          ),
+        );
+        await recovering;
+
+        final Future<void> baselineReceived = expectLater(
+          client.currentHost.character.levelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.value?.value == 43,
+            ),
+          ),
+        );
+        final JsonMap lateSnapshot =
+            jsonDecode(
+                    _rawStateSnapshot(
+                      stateArea: 'character_level',
+                      revision: 1,
+                      value: 43,
+                    ),
+                  )
+                  as JsonMap
+              ..['sessionId'] = 'session-paired-1';
+        transport.queueRawResponse(jsonEncode(lateSnapshot));
+        await baselineReceived;
+
+        final Future<void> eventReceived = expectLater(
+          client.currentHost.character.levelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 2 &&
+                  state.value?.value == 44,
+            ),
+          ),
+        );
+        final JsonMap lateEvent =
+            jsonDecode(
+                    _rawStateEvent(
+                      stateArea: 'character_level',
+                      baseRevision: 1,
+                      revision: 2,
+                      value: 44,
+                    ),
+                  )
+                  as JsonMap
+              ..['sessionId'] = 'session-paired-1';
+        transport.queueRawResponse(jsonEncode(lateEvent));
+        await eventReceived;
+
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          transport.sent
+              .map((String raw) => (jsonDecode(raw) as JsonMap)['messageType'])
+              .where((Object? type) => type == 'snapshot_request'),
+          isEmpty,
+        );
+      },
+    );
+  });
+
+  group('Method queueResponsesForNextSend behaves correctly', () {
+    test(
+      'Method queueResponsesForNextSend rejects a second queued response batch',
+      () {
+        transport.queueResponsesForNextSend(<String>['{}']);
+
+        expect(
+          () => transport.queueResponsesForNextSend(<String>['{}']),
+          throwsA(isA<StateError>()),
+        );
+      },
+    );
+  });
+
+  group('Behavior accepted subscription baselines behave correctly', () {
+    test(
+      'Behavior accepted subscription baselines synchronize all eight domains when each Snapshot follows its ACK',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        final List<({String stateArea, Object? value})> baselines =
+            <({String stateArea, Object? value})>[
+              (stateArea: 'character_xp', value: 42.5),
+              (
+                stateArea: 'character_vitals',
+                value: _stateFixtureValue(
+                  'state/state-snapshot-character-vitals.json',
+                ),
+              ),
+              (stateArea: 'character_level', value: 15),
+              (
+                stateArea: 'character_identity',
+                value: _stateFixtureValue(
+                  'state/state-snapshot-character-identity.json',
+                ),
+              ),
+              (
+                stateArea: 'character_supernatural_traits',
+                value: _stateFixtureValue(
+                  'state/state-snapshot-character-supernatural-traits.json',
+                ),
+              ),
+              (
+                stateArea: 'player_location',
+                value: _stateFixtureValue(
+                  'state/state-snapshot-player-location.json',
+                ),
+              ),
+              (
+                stateArea: 'game_time',
+                value: _stateFixtureValue(
+                  'state/state-snapshot-game-time.json',
+                ),
+              ),
+              (
+                stateArea: 'tracked_quests',
+                value: _stateFixtureValue(
+                  'state/state-snapshot-tracked-quests-empty.json',
+                ),
+              ),
+            ];
+        final Set<String> desiredAreas = <String>{};
+
+        for (final ({String stateArea, Object? value}) baseline in baselines) {
+          desiredAreas.add(baseline.stateArea);
+          transport.queueResponsesForNextSend(<String>[
+            _rawSubscriptionAck(
+              accepted: <String>[
+                for (final DovahLinkStateArea area in DovahLinkStateArea.values)
+                  if (desiredAreas.contains(area.protocolValue))
+                    area.protocolValue,
+              ],
+            ),
+            _rawStateSnapshot(
+              stateArea: baseline.stateArea,
+              revision: 1,
+              value: baseline.value,
+              correlationId: 'subscribe-placeholder',
+            ),
+          ]);
+          expect(
+            await client.currentHost.subscribeStateArea(
+              DovahLinkStateArea.values.firstWhere(
+                (DovahLinkStateArea area) =>
+                    area.protocolValue == baseline.stateArea,
+              ),
+            ),
+            isEmpty,
+          );
+          await pumpEventQueue();
+        }
+
+        transport.queueResponsesForNextSend(<String>[
+          _rawSubscriptionAck(
+            accepted: <String>[
+              for (final DovahLinkStateArea area in DovahLinkStateArea.values)
+                if (desiredAreas.contains(area.protocolValue))
+                  area.protocolValue,
+            ],
+          ),
+        ]);
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.trackedQuests,
+        );
+        await pumpEventQueue();
+
+        expect(
+          (await client.currentHost.character.xpChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          (await client.currentHost.character.vitalsChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          (await client.currentHost.character.levelChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          (await client.currentHost.character.identityChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          (await client.currentHost.character.supernaturalTraitsChanges.first)
+              .status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          (await client.currentHost.playerLocationChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          (await client.currentHost.gameTimeChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          (await client.currentHost.trackedQuestsChanges.first).status,
+          DovahLinkStateStatus.synchronized,
+        );
+      },
+    );
+
+    test(
+      'Behavior accepted subscription baselines reject timeout errors after that area baseline is applied',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        transport.queueResponsesForNextSend(<String>[
+          _rawSubscriptionAck(accepted: <String>['character_xp']),
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+            correlationId: 'subscribe-placeholder',
+          ),
+        ]);
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.characterXp,
+        );
+        await pumpEventQueue();
+
+        final JsonMap subscribeRequest = _sentSubscriptionUpdates(
+          transport,
+        ).single;
+        transport.queueRawResponse(
+          _rawTemporarilyUnavailableError(
+            correlationId: subscribeRequest['messageId'] as String,
+          ),
+        );
+        await pumpEventQueue();
+
+        expect(client.connections.state, DovahLinkConnectionState.disconnected);
+      },
+    );
+
+    test(
+      'Behavior accepted subscription baselines keep the session healthy after a delayed retryable unavailable error',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_xp']),
+        );
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.characterXp,
+        );
+        final JsonMap subscribeRequest = _sentSubscriptionUpdates(
+          transport,
+        ).single;
+        transport.queueRawResponse(
+          _rawTemporarilyUnavailableError(
+            correlationId: subscribeRequest['messageId'] as String,
+          ),
+        );
+        await pumpEventQueue();
+
+        final StateSynchronization<CharacterXpState> state =
+            await client.currentHost.character.xpChanges.first;
+        expect(state.status, DovahLinkStateStatus.recovering);
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+      },
+    );
+  });
+
   group(
     'Methods subscribeStateArea and unsubscribeStateArea behave correctly',
     () {

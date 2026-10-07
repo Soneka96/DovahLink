@@ -1,6 +1,7 @@
 using System.Diagnostics.CodeAnalysis;
 using System.Text.Json;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
 
 namespace DovahLink.Host.State;
 
@@ -70,4 +71,19 @@ public interface IStatePublicationFeed
     /// <param name="snapshot">The area's current value as a snapshot, if available.</param>
     /// <returns><see langword="true"/> if a current value is available.</returns>
     bool TryGetSnapshot(StateAreaId areaId, [MaybeNullWhen(false)] out StateSnapshotPublication snapshot);
+
+    /// <summary>
+    /// Creates the generic revision-zero unavailable baseline for an accepted area at a committed
+    /// play-context boundary, without storing it or advancing normal revision state.
+    /// </summary>
+    /// <param name="areaId">The registered state area the baseline belongs to.</param>
+    /// <param name="playContext">The newly committed play-context identity and generation.</param>
+    /// <param name="occurredAt">The time the Host established the boundary baseline.</param>
+    /// <returns>A generic unavailable Snapshot owned by the supplied identity.</returns>
+    /// <exception cref="ArgumentException"><paramref name="areaId"/> is not registered.</exception>
+    /// <exception cref="InvalidOperationException">The state-authority lifecycle is faulted.</exception>
+    StateSnapshotPublication CreateUnavailableBoundaryBaseline(
+        StateAreaId areaId,
+        PlayContextSnapshot playContext,
+        DateTimeOffset occurredAt);
 }

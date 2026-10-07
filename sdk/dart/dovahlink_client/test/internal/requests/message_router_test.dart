@@ -74,7 +74,11 @@ void main() {
     bookkeeping = MockPendingOperationBookkeeping();
     sessionService = MockSessionService();
     unsolicitedMessageHandler = MockUnsolicitedMessageHandler();
+    when(() => bookkeeping.resolveReply(any(), any())).thenReturn(false);
     when(() => unsolicitedMessageHandler.handle(any())).thenAnswer((_) {});
+    when(
+      () => unsolicitedMessageHandler.handleCorrelatedBaselineError(any()),
+    ).thenReturn(false);
     router = MessageRouter(
       bookkeeping: bookkeeping,
       sessionService: sessionService,
@@ -220,6 +224,74 @@ void main() {
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
+      },
+    );
+
+    test(
+      'Method handleIncoming delegates unmatched correlated errors for baseline validation',
+      () {
+        when(
+          () => unsolicitedMessageHandler.handleCorrelatedBaselineError(any()),
+        ).thenReturn(true);
+
+        router.handleIncoming(
+          rawEnvelope(
+            messageType: 'error',
+            payload: const <String, dynamic>{
+              'code': 'temporarily_unavailable',
+              'message': 'No authoritative baseline is available yet.',
+              'retryable': true,
+            },
+            correlationId: 'completed-subscribe-request',
+          ),
+        );
+
+        final Envelope delegated =
+            verify(
+                  () => unsolicitedMessageHandler.handleCorrelatedBaselineError(
+                    captureAny(),
+                  ),
+                ).captured.single
+                as Envelope;
+        expect(delegated.messageType, ProtocolMessageType.error);
+        expect(delegated.correlationId, 'completed-subscribe-request');
+        verifyNever(
+          () => sessionService.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handleIncoming fails closed on an unknown correlated baseline error',
+      () {
+        router.handleIncoming(
+          rawEnvelope(
+            messageType: 'error',
+            payload: const <String, dynamic>{
+              'code': 'temporarily_unavailable',
+              'message': 'No authoritative baseline is available yet.',
+              'retryable': true,
+            },
+            correlationId: 'unknown-subscribe-request',
+          ),
+        );
+
+        final DovahLinkProtocolException error =
+            verify(
+                  () => sessionService.onProtocolViolation(
+                    captureAny(),
+                    orphanRetrySafeOperations: false,
+                  ),
+                ).captured.single
+                as DovahLinkProtocolException;
+        expect(error.code, ProtocolErrorCode.malformedMessage);
+        verify(
+          () => unsolicitedMessageHandler.handleCorrelatedBaselineError(any()),
+        ).called(1);
+        verifyNever(() => unsolicitedMessageHandler.handle(any()));
       },
     );
 

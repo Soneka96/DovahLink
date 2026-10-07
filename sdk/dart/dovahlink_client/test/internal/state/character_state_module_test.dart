@@ -166,7 +166,8 @@ void main() {
         );
         identity = await module.character.identityChanges.first;
         expect(identity.status, DovahLinkStateStatus.unavailable);
-        expect(identity.value, isNull);
+        expect(identity.value?.name, 'Gonçalo');
+        expect(identity.value?.race, 'Nord');
         expect(identity.revision, 2);
 
         final IStateDomainDefinition<Object?> traitsDomain = module.domains
@@ -213,7 +214,9 @@ void main() {
         unavailableTraits =
             await module.character.supernaturalTraitsChanges.first;
         expect(unavailableTraits.status, DovahLinkStateStatus.unavailable);
-        expect(unavailableTraits.value, isNull);
+        expect(unavailableTraits.value?.isVampire, isFalse);
+        expect(unavailableTraits.value?.hasVampireLordForm, isFalse);
+        expect(unavailableTraits.value?.hasWerewolfForm, isFalse);
         expect(unavailableTraits.revision, 2);
       },
     );

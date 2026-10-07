@@ -199,7 +199,7 @@ void main() {
         );
         state = await module.changes.first;
         expect(state.status, DovahLinkStateStatus.unavailable);
-        expect(state.value, isNull);
+        expect(state.value?.quests, isEmpty);
         expect(state.revision, 3);
 
         module.domain.tracker.beginRecovery();

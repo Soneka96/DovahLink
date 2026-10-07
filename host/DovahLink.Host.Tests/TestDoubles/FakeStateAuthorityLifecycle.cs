@@ -8,8 +8,21 @@ public sealed class FakeStateAuthorityLifecycle : IStateAuthorityLifecycle
     /// <summary>Backing field for <see cref="Current"/>.</summary>
     private StateAuthorityId current = new(Guid.NewGuid());
 
+    /// <summary>One-shot callback invoked after a read captures its return value but before the getter returns.</summary>
+    public Action? OnCurrentRead { get; set; }
+
     /// <inheritdoc/>
-    public StateAuthorityId Current => current;
+    public StateAuthorityId Current
+    {
+        get
+        {
+            StateAuthorityId value = current;
+            Action? callback = OnCurrentRead;
+            OnCurrentRead = null;
+            callback?.Invoke();
+            return value;
+        }
+    }
 
     /// <inheritdoc/>
     public bool IsFaulted => false;

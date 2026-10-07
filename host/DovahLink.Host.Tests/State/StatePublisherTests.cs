@@ -814,6 +814,7 @@ namespace DovahLink.Host.Tests.State
     {
         private static readonly StateAreaId AreaId = new("area_a");
         private static readonly JsonElement Data = JsonDocument.Parse("""{"value":93.4}""").RootElement;
+        private static readonly IStateAuthorityLifecycle StateAuthorityLifecycle = Fixtures.BuildStateAuthorityLifecycle();
 
         private static (StatePublicationFeed Feed, FakeAdapterAvailabilityTracker AdapterTracker, FakePlayContextTracker PlayContextTracker, RegisteredStateAreaPolicy RegisteredAreas, PlayContextId Context)
             CreateReadyFeed()
@@ -824,7 +825,7 @@ namespace DovahLink.Host.Tests.State
             var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
             var registeredAreas = new RegisteredStateAreaPolicy();
             registeredAreas.TryRegister(AreaId);
-            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas);
+            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas, StateAuthorityLifecycle);
             return (feed, adapterTracker, playContextTracker, registeredAreas, context);
         }
 
@@ -840,6 +841,7 @@ namespace DovahLink.Host.Tests.State
 
             Assert.NotNull(raised);
             Assert.Equal(AreaId, raised!.StateArea);
+            Assert.Equal(StateAuthorityLifecycle.Current, raised.StateAuthorityId);
             Assert.True(feed.TryGetSnapshot(AreaId, out StateSnapshotPublication? stored));
             Assert.Equal(raised, stored);
         }
@@ -856,9 +858,121 @@ namespace DovahLink.Host.Tests.State
 
             Assert.NotNull(raised);
             Assert.Equal(AreaId, raised!.StateArea);
+            Assert.Equal(StateAuthorityLifecycle.Current, raised.StateAuthorityId);
             Assert.True(feed.TryGetSnapshot(AreaId, out StateSnapshotPublication? stored));
             Assert.Equal(raised.Revision, stored!.Revision);
             Assert.Equal(raised.Data, stored.Data);
+        }
+
+        /// <summary>Verifies that a generic boundary baseline is revision zero, explicitly unavailable, and does not enter the normal feed cache.</summary>
+        [Fact]
+        public void CreateUnavailableBoundaryBaseline_RegisteredArea_ReturnsRevisionZeroWithoutPublishing()
+        {
+            (StatePublicationFeed feed, _, FakePlayContextTracker playContextTracker, _, PlayContextId context) = CreateReadyFeed();
+            var raised = false;
+            feed.SnapshotChanged += _ => raised = true;
+            var baselineTime = DateTimeOffset.UtcNow;
+            PlayContextSnapshot playContext = playContextTracker.GetSnapshot();
+
+            StateSnapshotPublication baseline = feed.CreateUnavailableBoundaryBaseline(AreaId, playContext, baselineTime);
+
+            Assert.Equal(RevisionNumber.Initial, baseline.Revision);
+            Assert.Equal(StateAuthorityLifecycle.Current, baseline.StateAuthorityId);
+            Assert.Equal(context, baseline.PlayContextId);
+            Assert.Equal(playContext.TransitionGeneration, baseline.PlayContextGeneration);
+            Assert.Equal(baselineTime, baseline.OccurredAt);
+            Assert.Equal(JsonValueKind.Null, baseline.Data.GetProperty("value").ValueKind);
+            Assert.False(raised);
+            Assert.False(feed.TryGetSnapshot(AreaId, out _));
+        }
+
+        /// <summary>Verifies that a boundary baseline remains valid without a loaded play context.</summary>
+        [Fact]
+        public void CreateUnavailableBoundaryBaseline_NullPlayContext_PreservesNullIdentity()
+        {
+            var playContextTracker = new FakePlayContextTracker();
+            var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+            var registeredAreas = new RegisteredStateAreaPolicy();
+            registeredAreas.TryRegister(AreaId);
+            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas, StateAuthorityLifecycle);
+
+            StateSnapshotPublication baseline = feed.CreateUnavailableBoundaryBaseline(
+                AreaId,
+            playContextTracker.GetSnapshot(),
+                DateTimeOffset.UtcNow);
+
+            Assert.Null(baseline.PlayContextId);
+            Assert.Equal(0, baseline.PlayContextGeneration);
+            Assert.Equal(RevisionNumber.Initial, baseline.Revision);
+            Assert.Equal(JsonValueKind.Null, baseline.Data.GetProperty("value").ValueKind);
+        }
+
+        /// <summary>Verifies that synthetic boundary baselines remain gated to registered state areas.</summary>
+        [Fact]
+        public void CreateUnavailableBoundaryBaseline_UnregisteredArea_Throws()
+        {
+            var playContextTracker = new FakePlayContextTracker();
+            var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+            var feed = new StatePublicationFeed(
+                adapterTracker,
+                playContextTracker,
+                new RegisteredStateAreaPolicy(),
+                StateAuthorityLifecycle);
+
+            Assert.Throws<ArgumentException>(() => feed.CreateUnavailableBoundaryBaseline(
+                AreaId,
+                playContextTracker.GetSnapshot(),
+                DateTimeOffset.UtcNow));
+        }
+
+        /// <summary>Verifies that a cached Snapshot from a prior authority is rejected even before the feed cache is cleared.</summary>
+        [Fact]
+        public void TryGetSnapshot_AuthorityRotated_RejectsCachedOldAuthorityValue()
+        {
+            var playContextTracker = new FakePlayContextTracker();
+            PlayContextId context = PlayContextId.NewId();
+            playContextTracker.NotifyTransition(context);
+            var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+            var registeredAreas = new RegisteredStateAreaPolicy();
+            registeredAreas.TryRegister(AreaId);
+            var authorityLifecycle = new FakeStateAuthorityLifecycle();
+            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas, authorityLifecycle);
+            feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow);
+            Assert.True(feed.TryGetSnapshot(AreaId, out _));
+
+            authorityLifecycle.NotifyRotated();
+
+            Assert.False(feed.TryGetSnapshot(AreaId, out _));
+        }
+
+        /// <summary>Verifies that establishing a synthetic revision-zero baseline does not consume the first real Host revision.</summary>
+        [Fact]
+        public void CreateUnavailableBoundaryBaseline_FirstRealCaptureStillUsesRevisionOne()
+        {
+            var playContextTracker = new FakePlayContextTracker();
+            PlayContextId context = PlayContextId.NewId();
+            playContextTracker.NotifyTransition(context);
+            var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+            var registeredAreas = new RegisteredStateAreaPolicy();
+            registeredAreas.TryRegister(AreaId);
+            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas, StateAuthorityLifecycle);
+            var publisher = new StatePublisher<int>(new RevisionTracker(), playContextTracker, adapterTracker);
+
+            StateSnapshotPublication baseline = feed.CreateUnavailableBoundaryBaseline(
+                AreaId,
+                playContextTracker.GetSnapshot(),
+                DateTimeOffset.UtcNow);
+            StateApplyResult applied = publisher.Apply(
+                adapterTracker.CurrentInstanceId!.Value,
+                adapterTracker.CurrentConnectionGeneration,
+                context,
+                playContextTracker.TransitionGeneration,
+                AreaId,
+                42);
+
+            Assert.Equal(RevisionNumber.Initial, baseline.Revision);
+            Assert.True(applied.Accepted);
+            Assert.Equal(RevisionNumber.Initial.Next(), applied.Revision);
         }
 
         /// <summary>Verifies that publishing to an unregistered area is a silent no-op: no event, no stored value.</summary>
@@ -869,7 +983,7 @@ namespace DovahLink.Host.Tests.State
             PlayContextId context = PlayContextId.NewId();
             playContextTracker.NotifyTransition(context);
             var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
-            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, new RegisteredStateAreaPolicy());
+            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, new RegisteredStateAreaPolicy(), StateAuthorityLifecycle);
             bool raised = false;
             feed.SnapshotChanged += _ => raised = true;
 
@@ -1018,7 +1132,7 @@ namespace DovahLink.Host.Tests.State
             PlayContextId context = PlayContextId.NewId();
             playContextTracker.NotifyTransition(context);
             var adapterTracker = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
-            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, new RegisteredStateAreaPolicy());
+            var feed = new StatePublicationFeed(adapterTracker, playContextTracker, new RegisteredStateAreaPolicy(), StateAuthorityLifecycle);
             bool raised = false;
             feed.EventOccurred += _ => raised = true;
 

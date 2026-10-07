@@ -23,5 +23,23 @@ void main() {
       expect(state.playContextId, isNull);
       expect(state.revision, 4);
     });
+
+    test(
+      'Method constructor keeps a retained value visible while unavailable',
+      () {
+        final StateSynchronization<int> state =
+            Fixtures.buildStateSynchronization<int>(
+              status: DovahLinkStateStatus.unavailable,
+              value: 12,
+              stateAuthorityId: 'authority-1',
+              playContextId: 'context-1',
+              revision: 5,
+            );
+
+        expect(state.status, DovahLinkStateStatus.unavailable);
+        expect(state.value, 12);
+        expect(state.revision, 5);
+      },
+    );
   });
 }

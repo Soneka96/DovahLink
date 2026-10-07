@@ -488,7 +488,10 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
 
         (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription is null
             ? ([], payload.StateAreas)
-            : subscription.HandleSubscribe(payload.StateAreas, reservedControlCapacity: 1);
+            : subscription.HandleSubscribe(
+                payload.StateAreas,
+                reservedControlCapacity: 1,
+                baselineCorrelationMessageId: envelope.MessageId);
 
         var ackPayload = new SubscriptionAckPayload { AcceptedStateAreas = accepted, RejectedStateAreas = rejected };
         PlayContextSnapshot snapshot = playContextTracker.GetSnapshot();

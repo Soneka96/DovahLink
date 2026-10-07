@@ -153,7 +153,8 @@ void main() {
         );
         state = await module.changes.first;
         expect(state.status, DovahLinkStateStatus.unavailable);
-        expect(state.value, isNull);
+        expect(state.value?.monthName, 'Hearthfire');
+        expect(state.value?.minute, 45);
         expect(state.revision, 2);
 
         module.domain.tracker.failRecovery();

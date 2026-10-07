@@ -181,6 +181,15 @@ Vitals, and Level remains separate when its Event plus Snapshot-baseline behavio
 This rule does not combine unrelated state into a whole-character object. Each area must remain
 independently authoritative and recoverable under its own lifecycle.
 
+For each connected client, a play-context or state-authority boundary is an ordered state operation:
+invalidate accepted-area recovery state, discard pending Data-lane Events/Snapshots and deferred
+Snapshots while releasing their reservations, then queue an unavailable revision-zero Snapshot for
+each accepted area before forwarding new-identity state. The single writer may finish a frame it has
+already dequeued before the reset; no other old queued state may follow a reset. A synthetic
+revision-zero baseline does not advance the authoritative publisher, so the first actual capture in
+a new play context remains revision one. This operation ranges over registered and accepted areas;
+it has no per-domain reset path.
+
 ## Public contract ownership
 
 The public SDK-to-host contract and the private host-to-adapter contract are separate contracts;

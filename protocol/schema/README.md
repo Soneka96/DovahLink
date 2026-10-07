@@ -61,7 +61,7 @@ independent protocol-generation number carried on every message — see
   by comparing `(stateAuthorityId, playContextId)` against what they have cached; a mismatch means
   the cached state came from a different authority continuity epoch or play context and must be
   discarded before the next snapshot is trusted.
-- `occurredAt` is UTC RFC 3339 wall-clock time for display and diagnostics; it is not an ordering source.
+- `occurredAt` is UTC RFC 3339 wall-clock time for display and diagnostics; it is not an ordering source. Its canonical wire form ends in `Z` and uses at most six fractional-second digits.
 - `data` contains the state-area contract.
 - An unavailable value is represented explicitly as `null` or by the state-area's documented availability field; it must not be replaced with a plausible default.
 

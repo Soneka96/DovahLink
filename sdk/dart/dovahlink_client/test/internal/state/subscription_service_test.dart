@@ -19,12 +19,26 @@ class RecordingStateMessageHandler implements IStateMessageHandler {
   /// The accepted areas from the most recent Host acknowledgement.
   Set<String> subscribedStateAreas = <String>{};
 
+  /// The subscribe request authorizing pending initial baselines, if any.
+  String? baselineCorrelationId;
+
   /// Replaces the accepted areas used by this test double.
   /// @param stateAreas The complete accepted set.
   @override
-  void setSubscribedStateAreas(Set<String> stateAreas) {
+  void setSubscribedStateAreas(
+    Set<String> stateAreas, {
+    String? baselineCorrelationId,
+  }) {
     subscribedStateAreas = Set<String>.of(stateAreas);
+    this.baselineCorrelationId = baselineCorrelationId;
   }
+
+  /// Reports whether the supplied correlation is the recorded baseline request.
+  /// @param correlationId The Host response correlation to check.
+  /// @return Whether the correlation matches the recorded request.
+  @override
+  bool isPendingBaselineCorrelation(String correlationId) =>
+      baselineCorrelationId == correlationId && subscribedStateAreas.isNotEmpty;
 
   /// Does not route state messages in subscription-service tests.
   /// @param envelope The unused state envelope.
@@ -98,6 +112,7 @@ void main() {
         expect(stateMessageHandler.subscribedStateAreas, <String>{
           DovahLinkStateArea.characterXp.protocolValue,
         });
+        expect(stateMessageHandler.baselineCorrelationId, 'req-1');
 
         final Future<Set<DovahLinkStateArea>> second = service
             .subscribeStateArea(DovahLinkStateArea.characterLevel);

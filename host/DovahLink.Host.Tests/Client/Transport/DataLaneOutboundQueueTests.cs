@@ -22,6 +22,64 @@ public class DataLaneOutboundQueueTests
         Assert.False(queue.TryDequeue(out _));
     }
 
+    /// <summary>Verifies that purging removes queued and dirty state, byte totals, and keyed lookup nodes.</summary>
+    [Fact]
+    public void PurgePending_RemovesQueuedAndDeferredStateAndReleasesReservations()
+    {
+        var queue = new DataLaneOutboundQueue();
+        var queuedArea = new StateAreaId("queued_area");
+        queue.TryAdmitEvent([1, 2], maxOutstandingMessages: 10, AlwaysAffordable);
+        queue.TryAdmitSnapshot(queuedArea, [3, 4, 5], maxOutstandingMessages: 10, AlwaysAffordable);
+        queue.TryAdmitSnapshot(queuedArea, [6, 7], maxOutstandingMessages: 10, NeverAffordable);
+        queue.TryAdmitSnapshot(new StateAreaId("dirty_area"), [6, 7], maxOutstandingMessages: 10, NeverAffordable);
+
+        (int removedMessages, long removedBytes) = queue.PurgePending();
+
+        Assert.Equal(2, removedMessages);
+        Assert.Equal(5, removedBytes);
+        Assert.Equal(0, queue.OutstandingMessages);
+        Assert.False(queue.TryDequeue(out _));
+        queue.TryPromoteDeferredSnapshots(maxOutstandingMessages: 10, AlwaysAffordable);
+        Assert.False(queue.TryDequeue(out _));
+
+        (removedMessages, removedBytes) = queue.PurgePending();
+        Assert.Equal(0, removedMessages);
+        Assert.Equal(0, removedBytes);
+        Assert.Equal(0, queue.OutstandingMessages);
+
+        Assert.True(queue.TryAdmitEvent([9], maxOutstandingMessages: 2, AlwaysAffordable));
+        Assert.True(queue.TryAdmitSnapshot(queuedArea, [8], maxOutstandingMessages: 2, AlwaysAffordable));
+        Assert.Equal(2, queue.OutstandingMessages);
+        Assert.True(queue.TryDequeue(out byte[]? freshEvent));
+        Assert.Equal(new byte[] { 9 }, freshEvent);
+        Assert.True(queue.TryDequeue(out byte[]? freshPayload));
+        Assert.Equal(new byte[] { 8 }, freshPayload);
+        queue.ReleaseOutstanding(maxOutstandingMessages: 2, AlwaysAffordable);
+        queue.ReleaseOutstanding(maxOutstandingMessages: 10, AlwaysAffordable);
+        Assert.Equal(0, queue.OutstandingMessages);
+    }
+
+    /// <summary>Verifies that purging leaves a dequeued frame's reservation for its writer to release.</summary>
+    [Fact]
+    public void PurgePending_DoesNotReleaseDequeuedFrameReservation()
+    {
+        var queue = new DataLaneOutboundQueue();
+        queue.TryAdmitEvent([1, 2], maxOutstandingMessages: 10, AlwaysAffordable);
+        Assert.True(queue.TryDequeue(out byte[]? inFlightPayload));
+        Assert.Equal(new byte[] { 1, 2 }, inFlightPayload);
+        queue.TryAdmitSnapshot(new StateAreaId("queued_area"), [3, 4, 5], maxOutstandingMessages: 10, AlwaysAffordable);
+        queue.TryAdmitSnapshot(new StateAreaId("dirty_area"), [6], maxOutstandingMessages: 10, NeverAffordable);
+
+        (int removedMessages, long removedBytes) = queue.PurgePending();
+
+        Assert.Equal(1, removedMessages);
+        Assert.Equal(3, removedBytes);
+        Assert.Equal(1, queue.OutstandingMessages);
+        Assert.False(queue.TryDequeue(out _));
+        queue.ReleaseOutstanding(maxOutstandingMessages: 10, AlwaysAffordable);
+        Assert.Equal(0, queue.OutstandingMessages);
+    }
+
     /// <summary>Verifies that an event is admitted, reserves one outstanding slot, and dequeues in order.</summary>
     [Fact]
     public void TryAdmitEvent_WithinBound_AdmitsAndReservesOneSlot()

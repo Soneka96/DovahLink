@@ -16,7 +16,8 @@ import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 
 /// Requests authoritative baselines when one domain's revision tracker becomes stale.
 abstract interface class IStateRecoveryService<T> {
-  /// Starts listening for stale/recovering transitions from the domain tracker.
+  /// Starts listening for stale transitions that require an authoritative baseline. A recovering
+  /// identity with no baseline waits for its initial Snapshot unless an unbased Event makes it stale.
   void start();
 
   /// Requests and reconciles authoritative Snapshots until recovery completes or fails.
@@ -78,16 +79,12 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
         }
         return;
       }
-      if (current.status == DovahLinkStateStatus.stale ||
-          (current.status == DovahLinkStateStatus.recovering &&
-              current.stateAuthorityId != null)) {
+      if (current.status == DovahLinkStateStatus.stale) {
         unawaited(recover());
       }
     });
     final StateSynchronization<T> current = _domain.tracker.current;
-    if (current.status == DovahLinkStateStatus.stale ||
-        (current.status == DovahLinkStateStatus.recovering &&
-            current.stateAuthorityId != null)) {
+    if (current.status == DovahLinkStateStatus.stale) {
       unawaited(recover());
     }
   }

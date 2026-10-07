@@ -22,6 +22,14 @@ abstract interface class IStateRevisionTracker<T> {
   /// Clears cached state after the consumer unsubscribes from this domain.
   void resetToNotSubscribed();
 
+  /// Keeps the domain subscribed while clearing its state for a new authority/context identity.
+  /// @param stateAuthorityId The newly observed Host continuity epoch.
+  /// @param playContextId The newly observed play-context identity, or `null` outside a loaded game.
+  void resetForIdentity({
+    required String stateAuthorityId,
+    required String? playContextId,
+  });
+
   /// Marks recovery as failed while retaining the last known state as diagnostics.
   void failRecovery();
 
@@ -31,7 +39,7 @@ abstract interface class IStateRevisionTracker<T> {
   /// @param revision The non-negative baseline revision.
   /// @param value The typed state-area value, including an explicit unavailable value.
   /// @param isUnavailable Whether the typed value represents legitimate unavailability.
-  /// @return Whether this Snapshot established a baseline or resolved recovery.
+  /// @return Whether this Snapshot baseline was accepted; buffered Event replay can still require recovery.
   bool applySnapshot({
     required String stateAuthorityId,
     required String? playContextId,
@@ -131,6 +139,25 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
     _state.update(StateSynchronization<T>.notSubscribed());
   }
 
+  /// See [IStateRevisionTracker.resetForIdentity].
+  @override
+  void resetForIdentity({
+    required String stateAuthorityId,
+    required String? playContextId,
+  }) {
+    _bufferedEvents.clear();
+    _recoveryBufferOverflowed = false;
+    _state.update(
+      StateSynchronization<T>(
+        status: DovahLinkStateStatus.recovering,
+        value: null,
+        stateAuthorityId: stateAuthorityId,
+        playContextId: playContextId,
+        revision: null,
+      ),
+    );
+  }
+
   /// See [IStateRevisionTracker.failRecovery].
   @override
   void failRecovery() {
@@ -180,12 +207,16 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
       }
     }
 
+    final T? acceptedValue =
+        sameIdentity && isUnavailable && previous.value != null
+        ? previous.value
+        : value;
     _state.update(
       StateSynchronization<T>(
         status: isUnavailable
             ? DovahLinkStateStatus.unavailable
             : DovahLinkStateStatus.synchronized,
-        value: value,
+        value: acceptedValue,
         stateAuthorityId: stateAuthorityId,
         playContextId: playContextId,
         revision: revision,
@@ -219,7 +250,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
             isUnavailable: event.isUnavailable,
           ) ==
           StateEventApplyResult.recoveryRequired) {
-        return false;
+        return true;
       }
     }
     return true;
@@ -253,7 +284,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
         _bufferedEvents.clear();
         _state.update(
           StateSynchronization<T>(
-            status: DovahLinkStateStatus.recovering,
+            status: DovahLinkStateStatus.stale,
             value: null,
             stateAuthorityId: stateAuthorityId,
             playContextId: playContextId,
@@ -262,6 +293,17 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
         );
       } else if (previousRevision != null && revision <= previousRevision) {
         return StateEventApplyResult.ignored;
+      } else if (previous.status == DovahLinkStateStatus.recovering &&
+          previousRevision == null) {
+        _state.update(
+          StateSynchronization<T>(
+            status: DovahLinkStateStatus.stale,
+            value: previous.value,
+            stateAuthorityId: previous.stateAuthorityId,
+            playContextId: previous.playContextId,
+            revision: null,
+          ),
+        );
       }
 
       if (_bufferedEvents.length == kStateRecoveryEventBufferLimit) {
@@ -292,7 +334,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
     if (!sameIdentity || previousRevision == null) {
       _state.update(
         StateSynchronization<T>(
-          status: DovahLinkStateStatus.recovering,
+          status: DovahLinkStateStatus.stale,
           value: null,
           stateAuthorityId: stateAuthorityId,
           playContextId: playContextId,
@@ -356,12 +398,16 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
       return StateEventApplyResult.recoveryRequired;
     }
 
+    final T? acceptedValue =
+        sameIdentity && isUnavailable && previous.value != null
+        ? previous.value
+        : value;
     _state.update(
       StateSynchronization<T>(
         status: isUnavailable
             ? DovahLinkStateStatus.unavailable
             : DovahLinkStateStatus.synchronized,
-        value: value,
+        value: acceptedValue,
         stateAuthorityId: stateAuthorityId,
         playContextId: playContextId,
         revision: revision,

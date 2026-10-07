@@ -10,6 +10,7 @@ namespace DovahLink.Host.State;
 /// and <see cref="Revision"/> must equal <see cref="BaseRevision"/> plus one.
 /// </summary>
 /// <param name="StateArea">The state area this event belongs to.</param>
+/// <param name="StateAuthorityId">The Host continuity epoch under which this event was published.</param>
 /// <param name="BaseRevision">The revision a recipient must already hold for this event to apply.</param>
 /// <param name="Revision">The revision this event advances the state area to.</param>
 /// <param name="OccurredAt">When this change was captured, for display and diagnostics only -- not an ordering source.</param>
@@ -27,6 +28,7 @@ namespace DovahLink.Host.State;
 /// </param>
 public sealed record StateEventPublication(
     StateAreaId StateArea,
+    StateAuthorityId StateAuthorityId,
     RevisionNumber BaseRevision,
     RevisionNumber Revision,
     DateTimeOffset OccurredAt,

@@ -37,6 +37,9 @@ void main() {
     sessionService = MockSessionService();
     stateMessageHandler = MockStateMessageHandler();
     when(() => stateMessageHandler.handle(any())).thenAnswer((_) {});
+    when(
+      () => stateMessageHandler.isPendingBaselineCorrelation(any()),
+    ).thenReturn(false);
     handler = UnsolicitedMessageHandler(
       sessionService: sessionService,
       stateMessageHandler: stateMessageHandler,
@@ -238,5 +241,115 @@ void main() {
       }
       verifyNever(() => sessionService.onUnsolicitedError(any()));
     });
+  });
+
+  group('Method handleCorrelatedBaselineError behaves correctly', () {
+    test(
+      'Method handleCorrelatedBaselineError consumes a known retryable baseline timeout',
+      () {
+        when(
+          () => stateMessageHandler.isPendingBaselineCorrelation('subscribe-1'),
+        ).thenReturn(true);
+
+        expect(
+          handler.handleCorrelatedBaselineError(
+            Fixtures.buildEnvelope(
+              messageType: ProtocolMessageType.error,
+              correlationId: 'subscribe-1',
+              payload: const <String, dynamic>{
+                'code': 'temporarily_unavailable',
+                'message': 'No authoritative baseline is available yet.',
+                'retryable': true,
+              },
+            ),
+          ),
+          isTrue,
+        );
+        verify(
+          () => stateMessageHandler.isPendingBaselineCorrelation('subscribe-1'),
+        ).called(1);
+        verifyNever(() => sessionService.onUnsolicitedError(any()));
+        verifyNever(
+          () => sessionService.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handleCorrelatedBaselineError leaves unknown correlations unconsumed',
+      () {
+        expect(
+          handler.handleCorrelatedBaselineError(
+            Fixtures.buildEnvelope(
+              messageType: ProtocolMessageType.error,
+              correlationId: 'unknown',
+              payload: const <String, dynamic>{
+                'code': 'temporarily_unavailable',
+                'message': 'No authoritative baseline is available yet.',
+                'retryable': true,
+              },
+            ),
+          ),
+          isFalse,
+        );
+        verify(
+          () => stateMessageHandler.isPendingBaselineCorrelation('unknown'),
+        ).called(1);
+        verifyNever(() => sessionService.onUnsolicitedError(any()));
+      },
+    );
+
+    test(
+      'Method handleCorrelatedBaselineError rejects non-retryable baseline errors',
+      () {
+        expect(
+          handler.handleCorrelatedBaselineError(
+            Fixtures.buildEnvelope(
+              messageType: ProtocolMessageType.error,
+              correlationId: 'subscribe-1',
+              payload: const <String, dynamic>{
+                'code': 'temporarily_unavailable',
+                'message': 'No authoritative baseline is available yet.',
+                'retryable': false,
+              },
+            ),
+          ),
+          isFalse,
+        );
+        verifyNever(
+          () => stateMessageHandler.isPendingBaselineCorrelation(any()),
+        );
+      },
+    );
+
+    test(
+      'Method handleCorrelatedBaselineError reports malformed correlated errors',
+      () {
+        expect(
+          handler.handleCorrelatedBaselineError(
+            Fixtures.buildEnvelope(
+              messageType: ProtocolMessageType.error,
+              correlationId: 'subscribe-1',
+              payload: const <String, dynamic>{'code': 'unknown'},
+            ),
+          ),
+          isTrue,
+        );
+
+        final DovahLinkProtocolException error =
+            verify(
+                  () => sessionService.onProtocolViolation(
+                    captureAny(),
+                    orphanRetrySafeOperations: false,
+                  ),
+                ).captured.single
+                as DovahLinkProtocolException;
+        expect(error.code, ProtocolErrorCode.malformedMessage);
+        verifyNever(() => sessionService.onUnsolicitedError(any()));
+      },
+    );
   });
 }

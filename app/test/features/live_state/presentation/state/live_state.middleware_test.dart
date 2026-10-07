@@ -392,15 +392,12 @@ void main() {
 
   group('LiveStateMiddleware processes SDK lifecycle correctly', () {
     test(
-      'initialize attaches once and a trusted session requests all eight areas',
+      'initialize attaches and requests all areas for an already connected trusted session',
       () async {
+        sdk.connectionState = DovahLinkConnectionState.connected;
         middleware.initialize(store);
         middleware.initialize(store);
         await pumpEventQueue();
-
-        sdk.emitConnectionState(DovahLinkConnectionState.connected);
-        await pumpEventQueue();
-        await _trustCurrentSession(sdk, middleware, store);
 
         expect(sdk.requestedAreas, _expectedAreas);
         expect(sdk.vitalsStreamReads, 1);
@@ -411,6 +408,28 @@ void main() {
         expect(sdk.locationStreamReads, 1);
         expect(sdk.gameTimeStreamReads, 1);
         expect(sdk.questsStreamReads, 1);
+        expect(sdk.vitals.hasListener, isTrue);
+        expect(sdk.xp.hasListener, isTrue);
+        expect(sdk.level.hasListener, isTrue);
+        expect(sdk.identity.hasListener, isTrue);
+        expect(sdk.supernaturalTraits.hasListener, isTrue);
+        expect(sdk.location.hasListener, isTrue);
+        expect(sdk.gameTime.hasListener, isTrue);
+        expect(sdk.quests.hasListener, isTrue);
+
+        sdk.xp.add(
+          StateSynchronization<CharacterXpState>(
+            status: DovahLinkStateStatus.synchronized,
+            value: Fixtures.buildCharacterXp(value: 42.5),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 1,
+          ),
+        );
+        expect(
+          actions.whereType<CharacterXpSynchronizationChangedAction>(),
+          hasLength(1),
+        );
       },
     );
 
@@ -437,6 +456,20 @@ void main() {
         expect(forwarded, [trustedAction, trustedAction]);
         expect(sdk.requestedAreas, _expectedAreas);
         expect(sdk.vitalsStreamReads, 1);
+      },
+    );
+
+    test(
+      'PairingSessionTrustedAction does not attach streams while disconnected',
+      () {
+        const PairingSessionTrustedAction trustedAction =
+            PairingSessionTrustedAction();
+
+        middleware.call(store, trustedAction, actions.add);
+
+        expect(actions, [trustedAction]);
+        expect(sdk.requestedAreas, isEmpty);
+        expect(sdk.vitalsStreamReads, 0);
       },
     );
 
@@ -673,9 +706,11 @@ void main() {
         middleware.initialize(store);
         await pumpEventQueue();
         middleware.call(store, const PairingSessionTrustedAction(), (_) {});
+        sdk.emitConnectionState(DovahLinkConnectionState.connected);
         sdk.emitConnectionState(DovahLinkConnectionState.reconnecting);
         sdk.emitConnectionState(DovahLinkConnectionState.reauthenticating);
         sdk.emitConnectionState(DovahLinkConnectionState.connected);
+        middleware.call(store, const PairingSessionTrustedAction(), (_) {});
         await pumpEventQueue();
 
         expect(sdk.requestedAreas, _expectedAreas);
