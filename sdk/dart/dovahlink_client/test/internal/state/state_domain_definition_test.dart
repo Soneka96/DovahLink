@@ -151,11 +151,12 @@ void main() {
     test(
       'Method applySnapshot decodes the value and forwards its identity and revision',
       () {
-        definition.applySnapshot(
+        final bool accepted = definition.applySnapshot(
           envelope: buildStateEnvelope(ProtocolMessageType.stateSnapshot),
           payload: buildSnapshotPayload(87.5),
         );
 
+        expect(accepted, isTrue);
         final num? value =
             verify(
                   () => tracker.applySnapshot(
@@ -168,6 +169,28 @@ void main() {
                 ).captured.single
                 as num?;
         expect(value, 87.5);
+      },
+    );
+
+    test(
+      'Method applySnapshot propagates when the tracker rejects a baseline',
+      () {
+        when(
+          () => tracker.applySnapshot(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+            revision: any(named: 'revision'),
+            value: any(named: 'value'),
+            isUnavailable: any(named: 'isUnavailable'),
+          ),
+        ).thenReturn(false);
+
+        final bool accepted = definition.applySnapshot(
+          envelope: buildStateEnvelope(ProtocolMessageType.stateSnapshot),
+          payload: buildSnapshotPayload(87.5),
+        );
+
+        expect(accepted, isFalse);
       },
     );
 

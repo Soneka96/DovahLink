@@ -81,6 +81,10 @@ class MessageRouter implements IMessageRouter {
         _unsolicitedMessageHandler.handle(envelope);
         return;
       }
+      if (envelope.messageType == ProtocolMessageType.error &&
+          _unsolicitedMessageHandler.handleCorrelatedBaselineError(envelope)) {
+        return;
+      }
 
       // Protocol violation, not ordinary connectivity loss -- see the malformed-JSON branch
       // above for why this never orphans a retry-safe operation either.

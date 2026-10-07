@@ -10,6 +10,7 @@ namespace DovahLink.Host.State;
 /// supersedes older events for that area.
 /// </summary>
 /// <param name="StateArea">The state area this value belongs to.</param>
+/// <param name="StateAuthorityId">The Host continuity epoch under which this snapshot was published.</param>
 /// <param name="Revision">The revision this value is current as of.</param>
 /// <param name="OccurredAt">When this value was captured, for display and diagnostics only -- not an ordering source.</param>
 /// <param name="Data">
@@ -30,6 +31,7 @@ namespace DovahLink.Host.State;
 /// </param>
 public sealed record StateSnapshotPublication(
     StateAreaId StateArea,
+    StateAuthorityId StateAuthorityId,
     RevisionNumber Revision,
     DateTimeOffset OccurredAt,
     JsonElement Data,

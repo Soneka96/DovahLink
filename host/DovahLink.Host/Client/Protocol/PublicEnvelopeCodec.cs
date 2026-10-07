@@ -1,4 +1,5 @@
 using System.Diagnostics.CodeAnalysis;
+using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -13,9 +14,9 @@ namespace DovahLink.Host.Client.Protocol;
 /// "Input limits". Enforces the approved bounded JSON limits -- maximum decoded nesting depth,
 /// string length, array length, and object member count -- before any typed DTO is materialized, and
 /// validates every required envelope field's presence and type, including <c>stateAuthorityId</c>'s
-/// closed per-message-type presence table. Holds no mutable state of its own -- it only reads the
-/// live value from its injected <see cref="IStateAuthorityLifecycle"/> at encode time -- so one
-/// instance remains safe to share across every connection.
+/// closed per-message-type presence table. It reads the live authority for <c>hello_ack</c>; state
+/// publications must provide their own captured authority so their wire provenance stays coherent.
+/// One instance remains safe to share across every connection.
 /// </summary>
 public interface IPublicEnvelopeCodec
 {
@@ -49,9 +50,9 @@ public interface IPublicEnvelopeCodec
 
     /// <summary>
     /// Encodes a host-originated message into its complete wire envelope. <c>stateAuthorityId</c> is
-    /// stamped automatically from the injected <see cref="IStateAuthorityLifecycle"/> on
-    /// <c>hello_ack</c>, <c>state_snapshot</c>, and <c>state_event</c> only, and omitted from every
-    /// other message -- callers never supply it directly.
+    /// stamped from the injected <see cref="IStateAuthorityLifecycle"/> for <c>hello_ack</c> and is
+    /// omitted from every message type that does not require it. State publications use
+    /// <see cref="EncodeStatePublication{TPayload}"/> so they retain their captured provenance.
     /// </summary>
     /// <typeparam name="TPayload">The message-specific payload type being encoded.</typeparam>
     /// <param name="messageType">The canonical message type.</param>
@@ -67,8 +68,9 @@ public interface IPublicEnvelopeCodec
     /// schema's <c>payload: object</c> requirement that <see cref="TryDecode"/> enforces on decode.
     /// </exception>
     /// <exception cref="InvalidOperationException">
-    /// <paramref name="messageType"/> requires <c>stateAuthorityId</c> but this codec was constructed
-    /// with no <see cref="IStateAuthorityLifecycle"/>, or that lifecycle is faulted.
+    /// <paramref name="messageType"/> is a state publication, which requires
+    /// <see cref="EncodeStatePublication{TPayload}"/>, or is <c>hello_ack</c> and this codec was
+    /// constructed with no <see cref="IStateAuthorityLifecycle"/> or that lifecycle is faulted.
     /// </exception>
     byte[] Encode<TPayload>(
         PublicMessageType messageType,
@@ -77,6 +79,31 @@ public interface IPublicEnvelopeCodec
         string? correlationId,
         string? playContextId,
         string? clientId,
+        TPayload payload);
+
+    /// <summary>
+    /// Encodes one state Snapshot or Event using the authority identity captured by its immutable
+    /// publication. It never reads the lifecycle's later current value.
+    /// </summary>
+    /// <typeparam name="TPayload">The state publication payload type.</typeparam>
+    /// <param name="messageType">The state publication type, either <c>state_snapshot</c> or <c>state_event</c>.</param>
+    /// <param name="messageId">A fresh, cryptographically random message identifier, unique within the socket session.</param>
+    /// <param name="sessionId">The server-issued session identity.</param>
+    /// <param name="correlationId">The originating request identifier, or <see langword="null"/> when unsolicited.</param>
+    /// <param name="playContextId">The play context captured by the publication, or <see langword="null"/> outside an active play context.</param>
+    /// <param name="clientId">The authenticated client identity, when required by the message.</param>
+    /// <param name="stateAuthorityId">The authority identity captured by the publication.</param>
+    /// <param name="payload">The immutable publication payload to encode.</param>
+    /// <returns>The complete UTF-8 encoded message bytes.</returns>
+    /// <exception cref="ArgumentException"><paramref name="messageType"/> is not a state Snapshot or Event, or the payload is not a JSON object.</exception>
+    byte[] EncodeStatePublication<TPayload>(
+        PublicMessageType messageType,
+        string messageId,
+        string? sessionId,
+        string? correlationId,
+        string? playContextId,
+        string? clientId,
+        StateAuthorityId stateAuthorityId,
         TPayload payload);
 }
 
@@ -111,16 +138,39 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
     private static readonly JsonSerializerOptions PayloadSerializerOptions = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower) },
+        Converters =
+        {
+            new JsonStringEnumConverter(JsonNamingPolicy.SnakeCaseLower),
+            new UtcRfc3339DateTimeOffsetConverter(),
+        },
         RespectNullableAnnotations = true,
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
-    /// <summary>Supplies <c>stateAuthorityId</c>'s live value for the message types that require it; <see langword="null"/> for a codec never wired to one.</summary>
+    /// <summary>Formats payload timestamps in the canonical UTC RFC 3339 form accepted by clients.</summary>
+    private sealed class UtcRfc3339DateTimeOffsetConverter : JsonConverter<DateTimeOffset>
+    {
+        /// <summary>Reads a JSON timestamp as a <see cref="DateTimeOffset"/>.</summary>
+        /// <param name="reader">The JSON reader positioned at the timestamp.</param>
+        /// <param name="typeToConvert">The requested value type.</param>
+        /// <param name="options">The serializer options for this conversion.</param>
+        /// <returns>The decoded timestamp.</returns>
+        public override DateTimeOffset Read(ref Utf8JsonReader reader, Type typeToConvert, JsonSerializerOptions options) =>
+            reader.GetDateTimeOffset();
+
+        /// <summary>Writes the timestamp in UTC with at most microsecond precision and a <c>Z</c> suffix.</summary>
+        /// <param name="writer">The JSON writer receiving the timestamp.</param>
+        /// <param name="value">The timestamp to write.</param>
+        /// <param name="options">The serializer options for this conversion.</param>
+        public override void Write(Utf8JsonWriter writer, DateTimeOffset value, JsonSerializerOptions options) =>
+            writer.WriteStringValue(value.UtcDateTime.ToString("yyyy-MM-dd'T'HH:mm:ss.ffffff'Z'", CultureInfo.InvariantCulture));
+    }
+
+    /// <summary>Supplies the current authority for <c>hello_ack</c>; state publications use their captured identity.</summary>
     private readonly IStateAuthorityLifecycle? stateAuthorityLifecycle;
 
-    /// <summary>Creates a codec that stamps <c>stateAuthorityId</c> from <paramref name="stateAuthorityLifecycle"/> on the message types that require it.</summary>
-    /// <param name="stateAuthorityLifecycle">The live source of <c>stateAuthorityId</c>. Defaults to <see langword="null"/>, safe for any codec that will never encode <c>hello_ack</c>/<c>state_snapshot</c>/<c>state_event</c>.</param>
+    /// <summary>Creates a codec that stamps <c>hello_ack</c> with the current authority.</summary>
+    /// <param name="stateAuthorityLifecycle">The live authority source for <c>hello_ack</c>. Defaults to <see langword="null"/>, safe when no hello acknowledgement is encoded.</param>
     public PublicEnvelopeCodec(IStateAuthorityLifecycle? stateAuthorityLifecycle = null)
     {
         this.stateAuthorityLifecycle = stateAuthorityLifecycle;
@@ -200,6 +250,49 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
         string? correlationId,
         string? playContextId,
         string? clientId,
+        TPayload payload) =>
+        EncodeCore(messageType, messageId, sessionId, correlationId, playContextId, clientId, null, payload);
+
+    /// <inheritdoc/>
+    public byte[] EncodeStatePublication<TPayload>(
+        PublicMessageType messageType,
+        string messageId,
+        string? sessionId,
+        string? correlationId,
+        string? playContextId,
+        string? clientId,
+        StateAuthorityId stateAuthorityId,
+        TPayload payload)
+    {
+        if (messageType is not (PublicMessageType.StateSnapshot or PublicMessageType.StateEvent))
+        {
+            throw new ArgumentException("A state publication must be a Snapshot or Event.", nameof(messageType));
+        }
+
+        return EncodeCore(messageType, messageId, sessionId, correlationId, playContextId, clientId, stateAuthorityId, payload);
+    }
+
+    /// <summary>Serializes one envelope using captured publication authority when supplied.</summary>
+    /// <typeparam name="TPayload">The message-specific payload type.</typeparam>
+    /// <param name="messageType">The canonical message type.</param>
+    /// <param name="messageId">A fresh message identifier.</param>
+    /// <param name="sessionId">The session identifier, if admitted.</param>
+    /// <param name="correlationId">The response correlation identifier, if any.</param>
+    /// <param name="playContextId">The captured play-context identity, if any.</param>
+    /// <param name="clientId">The authenticated client identity, if any.</param>
+    /// <param name="publicationAuthorityId">The captured authority for a state Snapshot or Event, or <see langword="null"/> for other message types.</param>
+    /// <param name="payload">The message-specific payload.</param>
+    /// <returns>The complete UTF-8 encoded message bytes.</returns>
+    /// <exception cref="ArgumentException">The payload did not serialize to a JSON object.</exception>
+    /// <exception cref="InvalidOperationException">A state publication has no captured authority, or <c>hello_ack</c> has no usable lifecycle.</exception>
+    private byte[] EncodeCore<TPayload>(
+        PublicMessageType messageType,
+        string messageId,
+        string? sessionId,
+        string? correlationId,
+        string? playContextId,
+        string? clientId,
+        StateAuthorityId? publicationAuthorityId,
         TPayload payload)
     {
         JsonNode? payloadNode = JsonSerializer.SerializeToNode(payload, PayloadSerializerOptions);
@@ -224,12 +317,26 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
 
         if (RequiresStateAuthorityId(messageType))
         {
-            if (stateAuthorityLifecycle is null)
+            StateAuthorityId authorityId;
+            if (publicationAuthorityId is StateAuthorityId capturedAuthorityId)
             {
-                throw new InvalidOperationException($"{messageType} requires stateAuthorityId, but this codec has no {nameof(IStateAuthorityLifecycle)} configured.");
+                authorityId = capturedAuthorityId;
+            }
+            else if (messageType == PublicMessageType.HelloAck)
+            {
+                if (stateAuthorityLifecycle is null)
+                {
+                    throw new InvalidOperationException($"{messageType} requires stateAuthorityId, but this codec has no {nameof(IStateAuthorityLifecycle)} configured.");
+                }
+
+                authorityId = stateAuthorityLifecycle.Current;
+            }
+            else
+            {
+                throw new InvalidOperationException($"{messageType} requires its captured publication authority; use {nameof(EncodeStatePublication)}.");
             }
 
-            envelope["stateAuthorityId"] = stateAuthorityLifecycle.Current.ToString();
+            envelope["stateAuthorityId"] = authorityId.ToString();
         }
 
         envelope["playContextId"] = playContextId;

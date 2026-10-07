@@ -86,6 +86,12 @@ public interface IPublicWebSocketConnection
     bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload);
 
     /// <summary>
+    /// Removes all queued and deferred Data-lane state and releases its shared byte reservations.
+    /// A frame already dequeued by the writer remains reserved until its send finishes.
+    /// </summary>
+    void PurgePendingData();
+
+    /// <summary>
     /// Requests this connection's own orderly close: the read loop stops serving further inbound
     /// messages, but unlike the forced close <see cref="TrySend"/> requests for an unadmittable
     /// message, any frame already admitted onto the bounded outbound queue keeps its normal bounded
@@ -140,6 +146,9 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// by the writer loop only once <see cref="controlOutbound"/> has none pending.
     /// </summary>
     private readonly IDataLaneOutboundQueue dataLaneQueue;
+
+    /// <summary>Serializes Data-lane admission with purge accounting updates.</summary>
+    private readonly object dataQueueMutationGate = new();
 
     /// <summary>The public Host metadata returned by the sessionless probe route.</summary>
     private readonly HostIdentity hostIdentity;
@@ -443,7 +452,13 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         }
 
         byte[] eventFrame = payload.ToArray();
-        if (!dataLaneQueue.TryAdmitEvent(eventFrame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes))
+        bool admitted;
+        lock (dataQueueMutationGate)
+        {
+            admitted = dataLaneQueue.TryAdmitEvent(eventFrame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes);
+        }
+
+        if (!admitted)
         {
             RequestForcedCloseForUnadmittedMessage();
             return false;
@@ -456,7 +471,20 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload)
     {
         byte[] frame = payload.ToArray();
-        return dataLaneQueue.TryAdmitSnapshot(areaId, frame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes);
+        lock (dataQueueMutationGate)
+        {
+            return dataLaneQueue.TryAdmitSnapshot(areaId, frame, options.DataOutboundQueueMaxMessages, TryReserveSharedBytes);
+        }
+    }
+
+    /// <inheritdoc/>
+    public void PurgePendingData()
+    {
+        lock (dataQueueMutationGate)
+        {
+            (int _, long removedBytes) = dataLaneQueue.PurgePending();
+            Interlocked.Add(ref outboundQueuedBytes, -removedBytes);
+        }
     }
 
     /// <inheritdoc/>

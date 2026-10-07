@@ -52,6 +52,11 @@ public sealed class ThrowingPublicWebSocketConnection : IPublicWebSocketConnecti
     public bool TrySendSnapshot(StateAreaId areaId, ReadOnlyMemory<byte> payload) => false;
 
     /// <inheritdoc/>
+    public void PurgePendingData()
+    {
+    }
+
+    /// <inheritdoc/>
     public void RequestClose()
     {
     }

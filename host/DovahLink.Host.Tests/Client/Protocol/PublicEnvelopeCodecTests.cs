@@ -1,6 +1,8 @@
 using System.Text;
 using System.Text.Json;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Identity;
+using DovahLink.Host.Tests.TestDoubles;
 
 namespace DovahLink.Host.Tests.Client.Protocol;
 
@@ -8,6 +10,7 @@ namespace DovahLink.Host.Tests.Client.Protocol;
 public class PublicEnvelopeCodecTests
 {
     private static readonly IPublicEnvelopeCodec Codec = Fixtures.BuildPublicEnvelopeCodec();
+    private static readonly StateAuthorityId PublicationAuthority = new(Guid.NewGuid());
 
     // ---- Round trips ----
 
@@ -129,6 +132,53 @@ public class PublicEnvelopeCodecTests
         Assert.Null(decoded!.KnownRevision);
     }
 
+    /// <summary>Verifies that snapshot timestamps use canonical UTC RFC 3339 wire formatting.</summary>
+    [Fact]
+    public void Encode_StateSnapshotPayload_UsesCanonicalUtcTimestamp()
+    {
+        DateTimeOffset occurredAt = DateTimeOffset.Parse(
+            "2026-10-06T00:06:07.5478936+01:00",
+            System.Globalization.CultureInfo.InvariantCulture);
+        using JsonDocument data = JsonDocument.Parse("{}");
+        var payload = new StateSnapshotPayload
+        {
+            StateArea = "example_area",
+            Revision = 1,
+            OccurredAt = occurredAt,
+            Data = data.RootElement.Clone(),
+        };
+
+        byte[] encoded = Codec.EncodeStatePublication(
+            PublicMessageType.StateSnapshot, "msg-1", "session-1", null, null, "client-1", PublicationAuthority, payload);
+        using JsonDocument document = JsonDocument.Parse(encoded);
+
+        Assert.Equal("2026-10-05T23:06:07.547893Z", document.RootElement.GetProperty("payload").GetProperty("occurredAt").GetString());
+    }
+
+    /// <summary>Verifies that event timestamps use canonical UTC RFC 3339 wire formatting.</summary>
+    [Fact]
+    public void Encode_StateEventPayload_UsesCanonicalUtcTimestamp()
+    {
+        DateTimeOffset occurredAt = DateTimeOffset.Parse(
+            "2026-10-05T23:06:07.5478936+00:00",
+            System.Globalization.CultureInfo.InvariantCulture);
+        using JsonDocument data = JsonDocument.Parse("{}");
+        var payload = new StateEventPayload
+        {
+            StateArea = "example_area",
+            BaseRevision = 1,
+            Revision = 2,
+            OccurredAt = occurredAt,
+            Data = data.RootElement.Clone(),
+        };
+
+        byte[] encoded = Codec.EncodeStatePublication(
+            PublicMessageType.StateEvent, "msg-1", "session-1", null, null, "client-1", PublicationAuthority, payload);
+        using JsonDocument document = JsonDocument.Parse(encoded);
+
+        Assert.Equal("2026-10-05T23:06:07.547893Z", document.RootElement.GetProperty("payload").GetProperty("occurredAt").GetString());
+    }
+
     /// <summary>Verifies that an error payload round-trips, including a null details field.</summary>
     [Fact]
     public void EncodeThenDecode_ErrorPayload_RoundTrips()
@@ -215,7 +265,9 @@ public class PublicEnvelopeCodecTests
     [MemberData(nameof(AllMessageTypes))]
     public void EncodeThenDecode_EveryMessageType_RoundTrips(PublicMessageType messageType)
     {
-        byte[] encoded = Codec.Encode(messageType, "msg-1", null, null, null, null, new { });
+        byte[] encoded = messageType is PublicMessageType.StateSnapshot or PublicMessageType.StateEvent
+            ? Codec.EncodeStatePublication(messageType, "msg-1", null, null, null, null, PublicationAuthority, new { })
+            : Codec.Encode(messageType, "msg-1", null, null, null, null, new { });
 
         Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
         Assert.Equal(messageType, envelope!.MessageType);
@@ -235,14 +287,16 @@ public class PublicEnvelopeCodecTests
         Assert.False(document.RootElement.TryGetProperty("stateAuthorityId", out _));
     }
 
-    /// <summary>Verifies that Encode stamps a non-null stateAuthorityId, sourced from the configured lifecycle, on each message type the closed wire-presence table requires it on.</summary>
+    /// <summary>Verifies that required authority is sourced from the lifecycle for hello_ack and explicit publication provenance for state messages.</summary>
     [Theory]
     [InlineData(PublicMessageType.HelloAck)]
     [InlineData(PublicMessageType.StateSnapshot)]
     [InlineData(PublicMessageType.StateEvent)]
     public void Encode_GatedMessageType_WritesNonNullStateAuthorityId(PublicMessageType messageType)
     {
-        byte[] encoded = Codec.Encode(messageType, "msg-1", "session-1", null, null, null, new object());
+        byte[] encoded = messageType is PublicMessageType.StateSnapshot or PublicMessageType.StateEvent
+            ? Codec.EncodeStatePublication(messageType, "msg-1", "session-1", null, null, null, PublicationAuthority, new object())
+            : Codec.Encode(messageType, "msg-1", "session-1", null, null, null, new object());
 
         using JsonDocument document = JsonDocument.Parse(encoded);
         JsonElement stateAuthorityId = document.RootElement.GetProperty("stateAuthorityId");
@@ -258,6 +312,60 @@ public class PublicEnvelopeCodecTests
 
         Assert.Throws<InvalidOperationException>(() =>
             codecWithNoLifecycle.Encode(PublicMessageType.HelloAck, "msg-1", "session-1", null, null, null, new object()));
+    }
+
+    /// <summary>Verifies old state publications retain their captured authority when the live lifecycle has already rotated.</summary>
+    [Fact]
+    public void EncodeStatePublication_AfterAuthorityRotation_UsesCapturedPublicationIdentity()
+    {
+        var lifecycle = new FakeStateAuthorityLifecycle();
+        StateAuthorityId publicationAuthority = lifecycle.Current;
+        lifecycle.NotifyRotated();
+        StateAuthorityId currentAuthority = lifecycle.Current;
+        var codec = new PublicEnvelopeCodec(lifecycle);
+
+        byte[] snapshot = codec.EncodeStatePublication(
+            PublicMessageType.StateSnapshot,
+            "snapshot-1",
+            "session-1",
+            null,
+            "context-1",
+            null,
+            publicationAuthority,
+            new { value = 43 });
+        byte[] stateEvent = codec.EncodeStatePublication(
+            PublicMessageType.StateEvent,
+            "event-1",
+            "session-1",
+            null,
+            "context-1",
+            null,
+            publicationAuthority,
+            new { value = 44 });
+
+        Assert.NotEqual(publicationAuthority, currentAuthority);
+        Assert.True(codec.TryDecode(snapshot, out PublicEnvelope? snapshotEnvelope));
+        Assert.Equal(publicationAuthority.ToString(), snapshotEnvelope!.StateAuthorityId);
+        Assert.True(codec.TryDecode(stateEvent, out PublicEnvelope? eventEnvelope));
+        Assert.Equal(publicationAuthority.ToString(), eventEnvelope!.StateAuthorityId);
+    }
+
+    /// <summary>Verifies generic encoding cannot silently label a state publication with the later current authority.</summary>
+    [Theory]
+    [InlineData(PublicMessageType.StateSnapshot)]
+    [InlineData(PublicMessageType.StateEvent)]
+    public void Encode_StatePublicationWithoutCapturedAuthority_Throws(PublicMessageType messageType)
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            Codec.Encode(messageType, "msg-1", "session-1", null, null, null, new object()));
+    }
+
+    /// <summary>Verifies publication encoding rejects message types that do not carry state provenance.</summary>
+    [Fact]
+    public void EncodeStatePublication_NonStateMessageType_Throws()
+    {
+        Assert.Throws<ArgumentException>(() =>
+            Codec.EncodeStatePublication(PublicMessageType.HelloAck, "msg-1", "session-1", null, null, null, PublicationAuthority, new object()));
     }
 
     /// <summary>Verifies that TryDecode rejects stateAuthorityId present at all on a message type the closed wire-presence table never allows it on -- including a real client-originated type, not only the pre-authentication/post-admission cases covered elsewhere.</summary>

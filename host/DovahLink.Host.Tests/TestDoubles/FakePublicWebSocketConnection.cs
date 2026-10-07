@@ -33,6 +33,9 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>The value <see cref="TrySendSnapshot"/> returns; defaults to <see langword="false"/>.</summary>
     public bool TrySendSnapshotResult { get; set; }
 
+    /// <summary>Invoked after each <see cref="TrySend"/> call is recorded.</summary>
+    public Action<byte[], PublicOutboundLane>? OnTrySend { get; set; }
+
     /// <summary>Every payload passed to <see cref="TrySend"/> so far, in call order.</summary>
     public List<byte[]> SentPayloads { get; } = [];
 
@@ -41,6 +44,9 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <summary>The number of times <see cref="RequestClose"/> has been called.</summary>
     public int RequestCloseCalls { get; private set; }
+
+    /// <summary>The number of times <see cref="PurgePendingData"/> has been called.</summary>
+    public int PurgePendingDataCalls { get; private set; }
 
     /// <summary>Every lane passed to <see cref="TrySend"/> so far, in call order, index-aligned with <see cref="SentPayloads"/>.</summary>
     public List<PublicOutboundLane> SentLanes { get; } = [];
@@ -60,6 +66,7 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
     {
         SentPayloads.Add(payload.ToArray());
         SentLanes.Add(lane);
+        OnTrySend?.Invoke(SentPayloads[^1], lane);
         return TrySendResult;
     }
 
@@ -72,6 +79,9 @@ public sealed class FakePublicWebSocketConnection : IPublicWebSocketConnection
 
     /// <inheritdoc/>
     public void RequestClose() => RequestCloseCalls++;
+
+    /// <inheritdoc/>
+    public void PurgePendingData() => PurgePendingDataCalls++;
 
     /// <inheritdoc/>
     public int RemainingOutboundCapacity(PublicOutboundLane lane) => RemainingOutboundCapacityResult;

@@ -162,7 +162,7 @@ class SubscriptionService implements ISubscriptionService {
         _sessionGeneration == requestSessionGeneration) {
       _stateMessageHandler.setSubscribedStateAreas(<String>{
         for (final DovahLinkStateArea area in acceptedAreas) area.protocolValue,
-      });
+      }, baselineCorrelationId: response.correlationId);
     }
     return Set<DovahLinkStateArea>.unmodifiable(rejectedAreas);
   }

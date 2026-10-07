@@ -20,24 +20,29 @@ class MockStateDomainDefinition extends Mock
 /// @param area The canonical state area on the payload.
 /// @param revision The authoritative revision.
 /// @param data The complete typed area value.
+/// @param stateAuthorityId The authority identity on the envelope.
+/// @param playContextId The play-context identity on the envelope.
 /// @return A Snapshot envelope ready for the state handler.
 Envelope buildSnapshotEnvelope({
   required String area,
   required int revision,
   required JsonMap data,
+  String? correlationId,
+  String? stateAuthorityId = 'authority-1',
+  String? playContextId = 'context-1',
 }) => Envelope(
   messageType: ProtocolMessageType.stateSnapshot,
   messageId: 'snapshot-$revision',
   sessionId: 'session-1',
-  correlationId: null,
+  correlationId: correlationId,
   payload: <String, dynamic>{
     'stateArea': area,
     'revision': revision,
     'occurredAt': '2026-09-23T12:00:00Z',
     'data': data,
   },
-  stateAuthorityId: 'authority-1',
-  playContextId: 'context-1',
+  stateAuthorityId: stateAuthorityId,
+  playContextId: playContextId,
   clientId: null,
 );
 
@@ -46,12 +51,16 @@ Envelope buildSnapshotEnvelope({
 /// @param baseRevision The revision the Event expects.
 /// @param revision The Event's resulting revision.
 /// @param data The complete post-change area value.
+/// @param stateAuthorityId The authority identity on the envelope.
+/// @param playContextId The play-context identity on the envelope.
 /// @return An Event envelope ready for the state handler.
 Envelope buildEventEnvelope({
   required String area,
   required int baseRevision,
   required int revision,
   required JsonMap data,
+  String? stateAuthorityId = 'authority-1',
+  String? playContextId = 'context-1',
 }) => Envelope(
   messageType: ProtocolMessageType.stateEvent,
   messageId: 'event-$revision',
@@ -64,8 +73,8 @@ Envelope buildEventEnvelope({
     'occurredAt': '2026-09-23T12:00:01Z',
     'data': data,
   },
-  stateAuthorityId: 'authority-1',
-  playContextId: 'context-1',
+  stateAuthorityId: stateAuthorityId,
+  playContextId: playContextId,
   clientId: null,
 );
 
@@ -161,6 +170,20 @@ void main() {
     when(() => domainC.tracker).thenReturn(trackerC);
     when(() => domainD.tracker).thenReturn(trackerD);
     when(() => domainE.tracker).thenReturn(trackerE);
+    for (final MockStateDomainDefinition domain in <MockStateDomainDefinition>[
+      domainA,
+      domainB,
+      domainC,
+      domainD,
+      domainE,
+    ]) {
+      when(
+        () => domain.applySnapshot(
+          envelope: any(named: 'envelope'),
+          payload: any(named: 'payload'),
+        ),
+      ).thenReturn(true);
+    }
     for (final MockStateRevisionTracker<Object?> tracker
         in <MockStateRevisionTracker<Object?>>[
           trackerA,
@@ -171,6 +194,12 @@ void main() {
         ]) {
       when(() => tracker.beginRecovery()).thenAnswer((_) {});
       when(() => tracker.resetToNotSubscribed()).thenAnswer((_) {});
+      when(
+        () => tracker.resetForIdentity(
+          stateAuthorityId: any(named: 'stateAuthorityId'),
+          playContextId: any(named: 'playContextId'),
+        ),
+      ).thenAnswer((_) {});
     }
     when(
       () => session.onProtocolViolation(
@@ -300,7 +329,19 @@ void main() {
             MockStateRevisionTracker<Object?>();
         when(() => customDomain.stateArea).thenReturn('custom_area');
         when(() => customDomain.tracker).thenReturn(customTracker);
+        when(
+          () => customDomain.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ).thenReturn(true);
         when(() => customTracker.beginRecovery()).thenAnswer((_) {});
+        when(
+          () => customTracker.resetForIdentity(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+          ),
+        ).thenAnswer((_) {});
         final IStateMessageHandler customHandler = StateMessageHandler(
           sessionService: session,
           domains: <IStateDomainDefinition<Object?>>[customDomain],
@@ -330,6 +371,172 @@ void main() {
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
+      },
+    );
+
+    test(
+      'Method handle resets all subscribed trackers before routing a new-identity Snapshot',
+      () {
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_b',
+            revision: 1,
+            data: const <String, dynamic>{'value': 2},
+          ),
+        );
+        for (final MockStateRevisionTracker<Object?> tracker
+            in <MockStateRevisionTracker<Object?>>[
+              trackerA,
+              trackerB,
+              trackerC,
+              trackerD,
+              trackerE,
+            ]) {
+          clearInteractions(tracker);
+        }
+        clearInteractions(domainA);
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_a',
+            revision: 0,
+            data: const <String, dynamic>{'value': 1},
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+          ),
+        );
+
+        verifyInOrder(<void Function()>[
+          () => trackerA.resetForIdentity(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+          ),
+          () => trackerB.resetForIdentity(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+          ),
+          () => trackerC.resetForIdentity(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+          ),
+          () => trackerD.resetForIdentity(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+          ),
+          () => trackerE.resetForIdentity(
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+          ),
+          () => domainA.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ]);
+
+        for (final MockStateRevisionTracker<Object?> tracker
+            in <MockStateRevisionTracker<Object?>>[
+              trackerA,
+              trackerB,
+              trackerC,
+              trackerD,
+              trackerE,
+            ]) {
+          clearInteractions(tracker);
+        }
+
+        handler.handle(
+          buildEventEnvelope(
+            area: 'area_b',
+            baseRevision: 0,
+            revision: 1,
+            data: const <String, dynamic>{'value': 3},
+            stateAuthorityId: 'authority-1',
+            playContextId: null,
+          ),
+        );
+
+        for (final MockStateRevisionTracker<Object?> tracker
+            in <MockStateRevisionTracker<Object?>>[
+              trackerA,
+              trackerB,
+              trackerC,
+              trackerD,
+              trackerE,
+            ]) {
+          verifyNever(
+            () => tracker.resetForIdentity(
+              stateAuthorityId: any(named: 'stateAuthorityId'),
+              playContextId: any(named: 'playContextId'),
+            ),
+          );
+        }
+        verify(
+          () => domainB.applyEvent(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method handle resets all subscribed trackers before routing a new-authority Event',
+      () {
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_a',
+            revision: 1,
+            data: const <String, dynamic>{'value': 1},
+          ),
+        );
+        for (final MockStateRevisionTracker<Object?> tracker
+            in <MockStateRevisionTracker<Object?>>[
+              trackerA,
+              trackerB,
+              trackerC,
+              trackerD,
+              trackerE,
+            ]) {
+          clearInteractions(tracker);
+        }
+        clearInteractions(domainB);
+
+        handler.handle(
+          buildEventEnvelope(
+            area: 'area_b',
+            baseRevision: 0,
+            revision: 1,
+            data: const <String, dynamic>{'value': 2},
+            stateAuthorityId: 'authority-2',
+          ),
+        );
+
+        verifyInOrder(<void Function()>[
+          () => trackerA.resetForIdentity(
+            stateAuthorityId: 'authority-2',
+            playContextId: 'context-1',
+          ),
+          () => trackerB.resetForIdentity(
+            stateAuthorityId: 'authority-2',
+            playContextId: 'context-1',
+          ),
+          () => trackerC.resetForIdentity(
+            stateAuthorityId: 'authority-2',
+            playContextId: 'context-1',
+          ),
+          () => trackerD.resetForIdentity(
+            stateAuthorityId: 'authority-2',
+            playContextId: 'context-1',
+          ),
+          () => trackerE.resetForIdentity(
+            stateAuthorityId: 'authority-2',
+            playContextId: 'context-1',
+          ),
+          () => domainB.applyEvent(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ]);
       },
     );
 
@@ -597,6 +804,116 @@ void main() {
         expect(error.retryable, isFalse);
       },
     );
+
+    test(
+      'Method handle rejects a state Snapshot without an authority identity',
+      () {
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_a',
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            stateAuthorityId: null,
+          ),
+        );
+
+        final DovahLinkProtocolException error =
+            verify(
+                  () => session.onProtocolViolation(
+                    captureAny(),
+                    orphanRetrySafeOperations: false,
+                  ),
+                ).captured.single
+                as DovahLinkProtocolException;
+        expect(error.code, ProtocolErrorCode.malformedMessage);
+        expect(error.retryable, isFalse);
+        verifyNever(
+          () => domainA.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handle rejects a state Event without an authority identity',
+      () {
+        handler.handle(
+          buildEventEnvelope(
+            area: 'area_a',
+            baseRevision: 0,
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            stateAuthorityId: null,
+          ),
+        );
+
+        final DovahLinkProtocolException error =
+            verify(
+                  () => session.onProtocolViolation(
+                    captureAny(),
+                    orphanRetrySafeOperations: false,
+                  ),
+                ).captured.single
+                as DovahLinkProtocolException;
+        expect(error.code, ProtocolErrorCode.malformedMessage);
+        expect(error.retryable, isFalse);
+        verifyNever(
+          () => domainA.applyEvent(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handle retires a baseline correlation after applying its Snapshot',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_b',
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            correlationId: 'subscribe-1',
+          ),
+        );
+
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isFalse);
+      },
+    );
+
+    test(
+      'Method handle retains a baseline correlation when its Snapshot is rejected',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+        when(
+          () => domainB.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ).thenReturn(false);
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_b',
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            correlationId: 'subscribe-1',
+          ),
+        );
+
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isTrue);
+      },
+    );
   });
 
   group('Method setSubscribedStateAreas behaves correctly', () {
@@ -611,6 +928,61 @@ void main() {
 
         verify(() => trackerB.beginRecovery()).called(1);
         verifyNever(() => trackerA.beginRecovery());
+      },
+    );
+
+    test(
+      'Method setSubscribedStateAreas authorizes only baselines for accepted areas still pending',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isTrue);
+        expect(handler.isPendingBaselineCorrelation('unknown'), isFalse);
+
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-2');
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isFalse);
+        expect(handler.isPendingBaselineCorrelation('subscribe-2'), isTrue);
+
+        handler.setSubscribedStateAreas(<String>{});
+        expect(handler.isPendingBaselineCorrelation('subscribe-2'), isFalse);
+      },
+    );
+  });
+
+  group('Behavior shared subscribe baseline correlations behave correctly', () {
+    test(
+      'Behavior shared subscribe baseline correlations remain pending until every accepted area receives a Snapshot',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+          'area_c',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_b',
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            correlationId: 'subscribe-1',
+          ),
+        );
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isTrue);
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_c',
+            revision: 1,
+            data: const <String, dynamic>{'value': 20},
+            correlationId: 'subscribe-1',
+          ),
+        );
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isFalse);
       },
     );
   });

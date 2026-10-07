@@ -233,6 +233,12 @@ Clients use that authoritative-lineage identity, `playContextId`, and the state-
 together to reject stale state. `sessionId` and `ConnectionId` prevent a client from accepting
 messages from an old or foreign socket. When the play context changes, the host invalidates the
 previous context's state and establishes fresh authoritative state before publication resumes.
+For each connected client, a play-context or authority boundary invalidates its accepted-area
+recovery state, purges queued Data-lane state, and queues an unavailable revision-zero Snapshot for
+each accepted area before forwarding state from the new identity. A frame already inside the
+serialized writer may finish before those resets; queued old frames are discarded. These synthetic
+baselines do not advance the publisher's revision, so the first real capture in a new play context
+remains revision one.
 
 `protocol/schema/README.md` carries this ownership as the current canonical wire contract; see
 `roadmap/02-bridge-identity-and-authoritative-state.md`'s Bridge Identity and Authoritative State Foundation entry for adoption status across
