@@ -99,6 +99,33 @@ void main() {
       expect(stale, isFalse);
     });
 
+    test(
+      'Method applySnapshot reports baseline acceptance when buffered replay needs recovery',
+      () {
+        final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
+        tracker.applyEvent(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+          baseRevision: 2,
+          revision: 3,
+          value: 3,
+          isUnavailable: false,
+        );
+
+        final bool accepted = tracker.applySnapshot(
+          stateAuthorityId: 'authority-1',
+          playContextId: 'context-1',
+          revision: 1,
+          value: 1,
+          isUnavailable: false,
+        );
+
+        expect(accepted, isTrue);
+        expect(tracker.current.status, DovahLinkStateStatus.stale);
+        expect(tracker.current.revision, 1);
+      },
+    );
+
     test('Method applySnapshot establishes an available baseline', () {
       final IStateRevisionTracker<int?> tracker = buildStateRevisionTracker();
 

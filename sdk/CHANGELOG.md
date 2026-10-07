@@ -56,6 +56,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 - Same-identity unavailable state retains its last usable value while advancing the accepted revision.
 - An identity reset waits for its initial Host baseline, while an Event without a baseline still triggers Level recovery.
 - Retryable timeout errors for accepted subscription baselines no longer terminate the SDK session as unmatched-correlation violations.
+- A rejected initial Snapshot retains its subscription correlation so a later retryable baseline timeout remains recognized.
 - Successful code confirmation clears the Known Host repair hint even if credential
   acknowledgement is interrupted.
 - Combined pairing confirmation rejects a changed Host session before acknowledgement while

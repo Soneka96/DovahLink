@@ -170,6 +170,20 @@ void main() {
     when(() => domainC.tracker).thenReturn(trackerC);
     when(() => domainD.tracker).thenReturn(trackerD);
     when(() => domainE.tracker).thenReturn(trackerE);
+    for (final MockStateDomainDefinition domain in <MockStateDomainDefinition>[
+      domainA,
+      domainB,
+      domainC,
+      domainD,
+      domainE,
+    ]) {
+      when(
+        () => domain.applySnapshot(
+          envelope: any(named: 'envelope'),
+          payload: any(named: 'payload'),
+        ),
+      ).thenReturn(true);
+    }
     for (final MockStateRevisionTracker<Object?> tracker
         in <MockStateRevisionTracker<Object?>>[
           trackerA,
@@ -315,6 +329,12 @@ void main() {
             MockStateRevisionTracker<Object?>();
         when(() => customDomain.stateArea).thenReturn('custom_area');
         when(() => customDomain.tracker).thenReturn(customTracker);
+        when(
+          () => customDomain.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ).thenReturn(true);
         when(() => customTracker.beginRecovery()).thenAnswer((_) {});
         when(
           () => customTracker.resetForIdentity(
@@ -865,6 +885,33 @@ void main() {
         );
 
         expect(handler.isPendingBaselineCorrelation('subscribe-1'), isFalse);
+      },
+    );
+
+    test(
+      'Method handle retains a baseline correlation when its Snapshot is rejected',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+        when(
+          () => domainB.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ).thenReturn(false);
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_b',
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            correlationId: 'subscribe-1',
+          ),
+        );
+
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isTrue);
       },
     );
   });

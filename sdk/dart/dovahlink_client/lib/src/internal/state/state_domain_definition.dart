@@ -24,7 +24,8 @@ abstract interface class IStateDomainDefinition<T> {
   /// Decodes and applies a Snapshot for this state area.
   /// @param envelope The envelope carrying authority and play-context identity.
   /// @param payload The decoded Snapshot payload for [stateArea].
-  void applySnapshot({
+  /// @return Whether the Snapshot baseline was accepted, even if Event replay still requires recovery.
+  bool applySnapshot({
     required Envelope envelope,
     required StateSnapshotPayload payload,
   });
@@ -87,12 +88,12 @@ class StateDomainDefinition<T> implements IStateDomainDefinition<T> {
 
   /// See [IStateDomainDefinition.applySnapshot].
   @override
-  void applySnapshot({
+  bool applySnapshot({
     required Envelope envelope,
     required StateSnapshotPayload payload,
   }) {
     final ({T value, bool isUnavailable}) decoded = decodeState(payload.data);
-    _tracker.applySnapshot(
+    return _tracker.applySnapshot(
       stateAuthorityId: envelope.stateAuthorityId!,
       playContextId: envelope.playContextId,
       revision: payload.revision,

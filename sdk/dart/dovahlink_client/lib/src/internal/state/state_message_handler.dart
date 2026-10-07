@@ -114,8 +114,13 @@ class StateMessageHandler implements IStateMessageHandler {
             break;
           }
           _observeIdentity(envelope);
-          domain.applySnapshot(envelope: envelope, payload: payload);
-          _pendingBaselineCorrelations.remove(payload.stateArea);
+          final bool snapshotAccepted = domain.applySnapshot(
+            envelope: envelope,
+            payload: payload,
+          );
+          if (snapshotAccepted) {
+            _pendingBaselineCorrelations.remove(payload.stateArea);
+          }
           break;
         case ProtocolMessageType.stateEvent:
           final StateEventPayload payload = ProtocolPayloadDecoder.decode(

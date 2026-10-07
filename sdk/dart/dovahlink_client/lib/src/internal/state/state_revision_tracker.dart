@@ -39,7 +39,7 @@ abstract interface class IStateRevisionTracker<T> {
   /// @param revision The non-negative baseline revision.
   /// @param value The typed state-area value, including an explicit unavailable value.
   /// @param isUnavailable Whether the typed value represents legitimate unavailability.
-  /// @return Whether this Snapshot established a baseline or resolved recovery.
+  /// @return Whether this Snapshot baseline was accepted; buffered Event replay can still require recovery.
   bool applySnapshot({
     required String stateAuthorityId,
     required String? playContextId,
@@ -250,7 +250,7 @@ class StateRevisionTracker<T> implements IStateRevisionTracker<T> {
             isUnavailable: event.isUnavailable,
           ) ==
           StateEventApplyResult.recoveryRequired) {
-        return false;
+        return true;
       }
     }
     return true;
