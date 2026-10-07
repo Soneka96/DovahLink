@@ -1,3 +1,4 @@
+using DovahLink.Host.Adapter;
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
@@ -34,7 +35,7 @@ public class LiveStateResynchronizationOrderingTests
         string.Join(", ", harness.UnreadableAreas(LivePipelineHarness.ProductionAreas));
 
     /// <summary>
-    /// Verifies that at the instant <see cref="Adapter.IAdapterAvailabilityTracker.Resynchronized"/> is
+    /// Verifies that at the instant <see cref="IAdapterAvailabilityTracker.Resynchronized"/> is
     /// observed, every required area's baseline is already readable -- the invariant a consumer
     /// reacting to completion depends on. The Adapter plan is acknowledged first so the last baseline
     /// is the transaction's completing piece.
