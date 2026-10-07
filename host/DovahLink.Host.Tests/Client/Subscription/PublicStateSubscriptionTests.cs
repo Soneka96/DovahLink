@@ -428,6 +428,241 @@ public class PublicStateSubscriptionTests
     }
 
     /// <summary>
+    /// Verifies that an accepted subscription remains eligible for synchronization after its
+    /// correlated baseline request times out, and that its late baseline uses normal publication
+    /// correlation and queue semantics before Events resume.
+    /// </summary>
+    [Fact]
+    public async Task EstablishAcceptedBaselines_TimedOutAreaReceivesUncorrelatedLateSnapshotAndForwardsEvents()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            ["area_a"], pendingBaselineDeadline: TimeSpan.FromMilliseconds(40));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        (IReadOnlyList<string> accepted, _) = Subscribe(subscription, "sub-1", ["area_a"]);
+        Assert.Equal(["area_a"], accepted);
+        Assert.Empty(connectionContext.SentPayloads);
+
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 1);
+        (byte[] errorBytes, PublicOutboundLane errorLane) = connectionContext.SentPayloads[0];
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, errorLane);
+        Assert.True(codec.TryDecode(errorBytes, out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+        Assert.Equal("sub-1", errorEnvelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(errorEnvelope, out ErrorPayload? errorPayload));
+        Assert.Equal(PublicProtocolErrorCode.TemporarilyUnavailable, errorPayload!.Code);
+        Assert.True(errorPayload.Retryable);
+
+        feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 1));
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 1));
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        (byte[] baselineBytes, PublicOutboundLane baselineLane) = connectionContext.SentPayloads[1];
+        Assert.Equal(PublicOutboundLane.Data, baselineLane);
+        Assert.True(codec.TryDecode(baselineBytes, out PublicEnvelope? baselineEnvelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, baselineEnvelope!.MessageType);
+        Assert.Null(baselineEnvelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(baselineEnvelope, out StateSnapshotPayload? baseline));
+        Assert.Equal(1UL, baseline!.Revision);
+
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Equal(3, connectionContext.SentPayloads.Count);
+        (byte[] eventBytes, PublicOutboundLane eventLane) = connectionContext.SentPayloads[2];
+        Assert.Equal(PublicOutboundLane.Data, eventLane);
+        Assert.True(codec.TryDecode(eventBytes, out PublicEnvelope? eventEnvelope));
+        Assert.Equal(PublicMessageType.StateEvent, eventEnvelope!.MessageType);
+        Assert.Null(eventEnvelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(eventEnvelope, out StateEventPayload? stateEvent));
+        Assert.Equal(1UL, stateEvent!.BaseRevision);
+        Assert.Equal(2UL, stateEvent.Revision);
+    }
+
+    /// <summary>Verifies that a Snapshot racing timeout-response admission is queued after the terminal correlated error.</summary>
+    [Fact]
+    public async Task FailPendingBaselineOnTimeout_SnapshotDuringErrorAdmissionFollowsTerminalError()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            ["area_a"], pendingBaselineDeadline: TimeSpan.FromMilliseconds(40));
+        var connectionContext = new FakePublicConnectionContext { TrySendResult = true };
+        connectionContext.OnTrySendPayload = (bytes, _) =>
+        {
+            if (!codec.TryDecode(bytes, out PublicEnvelope? envelope)
+                || envelope!.MessageType != PublicMessageType.Error)
+            {
+                return;
+            }
+
+            StateSnapshotPublication snapshot = BuildSnapshot("area_a", revision: 1);
+            feed.SetSnapshot(new StateAreaId("area_a"), snapshot);
+            feed.RaiseSnapshotChanged(snapshot);
+        };
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Subscribe(subscription, "sub-race", ["area_a"]);
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 2);
+
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[0].Payload, out PublicEnvelope? error));
+        Assert.Equal(PublicMessageType.Error, error!.MessageType);
+        Assert.Equal("sub-race", error.CorrelationId);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[1].Payload, out PublicEnvelope? baseline));
+        Assert.Equal(PublicMessageType.StateSnapshot, baseline!.MessageType);
+        Assert.Null(baseline.CorrelationId);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, connectionContext.SentPayloads[0].Lane);
+        Assert.Equal(PublicOutboundLane.Data, connectionContext.SentPayloads[1].Lane);
+    }
+
+    /// <summary>Verifies that a one-shot request's timeout does not cancel an already accepted ongoing subscription.</summary>
+    [Fact]
+    public async Task HandleSnapshotRequest_TimedOutRequestOnAcceptedAreaStillSynchronizesLater()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            ["area_a"], pendingBaselineDeadline: TimeSpan.FromMilliseconds(40));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 1);
+        Assert.True(subscription.HandleSnapshotRequest("area_a", "request-1"));
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 2);
+
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[0].Payload, out PublicEnvelope? subscribeError));
+        Assert.Equal("sub-1", subscribeError!.CorrelationId);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[1].Payload, out PublicEnvelope? requestError));
+        Assert.Equal(PublicMessageType.Error, requestError!.MessageType);
+        Assert.Equal("request-1", requestError.CorrelationId);
+
+        StateSnapshotPublication snapshot = BuildSnapshot("area_a", revision: 1);
+        feed.SetSnapshot(new StateAreaId("area_a"), snapshot);
+        feed.RaiseSnapshotChanged(snapshot);
+
+        Assert.Equal(3, connectionContext.SentPayloads.Count);
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[2];
+        Assert.Equal(PublicOutboundLane.Data, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? baseline));
+        Assert.Equal(PublicMessageType.StateSnapshot, baseline!.MessageType);
+        Assert.Null(baseline.CorrelationId);
+    }
+
+    /// <summary>Verifies that a future registered area inherits late-baseline synchronization without domain-specific handling.</summary>
+    [Fact]
+    public async Task EstablishAcceptedBaselines_FutureAreaReceivesLateSnapshotAfterTimeout()
+    {
+        const string area = "future_area";
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            [area], pendingBaselineDeadline: TimeSpan.FromMilliseconds(40));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Subscribe(subscription, "sub-future", [area]);
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 1);
+
+        feed.SetSnapshot(new StateAreaId(area), BuildSnapshot(area, revision: 7));
+        feed.RaiseSnapshotChanged(BuildSnapshot(area, revision: 7));
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[1];
+        Assert.Equal(PublicOutboundLane.Data, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Null(envelope!.CorrelationId);
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(area, payload!.StateArea);
+        Assert.Equal(7UL, payload.Revision);
+    }
+
+    /// <summary>Verifies that an availability notification after timeout wakes an accepted area when resynchronization made its Snapshot readable.</summary>
+    [Fact]
+    public async Task OnSnapshotAvailabilityChanged_TimedOutAcceptedAreaSynchronizesAvailableSnapshot()
+    {
+        const string area = "future_area";
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            [area], pendingBaselineDeadline: TimeSpan.FromMilliseconds(40));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Subscribe(subscription, "sub-resync", [area]);
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 1);
+
+        feed.SetSnapshot(new StateAreaId(area), BuildSnapshot(area, revision: 8));
+        feed.RaiseSnapshotAvailabilityChanged();
+
+        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[1];
+        Assert.Equal(PublicOutboundLane.Data, lane);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, envelope!.MessageType);
+        Assert.Null(envelope.CorrelationId);
+        Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+        Assert.Equal(area, payload!.StateArea);
+        Assert.Equal(8UL, payload.Revision);
+    }
+
+    /// <summary>Verifies that a one-shot snapshot_request remains terminal after timing out and does not start forwarding later state.</summary>
+    [Fact]
+    public async Task HandleSnapshotRequest_TimedOutUnsubscribedAreaDoesNotForwardLaterState()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            ["area_a"], pendingBaselineDeadline: TimeSpan.FromMilliseconds(40));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Assert.True(subscription.HandleSnapshotRequest("area_a", "request-1"));
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 1);
+        (byte[] errorBytes, _) = connectionContext.SentPayloads[0];
+        Assert.True(codec.TryDecode(errorBytes, out PublicEnvelope? errorEnvelope));
+        Assert.Equal(PublicMessageType.Error, errorEnvelope!.MessageType);
+        Assert.Equal("request-1", errorEnvelope.CorrelationId);
+
+        StateSnapshotPublication snapshot = BuildSnapshot("area_a", revision: 1);
+        feed.SetSnapshot(new StateAreaId("area_a"), snapshot);
+        feed.RaiseSnapshotChanged(snapshot);
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+
+        Assert.Single(connectionContext.SentPayloads);
+    }
+
+    /// <summary>Verifies that a late Snapshot from a previous play context cannot establish an accepted area's baseline.</summary>
+    [Fact]
+    public async Task OnSnapshotChanged_TimedOutAreaIgnoresSnapshotFromPreviousPlayContext()
+    {
+        const string area = "area_a";
+        var tracker = new FakePlayContextTracker();
+        PlayContextId saveA = PlayContextId.NewId();
+        tracker.NotifyTransition(saveA);
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            [area], playContextTracker: tracker, pendingBaselineDeadline: TimeSpan.FromMilliseconds(40));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Subscribe(subscription, "sub-save-a", [area]);
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 1);
+
+        PlayContextId saveB = PlayContextId.NewId();
+        tracker.NotifyTransition(saveB);
+        int sentAfterSaveBoundary = connectionContext.SentPayloads.Count;
+        StateSnapshotPublication staleSaveA = BuildSnapshot(
+            area, revision: 1, playContextId: saveA, playContextGeneration: 1);
+        feed.SetSnapshot(new StateAreaId(area), staleSaveA);
+        feed.RaiseSnapshotChanged(staleSaveA);
+        Assert.Equal(sentAfterSaveBoundary, connectionContext.SentPayloads.Count);
+        Assert.Empty(connectionContext.SentSnapshots);
+
+        StateSnapshotPublication currentSaveB = BuildSnapshot(
+            area, revision: 1, playContextId: saveB, playContextGeneration: 2);
+        feed.SetSnapshot(new StateAreaId(area), currentSaveB);
+        feed.RaiseSnapshotChanged(currentSaveB);
+
+        Assert.Equal(sentAfterSaveBoundary, connectionContext.SentPayloads.Count);
+        (StateAreaId snapshotArea, byte[] bytes) = Assert.Single(connectionContext.SentSnapshots);
+        Assert.Equal(area, snapshotArea.Value);
+        Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.StateSnapshot, envelope!.MessageType);
+        Assert.Equal(saveB.ToString(), envelope.PlayContextId);
+        Assert.Null(envelope.CorrelationId);
+    }
+
+    /// <summary>
     /// Verifies the subscribe-side symmetry of <see cref="HandleSnapshotRequest_SecondRequestForSameStillPendingArea_SupersedesFirstCorrelation"/>:
     /// a second <c>subscribe</c> for the same still-pending area supersedes the first, so once a
     /// value becomes available, only one baseline is delivered, correlated to the second (most

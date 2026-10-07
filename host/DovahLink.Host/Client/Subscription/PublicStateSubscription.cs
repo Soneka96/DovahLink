@@ -668,7 +668,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
     /// <summary>
     /// Routes <paramref name="eventPublication"/> for this connection according to its state area's
-    /// current recovery-barrier phase: discarded while <see cref="AreaDeliveryPhase.AwaitingBaseline"/>;
+    /// current recovery-barrier phase: held while an accepted subscribe is awaiting its first
+    /// correlated baseline; used to retry baseline establishment for other accepted areas still
+    /// awaiting a baseline;
     /// while <see cref="AreaDeliveryPhase.Recovering"/>, held if the barrier revision is not yet known
     /// (a baseline fetch is still in flight) or the Event is above the barrier once it is known,
     /// discarded if at or below it (abandoning the held set and re-baselining from the newest
@@ -726,6 +728,17 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                             state.HeldEvents.Clear();
                             state.BoundaryEventBufferOverflowed = true;
                         }
+                    }
+                    else if (state.BoundaryBaselinePending)
+                    {
+                        // The pending boundary baseline will be followed by the current Snapshot;
+                        // forwarding this Event as well could duplicate that revision.
+                    }
+                    else
+                    {
+                        reBaselineCorrelationMessageId = state.RecoveryCorrelationMessageId;
+                        reBaselineRecoveryEpoch = state.RecoveryEpoch;
+                        needsReBaseline = true;
                     }
                     break;
 
@@ -790,17 +803,15 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
         if (needsReBaseline)
         {
-            TryEstablishBaseline(eventPublication.StateArea, reBaselineCorrelationMessageId!, reBaselineRecoveryEpoch);
+            TryEstablishBaseline(eventPublication.StateArea, reBaselineCorrelationMessageId, reBaselineRecoveryEpoch);
         }
     }
 
     /// <summary>
     /// Routes <paramref name="snapshotPublication"/> for this connection according to its state
     /// area's current recovery-barrier phase: while <see cref="AreaDeliveryPhase.AwaitingBaseline"/>,
-    /// wakes and retries a genuinely pending request (a non-<see langword="null"/>
-    /// <see cref="AreaState.RecoveryCorrelationMessageId"/>) via <see cref="TryEstablishBaseline"/>
-    /// rather than leaving it to wait out its own deadline for a value that has, in fact, just
-    /// arrived -- a no-op when no request is pending; while <see cref="AreaDeliveryPhase.Recovering"/>,
+    /// wakes a genuinely pending request or synchronizes an accepted area whose request deadline has
+    /// ended; while <see cref="AreaDeliveryPhase.Recovering"/>,
     /// replaces any previously buffered pending value for the area rather than queuing a second one --
     /// unlike an Event, a Snapshot is a complete replacement value, so only the newest one received
     /// during recovery is ever worth keeping; sent immediately, still under <see cref="gate"/>, while
@@ -819,6 +830,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     {
         string? pendingCorrelationMessageId = null;
         long pendingRecoveryEpoch = 0;
+        bool needsBaselineAttempt = false;
 
         lock (gate)
         {
@@ -855,6 +867,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                     {
                         pendingCorrelationMessageId = state.RecoveryCorrelationMessageId;
                         pendingRecoveryEpoch = state.RecoveryEpoch;
+                        needsBaselineAttempt = true;
                     }
                     break;
 
@@ -885,7 +898,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             }
         }
 
-        if (pendingCorrelationMessageId is not null)
+        if (needsBaselineAttempt)
         {
             TryEstablishBaseline(snapshotPublication.StateArea, pendingCorrelationMessageId, pendingRecoveryEpoch);
         }
@@ -899,7 +912,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// </summary>
     private void OnSnapshotAvailabilityChanged()
     {
-        List<(StateAreaId AreaId, string CorrelationMessageId, long RecoveryEpoch)> pendingBaselines = [];
+        List<(StateAreaId AreaId, string? CorrelationMessageId, long RecoveryEpoch)> pendingBaselines = [];
         List<(StateAreaId AreaId, long RecoveryEpoch)> boundaryBaselines = [];
         lock (gate)
         {
@@ -913,14 +926,15 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                 }
 
                 if (state.Phase is AreaDeliveryPhase.AwaitingBaseline or AreaDeliveryPhase.Recovering
-                    && state.RecoveryCorrelationMessageId is string correlationMessageId)
+                    && (state.RecoveryCorrelationMessageId is not null
+                        || acceptedAreas.Contains(areaId) && state.PendingSubscribeBaselineCorrelationMessageId is null))
                 {
-                    pendingBaselines.Add((areaId, correlationMessageId, state.RecoveryEpoch));
+                    pendingBaselines.Add((areaId, state.RecoveryCorrelationMessageId, state.RecoveryEpoch));
                 }
             }
         }
 
-        foreach ((StateAreaId areaId, string correlationMessageId, long recoveryEpoch) in pendingBaselines)
+        foreach ((StateAreaId areaId, string? correlationMessageId, long recoveryEpoch) in pendingBaselines)
         {
             TryEstablishBaseline(areaId, correlationMessageId, recoveryEpoch);
         }
@@ -932,8 +946,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     }
 
     /// <summary>
-    /// Establishes a fresh baseline for <paramref name="areaId"/> through the reserved Control/Recovery
-    /// lane. Enters <see cref="AreaDeliveryPhase.Recovering"/> under a fresh recovery epoch, with the
+    /// Establishes a fresh baseline for <paramref name="areaId"/> through the Control/Recovery lane
+    /// when it answers a pending client request, or the normal Data lane for accepted-area
+    /// synchronization after that request has timed out. Enters <see cref="AreaDeliveryPhase.Recovering"/> under a fresh recovery epoch, with the
     /// barrier revision still unknown, before reading <paramref name="areaId"/>'s current value from
     /// <see cref="feed"/> -- deliberately outside <see cref="gate"/>, since a future real feed
     /// implementation must not be called while this subscription's own lock is held, to avoid a
@@ -956,10 +971,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// </summary>
     /// <param name="areaId">The state area to establish a baseline for.</param>
     /// <param name="correlationMessageId">
-    /// The message id this baseline correlates to -- the originating <c>subscribe</c> or
-    /// <c>snapshot_request</c>'s own id. Recorded on the area's <see cref="AreaState.RecoveryCorrelationMessageId"/>
-    /// so a later held-Event overflow's re-baseline (see <see cref="OnEventOccurred"/>) can reuse it
-    /// instead of inventing a correlation no client request ever made.
+    /// The originating <c>subscribe</c> or <c>snapshot_request</c> id while that request is pending,
+    /// or <see langword="null"/> for accepted-area synchronization after its request deadline has
+    /// ended. A null value is never assigned a new request correlation.
     /// </param>
     /// <param name="expectedRecoveryEpoch">
     /// The still-current attempt required for an availability retry, or <see langword="null"/> for
@@ -971,7 +985,7 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// </param>
     private void TryEstablishBaseline(
         StateAreaId areaId,
-        string correlationMessageId,
+        string? correlationMessageId,
         long? expectedRecoveryEpoch = null,
         bool? isSnapshotRequest = null)
     {
@@ -1116,7 +1130,10 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
             bool snapshotRequestWasPending = state.SnapshotRequestPending;
             state.SnapshotRequestPending = false;
-            bool admitted = currentConnectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
+            PublicOutboundLane lane = correlationMessageId is null
+                ? PublicOutboundLane.Data
+                : PublicOutboundLane.ControlOrRecovery;
+            bool admitted = currentConnectionContext.TrySend(bytes, lane);
 
             // A test transport may reenter while admitting the baseline. Once the baseline is
             // admitted, a reentrant request is new work; it must not supersede this completed request.
@@ -1186,24 +1203,24 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
     /// <summary>
     /// Falls back <paramref name="state"/> to <see cref="AreaDeliveryPhase.AwaitingBaseline"/>,
     /// discarding any held Events and any buffered pending Snapshot, then arms a fresh bounded
-    /// deadline for <paramref name="correlationMessageId"/>: <see cref="OnSnapshotChanged"/> wakes and
-    /// retries this same pending request the moment a matching authoritative value appears, but if
-    /// none does before the deadline elapses, an explicit
-    /// <see cref="PublicProtocolErrorCode.TemporarilyUnavailable"/> error answers it instead of
-    /// leaving the client waiting forever. Must be called with <see cref="gate"/> already held by the
+    /// deadline for a correlated request. An accepted-area attempt with no request correlation stays
+    /// eligible for a future publication without arming another deadline. Must be called with <see cref="gate"/> already held by the
     /// calling thread.
     /// </summary>
     /// <param name="areaId">The state area falling back to <see cref="AreaDeliveryPhase.AwaitingBaseline"/>.</param>
     /// <param name="state">That area's own recovery-barrier bookkeeping.</param>
     /// <param name="myEpoch">The recovery attempt this fallback belongs to, so a later superseding attempt makes the armed deadline a no-op.</param>
-    /// <param name="correlationMessageId">The still-pending request's own message id.</param>
-    private void FallBackToAwaitingBaselineAndArmDeadlineLocked(StateAreaId areaId, AreaState state, long myEpoch, string correlationMessageId)
+    /// <param name="correlationMessageId">The still-pending request's id, or <see langword="null"/> when no client request remains.</param>
+    private void FallBackToAwaitingBaselineAndArmDeadlineLocked(StateAreaId areaId, AreaState state, long myEpoch, string? correlationMessageId)
     {
         state.Phase = AreaDeliveryPhase.AwaitingBaseline;
         state.BarrierRevision = null;
         state.HeldEvents.Clear();
         state.PendingSnapshot = null;
-        ArmPendingBaselineDeadlineLocked(areaId, state, myEpoch, correlationMessageId);
+        if (correlationMessageId is not null)
+        {
+            ArmPendingBaselineDeadlineLocked(areaId, state, myEpoch, correlationMessageId);
+        }
     }
 
     /// <summary>
@@ -1267,13 +1284,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             return;
         }
 
-        IPublicConnectionContext? currentConnectionContext;
-        SessionId? currentSessionId;
         lock (gate)
         {
-            currentConnectionContext = connectionContext;
-            currentSessionId = sessionId;
-            if (currentConnectionContext is null || currentSessionId is null
+            if (connectionContext is null || sessionId is null
                 || !areaStates.TryGetValue(areaId, out AreaState? state)
                 || state.RecoveryEpoch != myEpoch
                 || state.RecoveryCorrelationMessageId != correlationMessageId
@@ -1286,9 +1299,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
             state.SnapshotRequestPending = false;
             state.PendingBaselineDeadlineCancellation?.Dispose();
             state.PendingBaselineDeadlineCancellation = null;
-        }
 
-        SendTemporarilyUnavailableError(currentConnectionContext, currentSessionId.Value, correlationMessageId);
+            // Admit the terminal reply before releasing the gate, so a late accepted-area Snapshot
+            // cannot enter the Data lane ahead of the error that ended its request correlation.
+            SendTemporarilyUnavailableError(connectionContext, sessionId.Value, correlationMessageId);
+        }
     }
 
     /// <summary>
@@ -1509,11 +1524,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
         /// correlates to -- the originating <c>subscribe</c> or <c>snapshot_request</c>'s own id,
         /// recorded by <see cref="TryEstablishBaseline"/>. Reused, rather than replaced with a fresh
         /// host-generated id, when a held-Event buffer overflow or a newly available authoritative
-        /// value re-attempts the same still-pending request. Also meaningful while <see cref="Phase"/>
-        /// is <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, unlike every other field on this type:
-        /// a non-<see langword="null"/> value there means a request is genuinely pending -- bounded by
-        /// <see cref="PendingBaselineDeadlineCancellation"/> -- rather than that no request was ever
-        /// made for this area.
+        /// value re-attempts the same still-pending request. While <see cref="Phase"/> is
+        /// <see cref="AreaDeliveryPhase.AwaitingBaseline"/>, a non-<see langword="null"/> value means
+        /// a request remains pending and is bounded by <see cref="PendingBaselineDeadlineCancellation"/>;
+        /// <see langword="null"/> means no request remains but an accepted subscription can still
+        /// receive its first baseline.
         /// </summary>
         public string? RecoveryCorrelationMessageId;
 

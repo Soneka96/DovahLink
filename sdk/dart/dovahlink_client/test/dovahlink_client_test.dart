@@ -2611,6 +2611,164 @@ void main() {
     );
   });
 
+  group('Behavior late accepted baseline recovery behaves correctly', () {
+    test(
+      'Behavior late accepted baseline recovery synchronizes Identity from an unsolicited Snapshot after timeout',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        final Future<void> recovering = expectLater(
+          client.currentHost.character.identityChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterIdentityState?>>(
+              (StateSynchronization<CharacterIdentityState?> state) =>
+                  state.status == DovahLinkStateStatus.recovering,
+            ),
+          ),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_identity']),
+        );
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.characterIdentity,
+        );
+        final JsonMap subscribe = jsonDecode(transport.sent.last) as JsonMap;
+
+        transport.queueRawResponse(
+          _rawTemporarilyUnavailableError(
+            correlationId: subscribe['messageId'] as String,
+          ),
+        );
+        await recovering;
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+
+        final Future<void> synchronized = expectLater(
+          client.currentHost.character.identityChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterIdentityState?>>(
+              (StateSynchronization<CharacterIdentityState?> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.value?.name == 'Gonçalo' &&
+                  state.value?.race == 'Nord',
+            ),
+          ),
+        );
+        final JsonMap lateSnapshot =
+            jsonDecode(
+                    _rawStateSnapshot(
+                      stateArea: 'character_identity',
+                      revision: 1,
+                      value: <String, dynamic>{
+                        'name': 'Gonçalo',
+                        'race': 'Nord',
+                      },
+                    ),
+                  )
+                  as JsonMap
+              ..['sessionId'] = 'session-paired-1';
+        transport.queueRawResponse(jsonEncode(lateSnapshot));
+        await synchronized;
+
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          transport.sent
+              .map((String raw) => (jsonDecode(raw) as JsonMap)['messageType'])
+              .where((Object? type) => type == 'snapshot_request'),
+          isEmpty,
+        );
+      },
+    );
+
+    test(
+      'Behavior late accepted baseline recovery establishes Level before applying its next Event',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        final Future<void> recovering = expectLater(
+          client.currentHost.character.levelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.recovering,
+            ),
+          ),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_level']),
+        );
+        await client.currentHost.subscribeStateArea(
+          DovahLinkStateArea.characterLevel,
+        );
+        final JsonMap subscribe = jsonDecode(transport.sent.last) as JsonMap;
+
+        transport.queueRawResponse(
+          _rawTemporarilyUnavailableError(
+            correlationId: subscribe['messageId'] as String,
+          ),
+        );
+        await recovering;
+
+        final Future<void> baselineReceived = expectLater(
+          client.currentHost.character.levelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 1 &&
+                  state.value?.value == 43,
+            ),
+          ),
+        );
+        final JsonMap lateSnapshot =
+            jsonDecode(
+                    _rawStateSnapshot(
+                      stateArea: 'character_level',
+                      revision: 1,
+                      value: 43,
+                    ),
+                  )
+                  as JsonMap
+              ..['sessionId'] = 'session-paired-1';
+        transport.queueRawResponse(jsonEncode(lateSnapshot));
+        await baselineReceived;
+
+        final Future<void> eventReceived = expectLater(
+          client.currentHost.character.levelChanges,
+          emitsThrough(
+            predicate<StateSynchronization<CharacterLevelState>>(
+              (StateSynchronization<CharacterLevelState> state) =>
+                  state.status == DovahLinkStateStatus.synchronized &&
+                  state.revision == 2 &&
+                  state.value?.value == 44,
+            ),
+          ),
+        );
+        final JsonMap lateEvent =
+            jsonDecode(
+                    _rawStateEvent(
+                      stateArea: 'character_level',
+                      baseRevision: 1,
+                      revision: 2,
+                      value: 44,
+                    ),
+                  )
+                  as JsonMap
+              ..['sessionId'] = 'session-paired-1';
+        transport.queueRawResponse(jsonEncode(lateEvent));
+        await eventReceived;
+
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          transport.sent
+              .map((String raw) => (jsonDecode(raw) as JsonMap)['messageType'])
+              .where((Object? type) => type == 'snapshot_request'),
+          isEmpty,
+        );
+      },
+    );
+  });
+
   group('Method queueResponsesForNextSend behaves correctly', () {
     test(
       'Method queueResponsesForNextSend rejects a second queued response batch',
