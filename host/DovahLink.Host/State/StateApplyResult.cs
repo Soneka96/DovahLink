@@ -1,14 +1,17 @@
 namespace DovahLink.Host.State;
 
 /// <summary>
-/// The atomic outcome of one <see cref="IStatePublisher{TState}.Apply"/>,
-/// <see cref="IStatePublisher{TState}.ApplyResynchronizationBaseline"/>, or
-/// <see cref="IStatePublisher{TState}.ApplyEvent"/> call, computed inside the
-/// same lock that decides acceptance and assigns the revision -- so a caller deciding whether to
-/// push an unsolicited publication never needs to separately re-read <see cref="RevisionNumber"/>
-/// after the fact, which could otherwise race a concurrent capture for the same area.
+/// The atomic outcome of one <see cref="IAuthoritativeStateStore.Apply{TState}"/>,
+/// <see cref="IAuthoritativeStateStore.ApplyResynchronizationBaseline{TState}"/>, or
+/// <see cref="IAuthoritativeStateStore.ApplyEvent{TState}"/> call, computed inside the same lock that
+/// decides acceptance, assigns the revision, and commits the area's replay Snapshot -- so a caller
+/// deciding what to do next never needs to re-read the revision or the replay state after the fact,
+/// which could otherwise race a concurrent capture for the same area.
 /// </summary>
-/// <param name="Accepted">Whether the value was accepted from the current adapter and captured play context.</param>
+/// <param name="Accepted">
+/// Whether the value was accepted from the current adapter and captured play context. An accepted
+/// value is already committed as the area's current replay state.
+/// </param>
 /// <param name="Changed">
 /// Whether the accepted value actually changed the state area's authoritative value, and therefore
 /// advanced <see cref="Revision"/> past <see cref="BaseRevision"/>. Always <see langword="false"/>
