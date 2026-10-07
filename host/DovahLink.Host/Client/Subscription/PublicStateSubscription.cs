@@ -1130,10 +1130,9 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
             bool snapshotRequestWasPending = state.SnapshotRequestPending;
             state.SnapshotRequestPending = false;
-            PublicOutboundLane lane = correlationMessageId is null
-                ? PublicOutboundLane.Data
-                : PublicOutboundLane.ControlOrRecovery;
-            bool admitted = currentConnectionContext.TrySend(bytes, lane);
+            // Baselines establish the recovery barrier even when their original request has timed out.
+            // Keep them ordered ahead of held Events; correlation metadata does not select the lane.
+            bool admitted = currentConnectionContext.TrySend(bytes, PublicOutboundLane.ControlOrRecovery);
 
             // A test transport may reenter while admitting the baseline. Once the baseline is
             // admitted, a reentrant request is new work; it must not supersede this completed request.

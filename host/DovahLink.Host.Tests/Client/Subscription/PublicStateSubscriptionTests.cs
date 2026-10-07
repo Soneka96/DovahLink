@@ -429,8 +429,8 @@ public class PublicStateSubscriptionTests
 
     /// <summary>
     /// Verifies that an accepted subscription remains eligible for synchronization after its
-    /// correlated baseline request times out, and that its late baseline uses normal publication
-    /// correlation and queue semantics before Events resume.
+    /// correlated baseline request times out, and that its uncorrelated late baseline stays ordered
+    /// ahead of Events even when those Events arrive reentrantly during baseline admission.
     /// </summary>
     [Fact]
     public async Task EstablishAcceptedBaselines_TimedOutAreaReceivesUncorrelatedLateSnapshotAndForwardsEvents()
@@ -454,29 +454,84 @@ public class PublicStateSubscriptionTests
         Assert.Equal(PublicProtocolErrorCode.TemporarilyUnavailable, errorPayload!.Code);
         Assert.True(errorPayload.Retryable);
 
+        connectionContext.OnTrySend = () =>
+        {
+            connectionContext.OnTrySend = null;
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+            feed.RaiseEvent(BuildEvent("area_a", baseRevision: 2, revision: 3));
+        };
+        connectionContext.OnTrySendPayload = (bytes, _) =>
+        {
+            if (codec.TryDecode(bytes, out PublicEnvelope? envelope)
+                && envelope!.MessageType == PublicMessageType.StateEvent
+                && codec.TryDecodePayload(envelope, out StateEventPayload? payload)
+                && payload!.Revision == 2)
+            {
+                feed.RaiseEvent(BuildEvent("area_a", baseRevision: 3, revision: 4));
+            }
+        };
+
         feed.SetSnapshot(new StateAreaId("area_a"), BuildSnapshot("area_a", revision: 1));
         feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 1));
 
-        Assert.Equal(2, connectionContext.SentPayloads.Count);
+        Assert.Equal(5, connectionContext.SentPayloads.Count);
         (byte[] baselineBytes, PublicOutboundLane baselineLane) = connectionContext.SentPayloads[1];
-        Assert.Equal(PublicOutboundLane.Data, baselineLane);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, baselineLane);
         Assert.True(codec.TryDecode(baselineBytes, out PublicEnvelope? baselineEnvelope));
         Assert.Equal(PublicMessageType.StateSnapshot, baselineEnvelope!.MessageType);
         Assert.Null(baselineEnvelope.CorrelationId);
         Assert.True(codec.TryDecodePayload(baselineEnvelope, out StateSnapshotPayload? baseline));
         Assert.Equal(1UL, baseline!.Revision);
+        Assert.Empty(connectionContext.SentSnapshots);
 
-        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 1, revision: 2));
+        List<ulong> eventRevisions = connectionContext.SentPayloads
+            .Skip(2)
+            .Select(sent =>
+            {
+                Assert.Equal(PublicOutboundLane.Data, sent.Lane);
+                Assert.True(codec.TryDecode(sent.Payload, out PublicEnvelope? envelope));
+                Assert.Equal(PublicMessageType.StateEvent, envelope!.MessageType);
+                Assert.Null(envelope.CorrelationId);
+                Assert.True(codec.TryDecodePayload(envelope, out StateEventPayload? payload));
+                return payload!.Revision;
+            })
+            .ToList();
+        Assert.Equal([2UL, 3UL, 4UL], eventRevisions);
+    }
+
+    /// <summary>
+    /// Verifies that a late baseline declined by Control/Recovery admission leaves the accepted area
+    /// gated until a later baseline is admitted.
+    /// </summary>
+    [Fact]
+    public async Task EstablishAcceptedBaselines_LateBaselineDeclined_DoesNotForwardEventsUntilRetryIsAdmitted()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(
+            ["area_a"], pendingBaselineDeadline: TimeSpan.FromMilliseconds(40));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+
+        Subscribe(subscription, "sub-pressure", ["area_a"]);
+        await WaitUntilAsync(() => connectionContext.SentPayloads.Count == 1);
+        connectionContext.TrySendResult = false;
+
+        StateSnapshotPublication snapshot = BuildSnapshot("area_a", revision: 10);
+        feed.SetSnapshot(new StateAreaId("area_a"), snapshot);
+        feed.RaiseSnapshotChanged(snapshot);
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10, revision: 11));
 
         Assert.Equal(3, connectionContext.SentPayloads.Count);
-        (byte[] eventBytes, PublicOutboundLane eventLane) = connectionContext.SentPayloads[2];
-        Assert.Equal(PublicOutboundLane.Data, eventLane);
-        Assert.True(codec.TryDecode(eventBytes, out PublicEnvelope? eventEnvelope));
-        Assert.Equal(PublicMessageType.StateEvent, eventEnvelope!.MessageType);
-        Assert.Null(eventEnvelope.CorrelationId);
-        Assert.True(codec.TryDecodePayload(eventEnvelope, out StateEventPayload? stateEvent));
-        Assert.Equal(1UL, stateEvent!.BaseRevision);
-        Assert.Equal(2UL, stateEvent.Revision);
+        Assert.All(connectionContext.SentPayloads.Skip(1), sent =>
+            Assert.Equal(PublicOutboundLane.ControlOrRecovery, sent.Lane));
+        Assert.Empty(connectionContext.SentSnapshots);
+
+        connectionContext.TrySendResult = true;
+        feed.RaiseSnapshotChanged(snapshot);
+        feed.RaiseEvent(BuildEvent("area_a", baseRevision: 10, revision: 11));
+
+        Assert.Equal(5, connectionContext.SentPayloads.Count);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, connectionContext.SentPayloads[3].Lane);
+        Assert.Equal(PublicOutboundLane.Data, connectionContext.SentPayloads[4].Lane);
     }
 
     /// <summary>Verifies that a Snapshot racing timeout-response admission is queued after the terminal correlated error.</summary>
@@ -510,7 +565,7 @@ public class PublicStateSubscriptionTests
         Assert.Equal(PublicMessageType.StateSnapshot, baseline!.MessageType);
         Assert.Null(baseline.CorrelationId);
         Assert.Equal(PublicOutboundLane.ControlOrRecovery, connectionContext.SentPayloads[0].Lane);
-        Assert.Equal(PublicOutboundLane.Data, connectionContext.SentPayloads[1].Lane);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, connectionContext.SentPayloads[1].Lane);
     }
 
     /// <summary>Verifies that a one-shot request's timeout does not cancel an already accepted ongoing subscription.</summary>
@@ -539,7 +594,7 @@ public class PublicStateSubscriptionTests
 
         Assert.Equal(3, connectionContext.SentPayloads.Count);
         (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[2];
-        Assert.Equal(PublicOutboundLane.Data, lane);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? baseline));
         Assert.Equal(PublicMessageType.StateSnapshot, baseline!.MessageType);
         Assert.Null(baseline.CorrelationId);
@@ -563,7 +618,7 @@ public class PublicStateSubscriptionTests
 
         Assert.Equal(2, connectionContext.SentPayloads.Count);
         (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[1];
-        Assert.Equal(PublicOutboundLane.Data, lane);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.Null(envelope!.CorrelationId);
         Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
@@ -589,7 +644,7 @@ public class PublicStateSubscriptionTests
 
         Assert.Equal(2, connectionContext.SentPayloads.Count);
         (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[1];
-        Assert.Equal(PublicOutboundLane.Data, lane);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
         Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
         Assert.Equal(PublicMessageType.StateSnapshot, envelope!.MessageType);
         Assert.Null(envelope.CorrelationId);

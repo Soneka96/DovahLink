@@ -32,7 +32,8 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Fixed
 
-- Accepted state areas now receive a late authoritative baseline after the initial request times out.
+- Accepted state areas now receive a late authoritative baseline through ordered recovery admission
+  before Events resume.
 - Play-context and authority boundaries now purge queued state and send generic revision-zero unavailable baselines before new-identity state.
 - Host state timestamps now use the canonical UTC RFC 3339 wire format accepted by the Dart SDK.
 - State Snapshots and Events now retain the authority identity captured with each publication if authority rotates during encoding.
