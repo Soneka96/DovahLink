@@ -5,6 +5,7 @@ using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
 using DovahLink.Host.Sessions;
+using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
@@ -184,4 +185,25 @@ public static class Fixtures
         tracker.NotifyTransition(PlayContextId.NewId());
         return tracker;
     }
+
+    // ---- Live state ----
+
+    /// <summary>
+    /// Builds one complete, representative set of typed values for every production state area; a test
+    /// that needs one value different overrides only that parameter. Equal arguments always build equal
+    /// values, so a second call models a "same value" recapture.
+    /// </summary>
+    public static ProductionStateValues BuildProductionStateValues(
+        ushort level = 43,
+        string locationName = "Whiterun",
+        string characterName = "Lydia") =>
+        new(
+            new CharacterVitals(new CharacterVital(90, 100), new CharacterVital(50, 60), new CharacterVital(70, 80)),
+            1234.5f,
+            new CharacterIdentity(characterName, "Nord"),
+            new CharacterSupernaturalTraits(false, false, true),
+            new PlayerLocation(0x1A26F, PlayerLocationCellKind.Exterior, locationName, 0x18, locationName, 0x3C, "Tamriel"),
+            new GameTime(201, 8, "Sun's Dusk", 17, 14, 30),
+            new TrackedQuests([new TrackedQuest(0x2A, "Dragon Rising", 1, [new QuestObjective(0, 1, "Reach Whiterun", TrackedQuestObjectiveState.Displayed)])]),
+            level);
 }
