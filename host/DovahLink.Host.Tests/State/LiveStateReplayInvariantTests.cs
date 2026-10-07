@@ -108,7 +108,7 @@ public class LiveStateReplayInvariantTests
         clientA.Subscribe(LivePipelineHarness.ProductionAreas);
         clientA.Disconnect();
         ProductionStateValues next = Fixtures.BuildProductionStateValues(locationName: "Windhelm");
-        harness.ApplySample(harness.LocationPublisher, Constants.PlayerLocationStateArea, next.Location);
+        harness.ApplySample(Constants.PlayerLocationStateArea, next.Location);
 
         LivePipelineClient clientB = harness.CreateClient();
         clientB.Subscribe(LivePipelineHarness.ProductionAreas);
@@ -165,8 +165,8 @@ public class LiveStateReplayInvariantTests
 
         foreach (string area in LivePipelineHarness.ProductionAreas)
         {
-            Assert.True(harness.HasCurrentTypedValue(area), $"{area}: publisher has no current value");
-            Assert.True(harness.Feed.TryGetSnapshot(new StateAreaId(area), out StateSnapshotPublication? snapshot), $"{area}: feed has no snapshot");
+            Assert.True(harness.HasCurrentTypedValue(area), $"{area}: store has no current value");
+            Assert.True(harness.Feed.TryGetSnapshot(new StateAreaId(area), out StateSnapshotPublication? snapshot), $"{area}: store has no replayable snapshot");
             Assert.Equal(harness.CurrentRevision(area), snapshot!.Revision);
         }
     }
@@ -178,14 +178,14 @@ public class LiveStateReplayInvariantTests
         LivePipelineHarness harness = BuildSynchronized();
         ProductionStateValues next = Fixtures.BuildProductionStateValues(locationName: "Riften");
 
-        harness.ApplySample(harness.LocationPublisher, Constants.PlayerLocationStateArea, next.Location);
-        harness.ApplySample(harness.LocationPublisher, Constants.PlayerLocationStateArea, next.Location);
+        harness.ApplySample(Constants.PlayerLocationStateArea, next.Location);
+        harness.ApplySample(Constants.PlayerLocationStateArea, next.Location);
         harness.ApplyLevelChanged(44);
 
         foreach (string area in LivePipelineHarness.ProductionAreas)
         {
-            Assert.True(harness.HasCurrentTypedValue(area), $"{area}: publisher has no current value");
-            Assert.True(harness.Feed.TryGetSnapshot(new StateAreaId(area), out StateSnapshotPublication? snapshot), $"{area}: feed has no snapshot");
+            Assert.True(harness.HasCurrentTypedValue(area), $"{area}: store has no current value");
+            Assert.True(harness.Feed.TryGetSnapshot(new StateAreaId(area), out StateSnapshotPublication? snapshot), $"{area}: store has no replayable snapshot");
             Assert.Equal(harness.CurrentRevision(area), snapshot!.Revision);
         }
 

@@ -17,20 +17,14 @@ public sealed class GameTimeCaptureHandler : ILiveCaptureHandler
             (CaptureSourceKind.Sample, (uint)CharacterSampleToken.GameTime),
         ]);
 
-    /// <summary>Publishes a normalized calendar or its explicit unavailability.</summary>
-    private readonly IStatePublisher<GameTime?> publisher;
-
     /// <summary>Applies values through Host authority and publication rules.</summary>
     private readonly ILiveStateApplication liveStateApplication;
 
     /// <summary>Creates the Host mapping for Skyrim game time.</summary>
-    /// <param name="publisher">The typed publisher for the independent calendar area.</param>
     /// <param name="liveStateApplication">The shared Host authority and publication service.</param>
     public GameTimeCaptureHandler(
-        IStatePublisher<GameTime?> publisher,
         ILiveStateApplication liveStateApplication)
     {
-        this.publisher = publisher;
         this.liveStateApplication = liveStateApplication;
     }
 
@@ -60,7 +54,6 @@ public sealed class GameTimeCaptureHandler : ILiveCaptureHandler
         }
 
         liveStateApplication.Apply(
-            publisher,
             UpdateMode.Snapshot,
             context.CaptureUnit.StateAreas[0],
             value,

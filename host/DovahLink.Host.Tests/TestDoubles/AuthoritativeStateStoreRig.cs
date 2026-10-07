@@ -79,9 +79,10 @@ public sealed class AuthoritativeStateStoreRig
     /// <param name="value">The baseline value.</param>
     /// <param name="mode">How a changed baseline is announced; Snapshot when omitted.</param>
     /// <param name="occurredAt">The capture time; <see cref="At"/> when omitted.</param>
-    public StateApplyResult Baseline<TState>(string area, TState value, UpdateMode mode = UpdateMode.Snapshot, DateTimeOffset? occurredAt = null) =>
+    /// <param name="onCommitted">The commit hook to pass to the store, if any.</param>
+    public StateApplyResult Baseline<TState>(string area, TState value, UpdateMode mode = UpdateMode.Snapshot, DateTimeOffset? occurredAt = null, Action? onCommitted = null) =>
         Store.ApplyResynchronizationBaseline(
-            mode, ClaimToken(), ContextId, PlayContextTracker.TransitionGeneration, occurredAt ?? At, new StateAreaId(area), value);
+            mode, ClaimToken(), ContextId, PlayContextTracker.TransitionGeneration, occurredAt ?? At, new StateAreaId(area), value, onCommitted);
 
     /// <summary>Drops the adapter connection, which is a continuity loss.</summary>
     public void LoseContinuity()

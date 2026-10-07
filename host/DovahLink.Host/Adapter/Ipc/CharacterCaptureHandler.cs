@@ -22,44 +22,14 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
             (CaptureSourceKind.Event, (uint)CharacterEventKey.CharacterLevelChanged),
         ]);
 
-    /// <summary>Backs the coherent Vitals area.</summary>
-    private readonly IStatePublisher<CharacterVitals?> vitalsPublisher;
-
-    /// <summary>Backs the Character XP area.</summary>
-    private readonly IStatePublisher<float?> xpPublisher;
-
-    /// <summary>Backs the Character level area.</summary>
-    private readonly IStatePublisher<ushort?> levelPublisher;
-
-    /// <summary>Backs the complete Character Identity area.</summary>
-    private readonly IStatePublisher<CharacterIdentity?> identityPublisher;
-
-    /// <summary>Backs the independent supernatural-traits area.</summary>
-    private readonly IStatePublisher<CharacterSupernaturalTraits?> supernaturalTraitsPublisher;
-
     /// <summary>Applies decoded values through shared authority and publication rules.</summary>
     private readonly ILiveStateApplication liveStateApplication;
 
     /// <summary>Creates the handler for the current Character capture set.</summary>
-    /// <param name="vitalsPublisher">The typed publisher for coherent Vitals.</param>
-    /// <param name="xpPublisher">The typed publisher for XP.</param>
-    /// <param name="levelPublisher">The typed publisher for level.</param>
-    /// <param name="identityPublisher">The typed publisher for complete Character Identity.</param>
-    /// <param name="supernaturalTraitsPublisher">The typed publisher for supernatural traits.</param>
     /// <param name="liveStateApplication">The shared Host authority and publication service.</param>
     public CharacterCaptureHandler(
-        IStatePublisher<CharacterVitals?> vitalsPublisher,
-        IStatePublisher<float?> xpPublisher,
-        IStatePublisher<ushort?> levelPublisher,
-        IStatePublisher<CharacterIdentity?> identityPublisher,
-        IStatePublisher<CharacterSupernaturalTraits?> supernaturalTraitsPublisher,
         ILiveStateApplication liveStateApplication)
     {
-        this.vitalsPublisher = vitalsPublisher;
-        this.xpPublisher = xpPublisher;
-        this.levelPublisher = levelPublisher;
-        this.identityPublisher = identityPublisher;
-        this.supernaturalTraitsPublisher = supernaturalTraitsPublisher;
         this.liveStateApplication = liveStateApplication;
     }
 
@@ -130,7 +100,7 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
         }
 
         bool isResynchronizationBaseline = captureResult.CorrelationId == 0;
-        Apply(vitalsPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], vitals, isResynchronizationBaseline, context);
+        Apply(UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], vitals, isResynchronizationBaseline, context);
     }
 
     /// <summary>Decodes and applies one XP value.</summary>
@@ -158,7 +128,7 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
             return;
         }
 
-        Apply(xpPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], value, captureResult.CorrelationId == 0, context);
+        Apply(UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], value, captureResult.CorrelationId == 0, context);
     }
 
     /// <summary>Decodes and applies one complete Identity observation or its unavailable value.</summary>
@@ -184,7 +154,7 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
             return;
         }
 
-        Apply(identityPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], identity, captureResult.CorrelationId == 0, context);
+        Apply(UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], identity, captureResult.CorrelationId == 0, context);
     }
 
     /// <summary>Decodes and applies all three independent supernatural-traits predicates.</summary>
@@ -215,7 +185,7 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
             return;
         }
 
-        Apply(supernaturalTraitsPublisher, UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], traits, captureResult.CorrelationId == 0, context);
+        Apply(UpdateMode.Snapshot, context.CaptureUnit.StateAreas[0], traits, captureResult.CorrelationId == 0, context);
     }
 
     /// <summary>Decodes and applies the level baseline Sample or level-changed Event.</summary>
@@ -245,26 +215,23 @@ public sealed class CharacterCaptureHandler : ILiveCaptureHandler
 
         UpdateMode mode = context.CaptureUnit.Source == CaptureSourceKind.Sample ? UpdateMode.Snapshot : UpdateMode.Event;
         bool isResynchronizationBaseline = mode == UpdateMode.Snapshot && captureResult.CorrelationId == 0;
-        Apply(levelPublisher, mode, context.CaptureUnit.StateAreas[0], value, isResynchronizationBaseline, context);
+        Apply(mode, context.CaptureUnit.StateAreas[0], value, isResynchronizationBaseline, context);
     }
 
     /// <summary>Passes a decoded area value and its validated context to shared Host authority.</summary>
-    /// <typeparam name="TState">The publisher's captured value type.</typeparam>
-    /// <param name="publisher">The typed publisher for the destination area.</param>
+    /// <typeparam name="TState">The decoded value type.</typeparam>
     /// <param name="mode">The area's canonical Snapshot or Event mode.</param>
     /// <param name="areaId">The destination state area.</param>
     /// <param name="value">The decoded value, or <see langword="null"/> when unavailable.</param>
     /// <param name="isResynchronizationBaseline">Whether the capture is an identified baseline sample.</param>
     /// <param name="context">The validated provenance and play-context metadata.</param>
     private void Apply<TState>(
-        IStatePublisher<TState> publisher,
         UpdateMode mode,
         StateAreaId areaId,
         TState value,
         bool isResynchronizationBaseline,
         LiveCaptureContext context) =>
         liveStateApplication.Apply(
-            publisher,
             mode,
             areaId,
             value,

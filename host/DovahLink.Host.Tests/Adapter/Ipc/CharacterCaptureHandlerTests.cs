@@ -25,8 +25,7 @@ public class CharacterCaptureHandlerTests
     private static readonly StateAreaId SupernaturalTraitsArea = new(Constants.CharacterSupernaturalTraitsStateArea);
 
     /// <summary>Records one value sent to the shared application service.</summary>
-    /// <param name="StateType">The generic publisher state type.</param>
-    /// <param name="Publisher">The typed publisher supplied by the handler.</param>
+    /// <param name="StateType">The generic state type the handler applied.</param>
     /// <param name="Mode">The canonical Snapshot or Event mode supplied by the handler.</param>
     /// <param name="AreaId">The destination state area.</param>
     /// <param name="Value">The decoded value or unavailable marker.</param>
@@ -38,7 +37,6 @@ public class CharacterCaptureHandlerTests
     /// <param name="OccurredAt">The accepted capture timestamp.</param>
     private sealed record ApplyCall(
         Type StateType,
-        object Publisher,
         UpdateMode Mode,
         StateAreaId AreaId,
         object? Value,
@@ -57,7 +55,6 @@ public class CharacterCaptureHandlerTests
 
         /// <inheritdoc/>
         public void Apply<TState>(
-            IStatePublisher<TState> publisher,
             UpdateMode mode,
             StateAreaId areaId,
             TState value,
@@ -69,7 +66,6 @@ public class CharacterCaptureHandlerTests
             DateTimeOffset occurredAt) =>
             ApplyCalls.Add(new ApplyCall(
                 typeof(TState),
-                publisher,
                 mode,
                 areaId,
                 value,
@@ -81,90 +77,16 @@ public class CharacterCaptureHandlerTests
                 occurredAt));
     }
 
-    /// <summary>A publisher stub that fails if a handler bypasses the shared application service.</summary>
-    /// <typeparam name="TState">The state value type represented by this publisher.</typeparam>
-    private sealed class UnusedStatePublisher<TState> : IStatePublisher<TState>
-    {
-        /// <inheritdoc/>
-        public bool TryGetCurrentValue(StateAreaId areaId, [MaybeNullWhen(false)] out TState value) =>
-            throw new InvalidOperationException("Character handlers must apply values through ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public RevisionNumber CurrentRevision(StateAreaId areaId) =>
-            throw new InvalidOperationException("Character handlers must apply values through ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult Apply(
-            AdapterInstanceId sourceInstanceId,
-            long sourceConnectionGeneration,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Character handlers must apply values through ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult ApplyResynchronizationBaseline(
-            IAdapterResynchronizationToken resynchronizationToken,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Character handlers must apply values through ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult ApplyEvent(
-            AdapterInstanceId sourceInstanceId,
-            long sourceConnectionGeneration,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            IAdapterResynchronizationToken? resynchronizationToken,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Character handlers must apply values through ILiveStateApplication.");
-    }
-
-    /// <summary>The handler and test doubles used to observe its application calls.</summary>
+    /// <summary>The handler and the recorder used to observe its application calls.</summary>
     /// <param name="Handler">The Character handler under test.</param>
     /// <param name="Application">The recorder for decoded values.</param>
-    /// <param name="VitalsPublisher">The strict publisher for coherent Vitals.</param>
-    /// <param name="XpPublisher">The strict publisher for XP.</param>
-    /// <param name="LevelPublisher">The strict publisher for level.</param>
-    /// <param name="IdentityPublisher">The strict publisher for Character Identity.</param>
-    /// <param name="SupernaturalTraitsPublisher">The strict publisher for supernatural traits.</param>
-    private sealed record Fixture(
-        CharacterCaptureHandler Handler,
-        RecordingLiveStateApplication Application,
-        IStatePublisher<CharacterVitals?> VitalsPublisher,
-        IStatePublisher<float?> XpPublisher,
-        IStatePublisher<ushort?> LevelPublisher,
-        IStatePublisher<CharacterIdentity?> IdentityPublisher,
-        IStatePublisher<CharacterSupernaturalTraits?> SupernaturalTraitsPublisher);
+    private sealed record Fixture(CharacterCaptureHandler Handler, RecordingLiveStateApplication Application);
 
-    /// <summary>Builds a handler with strict publishers and an application-call recorder.</summary>
+    /// <summary>Builds a handler over an application-call recorder.</summary>
     private static Fixture CreateReady()
     {
         var application = new RecordingLiveStateApplication();
-        IStatePublisher<CharacterVitals?> vitalsPublisher = new UnusedStatePublisher<CharacterVitals?>();
-        IStatePublisher<float?> xpPublisher = new UnusedStatePublisher<float?>();
-        IStatePublisher<ushort?> levelPublisher = new UnusedStatePublisher<ushort?>();
-        IStatePublisher<CharacterIdentity?> identityPublisher = new UnusedStatePublisher<CharacterIdentity?>();
-        IStatePublisher<CharacterSupernaturalTraits?> supernaturalTraitsPublisher = new UnusedStatePublisher<CharacterSupernaturalTraits?>();
-        var handler = new CharacterCaptureHandler(
-            vitalsPublisher,
-            xpPublisher,
-            levelPublisher,
-            identityPublisher,
-            supernaturalTraitsPublisher,
-            application);
-        return new Fixture(
-            handler,
-            application,
-            vitalsPublisher,
-            xpPublisher,
-            levelPublisher,
-            identityPublisher,
-            supernaturalTraitsPublisher);
+        return new Fixture(new CharacterCaptureHandler(application), application);
     }
 
     /// <summary>Builds validated dispatch metadata for a capture in the production catalog.</summary>
@@ -193,9 +115,8 @@ public class CharacterCaptureHandlerTests
             new DateTimeOffset(2026, 9, 20, 12, 0, 0, TimeSpan.Zero));
     }
 
-    /// <summary>Asserts that one handler application call preserves its publisher, value, mode, and capture authority.</summary>
+    /// <summary>Asserts that one handler application call preserves its value, mode, and capture authority.</summary>
     /// <param name="call">The recorded application call.</param>
-    /// <param name="publisher">The expected typed publisher instance.</param>
     /// <param name="stateType">The expected generic state type.</param>
     /// <param name="mode">The expected publication mode.</param>
     /// <param name="areaId">The expected destination area.</param>
@@ -204,7 +125,6 @@ public class CharacterCaptureHandlerTests
     /// <param name="context">The validated context whose provenance must be preserved.</param>
     private static void AssertApplyCall(
         ApplyCall call,
-        object publisher,
         Type stateType,
         UpdateMode mode,
         StateAreaId areaId,
@@ -213,7 +133,6 @@ public class CharacterCaptureHandlerTests
         LiveCaptureContext context)
     {
         Assert.Equal(stateType, call.StateType);
-        Assert.Same(publisher, call.Publisher);
         Assert.Equal(mode, call.Mode);
         Assert.Equal(areaId, call.AreaId);
         Assert.Equal(value, call.Value);
@@ -343,7 +262,7 @@ public class CharacterCaptureHandlerTests
             new CharacterVital(100.0f, 300.0f));
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.VitalsPublisher, typeof(CharacterVitals), UpdateMode.Snapshot, VitalsArea, expected, false, context));
+            call => AssertApplyCall(call, typeof(CharacterVitals), UpdateMode.Snapshot, VitalsArea, expected, false, context));
     }
 
     /// <summary>Verifies that an unavailable Vitals sample marks the whole domain unavailable.</summary>
@@ -364,7 +283,7 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.VitalsPublisher, typeof(CharacterVitals), UpdateMode.Snapshot, VitalsArea, null, false, context));
+            call => AssertApplyCall(call, typeof(CharacterVitals), UpdateMode.Snapshot, VitalsArea, null, false, context));
     }
 
     /// <summary>Verifies that finite maxima are preserved raw inside the coherent value.</summary>
@@ -428,8 +347,8 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.XpPublisher, typeof(float?), UpdateMode.Snapshot, XpArea, 50.5f, false, availableContext),
-            call => AssertApplyCall(call, fixture.XpPublisher, typeof(float?), UpdateMode.Snapshot, XpArea, null, false, unavailableContext));
+            call => AssertApplyCall(call, typeof(float?), UpdateMode.Snapshot, XpArea, 50.5f, false, availableContext),
+            call => AssertApplyCall(call, typeof(float?), UpdateMode.Snapshot, XpArea, null, false, unavailableContext));
     }
 
     /// <summary>Verifies that malformed or non-finite XP samples are dropped.</summary>
@@ -474,7 +393,7 @@ public class CharacterCaptureHandlerTests
         var expected = new CharacterIdentity("Gonçalo", "Nord");
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.IdentityPublisher, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, expected, false, context));
+            call => AssertApplyCall(call, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, expected, false, context));
     }
 
     /// <summary>Verifies missing Identity sources map to null for the whole Snapshot domain.</summary>
@@ -495,7 +414,7 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.IdentityPublisher, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, null, false, context));
+            call => AssertApplyCall(call, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, null, false, context));
     }
 
     /// <summary>Verifies both Identity strings are accepted exactly at their byte limit without truncation.</summary>
@@ -514,7 +433,7 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.IdentityPublisher, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, new CharacterIdentity(maximum, maximum), false, context));
+            call => AssertApplyCall(call, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, new CharacterIdentity(maximum, maximum), false, context));
 
         Fixture unicodeFixture = CreateReady();
         var unicodeCapture = new IpcCaptureResultMessage(
@@ -525,7 +444,7 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             unicodeFixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, unicodeFixture.IdentityPublisher, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, new CharacterIdentity(maximumUtf8, maximumUtf8), false, unicodeContext));
+            call => AssertApplyCall(call, typeof(CharacterIdentity), UpdateMode.Snapshot, IdentityArea, new CharacterIdentity(maximumUtf8, maximumUtf8), false, unicodeContext));
     }
 
     /// <summary>Verifies malformed lengths, text, truncation, trailing bytes, and unavailable payloads never apply Identity.</summary>
@@ -583,8 +502,8 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.SupernaturalTraitsPublisher, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, new CharacterSupernaturalTraits(false, false, false), false, availableContext),
-            call => AssertApplyCall(call, fixture.SupernaturalTraitsPublisher, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, null, false, unavailableContext));
+            call => AssertApplyCall(call, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, new CharacterSupernaturalTraits(false, false, false), false, availableContext),
+            call => AssertApplyCall(call, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, null, false, unavailableContext));
     }
 
     /// <summary>Verifies hybrid supernatural combinations preserve every independent predicate.</summary>
@@ -608,7 +527,7 @@ public class CharacterCaptureHandlerTests
         var expected = new CharacterSupernaturalTraits(isVampire, hasVampireLordForm, hasWerewolfForm);
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.SupernaturalTraitsPublisher, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, expected, false, context));
+            call => AssertApplyCall(call, typeof(CharacterSupernaturalTraits), UpdateMode.Snapshot, SupernaturalTraitsArea, expected, false, context));
     }
 
     /// <summary>Verifies malformed boolean encodings and unavailable captures carrying bytes never apply supernatural state.</summary>
@@ -669,11 +588,11 @@ public class CharacterCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture.LevelPublisher, typeof(ushort?), UpdateMode.Snapshot, LevelArea, (ushort)11, false, ordinaryContext),
-            call => AssertApplyCall(call, fixture.LevelPublisher, typeof(ushort?), UpdateMode.Snapshot, LevelArea, (ushort)12, true, baselineContext),
-            call => AssertApplyCall(call, fixture.LevelPublisher, typeof(ushort?), UpdateMode.Event, LevelArea, (ushort)13, false, eventContext),
-            call => AssertApplyCall(call, fixture.LevelPublisher, typeof(ushort?), UpdateMode.Snapshot, LevelArea, null, false, unavailableContext),
-            call => AssertApplyCall(call, fixture.LevelPublisher, typeof(ushort?), UpdateMode.Event, LevelArea, null, false, unavailableEventContext));
+            call => AssertApplyCall(call, typeof(ushort?), UpdateMode.Snapshot, LevelArea, (ushort)11, false, ordinaryContext),
+            call => AssertApplyCall(call, typeof(ushort?), UpdateMode.Snapshot, LevelArea, (ushort)12, true, baselineContext),
+            call => AssertApplyCall(call, typeof(ushort?), UpdateMode.Event, LevelArea, (ushort)13, false, eventContext),
+            call => AssertApplyCall(call, typeof(ushort?), UpdateMode.Snapshot, LevelArea, null, false, unavailableContext),
+            call => AssertApplyCall(call, typeof(ushort?), UpdateMode.Event, LevelArea, null, false, unavailableEventContext));
     }
 
     /// <summary>Verifies that a malformed Level payload does not reach shared application authority.</summary>

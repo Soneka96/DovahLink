@@ -116,6 +116,13 @@ public interface IAuthoritativeStateStore
     /// <param name="occurredAt">When the baseline was captured, for display and diagnostics only.</param>
     /// <param name="areaId">The state area the baseline belongs to.</param>
     /// <param name="value">The baseline value.</param>
+    /// <param name="onCommitted">
+    /// Optional step run exactly once, under the store's ordering lock, after the baseline is committed
+    /// as the area's replayable current state and before any change notification is raised; never run
+    /// when the baseline is rejected. It lets the caller count the baseline toward a resynchronization
+    /// transaction so completion becomes observable before the change notification, never before the
+    /// area can be replayed. Used only on this path, because only a baseline completes a transaction.
+    /// </param>
     /// <returns>The atomic outcome; when accepted, the area is already replayable.</returns>
     /// <exception cref="InvalidOperationException">No play context is established, or the area was first written with a different value type.</exception>
     StateApplyResult ApplyResynchronizationBaseline<TState>(
@@ -125,7 +132,8 @@ public interface IAuthoritativeStateStore
         long capturedPlayContextGeneration,
         DateTimeOffset occurredAt,
         StateAreaId areaId,
-        TState value);
+        TState value,
+        Action? onCommitted = null);
 
     /// <summary>
     /// Applies a reliable Event from the current adapter. The store decides under its lock whether the
@@ -302,11 +310,12 @@ public sealed class AuthoritativeStateStore : IAuthoritativeStateStore
         long capturedPlayContextGeneration,
         DateTimeOffset occurredAt,
         StateAreaId areaId,
-        TState value)
+        TState value,
+        Action? onCommitted = null)
     {
         return Commit(
             ApplyAuthority.ResynchronizationBaseline, mode, null, null,
-            capturedPlayContextId, capturedPlayContextGeneration, resynchronizationToken, occurredAt, areaId, value);
+            capturedPlayContextId, capturedPlayContextGeneration, resynchronizationToken, occurredAt, areaId, value, onCommitted);
     }
 
     /// <inheritdoc/>
@@ -342,6 +351,7 @@ public sealed class AuthoritativeStateStore : IAuthoritativeStateStore
     /// <param name="occurredAt">When the value was captured.</param>
     /// <param name="areaId">The state area the value belongs to.</param>
     /// <param name="value">The value to apply.</param>
+    /// <param name="onCommitted">Optional step run under <see cref="gate"/> after the record is committed and before any notification; see <see cref="ApplyResynchronizationBaseline{TState}"/>.</param>
     /// <returns>The atomic outcome of this call.</returns>
     /// <exception cref="InvalidOperationException">No play context is established, or the area was first written with a different value type.</exception>
     private StateApplyResult Commit<TState>(
@@ -354,7 +364,8 @@ public sealed class AuthoritativeStateStore : IAuthoritativeStateStore
         IAdapterResynchronizationToken? resynchronizationToken,
         DateTimeOffset occurredAt,
         StateAreaId areaId,
-        TState value)
+        TState value,
+        Action? onCommitted = null)
     {
         lock (gate)
         {
@@ -447,6 +458,7 @@ public sealed class AuthoritativeStateStore : IAuthoritativeStateStore
                 Replayable: true);
             recordsByArea[areaId] = record;
             valueTypesByArea[areaId] = typeof(TState);
+            onCommitted?.Invoke();
 
             if (changed)
             {

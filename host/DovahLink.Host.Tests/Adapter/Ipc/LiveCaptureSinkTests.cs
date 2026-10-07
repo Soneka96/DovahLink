@@ -31,8 +31,7 @@ public class LiveCaptureSinkTests
     /// <param name="Sink">The capture sink under test.</param>
     /// <param name="Catalog">The catalog used to recognize capture results.</param>
     /// <param name="Feed">The publication feed that exposes applied values.</param>
-    /// <param name="VitalsPublisher">The publisher used to inspect Vitals revisions.</param>
-    /// <param name="FloatPublisher">The publisher used to inspect XP revisions.</param>
+    /// <param name="Store">The authoritative store used to inspect revisions.</param>
     /// <param name="AdapterTracker">The controllable adapter authority source.</param>
     /// <param name="PlayContextTracker">The active play-context source.</param>
     /// <param name="Context">The play context stamped on test captures.</param>
@@ -44,8 +43,7 @@ public class LiveCaptureSinkTests
         LiveCaptureSink Sink,
         LiveStateCatalog Catalog,
         StatePublicationFeed Feed,
-        IStatePublisher<CharacterVitals?> VitalsPublisher,
-        IStatePublisher<float?> FloatPublisher,
+        IAuthoritativeStateStore Store,
         FakeAdapterAvailabilityTracker AdapterTracker,
         FakePlayContextTracker PlayContextTracker,
         PlayContextId Context,
@@ -62,7 +60,6 @@ public class LiveCaptureSinkTests
 
         /// <inheritdoc/>
         public void Apply<TState>(
-            IStatePublisher<TState> publisher,
             UpdateMode mode,
             StateAreaId areaId,
             TState value,
@@ -102,7 +99,7 @@ public class LiveCaptureSinkTests
 
     /// <summary>
     /// Builds a sink wired exactly like production composition, but with controllable adapter/play-context
-    /// trackers and a real StatePublisher/StatePublicationFeed pair so applied values are actually
+    /// trackers and a real AuthoritativeStateStore and its StatePublicationFeed view so applied values are actually
     /// observable.
     /// </summary>
     /// <param name="coordinatorOverride">
@@ -134,30 +131,23 @@ public class LiveCaptureSinkTests
             registeredAreas.TryRegister(area.Id);
         }
 
-        var feed = new StatePublicationFeed(adapterTracker, playContextTracker, registeredAreas, Fixtures.BuildStateAuthorityLifecycle());
-        var revisionTracker = new RevisionTracker();
-        var vitalsPublisher = new StatePublisher<CharacterVitals?>(revisionTracker, playContextTracker, adapterTracker);
-        var floatPublisher = new StatePublisher<float?>(revisionTracker, playContextTracker, adapterTracker);
-        var levelPublisher = new StatePublisher<ushort?>(revisionTracker, playContextTracker, adapterTracker);
-        var identityPublisher = new StatePublisher<CharacterIdentity?>(revisionTracker, playContextTracker, adapterTracker);
-        var supernaturalTraitsPublisher = new StatePublisher<CharacterSupernaturalTraits?>(revisionTracker, playContextTracker, adapterTracker);
-        var playerLocationPublisher = new StatePublisher<PlayerLocation?>(revisionTracker, playContextTracker, adapterTracker);
-        var gameTimePublisher = new StatePublisher<GameTime?>(revisionTracker, playContextTracker, adapterTracker);
+        var store = new AuthoritativeStateStore(adapterTracker, playContextTracker, registeredAreas, Fixtures.BuildStateAuthorityLifecycle());
+        var feed = new StatePublicationFeed(store);
         var continuityRecovery = new FakeAdapterContinuityRecovery();
         IResynchronizationTransactionCoordinator coordinator = coordinatorOverride
             ?? new ResynchronizationTransactionCoordinator(catalog, adapterTracker, continuityRecovery, TimeSpan.FromSeconds(30));
         FakeClock clock = clockOverride ?? new FakeClock();
-        ILiveStateApplication application = applicationOverride ?? new LiveStateApplication(coordinator, continuityRecovery, feed);
+        ILiveStateApplication application = applicationOverride ?? new LiveStateApplication(coordinator, continuityRecovery, store);
         IReadOnlyCollection<ILiveCaptureHandler> handlers = handlerOverrides
             ?? new ILiveCaptureHandler[]
             {
-                new CharacterCaptureHandler(vitalsPublisher, floatPublisher, levelPublisher, identityPublisher, supernaturalTraitsPublisher, application),
-                new PlayerLocationCaptureHandler(playerLocationPublisher, application),
-                new GameTimeCaptureHandler(gameTimePublisher, application),
+                new CharacterCaptureHandler(application),
+                new PlayerLocationCaptureHandler(application),
+                new GameTimeCaptureHandler(application),
             };
         var sink = new LiveCaptureSink(catalog, handlers, adapterTracker, playContextTracker, clock);
         var source = new AdapterCaptureSource(adapterTracker.CurrentInstanceId!.Value, adapterTracker.CurrentConnectionGeneration);
-        return new Fixture(sink, catalog, feed, vitalsPublisher, floatPublisher, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
+        return new Fixture(sink, catalog, feed, store, adapterTracker, playContextTracker, context, coordinator, continuityRecovery, source, clock);
     }
 
     /// <summary>Builds the sink over one synthetic area using the shared XP capture decoder.</summary>
@@ -547,11 +537,11 @@ public class LiveCaptureSinkTests
     {
         Fixture fixture = CreateReady();
         fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(1, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(93.4f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f)), fixture.Source);
-        RevisionNumber revisionBefore = fixture.VitalsPublisher.CurrentRevision(VitalsArea);
+        RevisionNumber revisionBefore = fixture.Store.CurrentRevision(VitalsArea);
 
         fixture.Sink.ApplyCaptureResult(new IpcCaptureResultMessage(2, CaptureSourceKind.Sample, (uint)CharacterSampleToken.CharacterVitals, CaptureAvailability.Available, fixture.Context, EncodeVitals(80.0f, 71.0f, 100.0f, 410.0f, 220.0f, 300.0f)), fixture.Source);
 
-        Assert.NotEqual(revisionBefore, fixture.VitalsPublisher.CurrentRevision(VitalsArea));
+        Assert.NotEqual(revisionBefore, fixture.Store.CurrentRevision(VitalsArea));
         Assert.True(fixture.Feed.TryGetSnapshot(VitalsArea, out StateSnapshotPublication? vitals));
         Assert.Equal(80.0f, vitals!.Data.GetProperty("value").GetProperty("health").GetProperty("current").GetSingle());
     }
@@ -701,7 +691,7 @@ public class LiveCaptureSinkTests
         Assert.Equal([fixture.Source.ConnectionGeneration], fixture.ContinuityRecovery.RecoveryRequests);
     }
 
-    /// <summary>Verifies that a resynchronization finishing before publisher apply lets the Event use ordinary authority.</summary>
+    /// <summary>Verifies that a resynchronization finishing before store apply lets the Event use ordinary authority.</summary>
     [Fact]
     public void ApplyCaptureResult_LevelChangedEvent_ResynchronizationFinishesBeforeApply_PublishesWithoutRecovery()
     {
@@ -732,7 +722,7 @@ public class LiveCaptureSinkTests
         Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
     }
 
-    /// <summary>Verifies that a resynchronization beginning before publisher apply is retried with fresh authority.</summary>
+    /// <summary>Verifies that a resynchronization beginning before store apply is retried with fresh authority.</summary>
     [Fact]
     public void ApplyCaptureResult_LevelChangedEvent_ResynchronizationBeginsBeforeApply_RetriesWithResyncAuthority()
     {
@@ -886,7 +876,7 @@ public class LiveCaptureSinkTests
         Exception? exception = Record.Exception(() => fixture.Sink.ApplyCaptureResult(captureResult, fixture.Source));
 
         Assert.Null(exception);
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.Equal(RevisionNumber.Initial, fixture.Store.CurrentRevision(TestArea));
         Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
         Assert.Empty(application.ApplyCalls);
         Assert.Equal(0, snapshotCount);
@@ -997,7 +987,7 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult, staleSource);
 
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.Equal(RevisionNumber.Initial, fixture.Store.CurrentRevision(TestArea));
         Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
         Assert.Equal(0, snapshotPublicationCount);
         Assert.Equal(0, eventPublicationCount);
@@ -1022,7 +1012,7 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult, staleSource);
 
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.Equal(RevisionNumber.Initial, fixture.Store.CurrentRevision(TestArea));
         Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
         Assert.Equal(0, snapshotPublicationCount);
         Assert.Empty(handler.Contexts);
@@ -1040,7 +1030,7 @@ public class LiveCaptureSinkTests
 
         fixture.Sink.ApplyCaptureResult(captureResult, delayedSource);
 
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.Equal(RevisionNumber.Initial, fixture.Store.CurrentRevision(TestArea));
         Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
     }
 
@@ -1059,7 +1049,7 @@ public class LiveCaptureSinkTests
 
         Assert.Empty(fakeCoordinator.AcquireTokenCalls);
         Assert.Empty(fakeCoordinator.RecordAreaAcceptedCalls);
-        Assert.Equal(RevisionNumber.Initial, fixture.FloatPublisher.CurrentRevision(TestArea));
+        Assert.Equal(RevisionNumber.Initial, fixture.Store.CurrentRevision(TestArea));
         Assert.False(fixture.Feed.TryGetSnapshot(TestArea, out _));
     }
 
@@ -1197,7 +1187,7 @@ public class LiveCaptureSinkTests
         Assert.Single(raised);
     }
 
-    /// <summary>Verifies that a capture is rejected while the adapter is unavailable, since StatePublisher.Apply itself gates on it.</summary>
+    /// <summary>Verifies that a capture is rejected while the adapter is unavailable, since the store itself gates on it.</summary>
     [Fact]
     public void ApplyCaptureResult_AdapterUnavailable_DoesNothing()
     {
@@ -1254,7 +1244,7 @@ public class LiveCaptureSinkTests
     /// <summary>
     /// Verifies that the level baseline sample token -- not just the level-changed event -- decodes
     /// and applies to the same level area, including while resynchronizing, proving the generic
-    /// apply-and-publish routing works for the ushort-valued publisher too. The applied value is
+    /// apply-and-publish routing works for the ushort-valued area too. The applied value is
     /// genuinely stored (visible once resynchronization completes), even though
     /// StatePublicationFeed.TryGetSnapshot withholds it as a pull read until then.
     /// </summary>
@@ -1302,7 +1292,7 @@ public class LiveCaptureSinkTests
     /// <summary>
     /// Verifies that an accepted resynchronization baseline whose value is unchanged from what was
     /// already stored still restores the publication feed's pull-read cache after a continuity loss
-    /// cleared it -- not only the publisher's own authoritative store, which a same-value baseline
+    /// cleared it -- not only the authoritative store's own typed value, which a same-value baseline
     /// already updates correctly. Without this, a client requesting a snapshot right after
     /// resynchronization completes would be told no value is available merely because nothing about
     /// it changed.

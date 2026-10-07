@@ -781,6 +781,47 @@ public class AuthoritativeStateStoreTests
         Assert.Equal(1, hints);
     }
 
+    /// <summary>Verifies that the commit hook runs once, after the baseline is committed and before the change notification, for a changed and an unchanged baseline.</summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ApplyResynchronizationBaseline_OnCommitted_RunsOnceAfterCommitAndBeforeNotification(bool unchanged)
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        rig.Apply(Area, 42);
+        rig.LoseContinuity();
+        rig.Reconnect();
+        var order = new List<string>();
+        RevisionNumber? revisionAtHook = null;
+        rig.Store.SnapshotChanged += _ => order.Add("notification");
+
+        rig.Baseline(Area, unchanged ? 42 : 43, onCommitted: () =>
+        {
+            order.Add("committed");
+            revisionAtHook = rig.Store.CurrentRevision(new StateAreaId(Area));
+        });
+
+        Assert.Equal(unchanged ? ["committed"] : ["committed", "notification"], order);
+        Assert.Equal(rig.Store.CurrentRevision(new StateAreaId(Area)), revisionAtHook);
+    }
+
+    /// <summary>Verifies that the commit hook never runs for a rejected baseline.</summary>
+    [Fact]
+    public void ApplyResynchronizationBaseline_Rejected_DoesNotRunOnCommitted()
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        rig.Reconnect();
+        IAdapterResynchronizationToken token = rig.Adapter.TryClaimResynchronizationToken()!;
+        bool ran = false;
+
+        StateApplyResult result = rig.Store.ApplyResynchronizationBaseline(
+            UpdateMode.Snapshot, token, rig.ContextId, rig.PlayContextTracker.TransitionGeneration + 1, AuthoritativeStateStoreRig.At,
+            new StateAreaId(Area), 42, onCommitted: () => ran = true);
+
+        Assert.False(result.Accepted);
+        Assert.False(ran);
+    }
+
     /// <summary>A resynchronization token the tracker never issued.</summary>
     private sealed class ForeignToken : IAdapterResynchronizationToken
     {

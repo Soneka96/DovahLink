@@ -49,9 +49,8 @@ public static class PublicClientServiceExtensions
 
             return policy;
         });
-        services.AddSingleton<StatePublicationFeed>();
-        services.AddSingleton<IStatePublicationFeed>(sp => sp.GetRequiredService<StatePublicationFeed>());
-        services.AddSingleton<IStatePublicationSink>(sp => sp.GetRequiredService<StatePublicationFeed>());
+        services.AddSingleton<IAuthoritativeStateStore, AuthoritativeStateStore>();
+        services.AddSingleton<IStatePublicationFeed, StatePublicationFeed>();
         services.AddSingleton<IPublicWebSocketTransportDiagnostics>(NullPublicWebSocketTransportDiagnostics.Instance);
 
         services.AddSingleton<ILocalConnectionTokenAuthenticator, LocalConnectionTokenAuthenticator>();

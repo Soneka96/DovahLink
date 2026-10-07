@@ -22,8 +22,7 @@ public static class AdapterIpcServiceExtensions
     /// <paramref name="services"/>. <see cref="LiveCaptureSink"/>, <see cref="LiveStateScheduler"/>,
     /// and the singleton <see cref="ResynchronizationPlan"/> also resolve <see cref="LiveStateCatalog"/>.
     /// The plan is shared by every connection-owned session. The explicitly registered
-    /// <see cref="CharacterCaptureHandler"/> resolves the typed publishers and
-    /// <see cref="LiveStateApplication"/>, which resolves <see cref="IStatePublicationSink"/>, so
+    /// <see cref="LiveStateApplication"/> resolves <see cref="IAuthoritativeStateStore"/>, so
     /// <see cref="PublicClientServiceExtensions.AddPublicClientServices"/> must be registered too
     /// before the composed provider is built -- registration order across these methods does not
     /// otherwise matter, since every dependency here resolves lazily at first use.
@@ -46,15 +45,6 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<IAdapterConnectionFactory, AdapterConnectionFactory>();
         services.AddSingleton<IAdapterIpcListener, AdapterIpcListener>();
         services.AddSingleton<IPairingAdapterNotifier, AdapterPairingNotifier>();
-        services.AddSingleton<IRevisionTracker, RevisionTracker>();
-        services.AddSingleton<IStatePublisher<CharacterVitals?>, StatePublisher<CharacterVitals?>>();
-        services.AddSingleton<IStatePublisher<float?>, StatePublisher<float?>>();
-        services.AddSingleton<IStatePublisher<ushort?>, StatePublisher<ushort?>>();
-        services.AddSingleton<IStatePublisher<CharacterIdentity?>, StatePublisher<CharacterIdentity?>>();
-        services.AddSingleton<IStatePublisher<CharacterSupernaturalTraits?>, StatePublisher<CharacterSupernaturalTraits?>>();
-        services.AddSingleton<IStatePublisher<PlayerLocation?>, StatePublisher<PlayerLocation?>>();
-        services.AddSingleton<IStatePublisher<GameTime?>, StatePublisher<GameTime?>>();
-        services.AddSingleton<IStatePublisher<TrackedQuests?>, StatePublisher<TrackedQuests?>>();
         services.AddSingleton<IResynchronizationTransactionCoordinator>(sp => new ResynchronizationTransactionCoordinator(
             sp.GetRequiredService<LiveStateCatalog>(),
             sp.GetRequiredService<IAdapterAvailabilityTracker>(),
@@ -78,7 +68,6 @@ public static class AdapterIpcServiceExtensions
             sp.GetRequiredService<ITrackedQuestSnapshotCollector>(),
             sp.GetRequiredService<IAdapterAvailabilityTracker>(),
             sp.GetRequiredService<IPlayContextTracker>(),
-            sp.GetRequiredService<IStatePublisher<TrackedQuests?>>(),
             sp.GetRequiredService<ILiveStateApplication>(),
             sp.GetRequiredService<IClock>()));
         services.AddSingleton<TrackedQuestCaptureHandler>();
