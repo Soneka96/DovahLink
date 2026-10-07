@@ -248,6 +248,46 @@ public sealed class LivePipelineHarness
     public IReadOnlyList<string> UnreadableAreas(IEnumerable<string> areas) =>
         areas.Where(area => !Feed.TryGetSnapshot(new StateAreaId(area), out _)).ToArray();
 
+    /// <summary>Reports whether a production area's typed publisher currently considers its value authoritative and readable.</summary>
+    /// <param name="area">One of <see cref="ProductionAreas"/>.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="area"/> is not a production area.</exception>
+    public bool HasCurrentTypedValue(string area)
+    {
+        var id = new StateAreaId(area);
+        return area switch
+        {
+            Constants.CharacterVitalsStateArea => VitalsPublisher.TryGetCurrentValue(id, out _),
+            Constants.CharacterXpStateArea => XpPublisher.TryGetCurrentValue(id, out _),
+            Constants.CharacterIdentityStateArea => IdentityPublisher.TryGetCurrentValue(id, out _),
+            Constants.CharacterSupernaturalTraitsStateArea => TraitsPublisher.TryGetCurrentValue(id, out _),
+            Constants.PlayerLocationStateArea => LocationPublisher.TryGetCurrentValue(id, out _),
+            Constants.GameTimeStateArea => GameTimePublisher.TryGetCurrentValue(id, out _),
+            Constants.TrackedQuestsStateArea => QuestsPublisher.TryGetCurrentValue(id, out _),
+            Constants.CharacterLevelStateArea => LevelPublisher.TryGetCurrentValue(id, out _),
+            _ => throw new ArgumentOutOfRangeException(nameof(area), area, "Not a production state area."),
+        };
+    }
+
+    /// <summary>Reads a production area's current revision from its typed publisher.</summary>
+    /// <param name="area">One of <see cref="ProductionAreas"/>.</param>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="area"/> is not a production area.</exception>
+    public RevisionNumber CurrentRevision(string area)
+    {
+        var id = new StateAreaId(area);
+        return area switch
+        {
+            Constants.CharacterVitalsStateArea => VitalsPublisher.CurrentRevision(id),
+            Constants.CharacterXpStateArea => XpPublisher.CurrentRevision(id),
+            Constants.CharacterIdentityStateArea => IdentityPublisher.CurrentRevision(id),
+            Constants.CharacterSupernaturalTraitsStateArea => TraitsPublisher.CurrentRevision(id),
+            Constants.PlayerLocationStateArea => LocationPublisher.CurrentRevision(id),
+            Constants.GameTimeStateArea => GameTimePublisher.CurrentRevision(id),
+            Constants.TrackedQuestsStateArea => QuestsPublisher.CurrentRevision(id),
+            Constants.CharacterLevelStateArea => LevelPublisher.CurrentRevision(id),
+            _ => throw new ArgumentOutOfRangeException(nameof(area), area, "Not a production state area."),
+        };
+    }
+
     /// <summary>Creates a fresh public client over the real feed, as a newly accepted connection would.</summary>
     /// <param name="pendingBaselineDeadline">How long a pending baseline waits before an error; effectively never when omitted.</param>
     public LivePipelineClient CreateClient(TimeSpan? pendingBaselineDeadline = null)
