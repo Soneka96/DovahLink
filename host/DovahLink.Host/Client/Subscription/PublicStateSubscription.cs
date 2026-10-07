@@ -731,8 +731,11 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
                     }
                     else if (state.BoundaryBaselinePending)
                     {
-                        // The pending boundary baseline will be followed by the current Snapshot;
-                        // forwarding this Event as well could duplicate that revision.
+                        // Retry the refused boundary baseline; the current Snapshot follows it, so
+                        // forwarding this Event as well could duplicate its revision.
+                        reBaselineCorrelationMessageId = state.RecoveryCorrelationMessageId;
+                        reBaselineRecoveryEpoch = state.RecoveryEpoch;
+                        needsReBaseline = true;
                     }
                     else
                     {

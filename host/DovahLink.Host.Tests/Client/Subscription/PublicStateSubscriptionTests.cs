@@ -2281,13 +2281,6 @@ public class PublicStateSubscriptionTests
         Assert.Equal(1, connectionContext.PurgePendingDataCalls);
         Assert.Single(connectionContext.SentPayloads);
         Assert.Equal(PublicOutboundLane.ControlOrRecovery, connectionContext.SentPayloads[0].Lane);
-        feed.RaiseEvent(BuildEvent(
-            "future_area",
-            baseRevision: 0,
-            revision: 1,
-            playContextId: tracker.Current,
-            playContextGeneration: tracker.TransitionGeneration));
-        Assert.Single(connectionContext.SentPayloads);
 
         connectionContext.TrySendResult = true;
         feed.SetSnapshot(
@@ -2312,6 +2305,64 @@ public class PublicStateSubscriptionTests
         Assert.True(codec.TryDecode(connectionContext.SentSnapshots[0].Payload, out PublicEnvelope? stateEnvelope));
         Assert.True(codec.TryDecodePayload(stateEnvelope, out StateSnapshotPayload? statePayload));
         Assert.Equal(1UL, statePayload!.Revision);
+    }
+
+    /// <summary>Verifies that a later Event retries a declined boundary reset and the current Snapshot follows it without forwarding the Event twice.</summary>
+    [Fact]
+    public void OnEventOccurred_BoundaryResetDeclined_RetriesResetThenCurrentSnapshot()
+    {
+        var tracker = new FakePlayContextTracker();
+        PlayContextId originalContext = PlayContextId.NewId();
+        tracker.NotifyTransition(originalContext);
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) =
+            BuildSubscription(["area_a"], playContextTracker: tracker);
+        var areaId = new StateAreaId("area_a");
+        feed.SetSnapshot(
+            areaId,
+            BuildSnapshot("area_a", playContextId: originalContext, playContextGeneration: tracker.TransitionGeneration));
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        Subscribe(subscription, "sub-1", ["area_a"]);
+        int sentBeforeBoundary = connectionContext.SentPayloads.Count;
+
+        PlayContextId currentContext = PlayContextId.NewId();
+        connectionContext.TrySendResult = false;
+        tracker.NotifyTransition(currentContext);
+
+        Assert.Equal(sentBeforeBoundary + 1, connectionContext.SentPayloads.Count);
+        int sentAfterDeclinedBoundary = connectionContext.SentPayloads.Count;
+        feed.SetSnapshot(
+            areaId,
+            BuildSnapshot("area_a", revision: 2, playContextId: currentContext, playContextGeneration: tracker.TransitionGeneration));
+        feed.RaiseEvent(BuildEvent(
+            "area_a",
+            baseRevision: 1,
+            revision: 2,
+            playContextId: currentContext,
+            playContextGeneration: tracker.TransitionGeneration));
+
+        Assert.Equal(sentAfterDeclinedBoundary + 1, connectionContext.SentPayloads.Count);
+        Assert.Empty(connectionContext.SentSnapshots);
+        feed.SetSnapshot(
+            areaId,
+            BuildSnapshot("area_a", revision: 3, playContextId: currentContext, playContextGeneration: tracker.TransitionGeneration));
+        connectionContext.TrySendResult = true;
+        feed.RaiseEvent(BuildEvent(
+            "area_a",
+            baseRevision: 2,
+            revision: 3,
+            playContextId: currentContext,
+            playContextGeneration: tracker.TransitionGeneration));
+
+        Assert.Equal(sentAfterDeclinedBoundary + 2, connectionContext.SentPayloads.Count);
+        Assert.Equal(PublicOutboundLane.ControlOrRecovery, connectionContext.SentPayloads[^1].Lane);
+        Assert.True(codec.TryDecode(connectionContext.SentPayloads[^1].Payload, out PublicEnvelope? resetEnvelope));
+        Assert.True(codec.TryDecodePayload(resetEnvelope, out StateSnapshotPayload? resetPayload));
+        Assert.Equal(RevisionNumber.Initial.Value, resetPayload!.Revision);
+        Assert.Single(connectionContext.SentSnapshots);
+        Assert.True(codec.TryDecode(connectionContext.SentSnapshots[0].Payload, out PublicEnvelope? stateEnvelope));
+        Assert.True(codec.TryDecodePayload(stateEnvelope, out StateSnapshotPayload? statePayload));
+        Assert.Equal(3UL, statePayload!.Revision);
     }
 
     /// <summary>Verifies that a play-context transition invalidates a live baseline without un-accepting the area: a repeat subscribe still reports it accepted.</summary>
