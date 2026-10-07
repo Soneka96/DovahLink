@@ -106,7 +106,7 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     }
 
     /// <inheritdoc/>
-    public void PublishSnapshot(
+    public bool PublishSnapshot(
         StateAreaId areaId,
         RevisionNumber revision,
         JsonElement data,
@@ -118,17 +118,18 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         {
             if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
-                return;
+                return false;
             }
 
             var publication = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
             latestByArea[areaId] = publication;
             RaiseSnapshotChanged(publication);
+            return true;
         }
     }
 
     /// <inheritdoc/>
-    public void PublishEvent(
+    public bool PublishEvent(
         StateAreaId areaId,
         RevisionNumber baseRevision,
         RevisionNumber revision,
@@ -141,16 +142,17 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         {
             if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
-                return;
+                return false;
             }
 
             latestByArea[areaId] = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
             RaiseEventOccurred(new StateEventPublication(areaId, stateAuthorityId, baseRevision, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration));
+            return true;
         }
     }
 
     /// <inheritdoc/>
-    public void EstablishBaseline(
+    public bool EstablishBaseline(
         StateAreaId areaId,
         RevisionNumber revision,
         JsonElement data,
@@ -162,10 +164,11 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         {
             if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
-                return;
+                return false;
             }
 
             latestByArea[areaId] = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+            return true;
         }
     }
 
