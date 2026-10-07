@@ -9,7 +9,7 @@ namespace DovahLink.Host.Adapter.Ipc;
 /// stays up -- a save load with no intervening reconnect -- so <c>character_level</c> and every
 /// other baseline-required area is not left stale until the player happens to level up or the
 /// connection happens to drop. Subscribes to <see cref="IPlayContextTracker.Transitioned"/> for the
-/// host process's own lifetime at construction, matching <see cref="State.StatePublisher{TState}"/>'s
+/// host process's own lifetime at construction, matching <see cref="State.AuthoritativeStateStore"/>'s
 /// identical subscription discipline for the same event; never unsubscribed.
 /// </summary>
 public interface IPlayContextResynchronizationTrigger

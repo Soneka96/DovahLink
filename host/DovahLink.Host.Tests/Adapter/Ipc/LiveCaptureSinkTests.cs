@@ -1266,7 +1266,7 @@ public class LiveCaptureSinkTests
     /// <summary>
     /// Verifies that an accepted resynchronization baseline whose value genuinely changed still
     /// publishes through SnapshotChanged, proving the unchanged-baseline handling below did not fold
-    /// this case into a silent EstablishBaseline-only path.
+    /// this case into a silent unchanged-baseline path.
     /// </summary>
     [Fact]
     public void ApplyCaptureResult_ResynchronizationBaselineChanged_StillRaisesSnapshotChanged()

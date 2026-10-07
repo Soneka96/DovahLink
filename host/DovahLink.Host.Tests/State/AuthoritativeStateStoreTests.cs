@@ -822,6 +822,166 @@ public class AuthoritativeStateStoreTests
         Assert.False(ran);
     }
 
+    /// <summary>Verifies that a new connection generation hides state committed under the old one even when no resynchronization gate is raised.</summary>
+    [Fact]
+    public void NewConnectionGeneration_HidesStateCommittedUnderTheOldOne()
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        rig.Apply(Area, 42);
+
+        rig.Adapter.CurrentConnectionGeneration++;
+
+        Assert.False(rig.Store.TryGetSnapshot(new StateAreaId(Area), out _));
+        Assert.False(rig.Store.TryGetCurrentValue(new StateAreaId(Area), out int _));
+    }
+
+    /// <summary>Verifies that the first play-context transition, which has no previous context, is handled without error and starts revisions fresh.</summary>
+    [Fact]
+    public void FirstPlayContextTransition_WithNoPreviousContext_DoesNotThrow()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        var adapter = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+        var registered = new RegisteredStateAreaPolicy();
+        registered.TryRegister(new StateAreaId(Area));
+        var store = new AuthoritativeStateStore(adapter, playContextTracker, registered, new FakeStateAuthorityLifecycle());
+
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+
+        Assert.Equal(RevisionNumber.Initial, store.CurrentRevision(new StateAreaId(Area)));
+        Assert.False(store.TryGetSnapshot(new StateAreaId(Area), out _));
+    }
+
+    /// <summary>Verifies that concurrent writers to one area never lose a revision: every accepted distinct value advances the revision exactly once.</summary>
+    [Fact]
+    public void Apply_ConcurrentDistinctValues_NeverLoseARevisionIncrement()
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        const int writers = 8;
+        const int perWriter = 50;
+        int accepted = 0;
+
+        Parallel.For(0, writers, writer =>
+        {
+            for (int i = 0; i < perWriter; i++)
+            {
+                if (rig.Apply(Area, writer * 1000 + i).Changed)
+                {
+                    Interlocked.Increment(ref accepted);
+                }
+            }
+        });
+
+        Assert.Equal(writers * perWriter, accepted);
+        Assert.Equal(accepted, (int)rig.Store.CurrentRevision(new StateAreaId(Area)).Value);
+        Assert.Equal(rig.Store.CurrentRevision(new StateAreaId(Area)), rig.Snapshot(Area).Revision);
+    }
+
+    /// <summary>Verifies that a token consumed by a completed resynchronization cannot authorize a later baseline.</summary>
+    [Fact]
+    public void ApplyResynchronizationBaseline_TokenAfterCompletedResynchronization_IsRejected()
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        rig.Reconnect();
+        IAdapterResynchronizationToken token = rig.Adapter.TryClaimResynchronizationToken()!;
+        Assert.True(rig.Store.ApplyResynchronizationBaseline(
+            UpdateMode.Snapshot, token, rig.ContextId, rig.PlayContextTracker.TransitionGeneration, AuthoritativeStateStoreRig.At, new StateAreaId(Area), 1).Accepted);
+        rig.Adapter.NotifyResynchronized(rig.Adapter.CurrentInstanceId!.Value, rig.Adapter.CurrentConnectionGeneration, token);
+        rig.Adapter.NeedsResynchronization = true;
+
+        StateApplyResult result = rig.Store.ApplyResynchronizationBaseline(
+            UpdateMode.Snapshot, token, rig.ContextId, rig.PlayContextTracker.TransitionGeneration, AuthoritativeStateStoreRig.At, new StateAreaId(Area), 2);
+
+        Assert.Equal(StateApplyResult.Rejected, result);
+    }
+
+    /// <summary>Verifies that a disconnect and the following reconnect each advance a populated area's revision exactly once.</summary>
+    [Fact]
+    public void ContinuityLossThenReconnect_AdvancesRevisionOncePerTransition()
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        rig.Apply(Area, 42);
+        RevisionNumber synchronized = rig.Store.CurrentRevision(new StateAreaId(Area));
+
+        rig.LoseContinuity();
+        Assert.Equal(synchronized.Next(), rig.Store.CurrentRevision(new StateAreaId(Area)));
+
+        rig.Reconnect();
+        Assert.Equal(synchronized.Next().Next(), rig.Store.CurrentRevision(new StateAreaId(Area)));
+    }
+
+    /// <summary>Verifies that a different adapter instance on the same connection generation does not see the previous instance's state as current.</summary>
+    [Fact]
+    public void NewAdapterInstanceOnSameGeneration_HidesStateCommittedByThePreviousInstance()
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        rig.Apply(Area, 42);
+
+        rig.Adapter.CurrentInstanceId = AdapterInstanceId.NewId();
+
+        Assert.False(rig.Store.TryGetSnapshot(new StateAreaId(Area), out _));
+        Assert.False(rig.Store.TryGetCurrentValue(new StateAreaId(Area), out int _));
+    }
+
+    /// <summary>Verifies that reading before any play context exists reports unavailable instead of failing.</summary>
+    [Fact]
+    public void Read_NoPlayContextYet_ReportsUnavailable()
+    {
+        var adapter = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+        var registered = new RegisteredStateAreaPolicy();
+        registered.TryRegister(new StateAreaId(Area));
+        var store = new AuthoritativeStateStore(adapter, new FakePlayContextTracker(), registered, new FakeStateAuthorityLifecycle());
+
+        Assert.False(store.TryGetSnapshot(new StateAreaId(Area), out _));
+        Assert.False(store.TryGetCurrentValue(new StateAreaId(Area), out int _));
+    }
+
+    /// <summary>Verifies that a value accepted while the very first play-context transition handler is still running survives that handler.</summary>
+    [Fact]
+    public async Task Apply_DuringDelayedFirstPlayContextTransition_PreservesState()
+    {
+        var playContextTracker = new FakePlayContextTracker();
+        var adapter = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
+        var registered = new RegisteredStateAreaPolicy();
+        registered.TryRegister(new StateAreaId(Area));
+        var store = new AuthoritativeStateStore(adapter, playContextTracker, registered, new FakeStateAuthorityLifecycle());
+        var firstContext = PlayContextId.NewId();
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        playContextTracker.Transitioned += _ =>
+        {
+            entered.Set();
+            release.Wait();
+        };
+
+        Task transitionTask = Task.Run(() => playContextTracker.NotifyTransition(firstContext));
+        Assert.True(entered.Wait(TimeSpan.FromSeconds(5)));
+        StateApplyResult result = store.Apply(
+            adapter.CurrentInstanceId!.Value, adapter.CurrentConnectionGeneration, firstContext, playContextTracker.TransitionGeneration,
+            AuthoritativeStateStoreRig.At, new StateAreaId(Area), 7);
+        release.Set();
+        await transitionTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(result.Accepted);
+        Assert.True(store.TryGetCurrentValue(new StateAreaId(Area), out int value));
+        Assert.Equal(7, value);
+    }
+
+    /// <summary>Verifies that one play-context transition resets every area, not just one.</summary>
+    [Fact]
+    public void PlayContextTransition_ResetsEveryArea()
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        rig.Apply(Area, 1);
+        rig.Apply(OtherArea, "text");
+
+        rig.PlayContextTracker.NotifyTransition(PlayContextId.NewId());
+
+        Assert.False(rig.Store.TryGetSnapshot(new StateAreaId(Area), out _));
+        Assert.False(rig.Store.TryGetSnapshot(new StateAreaId(OtherArea), out _));
+        Assert.Equal(RevisionNumber.Initial, rig.Store.CurrentRevision(new StateAreaId(Area)));
+        Assert.Equal(RevisionNumber.Initial, rig.Store.CurrentRevision(new StateAreaId(OtherArea)));
+    }
+
     /// <summary>A resynchronization token the tracker never issued.</summary>
     private sealed class ForeignToken : IAdapterResynchronizationToken
     {
