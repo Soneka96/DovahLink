@@ -29,13 +29,20 @@ public interface IStatePublicationSink
     /// <param name="capturedPlayContextId">The play context that was current at the moment this value was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this value was captured.</param>
     /// <param name="occurredAt">When this value was captured, for display and diagnostics only.</param>
+    /// <param name="onCommitted">
+    /// Optional step run exactly once, atomically with the commit -- under the feed's own lock, after
+    /// the value is stored as current replay state and before any change notification is raised --
+    /// and never run when the publication is rejected. Lets a caller count the value toward a
+    /// resynchronization transaction without that completion being observable before the value is replayable.
+    /// </param>
     bool PublishSnapshot(
         StateAreaId areaId,
         RevisionNumber revision,
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt);
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null);
 
     /// <summary>Publishes an accepted, changed Event-mode value, already JSON-encoded. Same drop rule and return contract as <see cref="PublishSnapshot"/>.</summary>
     /// <param name="areaId">The state area this event belongs to.</param>
@@ -45,6 +52,12 @@ public interface IStatePublicationSink
     /// <param name="capturedPlayContextId">The play context that was current at the moment this event was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this event was captured.</param>
     /// <param name="occurredAt">When this change was captured, for display and diagnostics only.</param>
+    /// <param name="onCommitted">
+    /// Optional step run exactly once, atomically with the commit -- under the feed's own lock, after
+    /// the value is stored as current replay state and before any change notification is raised --
+    /// and never run when the publication is rejected. Lets a caller count the value toward a
+    /// resynchronization transaction without that completion being observable before the value is replayable.
+    /// </param>
     bool PublishEvent(
         StateAreaId areaId,
         RevisionNumber baseRevision,
@@ -52,7 +65,8 @@ public interface IStatePublicationSink
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt);
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null);
 
     /// <summary>
     /// Repopulates the pull-read cache for an accepted resynchronization baseline whose value is
@@ -72,11 +86,18 @@ public interface IStatePublicationSink
     /// <param name="capturedPlayContextId">The play context that was current at the moment this baseline was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this baseline was captured.</param>
     /// <param name="occurredAt">When this baseline was captured, for display and diagnostics only.</param>
+    /// <param name="onCommitted">
+    /// Optional step run exactly once, atomically with the commit -- under the feed's own lock, after
+    /// the value is stored as current replay state and before any change notification is raised --
+    /// and never run when the publication is rejected. Lets a caller count the value toward a
+    /// resynchronization transaction without that completion being observable before the value is replayable.
+    /// </param>
     bool EstablishBaseline(
         StateAreaId areaId,
         RevisionNumber revision,
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt);
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null);
 }

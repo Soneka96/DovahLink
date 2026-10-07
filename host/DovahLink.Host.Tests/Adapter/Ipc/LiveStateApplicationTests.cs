@@ -238,5 +238,135 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
             Assert.Equal((ushort)12, publishedEvent.Data.GetProperty("value").GetUInt16());
             Assert.Empty(fixture.Coordinator.RecordAreaAcceptedCalls);
         }
+
+        /// <summary>Verifies that a changed baseline whose play context moves on between publisher acceptance and the feed commit is neither replayable nor counted toward the transaction.</summary>
+        [Fact]
+        public void Apply_ChangedBaselineRejectedByFeedAfterPlayContextTransition_IsNotRecorded()
+        {
+            Fixture fixture = CreateReady();
+            fixture.AdapterTracker.NeedsResynchronization = true;
+            fixture.Coordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+            var publisher = new InterleavingPublisher(fixture.FloatPublisher, () => fixture.PlayContextTracker.NotifyTransition(PlayContextId.NewId()));
+            bool snapshotChanged = false;
+            fixture.Feed.SnapshotChanged += _ => snapshotChanged = true;
+
+            fixture.Application.Apply(
+                publisher,
+                UpdateMode.Snapshot,
+                XpArea,
+                42.5f,
+                isResynchronizationBaseline: true,
+                fixture.Source,
+                fixture.AdapterTracker.GetSnapshot(),
+                fixture.Context,
+                fixture.PlayContextTracker.TransitionGeneration,
+                fixture.Clock.UtcNow);
+
+            Assert.Empty(fixture.Coordinator.RecordAreaAcceptedCalls);
+            Assert.False(snapshotChanged);
+            fixture.AdapterTracker.NeedsResynchronization = false;
+            Assert.False(fixture.Feed.TryGetSnapshot(XpArea, out _));
+        }
+
+        /// <summary>Verifies that an unchanged baseline whose adapter drops between publisher acceptance and the feed commit is not counted toward the transaction.</summary>
+        [Fact]
+        public void Apply_UnchangedBaselineRejectedByFeedAfterAdapterLoss_IsNotRecorded()
+        {
+            Fixture fixture = CreateReady();
+            fixture.Application.Apply(
+                fixture.FloatPublisher,
+                UpdateMode.Snapshot,
+                XpArea,
+                42.5f,
+                isResynchronizationBaseline: false,
+                fixture.Source,
+                fixture.AdapterTracker.GetSnapshot(),
+                fixture.Context,
+                fixture.PlayContextTracker.TransitionGeneration,
+                fixture.Clock.UtcNow);
+            fixture.AdapterTracker.NeedsResynchronization = true;
+            fixture.Coordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+            var publisher = new InterleavingPublisher(fixture.FloatPublisher, () => fixture.AdapterTracker.Current = AdapterAvailability.Unavailable);
+
+            fixture.Application.Apply(
+                publisher,
+                UpdateMode.Snapshot,
+                XpArea,
+                42.5f,
+                isResynchronizationBaseline: true,
+                fixture.Source,
+                fixture.AdapterTracker.GetSnapshot(),
+                fixture.Context,
+                fixture.PlayContextTracker.TransitionGeneration,
+                fixture.Clock.UtcNow);
+
+            Assert.Empty(fixture.Coordinator.RecordAreaAcceptedCalls);
+        }
+
+        /// <summary>Verifies that a committed baseline is counted exactly once, for both the changed and unchanged paths.</summary>
+        [Theory]
+        [InlineData(false)]
+        [InlineData(true)]
+        public void Apply_CommittedBaseline_IsRecordedExactlyOnce(bool unchanged)
+        {
+            Fixture fixture = CreateReady();
+            if (unchanged)
+            {
+                fixture.Application.Apply(
+                    fixture.FloatPublisher,
+                    UpdateMode.Snapshot,
+                    XpArea,
+                    42.5f,
+                    isResynchronizationBaseline: false,
+                    fixture.Source,
+                    fixture.AdapterTracker.GetSnapshot(),
+                    fixture.Context,
+                    fixture.PlayContextTracker.TransitionGeneration,
+                    fixture.Clock.UtcNow);
+            }
+
+            fixture.AdapterTracker.NeedsResynchronization = true;
+            fixture.Coordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
+
+            fixture.Application.Apply(
+                fixture.FloatPublisher,
+                UpdateMode.Snapshot,
+                XpArea,
+                42.5f,
+                isResynchronizationBaseline: true,
+                fixture.Source,
+                fixture.AdapterTracker.GetSnapshot(),
+                fixture.Context,
+                fixture.PlayContextTracker.TransitionGeneration,
+                fixture.Clock.UtcNow);
+
+            Assert.Single(fixture.Coordinator.RecordAreaAcceptedCalls);
+        }
+
+        /// <summary>Wraps a real publisher and runs a lifecycle change right after a resynchronization baseline is accepted, before the feed commit.</summary>
+        private sealed class InterleavingPublisher(IStatePublisher<float?> inner, Action afterBaselineAccepted) : IStatePublisher<float?>
+        {
+            /// <inheritdoc/>
+            public bool TryGetCurrentValue(StateAreaId areaId, [System.Diagnostics.CodeAnalysis.MaybeNullWhen(false)] out float? value) => inner.TryGetCurrentValue(areaId, out value);
+
+            /// <inheritdoc/>
+            public RevisionNumber CurrentRevision(StateAreaId areaId) => inner.CurrentRevision(areaId);
+
+            /// <inheritdoc/>
+            public StateApplyResult Apply(AdapterInstanceId sourceInstanceId, long sourceConnectionGeneration, PlayContextId capturedPlayContextId, long capturedPlayContextGeneration, StateAreaId areaId, float? value) =>
+                inner.Apply(sourceInstanceId, sourceConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
+
+            /// <inheritdoc/>
+            public StateApplyResult ApplyResynchronizationBaseline(IAdapterResynchronizationToken resynchronizationToken, PlayContextId capturedPlayContextId, long capturedPlayContextGeneration, StateAreaId areaId, float? value)
+            {
+                StateApplyResult result = inner.ApplyResynchronizationBaseline(resynchronizationToken, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
+                afterBaselineAccepted();
+                return result;
+            }
+
+            /// <inheritdoc/>
+            public StateApplyResult ApplyEvent(AdapterInstanceId sourceInstanceId, long sourceConnectionGeneration, PlayContextId capturedPlayContextId, long capturedPlayContextGeneration, IAdapterResynchronizationToken? resynchronizationToken, StateAreaId areaId, float? value) =>
+                inner.ApplyEvent(sourceInstanceId, sourceConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration, resynchronizationToken, areaId, value);
+        }
     }
 }

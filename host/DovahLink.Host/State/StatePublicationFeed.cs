@@ -112,7 +112,8 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt)
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null)
     {
         lock (gate)
         {
@@ -123,6 +124,7 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
 
             var publication = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
             latestByArea[areaId] = publication;
+            onCommitted?.Invoke();
             RaiseSnapshotChanged(publication);
             return true;
         }
@@ -136,7 +138,8 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt)
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null)
     {
         lock (gate)
         {
@@ -146,6 +149,7 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
             }
 
             latestByArea[areaId] = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+            onCommitted?.Invoke();
             RaiseEventOccurred(new StateEventPublication(areaId, stateAuthorityId, baseRevision, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration));
             return true;
         }
@@ -158,7 +162,8 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt)
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null)
     {
         lock (gate)
         {
@@ -168,6 +173,7 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
             }
 
             latestByArea[areaId] = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+            onCommitted?.Invoke();
             return true;
         }
     }

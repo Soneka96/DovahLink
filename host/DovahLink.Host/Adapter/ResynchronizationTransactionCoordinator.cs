@@ -46,7 +46,9 @@ public interface IResynchronizationTransactionCoordinator
 
     /// <summary>
     /// Records that <paramref name="areaId"/>'s baseline was accepted -- not merely attempted -- for
-    /// the given tuple, completing the transaction if this was the last piece it needed.
+    /// the given tuple, completing the transaction if this was the last piece it needed. Callers must
+    /// invoke this only after the baseline is committed to current replay state, because completion
+    /// is observable synchronously and must never precede replayability.
     /// </summary>
     /// <param name="areaId">The state area whose baseline was accepted.</param>
     /// <param name="instanceId">The adapter instance the baseline was captured from.</param>

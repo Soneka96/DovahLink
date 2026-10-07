@@ -1106,6 +1106,54 @@ namespace DovahLink.Host.Tests.State
             Assert.False(feed.TryGetSnapshot(AreaId, out _));
         }
 
+        /// <summary>Verifies that onCommitted runs once after the value is stored and before any change notification, so a completion it triggers is already replayable.</summary>
+        [Fact]
+        public void PublishSnapshot_OnCommitted_RunsAfterStoreAndBeforeSnapshotChanged()
+        {
+            (StatePublicationFeed feed, _, _, _, PlayContextId context) = CreateReadyFeed();
+            var order = new List<string>();
+            bool storedWhenCommitted = false;
+            feed.SnapshotChanged += _ => order.Add("changed");
+
+            feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow, () =>
+            {
+                storedWhenCommitted = feed.TryGetSnapshot(AreaId, out _);
+                order.Add("committed");
+            });
+
+            Assert.True(storedWhenCommitted);
+            Assert.Equal(["committed", "changed"], order);
+        }
+
+        /// <summary>Verifies that onCommitted runs once for an event and for an unchanged baseline, symmetric with the snapshot path.</summary>
+        [Fact]
+        public void PublishEventAndEstablishBaseline_OnCommitted_RunOncePerCommit()
+        {
+            (StatePublicationFeed feed, _, _, _, PlayContextId context) = CreateReadyFeed();
+            int committed = 0;
+
+            feed.PublishEvent(AreaId, RevisionNumber.Initial, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow, () => committed++);
+            feed.EstablishBaseline(AreaId, RevisionNumber.Initial.Next(), Data, context, 1, DateTimeOffset.UtcNow, () => committed++);
+
+            Assert.Equal(2, committed);
+        }
+
+        /// <summary>Verifies that onCommitted never runs when the publication is rejected as stale.</summary>
+        [Fact]
+        public void SinkMethods_Rejected_DoNotRunOnCommitted()
+        {
+            (StatePublicationFeed feed, _, _, _, _) = CreateReadyFeed();
+            PlayContextId staleContext = PlayContextId.NewId();
+            int committed = 0;
+            DateTimeOffset now = DateTimeOffset.UtcNow;
+
+            feed.PublishSnapshot(AreaId, RevisionNumber.Initial.Next(), Data, staleContext, 1, now, () => committed++);
+            feed.PublishEvent(AreaId, RevisionNumber.Initial, RevisionNumber.Initial.Next(), Data, staleContext, 1, now, () => committed++);
+            feed.EstablishBaseline(AreaId, RevisionNumber.Initial.Next(), Data, staleContext, 1, now, () => committed++);
+
+            Assert.Equal(0, committed);
+        }
+
         /// <summary>Verifies that every sink method reports rejection when only the play-context generation is stale.</summary>
         [Fact]
         public void SinkMethods_StalePlayContextGeneration_ReturnFalseAndStoreNothing()

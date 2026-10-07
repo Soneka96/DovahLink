@@ -26,8 +26,8 @@ public interface ILiveStateApplication
     /// <param name="occurredAt">The capture timestamp used by any resulting publication.</param>
     /// <remarks>
     /// Ordinary samples use ordinary publisher authority. Only a baseline sample can record an
-    /// accepted resynchronization area. Events remain reliable during resynchronization and request
-    /// controlled recovery if current authority cannot safely apply them.
+    /// accepted resynchronization area, and only after that baseline is committed to current replay
+    /// state. Events remain reliable during resynchronization and request controlled recovery if current authority cannot safely apply them.
     /// </remarks>
     void Apply<TState>(
         IStatePublisher<TState> publisher,
@@ -92,11 +92,6 @@ public sealed class LiveStateApplication : ILiveStateApplication
             }
 
             result = publisher.ApplyResynchronizationBaseline(token, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
-            if (result.Accepted)
-            {
-                resynchronizationTransactionCoordinator.RecordAreaAccepted(
-                    areaId, source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
-            }
         }
         else if (mode == UpdateMode.Event)
         {
@@ -137,12 +132,19 @@ public sealed class LiveStateApplication : ILiveStateApplication
 
         JsonElement data = JsonSerializer.SerializeToElement(new { value });
 
+        // A baseline counts toward resynchronization only once it is committed to current replay state:
+        // the sink runs this atomically with that commit, before any change notification, and never on a stale rejection.
+        Action? countBaseline = isResynchronizationBaseline
+            ? () => resynchronizationTransactionCoordinator.RecordAreaAccepted(
+                areaId, source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration)
+            : null;
+
         if (!result.Changed)
         {
-            if (isResynchronizationBaseline && mode == UpdateMode.Snapshot)
+            if (isResynchronizationBaseline)
             {
                 // Continuity loss clears the feed cache, so an unchanged baseline must restore it without publishing a change.
-                publicationSink.EstablishBaseline(areaId, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+                publicationSink.EstablishBaseline(areaId, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt, countBaseline);
             }
 
             return;
@@ -150,11 +152,11 @@ public sealed class LiveStateApplication : ILiveStateApplication
 
         if (mode == UpdateMode.Snapshot)
         {
-            publicationSink.PublishSnapshot(areaId, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+            publicationSink.PublishSnapshot(areaId, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt, countBaseline);
         }
         else
         {
-            publicationSink.PublishEvent(areaId, result.BaseRevision, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+            publicationSink.PublishEvent(areaId, result.BaseRevision, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt, countBaseline);
         }
     }
 }
