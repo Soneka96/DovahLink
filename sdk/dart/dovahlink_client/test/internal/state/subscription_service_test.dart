@@ -191,6 +191,123 @@ void main() {
     );
 
     test(
+      'Method synchronizeDesiredStateAreas restores an earlier acknowledged set when a newer request fails',
+      () async {
+        final Future<Set<DovahLinkStateArea>> first = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        final Future<Set<DovahLinkStateArea>> second = service
+            .subscribeStateArea(DovahLinkStateArea.characterLevel);
+
+        requestService.requests[0].reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await first;
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+          DovahLinkStateArea.characterLevel.protocolValue,
+        });
+
+        requestService.requests[1].reply.completeError(
+          const DovahLinkConnectionException('The request failed.'),
+        );
+        await expectLater(second, throwsA(isA<DovahLinkConnectionException>()));
+
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+        });
+      },
+    );
+
+    test(
+      'Method synchronizeDesiredStateAreas ignores an older acknowledgement after a newer same-intent acknowledgement',
+      () async {
+        final Future<Set<DovahLinkStateArea>> initial = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await initial;
+
+        final Future<Set<DovahLinkStateArea>> older = service
+            .synchronizeDesiredStateAreas();
+        final Future<Set<DovahLinkStateArea>> newer = service
+            .synchronizeDesiredStateAreas();
+        requestService.requests[2].reply.complete(
+          _acknowledgement(
+            accepted: const <String>[],
+            rejected: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await newer;
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+
+        requestService.requests[1].reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await older;
+
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+      },
+    );
+
+    test(
+      'Method synchronizeDesiredStateAreas ignores a late acknowledgement from an ended session after the new session is accepted',
+      () async {
+        final Future<Set<DovahLinkStateArea>> oldSession = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        service.onSessionEnded();
+
+        final Future<Set<DovahLinkStateArea>> newSession = service
+            .synchronizeDesiredStateAreas();
+        requestService.requests[1].reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await newSession;
+
+        requestService.requests[0].reply.complete(
+          _acknowledgement(
+            accepted: const <String>[],
+            rejected: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await oldSession;
+
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+        });
+      },
+    );
+
+    test(
+      'Method synchronizeDesiredStateAreas ignores an older request failure after a newer intent is accepted',
+      () async {
+        final Future<Set<DovahLinkStateArea>> older = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        final Future<Set<DovahLinkStateArea>> newer = service
+            .unsubscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests[1].reply.complete(
+          _acknowledgement(accepted: const <String>[]),
+        );
+        await newer;
+
+        requestService.requests[0].reply.completeError(
+          const DovahLinkConnectionException('The request failed.'),
+        );
+        await expectLater(older, throwsA(isA<DovahLinkConnectionException>()));
+
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+      },
+    );
+
+    test(
       'Methods subscribe and unsubscribe send successive complete sets',
       () async {
         final Future<Set<DovahLinkStateArea>> first = service

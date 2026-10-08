@@ -68,6 +68,13 @@ class SubscriptionService implements ISubscriptionService {
   /// Changes whenever a session ends, preventing its late acknowledgement from reopening the gate.
   int _sessionGeneration = 0;
 
+  /// Increases for every synchronization request so an older acknowledgement cannot replace a
+  /// newer Host-confirmed set when replies arrive out of order.
+  int _requestSequence = 0;
+
+  /// Sequence of the newest request whose acknowledgement updated [_acceptedProtocolAreas].
+  int _acceptedRequestSequence = 0;
+
   /// The areas the Host last accepted for the current session, restored to the gate if a request
   /// that provisionally admitted a larger set fails.
   Set<String> _acceptedProtocolAreas = <String>{};
@@ -114,6 +121,7 @@ class SubscriptionService implements ISubscriptionService {
   Future<Set<DovahLinkStateArea>> synchronizeDesiredStateAreas() async {
     final int requestGeneration = _intentGeneration;
     final int requestSessionGeneration = _sessionGeneration;
+    final int requestSequence = ++_requestSequence;
     final Set<DovahLinkStateArea> requestedAreas = Set<DovahLinkStateArea>.of(
       _desiredStateAreas,
     );
@@ -168,14 +176,22 @@ class SubscriptionService implements ISubscriptionService {
         _reportMalformedAcknowledgement();
       }
 
-      if (_intentGeneration == requestGeneration &&
+      final Set<String> acceptedProtocolAreas = <String>{
+        for (final DovahLinkStateArea area in acceptedAreas) area.protocolValue,
+      };
+      final bool isNewestAcknowledgementForSession =
+          _sessionGeneration == requestSessionGeneration &&
+          requestSequence > _acceptedRequestSequence;
+      if (isNewestAcknowledgementForSession) {
+        _acceptedRequestSequence = requestSequence;
+        _acceptedProtocolAreas = acceptedProtocolAreas;
+      }
+
+      if (isNewestAcknowledgementForSession &&
+          _intentGeneration == requestGeneration &&
           _sessionGeneration == requestSessionGeneration) {
-        _acceptedProtocolAreas = <String>{
-          for (final DovahLinkStateArea area in acceptedAreas)
-            area.protocolValue,
-        };
         _stateMessageHandler.setSubscribedStateAreas(
-          _acceptedProtocolAreas,
+          acceptedProtocolAreas,
           baselineCorrelationId: response.correlationId,
         );
       }

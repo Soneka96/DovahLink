@@ -52,6 +52,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- Subscription gate rollback preserves the last Host-confirmed areas when an overlapping update fails.
 - A new authority or play context clears all subscribed state trackers before new-identity state is routed.
 - Same-identity unavailable state retains its last usable value while advancing the accepted revision.
 - An identity reset waits for its initial Host baseline, while an Event without a baseline still triggers Level recovery.
