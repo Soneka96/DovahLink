@@ -70,8 +70,6 @@ class StateMessageHandler implements IStateMessageHandler {
     Set<String> stateAreas, {
     String? baselineCorrelationId,
   }) {
-    // ignore: avoid_print
-    print('DLTRACE sdk gate-set accepted=${stateAreas.toList()..sort()}');
     final Set<String> addedAreas = stateAreas.difference(_subscribedStateAreas);
     for (final String area in addedAreas) {
       _domains[area]?.tracker.beginRecovery();
@@ -125,10 +123,6 @@ class StateMessageHandler implements IStateMessageHandler {
               retryable: false,
             );
           }
-          // ignore: avoid_print
-          print(
-            'DLTRACE sdk rx snapshot area=${payload.stateArea} rev=${payload.revision} corr=${envelope.correlationId} auth=${envelope.stateAuthorityId} ctx=${envelope.playContextId} gateOpen=${_subscribedStateAreas.contains(payload.stateArea)}',
-          );
           if (!_subscribedStateAreas.contains(payload.stateArea)) {
             break;
           }
@@ -155,10 +149,6 @@ class StateMessageHandler implements IStateMessageHandler {
               retryable: false,
             );
           }
-          // ignore: avoid_print
-          print(
-            'DLTRACE sdk rx event area=${payload.stateArea} base=${payload.baseRevision} rev=${payload.revision} ctx=${envelope.playContextId} gateOpen=${_subscribedStateAreas.contains(payload.stateArea)}',
-          );
           if (!_subscribedStateAreas.contains(payload.stateArea)) {
             break;
           }
@@ -202,10 +192,6 @@ class StateMessageHandler implements IStateMessageHandler {
       return;
     }
 
-    // ignore: avoid_print
-    print(
-      'DLTRACE sdk IDENTITY-RESET wiping ${_subscribedStateAreas.toList()..sort()} old=$_currentIdentity new=$incomingIdentity',
-    );
     for (final String area in _subscribedStateAreas) {
       _domains[area]?.tracker.resetForIdentity(
         stateAuthorityId: incomingIdentity.stateAuthorityId,
