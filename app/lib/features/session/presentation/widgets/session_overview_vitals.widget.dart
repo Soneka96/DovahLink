@@ -36,6 +36,7 @@ class SessionOverviewVitalsPanel extends StatelessWidget {
       key: const Key('session-overview-vitals-panel'),
       raised: isRecovering,
       overlayGradient: tokens.overviewSidePanelTexture,
+      leadingAccent: tokens.signal,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

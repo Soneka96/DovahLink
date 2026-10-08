@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/session/presentation/widgets/session_overview_character.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
@@ -40,6 +42,35 @@ SessionOverviewCharacterPanel _buildPanel({
 /// Exercises the Current Character hero and its three real vital values.
 void main() {
   group('SessionOverviewCharacterPanel displays', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewCharacterPanel uses the shared signal accent and eyebrow token under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            _buildPanel(),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final DovahPanel panel = tester.widget(find.byType(DovahPanel));
+          final ColoredBox accent = tester.widget(
+            find.byKey(const Key('dovah-surface-leading-accent')),
+          );
+          final Text kicker = tester.widget(
+            find.byKey(const Key('session-overview-character-kicker')),
+          );
+
+          expect(panel.leadingAccent, tokens.signal);
+          expect(accent.color, tokens.signal);
+          expect(kicker.style?.color, tokens.eyebrow);
+        },
+      );
+    }
+
     testWidgets(
       'SessionOverviewCharacterPanel layers Frostbound textures beneath recovery and content',
       (WidgetTester tester) async {

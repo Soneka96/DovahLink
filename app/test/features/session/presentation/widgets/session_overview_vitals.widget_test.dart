@@ -4,6 +4,8 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/session/presentation/widgets/session_overview_vitals.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
@@ -43,6 +45,10 @@ void main() {
           expect(
             panel.overlayGradient,
             preset == DovahThemePreset.dovah ? isA<RadialGradient>() : isNull,
+          );
+          expect(
+            panel.leadingAccent,
+            dovahThemeDataFor(preset).extension<DovahThemeTokens>()!.signal,
           );
         },
       );

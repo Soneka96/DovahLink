@@ -5,7 +5,7 @@ import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
-import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show DovahLinkStateStatus;
@@ -72,7 +72,9 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
     return ConstrainedBox(
       key: const Key('session-overview-character-panel'),
       constraints: BoxConstraints(minHeight: overviewMetrics.heroMinHeight),
-      child: DovahSurface(
+      child: DovahPanel(
+        padding: EdgeInsets.zero,
+        leadingAccent: tokens.signal,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -119,13 +121,6 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
                         ),
                       ),
                     ),
-                  Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: DovahOverviewMetrics.panelAccentWidth,
-                    child: ColoredBox(color: tokens.signal),
-                  ),
                   Padding(
                     padding: pageMetrics.panelPadding,
                     child: Column(
@@ -136,7 +131,7 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
                           'CURRENT CHARACTER',
                           key: const Key('session-overview-character-kicker'),
                           style: TextStyle(
-                            color: tokens.accentSecondary,
+                            color: tokens.eyebrow,
                             fontSize: DovahOverviewMetrics.kickerFontSize,
                             fontWeight: FontWeight.w800,
                             letterSpacing:
