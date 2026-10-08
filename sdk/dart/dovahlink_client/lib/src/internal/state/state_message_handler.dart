@@ -39,7 +39,11 @@ class StateMessageHandler implements IStateMessageHandler {
   /// Looks up each supported state area by its canonical name.
   final Map<String, IStateDomainDefinition<Object?>> _domains;
 
-  /// State areas the current Host session accepted for this client.
+  /// State areas whose incoming state messages may currently be applied.
+  ///
+  /// During a pending `subscribe`, this provisionally contains the complete desired set so an
+  /// ACK-adjacent baseline cannot race ahead of the gate. After the acknowledgement, it is
+  /// reconciled to the Host-accepted set.
   final Set<String> _subscribedStateAreas = <String>{};
 
   /// Marks an area admitted when its `subscribe` was sent, whose request ID is not yet known to be
