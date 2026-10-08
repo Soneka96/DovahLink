@@ -35,6 +35,7 @@ class SessionOverviewVitalsPanel extends StatelessWidget {
     return DovahPanel(
       key: const Key('session-overview-vitals-panel'),
       raised: isRecovering,
+      overlayGradient: tokens.overviewSidePanelTexture,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [

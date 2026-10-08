@@ -26,6 +26,28 @@ SessionOverviewVitalsPanel _buildPanel({
 /// Exercises truthful vital labels, ratios, synchronization presentation, and semantics.
 void main() {
   group('SessionOverviewVitalsPanel displays', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewVitalsPanel uses the $preset side-panel texture',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            _buildPanel(),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+
+          final DovahPanel panel = tester.widget(
+            find.byKey(const Key('session-overview-vitals-panel')),
+          );
+          expect(
+            panel.overlayGradient,
+            preset == DovahThemePreset.dovah ? isA<RadialGradient>() : isNull,
+          );
+        },
+      );
+    }
+
     testWidgets('SessionOverviewVitalsPanel shows the three safe percentages', (
       WidgetTester tester,
     ) async {

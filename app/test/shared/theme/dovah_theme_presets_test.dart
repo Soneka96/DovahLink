@@ -418,6 +418,57 @@ void main() {
     },
   );
 
+  group('Behavior Overview theme textures match the prototype', () {
+    test('Behavior Frostbound adds its hero fracture lines', () {
+      final DovahThemeTokens tokens = dovahThemeDataFor(
+        DovahThemePreset.frostbound,
+      ).extension<DovahThemeTokens>()!;
+      final LinearGradient texture = tokens.heroTexture! as LinearGradient;
+
+      expect(texture.colors, const [
+        Color.fromRGBO(207, 226, 232, 0.1),
+        Color.fromRGBO(207, 226, 232, 0.1),
+        Colors.transparent,
+        Colors.transparent,
+        Color.fromRGBO(207, 226, 232, 0.07),
+        Colors.transparent,
+        Colors.transparent,
+      ]);
+      expect(texture.stops, const [0, 0.001, 0.003, 0.31, 0.3115, 0.315, 1]);
+      expect(tokens.overviewSidePanelTexture, isNull);
+    });
+
+    test('Behavior Dovah adds radial rings to Overview side panels', () {
+      final DovahThemeTokens tokens = dovahThemeDataFor(
+        DovahThemePreset.dovah,
+      ).extension<DovahThemeTokens>()!;
+      final RadialGradient texture =
+          tokens.overviewSidePanelTexture! as RadialGradient;
+
+      expect(texture.center, const Alignment(1.16, 0));
+      expect(texture.colors, const [
+        Colors.transparent,
+        Colors.transparent,
+        Color.fromRGBO(116, 189, 232, 0.035),
+        Colors.transparent,
+        Colors.transparent,
+        Color.fromRGBO(226, 165, 94, 0.024),
+        Colors.transparent,
+      ]);
+      expect(texture.stops, const [0, 0.31, 0.313, 0.3165, 0.4, 0.403, 0.4065]);
+      expect(tokens.heroTexture, isNull);
+    });
+
+    test('Behavior Hearth keeps its clean hero and side-panel surfaces', () {
+      final DovahThemeTokens tokens = dovahThemeDataFor(
+        DovahThemePreset.hearth,
+      ).extension<DovahThemeTokens>()!;
+
+      expect(tokens.heroTexture, isNull);
+      expect(tokens.overviewSidePanelTexture, isNull);
+    });
+  });
+
   group('Method buildDovahPresetTheme behaves correctly', () {
     test(
       'Method buildDovahPresetTheme attaches DovahThemeTokens with doubleBevel geometry',

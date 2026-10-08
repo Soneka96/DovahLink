@@ -299,6 +299,56 @@ void main() {
 
   group('DovahSurface layers decoration and pins a border', () {
     testWidgets(
+      'DovahSurface paints an overlay gradient beneath padded content',
+      (WidgetTester tester) async {
+        const RadialGradient gradient = RadialGradient(
+          colors: [Colors.transparent, Color(0x2274BDE8)],
+        );
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            padding: EdgeInsets.all(18),
+            overlayGradient: gradient,
+            child: Text('Gradient overlay'),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final Finder gradientLayer = find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is DecoratedBox &&
+              identical(
+                (widget.decoration as BoxDecoration).gradient,
+                gradient,
+              ),
+        );
+        expect(gradientLayer, findsOneWidget);
+        expect(
+          tester.getSize(gradientLayer),
+          tester.getSize(find.byType(DovahSurface)),
+        );
+        expect(
+          find.descendant(
+            of: gradientLayer,
+            matching: find.text('Gradient overlay'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.ancestor(of: gradientLayer, matching: find.byType(ClipPath)),
+          findsOneWidget,
+        );
+        expect(
+          findSurfaceClipper(tester).cornerStyle,
+          DovahPanelCornerStyle.doubleBevel,
+        );
+        expect(findSurfaceClipper(tester).cutSize, 12);
+        expect(find.text('Gradient overlay'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
       'DovahSurface paints an underlay beneath and an overlay above its child',
       (WidgetTester tester) async {
         const _MarkerPainter underlay = _MarkerPainter();

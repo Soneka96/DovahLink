@@ -420,6 +420,12 @@ void main() {
         preset: DovahThemePreset.hearth,
         panelCornerRadius: 14,
         primaryActionCornerRadius: 9,
+        heroTexture: const LinearGradient(
+          colors: [Color(0xFF000000), Color(0xFF111111)],
+        ),
+        overviewSidePanelTexture: const RadialGradient(
+          colors: [Color(0xFF222222), Color(0xFF333333)],
+        ),
       );
 
       expect(tokens.preset, DovahThemePreset.hearth);
@@ -438,6 +444,8 @@ void main() {
       expect(tokens.cornerStyle, DovahPanelCornerStyle.rounded);
       expect(tokens.cornerRadius, isA<double>());
       expect(tokens.cornerRadius, 13);
+      expect(tokens.heroTexture, isA<LinearGradient>());
+      expect(tokens.overviewSidePanelTexture, isA<RadialGradient>());
     });
 
     test('Method buildDovahThemeTokens returns a fresh value per call', () {

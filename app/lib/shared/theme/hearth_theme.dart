@@ -67,6 +67,8 @@ ThemeData buildHearthTheme() {
       colors: [Color(0xD1E7CCA3), Color(0x94DAB57E), Color(0x00DAB57E)],
       stops: [0, 0.31, 0.68],
     ),
+    heroTexture: null,
+    overviewSidePanelTexture: null,
   );
 
   return ThemeData(

@@ -6,14 +6,15 @@ import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
 
 /// A DovahLink content panel: a [DovahSurface] with the prototype's per-theme, per-window panel
-/// padding ([DovahPageMetrics.panelPadding]). The everyday building block for grouped content (hero sections,
-/// side-stack sections, settings groups).
+/// padding ([DovahPageMetrics.panelPadding]) and optional theme-specific overlay gradient. The
+/// everyday building block for grouped content (hero sections, side-stack sections, settings groups).
 class DovahPanel extends StatelessWidget {
   /// Creates a themed panel around [child].
   const DovahPanel({
     required this.child,
     this.raised = false,
     this.padding,
+    this.overlayGradient,
     super.key,
   });
 
@@ -26,6 +27,9 @@ class DovahPanel extends StatelessWidget {
   /// Padding inside the panel, or the theme's standard panel padding when omitted.
   final EdgeInsetsGeometry? padding;
 
+  /// A theme-specific gradient painted over the panel material beneath [child].
+  final Gradient? overlayGradient;
+
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
@@ -34,6 +38,7 @@ class DovahPanel extends StatelessWidget {
       role: raised ? DovahMaterialRole.raised : DovahMaterialRole.surface,
       cornerRadius: tokens.panelCornerRadius,
       padding: padding ?? context.dovahPageMetrics.panelPadding,
+      overlayGradient: overlayGradient,
       child: child,
     );
   }

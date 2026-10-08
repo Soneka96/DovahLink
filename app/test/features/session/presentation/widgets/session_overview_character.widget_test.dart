@@ -41,6 +41,80 @@ SessionOverviewCharacterPanel _buildPanel({
 void main() {
   group('SessionOverviewCharacterPanel displays', () {
     testWidgets(
+      'SessionOverviewCharacterPanel layers Frostbound textures beneath recovery and content',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          _buildPanel(vitalStatus: DovahLinkStateStatus.recovering),
+          preset: DovahThemePreset.frostbound,
+          size: const Size(1280, 720),
+        );
+
+        final Stack artwork = tester.widget(
+          find.byKey(const Key('session-overview-character-artwork')),
+        );
+        final List<Key?> layerKeys = artwork.children
+            .map((Widget layer) => layer.key)
+            .toList();
+
+        expect(
+          layerKeys.indexOf(const Key('session-overview-character-hero-scrim')),
+          lessThan(
+            layerKeys.indexOf(const Key('session-overview-character-texture')),
+          ),
+        );
+        expect(
+          layerKeys.indexOf(const Key('session-overview-character-texture')),
+          lessThan(
+            layerKeys.indexOf(
+              const Key('session-overview-character-floor-scrim'),
+            ),
+          ),
+        );
+        expect(
+          layerKeys.indexOf(
+            const Key('session-overview-character-floor-scrim'),
+          ),
+          lessThan(
+            layerKeys.indexOf(const Key('session-overview-character-sheen')),
+          ),
+        );
+        expect(artwork.children.last, isA<Padding>());
+      },
+    );
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewCharacterPanel uses the $preset hero texture',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            _buildPanel(),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+
+          final Finder texture = find.byKey(
+            const Key('session-overview-character-texture'),
+          );
+          expect(
+            texture,
+            preset == DovahThemePreset.frostbound
+                ? findsOneWidget
+                : findsNothing,
+          );
+          if (preset == DovahThemePreset.frostbound) {
+            expect(
+              (tester.widget<DecoratedBox>(texture).decoration as BoxDecoration)
+                  .gradient,
+              isA<LinearGradient>(),
+            );
+          }
+        },
+      );
+    }
+
+    testWidgets(
       'SessionOverviewCharacterPanel displays the character and current vitals',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(

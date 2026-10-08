@@ -49,6 +49,9 @@ class DovahSurface extends StatelessWidget {
   /// Paints above [child], inside the clipped surface, or `null` for nothing.
   final CustomPainter? overlay;
 
+  /// Paints a gradient over the material and beneath [child], inside the clipped surface.
+  final Gradient? overlayGradient;
+
   /// Replaces the role material's border color, for a component whose prototype rule pins a border
   /// the role's own does not, or `null` to keep the material's.
   final Color? borderColor;
@@ -72,6 +75,7 @@ class DovahSurface extends StatelessWidget {
     this.castsShadow = true,
     this.underlay,
     this.overlay,
+    this.overlayGradient,
     this.borderColor,
     this.borderTransitionDuration = Duration.zero,
     this.material,
@@ -101,6 +105,12 @@ class DovahSurface extends StatelessWidget {
       content = CustomPaint(
         painter: underlay,
         foregroundPainter: overlay,
+        child: content,
+      );
+    }
+    if (overlayGradient case final Gradient gradient) {
+      content = DecoratedBox(
+        decoration: BoxDecoration(gradient: gradient),
         child: content,
       );
     }

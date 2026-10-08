@@ -320,6 +320,8 @@ abstract final class Fixtures {
     Color panelNote = const Color(0xFF667C8B),
     Gradient? heroScrim,
     Gradient? heroFloorScrim,
+    Gradient? heroTexture,
+    Gradient? overviewSidePanelTexture,
   }) => DovahThemeTokens(
     background: background,
     surface: surface,
@@ -377,6 +379,8 @@ abstract final class Fixtures {
           colors: [Color(0xE00B141D), Color(0x000B141D)],
           stops: [0, 0.72],
         ),
+    heroTexture: heroTexture,
+    overviewSidePanelTexture: overviewSidePanelTexture,
   );
 
   // ---- SDK Live State ----

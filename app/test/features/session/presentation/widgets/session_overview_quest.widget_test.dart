@@ -26,6 +26,28 @@ SessionOverviewQuestPanel _buildPanel({
 /// Exercises the single quest panel's plurality and text layout.
 void main() {
   group('SessionOverviewQuestPanel displays', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewQuestPanel uses the $preset side-panel texture',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            _buildPanel(quests: <TrackedQuest>[Fixtures.buildTrackedQuest()]),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+
+          final DovahPanel panel = tester.widget(
+            find.byKey(const Key('session-overview-quest-panel')),
+          );
+          expect(
+            panel.overlayGradient,
+            preset == DovahThemePreset.dovah ? isA<RadialGradient>() : isNull,
+          );
+        },
+      );
+    }
+
     testWidgets('SessionOverviewQuestPanel displays the approved empty copy', (
       WidgetTester tester,
     ) async {

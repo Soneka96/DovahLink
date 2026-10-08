@@ -32,6 +32,7 @@ class SessionOverviewQuestPanel extends StatelessWidget {
     return DovahPanel(
       key: const Key('session-overview-quest-panel'),
       raised: isRecovering,
+      overlayGradient: tokens.overviewSidePanelTexture,
       child: Stack(
         children: [
           if (isRecovering)

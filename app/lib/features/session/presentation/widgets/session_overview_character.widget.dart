@@ -82,6 +82,7 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
               right: 1,
               bottom: 1,
               child: Stack(
+                key: const Key('session-overview-character-artwork'),
                 fit: StackFit.expand,
                 children: [
                   const ExcludeSemantics(
@@ -91,9 +92,16 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
                     ),
                   ),
                   DecoratedBox(
+                    key: const Key('session-overview-character-hero-scrim'),
                     decoration: BoxDecoration(gradient: tokens.heroScrim),
                   ),
+                  if (tokens.heroTexture case final Gradient texture)
+                    DecoratedBox(
+                      key: const Key('session-overview-character-texture'),
+                      decoration: BoxDecoration(gradient: texture),
+                    ),
                   DecoratedBox(
+                    key: const Key('session-overview-character-floor-scrim'),
                     decoration: BoxDecoration(gradient: tokens.heroFloorScrim),
                   ),
                   if (isRecovering)

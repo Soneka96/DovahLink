@@ -38,6 +38,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- Session Overview panels restore Frostbound's hero fracture lines and Dovah's side-panel rings.
 - The Session Shell header and navigation now use the prototype's responsive margins and tab color transition.
 - Long Overview character names and context lines now truncate with a one-line ellipsis.
 - Session context and header summaries derive synchronization styling only from displayed values.
