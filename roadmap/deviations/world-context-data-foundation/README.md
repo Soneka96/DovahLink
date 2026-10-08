@@ -137,6 +137,5 @@ instances. It preserves SDK synchronization status so an available empty quest l
 from unavailable quest state. Route navigation does not own these subscriptions; the SDK owns
 desired-intent restoration and reconnect recovery.
 
-The next intended presentation change is PR #121 — Session Overview Prototype Convergence. It
-consumes this state through the typed Session Overview ViewModel; it does not add quest navigation or
-change the frozen capture contract above.
+PR #122 delivered the state-backed Session Overview through the typed Session Overview ViewModel. It
+does not add quest navigation or change the frozen capture contract above.

@@ -27,11 +27,12 @@ The middleware requests desired state only after SDK trust is established and ke
 to the admitted session rather than the Session Shell route. Returning to Connections leaves the
 admitted session and its state observation active. Ordinary reconnect and administrative recovery
 remain SDK-owned; Flutter projects the SDK's status transitions and clears its live-state slice when
-the session ends or is invalidated. The Phase 5.4 visible proof surface has not been delivered. Its
-acceptance still includes XP, Vitals, and Level values; unavailable/stale/recovering states;
-compatibility and connection lifecycle; and slow-consumer diagnostics, which the current public SDK
-does not expose. PR #121 is the next intended task for prototype Overview convergence; Stage 8
-remains planned.
+the session ends or is invalidated. Phase 5.4 is complete: PR #120 delivered this state pipeline,
+and PR #122 connected the state-backed Session Overview. Current vitals display as whole numbers
+while SDK values and ratios retain their precision. Stale, recovering, and unavailable states remain
+truthful; compatibility and connection failures appear at the actionable connection/error boundary.
+Slow-client behavior remains covered by Host transport tests and is not shown as developer
+diagnostics in normal Overview. Phase 5.5 is next; Stage 8 remains planned.
 
 The SDK pairing group also owns authentication, pending-confirmation recovery, and the
 confirmation/credential-acknowledgement sequence; Flutter maps typed results for presentation.

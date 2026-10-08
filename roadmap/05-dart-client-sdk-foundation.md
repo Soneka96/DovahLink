@@ -10,14 +10,16 @@
 `ai/context/sdk/persistence.md`. Delivery is decomposed into the public typed protocol boundary,
 synchronization API, subscription/recovery lifecycle, Flutter middleware proof, and phase-end version
 auditing.
-Phases 5.1–5.3 — the typed protocol/compatibility boundary, state synchronization API, and
-subscription/reconnect/session lifecycle — are complete. Phase 5.3 adds canonical complete-set
+Phases 5.1–5.4 are complete: the typed protocol/compatibility boundary, state synchronization API,
+subscription/reconnect/session lifecycle, and Flutter live-state proof. Phase 5.3 adds canonical complete-set
 subscription updates with Host reconciliation, SDK per-domain intent, ordinary reconnect
 restoration, administrative dormancy until explicit recovery, and intentional-disconnect cleanup.
 Its complete-set subscription meaning is incompatible with released Host `0.4.0`'s additive behavior;
 the SDK's supported Host line is `0.5.x`. The repository release is `0.5.0`.
-Phase 5.4's Flutter application state pipeline is implemented by PR #120; its minimal proof
-acceptance remains open, followed by Phase 5.5's version-impact audit and Stage 5 closure.
+PR #120 delivered the SDK-to-Redux pipeline, and PR #122 delivered the state-backed Session
+Overview. This Phase 5.4 closeout finishes player-facing number formatting and visual parity,
+records the maintainer's runtime validation, and rebaselines the proof acceptance. Phase 5.5 —
+Version-Impact Audit and Stage 5 Closure is next and has not been performed.
 The app's current `features/connection/` area owns Host selection and navigation rather than a
 separate protocol client. Phase 3.3 (`roadmap/03`) similarly pulled forward the single inbound SDK
 receiver/router and initial per-operation retry-safety/session-requirement/timeout-class policy,
@@ -120,12 +122,17 @@ trusted connection
     -> UI reads AppState
 ```
 
-The proof surface shows current XP, the Health/Magicka/Stamina current and maximum values from one
-coherent Vitals Snapshot, and Level, plus unavailable state, stale/recovering state, compatibility
-failure, connection lifecycle, and slow-consumer diagnostics without introducing the later theme
-system, dashboard customization, discovery, or mobile presentation work. All six Vitals fields
-share the `character_vitals` domain's availability, synchronization status, and revision; do not
-model them as separate state areas or add a second composed resource view.
+The connected second-screen product presents current XP and Level in the Session header,
+whole-number Health, Magicka, and Stamina values in the Character panel, and precise ratio bars in
+Current Status. The maximum remains synchronized in the coherent Vitals Snapshot and feeds each
+ratio; it is not a separate player-facing Overview number. Stale, recovering, and unavailable values
+keep truthful visual treatment. Compatibility failures and connection lifecycle appear at the
+connection or error boundary when they require user understanding or action. Bounded slow-client
+behavior remains covered by Host transport tests and the Host-local abnormal-end contract; normal
+Overview does not show developer diagnostics. This phase does not introduce dashboard customization,
+discovery, or mobile presentation work. All six Vitals fields share the `character_vitals` domain's
+availability, synchronization status, and revision; do not model them as separate state areas or add
+a second composed resource view.
 
 ##### App-state integration delivery
 
@@ -145,16 +152,36 @@ the Redux slice on disconnection or administrative invalidation.
 The integration preserves each domain's status, authority/context IDs, and revision alongside its
 typed value. It retains all independent Supernatural Traits predicates, all Location facts, Skyrim
 calendar fields, and the complete tracked-quest collection with all objective instances. Empty
-tracked quests and unavailable quest state remain distinct. No fake values or final Overview UI are
-part of this delivery.
+tracked quests and unavailable quest state remain distinct. PR #122 consumes this state through the
+typed ViewModel; Stage 8 remains open for its broader live-player-state acceptance.
 
-Phase 5.4 remains **Active** because its specified visible proof surface has not been delivered. Its
-acceptance still calls for XP, Vitals, and Level values; unavailable/stale/recovering states;
-compatibility and connection lifecycle; and slow-consumer diagnostics. The current public SDK does
-not expose slow-consumer diagnostics. PR #120 does not add that diagnostic API or a temporary proof
-UI. The next intended PR is **#121 — Session Overview Prototype Convergence**, which consumes the
-Redux state through its typed ViewModel; that UI work does not by itself complete Stage 8 or this
-proof acceptance.
+##### Phase 5.4 acceptance review
+
+- **COMPLETE — State integration:** middleware owns trusted-session subscriptions, forwards public
+  SDK models and synchronization values without duplicate domains, retains listeners through
+  ordinary reconnect, and cancels/resets on disconnection or administrative invalidation (PR #120).
+- **COMPLETE — Player-facing values:** XP, Level, and live Vitals are present in the Session
+  experience. Current Health, Magicka, and Stamina display as whole numbers; effective maximums and
+  ratios remain precise in synchronized state. This closeout fixes the remaining decimal-formatting
+  defect.
+- **COMPLETE — Synchronization and lifecycle:** stale, recovering, unavailable, connected, and
+  disconnected states retain real values and truthful presentation. Compatibility failures surface
+  at the connection/error boundary where they can inform user action.
+- **COMPLETE — Slow-client behavior:** bounded outbound behavior and overflow termination remain
+  Host-owned and covered by Host transport tests. The Host-local abnormal-end contract stays
+  internal; no slow-client diagnostic appears on the normal Overview.
+- **OBSOLETE / REPLANNED — Separate maximum-number display:** the current product shows current
+  values and percentages; the effective maximum feeds the ratio and is not a separate Overview
+  number.
+- **OBSOLETE / REPLANNED — Visible slow-client diagnostics:** queue and overflow correctness remains
+  testable at the Host transport boundary. The player-facing UI exposes a warning only if a real,
+  actionable condition requires one.
+- **COMPLETE — Runtime validation:** the maintainer confirmed initial connection and state
+  population, hot restart without changing Skyrim state, repopulation, reconnect, tracked quests, and
+  general Overview live-state behavior. No unresolved runtime blocker remains in the supplied
+  validation.
+
+Phase 5.4 is **Complete**. It does not complete Stage 5 or Stage 8; Phase 5.5 remains next.
 
 #### 5.5 Version-Impact Audit and Stage 5 Closure
 

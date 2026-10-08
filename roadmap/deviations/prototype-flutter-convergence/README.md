@@ -48,10 +48,9 @@ generic SAS research continues in `Soneka96/sas-pairing`.
 
 Known Host lifecycle integration established SDK-owned observation and its app projection without
 resuming historical slices 03.4–03.10. Those historical slices remain paused for re-planning against
-current DovahLink security architecture; this branch's separately approved current-journey UI pass
-is recorded below and does not mark those historical slices complete. Ordinary product work that
-does not depend on hostile-network first contact may continue from Phase 5.4. Stage 5A and production
-LAN pairing remain gated.
+current DovahLink security architecture; the delivered current-journey UI pass recorded below does
+not mark those historical slices complete. Phase 5.4 is complete and Phase 5.5 is next. Stage 5A
+and production LAN pairing remain gated.
 
 The Known Host availability foundation adds SDK-owned runtime reachability and its app projection.
 It remains separate from durable Known Host metadata, connection lifecycle, and trust.

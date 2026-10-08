@@ -197,11 +197,11 @@ After this foundation, the separately scoped phases are:
    source research is recorded in the [World Context Data Foundation research report](../world-context-data-foundation/README.md).
 2. **Session Overview app-state integration (PR #120):** project the character and world-context
    SDK domains into app-owned Redux state while preserving synchronization truth.
-3. **Session Overview prototype convergence (PR #121):** connect the approved Overview prototype
-   to the Redux state and its typed ViewModel. This presentation work can proceed without redesigning
+3. **Session Overview prototype convergence (PR #122, delivered):** the approved Overview prototype
+   now consumes Redux state through its typed ViewModel. This presentation work did not redesign
    main-menu or save-switch admission behavior.
 4. **Active Play Context Lifecycle:** main menu, New Game, loading, save switching, return to menu,
    and gameplay-session admission/closure remain a later, separately scoped phase.
 
 These are follow-on phases, not implementation scope for this deviation. Stage 8 remains planned;
-data integration alone does not complete its presentation acceptance.
+the current Overview does not by itself complete its broader live-player-state acceptance.
