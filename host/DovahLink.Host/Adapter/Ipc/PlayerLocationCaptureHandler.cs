@@ -17,20 +17,14 @@ public sealed class PlayerLocationCaptureHandler : ILiveCaptureHandler
             (CaptureSourceKind.Sample, (uint)CharacterSampleToken.PlayerLocation),
         ]);
 
-    /// <summary>Publishes the typed player-location value or its explicit unavailability.</summary>
-    private readonly IStatePublisher<PlayerLocation?> publisher;
-
     /// <summary>Applies values through Host authority and publication rules.</summary>
     private readonly ILiveStateApplication liveStateApplication;
 
     /// <summary>Creates the Host mapping for player-location captures.</summary>
-    /// <param name="publisher">The typed publisher for the independent location area.</param>
     /// <param name="liveStateApplication">The shared Host authority and publication service.</param>
     public PlayerLocationCaptureHandler(
-        IStatePublisher<PlayerLocation?> publisher,
         ILiveStateApplication liveStateApplication)
     {
-        this.publisher = publisher;
         this.liveStateApplication = liveStateApplication;
     }
 
@@ -60,7 +54,6 @@ public sealed class PlayerLocationCaptureHandler : ILiveCaptureHandler
         }
 
         liveStateApplication.Apply(
-            publisher,
             UpdateMode.Snapshot,
             context.CaptureUnit.StateAreas[0],
             value,

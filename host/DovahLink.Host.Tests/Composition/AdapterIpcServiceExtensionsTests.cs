@@ -180,7 +180,7 @@ public class AdapterIpcServiceExtensionsTests
     /// production composes it with. PublicClient is included with no bound listener port because
     /// <see cref="ILiveCaptureSink"/>'s real composed implementation resolves
     /// <see cref="DovahLink.Host.State.LiveStateCatalog"/> and
-    /// <see cref="DovahLink.Host.State.IStatePublicationSink"/> from that graph; these tests exercise
+    /// <see cref="DovahLink.Host.State.IAuthoritativeStateStore"/> from that graph; these tests exercise
     /// only the AdapterIpc-specific services listed above.
     /// </summary>
     private static async Task<ServiceProvider> BuildProviderAsync(

@@ -18,7 +18,6 @@ public class GameTimeCaptureHandlerTests
     private static readonly StateAreaId GameTimeArea = new(Constants.GameTimeStateArea);
 
     /// <summary>Records one normalized value forwarded to shared Host authority.</summary>
-    /// <param name="Publisher">The typed calendar publisher.</param>
     /// <param name="Value">The complete calendar or unavailable marker.</param>
     /// <param name="AreaId">The destination state area.</param>
     /// <param name="Mode">The canonical update mode.</param>
@@ -29,7 +28,6 @@ public class GameTimeCaptureHandlerTests
     /// <param name="PlayContextGeneration">The captured play-context generation.</param>
     /// <param name="OccurredAt">The Host capture timestamp.</param>
     private sealed record ApplyCall(
-        object Publisher,
         object? Value,
         StateAreaId AreaId,
         UpdateMode Mode,
@@ -48,7 +46,6 @@ public class GameTimeCaptureHandlerTests
 
         /// <inheritdoc/>
         public void Apply<TState>(
-            IStatePublisher<TState> publisher,
             UpdateMode mode,
             StateAreaId areaId,
             TState value,
@@ -59,7 +56,6 @@ public class GameTimeCaptureHandlerTests
             long capturedPlayContextGeneration,
             DateTimeOffset occurredAt) =>
             ApplyCalls.Add(new ApplyCall(
-                publisher,
                 value,
                 areaId,
                 mode,
@@ -71,65 +67,19 @@ public class GameTimeCaptureHandlerTests
                 occurredAt));
     }
 
-    /// <summary>A publisher stub that rejects any bypass of shared Host authority.</summary>
-    /// <typeparam name="TState">The state value represented by the publisher.</typeparam>
-    private sealed class UnusedStatePublisher<TState> : IStatePublisher<TState>
-    {
-        /// <inheritdoc/>
-        public bool TryGetCurrentValue(StateAreaId areaId, [MaybeNullWhen(false)] out TState value) =>
-            throw new InvalidOperationException("Game time captures must use ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public RevisionNumber CurrentRevision(StateAreaId areaId) =>
-            throw new InvalidOperationException("Game time captures must use ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult Apply(
-            AdapterInstanceId sourceInstanceId,
-            long sourceConnectionGeneration,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Game time captures must use ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult ApplyResynchronizationBaseline(
-            IAdapterResynchronizationToken resynchronizationToken,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Game time captures must use ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult ApplyEvent(
-            AdapterInstanceId sourceInstanceId,
-            long sourceConnectionGeneration,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            IAdapterResynchronizationToken? resynchronizationToken,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Game time captures must use ILiveStateApplication.");
-    }
-
     /// <summary>The handler and collaborators used by one mapping test.</summary>
     /// <param name="Handler">The game-time handler.</param>
     /// <param name="Application">The shared application recorder.</param>
-    /// <param name="Publisher">The typed calendar publisher.</param>
     private sealed record Fixture(
         GameTimeCaptureHandler Handler,
-        RecordingLiveStateApplication Application,
-        IStatePublisher<GameTime?> Publisher);
+        RecordingLiveStateApplication Application);
 
     /// <summary>Builds a handler with strict collaborators.</summary>
     /// <returns>The handler and its test observers.</returns>
     private static Fixture CreateReady()
     {
         var application = new RecordingLiveStateApplication();
-        IStatePublisher<GameTime?> publisher = new UnusedStatePublisher<GameTime?>();
-        return new Fixture(new GameTimeCaptureHandler(publisher, application), application, publisher);
+        return new Fixture(new GameTimeCaptureHandler(application), application);
     }
 
     /// <summary>Writes one raw little-endian calendar float.</summary>
@@ -204,18 +154,15 @@ public class GameTimeCaptureHandlerTests
 
     /// <summary>Asserts a normalized Snapshot and its exact capture provenance.</summary>
     /// <param name="call">The recorded application call.</param>
-    /// <param name="fixture">The handler fixture.</param>
     /// <param name="value">The expected calendar or unavailable marker.</param>
     /// <param name="isBaseline">Whether this capture establishes a baseline.</param>
     /// <param name="context">The capture context to preserve.</param>
     private static void AssertApplyCall(
         ApplyCall call,
-        Fixture fixture,
         GameTime? value,
         bool isBaseline,
         LiveCaptureContext context)
     {
-        Assert.Same(fixture.Publisher, call.Publisher);
         Assert.Equal(value, call.Value);
         Assert.Equal(GameTimeArea, call.AreaId);
         Assert.Equal(UpdateMode.Snapshot, call.Mode);
@@ -266,7 +213,7 @@ public class GameTimeCaptureHandlerTests
         Assert.Collection(
             fixture.Application.ApplyCalls,
             call => AssertApplyCall(
-                call, fixture, new GameTime(201, 9, "Hearthfire", 17, 17, 45), true, context));
+                call, new GameTime(201, 9, "Hearthfire", 17, 17, 45), true, context));
     }
 
     /// <summary>Verifies the first and last raw months normalize to public months 1 and 12.</summary>
@@ -289,7 +236,6 @@ public class GameTimeCaptureHandlerTests
                 fixture.Application.ApplyCalls,
                 call => AssertApplyCall(
                     call,
-                    fixture,
                     new GameTime(201, value.PublicMonth, value.MonthName, 1, 0, 0),
                     false,
                     context));
@@ -312,7 +258,7 @@ public class GameTimeCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture, null, true, context));
+            call => AssertApplyCall(call, null, true, context));
     }
 
     /// <summary>Verifies invalid backing values, malformed names, and incomplete payloads never publish partial time.</summary>

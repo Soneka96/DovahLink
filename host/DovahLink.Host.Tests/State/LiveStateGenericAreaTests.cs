@@ -19,11 +19,9 @@ public class LiveStateGenericAreaTests
     /// <summary>The invented areas together, in catalog order.</summary>
     private static readonly string[] FutureAreas = [FutureArea, FutureAreaTwo];
 
-    /// <summary>The generic chain under test: a harness over the custom catalog and one publisher per invented value type.</summary>
+    /// <summary>The generic chain under test: a harness over the custom catalog.</summary>
     /// <param name="Harness">The composed real chain.</param>
-    /// <param name="Text">The publisher for <see cref="FutureArea"/>.</param>
-    /// <param name="Number">The publisher for <see cref="FutureAreaTwo"/>.</param>
-    private sealed record Chain(LivePipelineHarness Harness, IStatePublisher<string?> Text, IStatePublisher<int?> Number);
+    private sealed record Chain(LivePipelineHarness Harness);
 
     /// <summary>Builds a catalog whose only state areas are the invented ones, each with a required baseline Sample.</summary>
     private static LiveStateCatalog BuildFutureCatalog() =>
@@ -42,7 +40,7 @@ public class LiveStateGenericAreaTests
     private static Chain BuildChain(bool synchronize = true)
     {
         var harness = new LivePipelineHarness(BuildFutureCatalog());
-        var chain = new Chain(harness, harness.CreatePublisher<string?>(), harness.CreatePublisher<int?>());
+        var chain = new Chain(harness);
         if (synchronize)
         {
             harness.ConnectAdapter();
@@ -63,13 +61,13 @@ public class LiveStateGenericAreaTests
         chain.Harness.BeginResynchronization();
         if (secondLast)
         {
-            chain.Harness.ApplyBaseline(chain.Number, FutureAreaTwo, (int?)number);
-            chain.Harness.ApplyBaseline(chain.Text, FutureArea, text);
+            chain.Harness.ApplyBaseline(FutureAreaTwo, (int?)number);
+            chain.Harness.ApplyBaseline(FutureArea, text);
         }
         else
         {
-            chain.Harness.ApplyBaseline(chain.Text, FutureArea, text);
-            chain.Harness.ApplyBaseline(chain.Number, FutureAreaTwo, (int?)number);
+            chain.Harness.ApplyBaseline(FutureArea, text);
+            chain.Harness.ApplyBaseline(FutureAreaTwo, (int?)number);
         }
     }
 
@@ -116,13 +114,13 @@ public class LiveStateGenericAreaTests
     {
         Chain chain = BuildChain();
 
-        Assert.True(chain.Text.TryGetCurrentValue(new StateAreaId(FutureArea), out string? text));
+        Assert.True(chain.Harness.Store.TryGetCurrentValue(new StateAreaId(FutureArea), out string? text));
         Assert.Equal("alpha", text);
-        Assert.True(chain.Number.TryGetCurrentValue(new StateAreaId(FutureAreaTwo), out int? number));
+        Assert.True(chain.Harness.Store.TryGetCurrentValue(new StateAreaId(FutureAreaTwo), out int? number));
         Assert.Equal(7, number);
         Assert.Empty(chain.Harness.UnreadableAreas(FutureAreas));
         Assert.True(chain.Harness.Feed.TryGetSnapshot(new StateAreaId(FutureArea), out StateSnapshotPublication? snapshot));
-        Assert.Equal(chain.Text.CurrentRevision(new StateAreaId(FutureArea)), snapshot!.Revision);
+        Assert.Equal(chain.Harness.CurrentRevision(FutureArea), snapshot!.Revision);
     }
 
     /// <summary>Verifies continuity loss gates invented areas, and a same-value resynchronization makes them replayable to a new client.</summary>
@@ -155,7 +153,7 @@ public class LiveStateGenericAreaTests
         chain.Harness.LoseContinuity();
         chain.Harness.ConnectAdapter();
         chain.Harness.BeginResynchronization();
-        chain.Harness.ApplyBaseline(chain.Text, FutureArea, "alpha");
+        chain.Harness.ApplyBaseline(FutureArea, "alpha");
 
         chain.Harness.AcceptAdapterPlan();
 
@@ -206,5 +204,31 @@ public class LiveStateGenericAreaTests
         Assert.True(
             missing.Length == 0,
             $"Waiting subscriber never received: [{string.Join(", ", missing)}] (last baseline applied: {(futureAreaLast ? FutureArea : FutureAreaTwo)}).");
+    }
+
+    /// <summary>
+    /// Verifies an invented area inherits the exactly-once guarantee: a waiting client receives a
+    /// changed completing baseline's revision once, not once per notification path.
+    /// </summary>
+    /// <param name="futureAreaLast">Whether <see cref="FutureArea"/> (rather than <see cref="FutureAreaTwo"/>) arrives last.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FutureArea_WaitingSubscriberDuringChangedResynchronization_ReceivesEachRevisionExactlyOnce(bool futureAreaLast)
+    {
+        Chain chain = BuildChain();
+        chain.Harness.LoseContinuity();
+        chain.Harness.ConnectAdapter();
+        chain.Harness.BeginResynchronization();
+        LivePipelineClient client = chain.Harness.CreateClient();
+        client.Subscribe(FutureAreas);
+        chain.Harness.AcceptAdapterPlan();
+
+        ApplyFutureBaselines(chain, "beta", 8, secondLast: futureAreaLast);
+
+        Assert.Empty(FutureAreas.Except(client.AllLaneSnapshots.Select(snapshot => snapshot.StateArea)));
+        Assert.All(
+            client.AllLaneSnapshots.GroupBy(snapshot => (snapshot.StateArea, snapshot.Revision)),
+            group => Assert.Single(group));
     }
 }

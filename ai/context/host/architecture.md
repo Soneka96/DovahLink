@@ -127,9 +127,54 @@ invalidate accepted-area recovery state, discard pending Data-lane Events/Snapsh
 Snapshots while releasing their reservations, then queue an unavailable revision-zero Snapshot for
 each accepted area before forwarding new-identity state. The single writer may finish a frame it has
 already dequeued before the reset; no other old queued state may follow a reset. A synthetic
-revision-zero baseline does not advance the authoritative publisher, so the first actual capture in
+revision-zero baseline does not advance the authoritative state store, so the first actual capture in
 a new play context remains revision one. This operation ranges over registered and accepted areas;
 it has no per-domain reset path.
+
+## Authoritative state ownership
+
+There is exactly one mutable Host owner of the authoritative current state and revision for each
+live state area: the Host-lifetime `AuthoritativeStateStore`. It keeps one record per area holding
+the typed value, the revision, the capture provenance (adapter instance, connection generation,
+play context and its generation, and `stateAuthorityId`), the capture time, and the serialized
+Snapshot a client is replayed. A value, its revision, and its replay Snapshot are committed together
+under one lock, so they cannot disagree. No other Host type keeps a second copy of current state or
+a revision counter.
+
+- The public publication layer (`IStatePublicationFeed`, implemented by `StatePublicationFeed`) is a
+  stateless view over that owner. It holds no snapshot, value, or revision of its own, and
+  `PublicStateSubscription` reads only through it.
+- An area's typed value is decoded by the capture handler, never by the store, and an area's value
+  type is fixed by its first write; a later write with another type fails closed.
+- An availability transition makes every record non-replayable and advances the revision of each
+  populated area in the current play context once. The typed value is retained so a resynchronization
+  baseline equal to it restores currentness under fresh provenance without a value revision or a
+  change notification. A play-context transition drops the previous context's records, so the new
+  context restarts at revision one.
+- Reads and writes validate adapter availability and resynchronization state, adapter instance and
+  connection generation, play context and generation, and `stateAuthorityId`. A capture stamped with
+  an identity that is no longer current is rejected, never stored under the newer identity.
+- A resynchronization baseline counts toward its transaction only after the store has committed it as
+  replayable current state, and completion is observable before that baseline's change notification.
+  The store runs one caller-supplied step at exactly that point, for baselines only, because only a
+  baseline can complete a transaction.
+- The store raises `SnapshotChanged` and `EventOccurred` synchronously under its ordering lock, in
+  commit order and after the area's authoritative, replayable state is committed. A subscriber that
+  reads `TryGetSnapshot` therefore sees state at least as new as the notification. Each subscriber's
+  failure is contained individually. Subscribers run synchronously on the raising thread and must
+  not block or call back into state application.
+- `SnapshotAvailabilityChanged` is an availability hint emitted when the adapter availability
+  tracker reports that resynchronization has completed; it is not an authoritative state publication.
+  The tracker raises that event outside its own lock. A completing baseline can trigger it while the
+  store's ordering lock happens to be held, but that is not a general contract. Consumers must always
+  call `TryGetSnapshot` and re-check current state. Because a completing baseline can wake a waiting
+  subscription before its own change notification arrives, `PublicStateSubscription` ignores a
+  Snapshot at or below the revision it has already delivered for a live area.
+
+To diagnose a missing value, read `AuthoritativeStateStore.TryGetSnapshot` for the area. If it
+reports unavailable, the Host does not currently consider the area authoritative and replayable, so
+investigate the adapter, capture, or resynchronization. If it reports a Snapshot, the Host holds
+current state, so investigate the subscription, the SDK, or the app.
 
 ## Public contract ownership
 

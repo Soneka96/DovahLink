@@ -408,13 +408,11 @@ public class TrackedQuestCaptureCoordinatorTests
             pageReader = new TrackedQuestPageReader(() => listener, adapterTracker, playContextTracker);
             connection.OnTrySendTrackedQuestPage = DeliverNextResponse;
             var snapshotCollector = new TrackedQuestSnapshotCollector(pageReader);
-            var publisher = new StatePublisher<TrackedQuests?>(new RevisionTracker(), playContextTracker, adapterTracker);
             Coordinator = new TrackedQuestCaptureCoordinator(
                 () => listener,
                 snapshotCollector,
                 adapterTracker,
                 playContextTracker,
-                publisher,
                 Application,
                 clock);
         }
@@ -721,7 +719,7 @@ public class TrackedQuestCaptureCoordinatorTests
         public List<AppliedValue> Calls { get; } = [];
 
         /// <inheritdoc/>
-        public void Apply<TState>(IStatePublisher<TState> publisher, UpdateMode mode, StateAreaId areaId,
+        public void Apply<TState>(UpdateMode mode, StateAreaId areaId,
             TState value, bool isResynchronizationBaseline, AdapterCaptureSource source,
             AdapterAvailabilitySnapshot adapterSnapshot, PlayContextId capturedPlayContextId,
             long capturedPlayContextGeneration, DateTimeOffset occurredAt)
@@ -773,14 +771,11 @@ public class TrackedQuestCaptureCoordinatorTests
                 ConnectionGeneration = 1,
                 TrySendReadSampleResult = true,
             };
-            var publisher = new StatePublisher<TrackedQuests?>(
-                new RevisionTracker(), playContextTracker, adapterTracker);
             Coordinator = new TrackedQuestCaptureCoordinator(
                 () => listener,
                 Collector,
                 adapterTracker,
                 playContextTracker,
-                publisher,
                 Application,
                 new SystemClock());
         }

@@ -30,21 +30,17 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
     /// <summary>Provides one coherent active play-context identity and transition generation.</summary>
     private readonly IPlayContextTracker playContextTracker;
 
-    /// <summary>Publishes the immutable complete quest collection or explicit unavailability.</summary>
-    private readonly IStatePublisher<TrackedQuests?> publisher;
-
     /// <summary>Applies values through shared Host authority and resynchronization semantics.</summary>
     private readonly ILiveStateApplication liveStateApplication;
 
     /// <summary>Stamps each completed Snapshot with Host UTC time.</summary>
     private readonly IClock clock;
 
-    /// <summary>Creates the Host-owned quest capture cycle and publisher.</summary>
+    /// <summary>Creates the Host-owned quest capture cycle.</summary>
     /// <param name="listenerAccessor">Defers reading the Host's current Adapter connection until a collection runs, avoiding the connection factory's capture-handler dependency cycle.</param>
     /// <param name="snapshotCollector">Collects one complete bounded tracked-quest value.</param>
     /// <param name="adapterAvailabilityTracker">Provides adapter identity and resynchronization provenance.</param>
     /// <param name="playContextTracker">Provides the current play-context identity and transition generation.</param>
-    /// <param name="publisher">Publishes the complete tracked-quest Snapshot.</param>
     /// <param name="liveStateApplication">Applies the Snapshot through shared authority rules.</param>
     /// <param name="clock">Stamps each completed Snapshot.</param>
     public TrackedQuestCaptureCoordinator(
@@ -52,7 +48,6 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
         ITrackedQuestSnapshotCollector snapshotCollector,
         IAdapterAvailabilityTracker adapterAvailabilityTracker,
         IPlayContextTracker playContextTracker,
-        IStatePublisher<TrackedQuests?> publisher,
         ILiveStateApplication liveStateApplication,
         IClock clock)
     {
@@ -60,7 +55,6 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
         this.snapshotCollector = snapshotCollector;
         this.adapterAvailabilityTracker = adapterAvailabilityTracker;
         this.playContextTracker = playContextTracker;
-        this.publisher = publisher;
         this.liveStateApplication = liveStateApplication;
         this.clock = clock;
     }
@@ -112,7 +106,6 @@ public sealed class TrackedQuestCaptureCoordinator : ITrackedQuestCaptureCoordin
         }
 
         liveStateApplication.Apply(
-            publisher,
             UpdateMode.Snapshot,
             new StateAreaId(Constants.TrackedQuestsStateArea),
             value,
