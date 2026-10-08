@@ -2580,6 +2580,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         for proof_requirement in (
             "Current Health, Magicka, and Stamina display as whole numbers",
             "effective maximums and ratios remain precise in synchronized state",
+            "Disconnection cancels gameplay observation and resets the live-state slice",
             "Compatibility failures surface at the connection/error boundary",
             "bounded outbound behavior and overflow termination remain Host-owned",
             "OBSOLETE / REPLANNED — Visible slow-client diagnostics",

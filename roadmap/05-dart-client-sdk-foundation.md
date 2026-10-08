@@ -164,9 +164,11 @@ typed ViewModel; Stage 8 remains open for its broader live-player-state acceptan
   experience. Current Health, Magicka, and Stamina display as whole numbers; effective maximums and
   ratios remain precise in synchronized state. This closeout fixes the remaining decimal-formatting
   defect.
-- **COMPLETE — Synchronization and lifecycle:** stale, recovering, unavailable, connected, and
-  disconnected states retain real values and truthful presentation. Compatibility failures surface
-  at the connection/error boundary where they can inform user action.
+- **COMPLETE — Synchronization and lifecycle:** stale, recovering, and unavailable gameplay values
+  retain truthful presentation; connected and disconnected states reflect the real session lifecycle.
+  Disconnection cancels gameplay observation and resets the live-state slice rather than preserving
+  values as current. Compatibility failures surface at the connection/error boundary where they can
+  inform user action.
 - **COMPLETE — Slow-client behavior:** bounded outbound behavior and overflow termination remain
   Host-owned and covered by Host transport tests. The Host-local abnormal-end contract stays
   internal; no slow-client diagnostic appears on the normal Overview.
