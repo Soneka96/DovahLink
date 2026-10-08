@@ -53,6 +53,10 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   meaningful independently reviewable behavior, architecture, or testing; trivial glue should stay
   with the surrounding phase. When a feature crosses meaningful boundaries, finish and validate
   each boundary independently before moving outward.
+- Player-facing acceptance follows PRODUCT.md's **Technical truth, player-facing presentation**
+  principle. Keep state correctness, diagnostics, and other engineering guarantees testable
+  internally; expose technical detail in normal player surfaces only when it is needed for
+  understanding, diagnosis, or action.
 - For routine work on one phase, load ROADMAP.md, that phase's stage file, the next relevant
   stage file when rolling planning requires it, and only the relevant architecture, security,
   protocol, SDK, or other context documents. Repo-wide planning may load the full roadmap corpus.
@@ -95,6 +99,13 @@ how progression resumes; they do not replace this roadmap or change its stage st
   and recommends `0.4.0` for the incompatible Host/client contract changes; that release shipped on
   2026-09-23. The current public grouping is `character_vitals` alongside independent Character XP
   and Level domains.
+- **Pulled-forward Stage 6–8 acceptance:** Stage 6 is **PARTIALLY DELIVERED**: the connected
+  Windows workflow and technical recovery behaviors exist, while player comprehension has not had a
+  dedicated validation. Stage 7 is **PARTIALLY DELIVERED**: shared themes, components, and responsive
+  checks exist, while the canonical screenshot comparison remains unverified. Stage 8 is **PARTIALLY
+  DELIVERED**: the eight-domain live Overview and synchronization treatments exist; real runtime
+  play-context replacement remains unverified. These stages remain formally **Planned** and are not
+  closed solely because implementation landed early.
 - **Security gate:** S2.2 ended **STOP**. The Pasini–Vaudenay SAS-AKE construction survives at the
   paper level, but no proof justifies composing it with DovahLink's Host/Client identity transcript,
   MACs, and pairing PoP; the exact KEM assumptions and lifetime retry bound also remain unresolved.

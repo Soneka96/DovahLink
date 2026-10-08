@@ -6,6 +6,9 @@
 
 **Status:** Planned
 
+The shared theme foundation and much of its application to the current PC client have landed ahead of
+order. Stage 7 remains open because its final prototype screenshot comparison is still unverified.
+
 ### Outcome
 
 DovahLink establishes reusable Skyrim-inspired presentation before feature screens multiply.
@@ -33,5 +36,15 @@ theme data, and dashboard behavior remain later phases.
 
 ### Acceptance criteria
 
-Existing surfaces use shared tokens or components and remain useful at supported sizes and
-accessibility settings without optional resources.
+- **COMPLETE — Shared presentation foundation:** current Connections, Pairing, Session Shell, and
+  Overview surfaces use shared theme tokens, materials, metrics, and widgets.
+- **COMPLETE — Accessibility and responsive behavior:** existing widget tests cover supported
+  window sizes, overflow, tap targets, keyboard focus, text scaling, semantics, and reduced motion
+  where the component animates.
+- **PARTIALLY DELIVERED — Canonical visual fidelity:** code-to-code audits compare the production
+  Flutter screens with the prototype, and this closeout corrects remaining Session Shell and
+  Overview differences. A rendered screenshot comparison has not been completed; the final
+  convergence audit remains partial.
+
+Stage 7 remains **Planned** until that visual-fidelity acceptance is verified; the implemented theme
+work is recorded as pulled forward, not as whole-stage completion.

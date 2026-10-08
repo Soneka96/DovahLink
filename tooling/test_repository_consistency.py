@@ -2628,6 +2628,50 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("Stage 8 remains planned", character_deviation)
 
+    def test_pulled_forward_stage_6_to_8_acceptance_statuses_are_explicit(self) -> None:
+        """Keep pulled-forward implementation distinct from whole-stage completion."""
+        product = self._read("PRODUCT.md")
+        roadmap = self._read("ROADMAP.md")
+        stage_6 = self._read("roadmap/06-pc-second-screen-baseline.md")
+        stage_7 = self._read("roadmap/07-core-ui-theme-system.md")
+        stage_8 = self._read("roadmap/08-live-player-state.md")
+
+        self.assertIn("Technical truth, player-facing presentation", product)
+        self.assertIn("PARTIALLY DELIVERED", roadmap)
+        self.assertIn("These stages remain formally **Planned**", roadmap)
+        normalized_stage_6 = self._normalize_whitespace(stage_6)
+        normalized_stage_7 = self._normalize_whitespace(stage_7)
+        normalized_stage_8 = self._normalize_whitespace(stage_8)
+        for stage in (stage_6, stage_7, stage_8):
+            status = re.search(r"(?m)^\*\*Status:\*\* (.+)$", stage)
+            self.assertIsNotNone(status)
+            self.assertEqual(status.group(1), "Planned")
+        self.assertIn(
+            "PARTIALLY DELIVERED — Comprehension without developer guidance", stage_6
+        )
+        self.assertIn("No dedicated usability validation", normalized_stage_6)
+        self.assertNotIn("COMPLETE — Comprehension without developer guidance", stage_6)
+        self.assertIn("Stage 6 remains **Planned**", stage_6)
+        self.assertIn("PARTIALLY DELIVERED — Canonical visual fidelity", stage_7)
+        self.assertIn(
+            "A rendered screenshot comparison has not been completed",
+            normalized_stage_7,
+        )
+        self.assertNotIn("COMPLETE — Canonical visual fidelity", stage_7)
+        self.assertIn("Stage 7 remains **Planned**", stage_7)
+        self.assertIn(
+            "PARTIALLY DELIVERED — Runtime accuracy through play-context replacement",
+            stage_8,
+        )
+        self.assertIn(
+            "A runtime replacement of the active play context was not part of that validation",
+            normalized_stage_8,
+        )
+        self.assertNotIn(
+            "COMPLETE — Runtime accuracy through play-context replacement", stage_8
+        )
+        self.assertIn("Stage 8 remains **Planned**", stage_8)
+
     def test_flutter_live_state_keeps_sdk_streams_inside_middleware(self) -> None:
         """Keep gameplay observation inside middleware and the SDK public API."""
         middleware_path = (
