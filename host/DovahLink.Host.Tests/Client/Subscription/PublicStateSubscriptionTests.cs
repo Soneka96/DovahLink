@@ -415,6 +415,60 @@ public class PublicStateSubscriptionTests
         Assert.Equal(sentAfterFirstBaseline, connectionContext.SentPayloads.Count);
     }
 
+    /// <summary>The eight areas the app requests at startup, in its request order.</summary>
+    private static readonly string[] AppRequiredAreas =
+    [
+        "character_vitals", "character_xp", "character_level", "character_identity",
+        "character_supernatural_traits", "player_location", "game_time", "tracked_quests",
+    ];
+
+    /// <summary>
+    /// Verifies the fresh-client contract for the app's startup pattern: every request grows the
+    /// complete desired set by one area, and across all eight requests each area receives exactly one
+    /// current baseline, on the Control/Recovery lane, correlated to the request that introduced it,
+    /// with no baseline lost to or repeated by a later superset request. A second, completely new
+    /// subscription seeded with identical snapshots produces the same result. Capacity limits are not
+    /// modeled: the fake connection reports unlimited Control/Recovery capacity.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_AdditiveCompleteSetsFromTwoFreshConnections_EachAreaReceivesExactlyOneCurrentBaseline()
+    {
+        for (int connection = 0; connection < 2; connection++)
+        {
+            (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(AppRequiredAreas);
+            for (int index = 0; index < AppRequiredAreas.Length; index++)
+            {
+                feed.SetSnapshot(new StateAreaId(AppRequiredAreas[index]), BuildSnapshot(AppRequiredAreas[index], revision: (ulong)index + 3));
+            }
+
+            var connectionContext = new FakePublicConnectionContext();
+            var sessionId = SessionId.NewId();
+            subscription.Bind(connectionContext, sessionId);
+
+            for (int count = 1; count <= AppRequiredAreas.Length; count++)
+            {
+                (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) =
+                    Subscribe(subscription, $"sub-{count}", AppRequiredAreas.Take(count).ToArray(), reservedControlCapacity: 1);
+
+                Assert.Equal(AppRequiredAreas.Take(count), accepted);
+                Assert.Empty(rejected);
+                Assert.Equal(count, connectionContext.SentPayloads.Count);
+            }
+
+            for (int index = 0; index < AppRequiredAreas.Length; index++)
+            {
+                (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[index];
+                Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
+                Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+                Assert.Equal($"sub-{index + 1}", envelope!.CorrelationId);
+                Assert.Equal(sessionId.ToString(), envelope.SessionId);
+                Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+                Assert.Equal(AppRequiredAreas[index], payload!.StateArea);
+                Assert.Equal((ulong)index + 3, payload.Revision);
+            }
+        }
+    }
+
     /// <summary>
     /// Verifies that an accepted subscribe area with no value available at subscribe time reuses the
     /// same bounded pending-baseline machinery as snapshot_request: the baseline is delivered
