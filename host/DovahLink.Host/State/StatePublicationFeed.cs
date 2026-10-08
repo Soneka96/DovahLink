@@ -106,66 +106,75 @@ public sealed class StatePublicationFeed : IStatePublicationFeed, IStatePublicat
     }
 
     /// <inheritdoc/>
-    public void PublishSnapshot(
+    public bool PublishSnapshot(
         StateAreaId areaId,
         RevisionNumber revision,
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt)
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null)
     {
         lock (gate)
         {
             if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
-                return;
+                return false;
             }
 
             var publication = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
             latestByArea[areaId] = publication;
+            onCommitted?.Invoke();
             RaiseSnapshotChanged(publication);
+            return true;
         }
     }
 
     /// <inheritdoc/>
-    public void PublishEvent(
+    public bool PublishEvent(
         StateAreaId areaId,
         RevisionNumber baseRevision,
         RevisionNumber revision,
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt)
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null)
     {
         lock (gate)
         {
             if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
-                return;
+                return false;
             }
 
             latestByArea[areaId] = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+            onCommitted?.Invoke();
             RaiseEventOccurred(new StateEventPublication(areaId, stateAuthorityId, baseRevision, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration));
+            return true;
         }
     }
 
     /// <inheritdoc/>
-    public void EstablishBaseline(
+    public bool EstablishBaseline(
         StateAreaId areaId,
         RevisionNumber revision,
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt)
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null)
     {
         lock (gate)
         {
             if (!IsStillFreshLocked(areaId, capturedPlayContextId, capturedPlayContextGeneration, out StateAuthorityId stateAuthorityId))
             {
-                return;
+                return false;
             }
 
             latestByArea[areaId] = new StateSnapshotPublication(areaId, stateAuthorityId, revision, occurredAt, data, capturedPlayContextId, capturedPlayContextGeneration);
+            onCommitted?.Invoke();
+            return true;
         }
     }
 

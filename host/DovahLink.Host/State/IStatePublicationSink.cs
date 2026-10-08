@@ -13,8 +13,8 @@ namespace DovahLink.Host.State;
 public interface IStatePublicationSink
 {
     /// <summary>
-    /// Publishes an accepted, changed Snapshot-mode value, already JSON-encoded. A silent no-op --
-    /// no event raised, no stored value updated -- when <paramref name="areaId"/> is not currently
+    /// Publishes an accepted, changed Snapshot-mode value, already JSON-encoded. A no-op that
+    /// returns <see langword="false"/> -- no event raised, no stored value updated -- when <paramref name="areaId"/> is not currently
     /// registered, or the adapter is no longer available and resynchronized, or the play context has
     /// already moved on from <paramref name="capturedPlayContextId"/>/<paramref name="capturedPlayContextGeneration"/>:
     /// the caller's own <see cref="IStatePublisher{TState}.Apply"/> check and this call are two
@@ -22,21 +22,29 @@ public interface IStatePublicationSink
     /// atomic with the raise -- closes the gap between them per <see cref="IStatePublicationFeed"/>'s
     /// own documented freshness guarantee.
     /// </summary>
+    /// <returns><see langword="true"/> when the value is now the area's current replay state; <see langword="false"/> when it was rejected as stale.</returns>
     /// <param name="areaId">The state area this value belongs to.</param>
     /// <param name="revision">The revision this value is current as of.</param>
     /// <param name="data">The complete, already-encoded state for this area.</param>
     /// <param name="capturedPlayContextId">The play context that was current at the moment this value was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this value was captured.</param>
     /// <param name="occurredAt">When this value was captured, for display and diagnostics only.</param>
-    void PublishSnapshot(
+    /// <param name="onCommitted">
+    /// Optional step run exactly once, atomically with the commit -- under the feed's own lock, after
+    /// the value is stored as current replay state and before any change notification is raised --
+    /// and never run when the publication is rejected. Lets a caller count the value toward a
+    /// resynchronization transaction without that completion being observable before the value is replayable.
+    /// </param>
+    bool PublishSnapshot(
         StateAreaId areaId,
         RevisionNumber revision,
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt);
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null);
 
-    /// <summary>Publishes an accepted, changed Event-mode value, already JSON-encoded. Same drop rule as <see cref="PublishSnapshot"/>.</summary>
+    /// <summary>Publishes an accepted, changed Event-mode value, already JSON-encoded. Same drop rule and return contract as <see cref="PublishSnapshot"/>.</summary>
     /// <param name="areaId">The state area this event belongs to.</param>
     /// <param name="baseRevision">The revision a recipient must already hold for this event to apply.</param>
     /// <param name="revision">The revision this event advances the state area to.</param>
@@ -44,14 +52,21 @@ public interface IStatePublicationSink
     /// <param name="capturedPlayContextId">The play context that was current at the moment this event was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this event was captured.</param>
     /// <param name="occurredAt">When this change was captured, for display and diagnostics only.</param>
-    void PublishEvent(
+    /// <param name="onCommitted">
+    /// Optional step run exactly once, atomically with the commit -- under the feed's own lock, after
+    /// the value is stored as current replay state and before any change notification is raised --
+    /// and never run when the publication is rejected. Lets a caller count the value toward a
+    /// resynchronization transaction without that completion being observable before the value is replayable.
+    /// </param>
+    bool PublishEvent(
         StateAreaId areaId,
         RevisionNumber baseRevision,
         RevisionNumber revision,
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt);
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null);
 
     /// <summary>
     /// Repopulates the pull-read cache for an accepted resynchronization baseline whose value is
@@ -71,11 +86,18 @@ public interface IStatePublicationSink
     /// <param name="capturedPlayContextId">The play context that was current at the moment this baseline was captured.</param>
     /// <param name="capturedPlayContextGeneration">The play-context transition generation that was current at the moment this baseline was captured.</param>
     /// <param name="occurredAt">When this baseline was captured, for display and diagnostics only.</param>
-    void EstablishBaseline(
+    /// <param name="onCommitted">
+    /// Optional step run exactly once, atomically with the commit -- under the feed's own lock, after
+    /// the value is stored as current replay state and before any change notification is raised --
+    /// and never run when the publication is rejected. Lets a caller count the value toward a
+    /// resynchronization transaction without that completion being observable before the value is replayable.
+    /// </param>
+    bool EstablishBaseline(
         StateAreaId areaId,
         RevisionNumber revision,
         JsonElement data,
         PlayContextId capturedPlayContextId,
         long capturedPlayContextGeneration,
-        DateTimeOffset occurredAt);
+        DateTimeOffset occurredAt,
+        Action? onCommitted = null);
 }
