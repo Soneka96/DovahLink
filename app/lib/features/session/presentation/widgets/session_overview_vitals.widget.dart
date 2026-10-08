@@ -83,6 +83,9 @@ class SessionOverviewVitalsPanel extends StatelessWidget {
                         ),
                         Expanded(
                           child: Container(
+                            key: Key(
+                              'session-overview-${label.toLowerCase()}-bar-track',
+                            ),
                             height: DovahOverviewMetrics.barHeight,
                             decoration: BoxDecoration(
                               color: tokens.barTrack,
@@ -96,6 +99,7 @@ class SessionOverviewVitalsPanel extends StatelessWidget {
                                   ? const SizedBox.shrink()
                                   : FractionallySizedBox(
                                       widthFactor: ratio,
+                                      heightFactor: 1,
                                       child: DecoratedBox(
                                         key: Key(
                                           'session-overview-${label.toLowerCase()}-bar-fill',

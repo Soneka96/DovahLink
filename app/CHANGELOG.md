@@ -103,6 +103,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- Session Overview vital bars fill their tracks to the exact displayed ratios.
 - Session Overview Health, Magicka, and Stamina values display as whole numbers without changing synchronized precision.
 - An already connected trusted Host now starts live-state subscriptions when the app begins observing the session.
 - Invalid operating-system device names now fall back safely before pairing.
