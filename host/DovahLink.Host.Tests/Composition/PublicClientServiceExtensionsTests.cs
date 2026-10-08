@@ -65,17 +65,40 @@ public class PublicClientServiceExtensionsTests
         Assert.Equal(LiveStateCatalog.Default.StateAreas.Count, registeredAreaPolicy.Count);
     }
 
-    /// <summary>Verifies that the store and the feed view each resolve to one shared instance, and that the feed is the stateless projection rather than a second owner.</summary>
+    /// <summary>
+    /// Verifies that the container composes exactly one authoritative store and that the capture
+    /// application service and the publication feed both operate on it: a value applied through
+    /// <see cref="ILiveStateApplication"/> is what the feed replays, so no second owner exists.
+    /// </summary>
     [Fact]
-    public async Task AddPublicClientServices_StoreAndFeed_ShareOneAuthoritativeOwner()
+    public async Task AddPublicClientServices_ApplicationAndFeed_ShareTheOneAuthoritativeStore()
     {
         using var shutdown = new CancellationTokenSource();
         using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+        var store = provider.GetRequiredService<IAuthoritativeStateStore>();
+        var tracker = provider.GetRequiredService<DovahLink.Host.Adapter.IAdapterAvailabilityTracker>();
+        var playContextTracker = provider.GetRequiredService<DovahLink.Host.PlayContext.IPlayContextTracker>();
+        var area = new StateAreaId(Constants.CharacterLevelStateArea);
+        var instance = AdapterInstanceId.NewId();
+        var context = PlayContextId.NewId();
+        tracker.CommitConnected(instance, 1);
+        playContextTracker.NotifyTransition(context);
+        long contextGeneration = playContextTracker.GetSnapshot().TransitionGeneration;
+        var token = tracker.TryClaimResynchronizationToken()!;
+        Assert.True(store.ApplyResynchronizationBaseline(UpdateMode.Snapshot, token, context, contextGeneration, DateTimeOffset.UtcNow, area, 42).Accepted);
+        tracker.NotifyResynchronized(instance, 1, token);
 
-        Assert.Same(provider.GetRequiredService<IAuthoritativeStateStore>(), provider.GetRequiredService<IAuthoritativeStateStore>());
-        Assert.Same(provider.GetRequiredService<IStatePublicationFeed>(), provider.GetRequiredService<IStatePublicationFeed>());
+        provider.GetRequiredService<ILiveStateApplication>().Apply(
+            UpdateMode.Snapshot, area, 43, isResynchronizationBaseline: false, new AdapterCaptureSource(instance, 1),
+            tracker.GetSnapshot(), context, contextGeneration, DateTimeOffset.UtcNow);
+
+        Assert.Same(store, provider.GetRequiredService<IAuthoritativeStateStore>());
+        Assert.IsType<AuthoritativeStateStore>(store);
         Assert.IsType<StatePublicationFeed>(provider.GetRequiredService<IStatePublicationFeed>());
-        Assert.IsType<AuthoritativeStateStore>(provider.GetRequiredService<IAuthoritativeStateStore>());
+        Assert.True(provider.GetRequiredService<IStatePublicationFeed>().TryGetSnapshot(area, out StateSnapshotPublication? replayed));
+        Assert.Equal(43, replayed.Data.GetProperty("value").GetInt32());
+        Assert.True(store.TryGetCurrentValue(area, out int current));
+        Assert.Equal(43, current);
     }
 
     /// <summary>

@@ -571,12 +571,13 @@ public class AuthoritativeStateStoreTests
         Assert.Equal(RevisionNumber.Initial, rig.Store.CurrentRevision(new StateAreaId(area)));
     }
 
-    /// <summary>Verifies the baseline rejection matrix: outside a resynchronization, with a foreign token, or with stale play-context provenance.</summary>
+    /// <summary>Verifies the baseline rejection matrix: outside a resynchronization, with a foreign token, or with stale play-context provenance, or for an unregistered area. A rejected baseline never runs the commit hook.</summary>
     [Theory]
     [InlineData("outsideResynchronization")]
     [InlineData("foreignToken")]
     [InlineData("stalePlayContextId")]
     [InlineData("stalePlayContextGeneration")]
+    [InlineData("unregisteredArea")]
     public void ApplyResynchronizationBaseline_Rejections_LeaveNoState(string scenario)
     {
         AuthoritativeStateStoreRig rig = BuildRig();
@@ -584,8 +585,11 @@ public class AuthoritativeStateStoreTests
         IAdapterResynchronizationToken token = rig.Adapter.TryClaimResynchronizationToken()!;
         PlayContextId context = rig.ContextId;
         long contextGeneration = rig.PlayContextTracker.TransitionGeneration;
+        string area = Area;
+        bool committed = false;
         switch (scenario)
         {
+            case "unregisteredArea": area = "unregistered"; break;
             case "outsideResynchronization": rig.Adapter.NeedsResynchronization = false; break;
             case "foreignToken": token = new ForeignToken(); break;
             case "stalePlayContextId": context = PlayContextId.NewId(); break;
@@ -593,12 +597,14 @@ public class AuthoritativeStateStoreTests
         }
 
         StateApplyResult result = rig.Store.ApplyResynchronizationBaseline(
-            UpdateMode.Snapshot, token, context, contextGeneration, AuthoritativeStateStoreRig.At, new StateAreaId(Area), 42);
+            UpdateMode.Snapshot, token, context, contextGeneration, AuthoritativeStateStoreRig.At, new StateAreaId(area), 42,
+            onCommitted: () => committed = true);
 
         Assert.Equal(StateApplyResult.Rejected, result);
+        Assert.False(committed);
         rig.Adapter.NeedsResynchronization = false;
-        Assert.False(rig.Store.TryGetSnapshot(new StateAreaId(Area), out _));
-        Assert.Equal(RevisionNumber.Initial, rig.Store.CurrentRevision(new StateAreaId(Area)));
+        Assert.False(rig.Store.TryGetSnapshot(new StateAreaId(area), out _));
+        Assert.Equal(RevisionNumber.Initial, rig.Store.CurrentRevision(new StateAreaId(area)));
     }
 
     /// <summary>Verifies that an Event during resynchronization needs the current token, and uses ordinary authority once resynchronization ends.</summary>
