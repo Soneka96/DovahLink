@@ -66,6 +66,130 @@ void main() {
     );
 
     testWidgets(
+      'SessionOverviewCharacterPanel rounds positive vitals upward for display',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          _buildPanel(
+            vitalValues: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 19.01, max: 40),
+              magicka: Fixtures.buildCharacterVital(current: 19.31, max: 40),
+              stamina: Fixtures.buildCharacterVital(current: 19.99, max: 40),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(1280, 720),
+        );
+
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-health-current')),
+              )
+              .data,
+          '20',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-magicka-current')),
+              )
+              .data,
+          '20',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-stamina-current')),
+              )
+              .data,
+          '20',
+        );
+        expect(find.text('19.01'), findsNothing);
+        expect(find.text('19.31'), findsNothing);
+        expect(find.text('19.99'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'SessionOverviewCharacterPanel keeps integral values unchanged and omits negative vitals',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          _buildPanel(
+            vitalValues: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 20, max: 40),
+              magicka: Fixtures.buildCharacterVital(current: -0.2, max: 40),
+              stamina: Fixtures.buildCharacterVital(current: 50, max: 90),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(1280, 720),
+        );
+
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-health-current')),
+              )
+              .data,
+          '20',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-magicka-current')),
+              )
+              .data,
+          ' ',
+        );
+        expect(find.text('0'), findsNothing);
+        expect(find.text('-0.2'), findsNothing);
+        expect(find.text('50'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'SessionOverviewCharacterPanel omits non-finite vitals from display',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          _buildPanel(
+            vitalValues: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(
+                current: double.nan,
+                max: 100,
+              ),
+              magicka: Fixtures.buildCharacterVital(
+                current: double.infinity,
+                max: 100,
+              ),
+              stamina: Fixtures.buildCharacterVital(
+                current: double.negativeInfinity,
+                max: 100,
+              ),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(1280, 720),
+        );
+
+        for (final String vital in <String>['health', 'magicka', 'stamina']) {
+          expect(
+            tester
+                .widget<Text>(
+                  find.byKey(Key('session-overview-$vital-current')),
+                )
+                .data,
+            ' ',
+          );
+        }
+        expect(find.textContaining('NaN'), findsNothing);
+        expect(find.textContaining('Infinity'), findsNothing);
+      },
+    );
+
+    testWidgets(
       'SessionOverviewCharacterPanel keeps labels and geometry when values are absent',
       (WidgetTester tester) async {
         await pumpDovahThemedWidget(

@@ -60,25 +60,13 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
         levelStatus == DovahLinkStateStatus.recovering ||
         supernaturalStatus == DovahLinkStateStatus.recovering ||
         vitals.status == DovahLinkStateStatus.recovering;
+    final String? health = _formatVital(vitals.healthCurrent);
+    final String? magicka = _formatVital(vitals.magickaCurrent);
+    final String? stamina = _formatVital(vitals.staminaCurrent);
     final List<(String, String?, Color, bool)> statValues = [
-      (
-        'Health',
-        _formatVital(vitals.healthCurrent),
-        tokens.health,
-        vitals.healthCurrent != null,
-      ),
-      (
-        'Magicka',
-        _formatVital(vitals.magickaCurrent),
-        tokens.magicka,
-        vitals.magickaCurrent != null,
-      ),
-      (
-        'Stamina',
-        _formatVital(vitals.staminaCurrent),
-        tokens.stamina,
-        vitals.staminaCurrent != null,
-      ),
+      ('Health', health, tokens.health, health != null),
+      ('Magicka', magicka, tokens.magicka, magicka != null),
+      ('Stamina', stamina, tokens.stamina, stamina != null),
     ];
 
     return ConstrainedBox(
@@ -368,10 +356,8 @@ Color _vitalValueColor(DovahThemeTokens tokens, DovahLinkStateStatus status) =>
 
 /// Formats a current vital for display while keeping the SDK value untouched.
 String? _formatVital(double? value) {
-  if (value == null || !value.isFinite) {
+  if (value == null || !value.isFinite || value < 0) {
     return null;
   }
-  return value == value.truncateToDouble()
-      ? value.toInt().toString()
-      : value.toString();
+  return value.ceil().toString();
 }
