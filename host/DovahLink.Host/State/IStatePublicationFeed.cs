@@ -6,15 +6,14 @@ using DovahLink.Host.PlayContext;
 namespace DovahLink.Host.State;
 
 /// <summary>
-/// The domain-agnostic, already-JSON-encoded push source a per-session delivery queue consumes to
-/// answer <c>subscribe</c> and <c>snapshot_request</c> and to forward ongoing <c>state_event</c>
-/// updates. Deliberately decoupled from <see cref="IStatePublisher{TState}"/>'s strongly-typed
-/// domain storage, so this contract and its consumers never depend on a concrete Skyrim domain shape.
+/// The domain-agnostic, already-JSON-encoded, read-only push source a per-session delivery queue
+/// consumes to answer <c>subscribe</c> and <c>snapshot_request</c> and to forward ongoing
+/// <c>state_event</c> updates. A view of <see cref="IAuthoritativeStateStore"/>, the single owner of
+/// current state and revisions -- never a second copy of it -- and deliberately decoupled from that
+/// owner's typed write surface, so this contract and its consumers never depend on a concrete Skyrim
+/// domain shape.
 ///
-/// The implementation backing this feed owns the following ordering and freshness guarantees --
-/// matching the single authoritative per-state-area ordering point that assigns revisions before
-/// either member of this interface can observe them -- so that no caller needs to re-derive them
-/// independently:
+/// The owner guarantees the following ordering and freshness, so no caller needs to re-derive them:
 /// <list type="bullet">
 /// <item>For one <see cref="StateAreaId"/>, <see cref="EventOccurred"/> is never invoked
 /// concurrently for two different events, and is invoked in strictly increasing
@@ -24,15 +23,13 @@ namespace DovahLink.Host.State;
 /// <see cref="StateSnapshotPublication.Revision"/> order.</item>
 /// <item><see cref="TryGetSnapshot"/> never returns a value for an area whose revision is older
 /// than the most recent <see cref="StateEventPublication.Revision"/> already raised through
-/// <see cref="EventOccurred"/> for that same area.</item>
+/// <see cref="EventOccurred"/> for that same area, because both derive from the same committed record.</item>
 /// <item>
-/// The implementation must check the adapter's current availability/authority and raise
-/// <see cref="EventOccurred"/>/<see cref="SnapshotChanged"/> for the resulting value as one
-/// atomic step under a single lock -- matching <see cref="IStatePublisher{TState}.Apply"/>'s own
-/// check-then-store discipline -- never as two separable steps, so a concurrent
-/// <see cref="IStateAuthorityLifecycle.Rotated"/> rotation can never let an event produced under an
-/// already-rotated-away <see cref="StateAuthorityId"/> reach a subscriber still treating an older
-/// baseline as live.
+/// The owner checks the adapter's current availability and authority, commits the resulting value,
+/// and raises <see cref="EventOccurred"/>/<see cref="SnapshotChanged"/> as one atomic step under a
+/// single lock, so a concurrent <see cref="IStateAuthorityLifecycle.Rotated"/> rotation can never let
+/// an event produced under an already-rotated-away <see cref="StateAuthorityId"/> reach a subscriber
+/// still treating an older baseline as live.
 /// </item>
 /// </list>
 /// </summary>

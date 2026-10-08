@@ -18,7 +18,6 @@ public class PlayerLocationCaptureHandlerTests
     private static readonly StateAreaId LocationArea = new(Constants.PlayerLocationStateArea);
 
     /// <summary>Records one typed value forwarded to shared Host authority.</summary>
-    /// <param name="Publisher">The typed state publisher.</param>
     /// <param name="Value">The decoded value or unavailable marker.</param>
     /// <param name="AreaId">The public state area.</param>
     /// <param name="Mode">The public update mode.</param>
@@ -29,7 +28,6 @@ public class PlayerLocationCaptureHandlerTests
     /// <param name="PlayContextGeneration">The validated play-context transition generation.</param>
     /// <param name="OccurredAt">The Host capture timestamp.</param>
     private sealed record ApplyCall(
-        object Publisher,
         object? Value,
         StateAreaId AreaId,
         UpdateMode Mode,
@@ -48,7 +46,6 @@ public class PlayerLocationCaptureHandlerTests
 
         /// <inheritdoc/>
         public void Apply<TState>(
-            IStatePublisher<TState> publisher,
             UpdateMode mode,
             StateAreaId areaId,
             TState value,
@@ -59,7 +56,6 @@ public class PlayerLocationCaptureHandlerTests
             long capturedPlayContextGeneration,
             DateTimeOffset occurredAt) =>
             ApplyCalls.Add(new ApplyCall(
-                publisher,
                 value,
                 areaId,
                 mode,
@@ -71,65 +67,19 @@ public class PlayerLocationCaptureHandlerTests
                 occurredAt));
     }
 
-    /// <summary>A publisher stub that fails if the handler bypasses shared Host authority.</summary>
-    /// <typeparam name="TState">The typed state represented by the publisher.</typeparam>
-    private sealed class UnusedStatePublisher<TState> : IStatePublisher<TState>
-    {
-        /// <inheritdoc/>
-        public bool TryGetCurrentValue(StateAreaId areaId, [MaybeNullWhen(false)] out TState value) =>
-            throw new InvalidOperationException("Location captures must use ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public RevisionNumber CurrentRevision(StateAreaId areaId) =>
-            throw new InvalidOperationException("Location captures must use ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult Apply(
-            AdapterInstanceId sourceInstanceId,
-            long sourceConnectionGeneration,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Location captures must use ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult ApplyResynchronizationBaseline(
-            IAdapterResynchronizationToken resynchronizationToken,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Location captures must use ILiveStateApplication.");
-
-        /// <inheritdoc/>
-        public StateApplyResult ApplyEvent(
-            AdapterInstanceId sourceInstanceId,
-            long sourceConnectionGeneration,
-            PlayContextId capturedPlayContextId,
-            long capturedPlayContextGeneration,
-            IAdapterResynchronizationToken? resynchronizationToken,
-            StateAreaId areaId,
-            TState value) =>
-            throw new InvalidOperationException("Location captures must use ILiveStateApplication.");
-    }
-
     /// <summary>The handler and strict collaborators used to observe its application calls.</summary>
     /// <param name="Handler">The player-location handler.</param>
     /// <param name="Application">The shared-application recorder.</param>
-    /// <param name="Publisher">The typed state publisher supplied to the handler.</param>
     private sealed record Fixture(
         PlayerLocationCaptureHandler Handler,
-        RecordingLiveStateApplication Application,
-        IStatePublisher<PlayerLocation?> Publisher);
+        RecordingLiveStateApplication Application);
 
-    /// <summary>Builds the handler with strict publisher and application collaborators.</summary>
+    /// <summary>Builds the handler with an application recorder.</summary>
     /// <returns>The handler and its observable collaborators.</returns>
     private static Fixture CreateReady()
     {
         var application = new RecordingLiveStateApplication();
-        IStatePublisher<PlayerLocation?> publisher = new UnusedStatePublisher<PlayerLocation?>();
-        return new Fixture(new PlayerLocationCaptureHandler(publisher, application), application, publisher);
+        return new Fixture(new PlayerLocationCaptureHandler(application), application);
     }
 
     /// <summary>Builds a location payload in the Adapter's private field order.</summary>
@@ -230,20 +180,17 @@ public class PlayerLocationCaptureHandlerTests
             PlayContextId.NewId(),
             payload);
 
-    /// <summary>Asserts that one location application call is a complete Snapshot through the supplied publisher.</summary>
+    /// <summary>Asserts that one location application call is a complete Snapshot .</summary>
     /// <param name="call">The recorded application call.</param>
-    /// <param name="fixture">The handler fixture.</param>
     /// <param name="value">The expected typed value or unavailable marker.</param>
     /// <param name="isBaseline">Whether the capture is an identified baseline.</param>
     /// <param name="context">The validated provenance that must be preserved.</param>
     private static void AssertApplyCall(
         ApplyCall call,
-        Fixture fixture,
         PlayerLocation? value,
         bool isBaseline,
         LiveCaptureContext context)
     {
-        Assert.Same(fixture.Publisher, call.Publisher);
         Assert.Equal(value, call.Value);
         Assert.Equal(LocationArea, call.AreaId);
         Assert.Equal(UpdateMode.Snapshot, call.Mode);
@@ -303,7 +250,6 @@ public class PlayerLocationCaptureHandlerTests
             fixture.Application.ApplyCalls,
             call => AssertApplyCall(
                 call,
-                fixture,
                 new PlayerLocation(
                     10,
                     PlayerLocationCellKind.Exterior,
@@ -330,7 +276,6 @@ public class PlayerLocationCaptureHandlerTests
             fixture.Application.ApplyCalls,
             call => AssertApplyCall(
                 call,
-                fixture,
                 new PlayerLocation(10, PlayerLocationCellKind.Exterior, "WhiterunWorld", 30, "Whiterun", 40, "Skyrim"),
                 isBaseline: false,
                 context: context));
@@ -352,7 +297,6 @@ public class PlayerLocationCaptureHandlerTests
             fixture.Application.ApplyCalls,
             call => AssertApplyCall(
                 call,
-                fixture,
                 new PlayerLocation(10, PlayerLocationCellKind.Exterior, "WhiterunWorld", 20, null, 40, "Skyrim"),
                 isBaseline: false,
                 context: context));
@@ -376,7 +320,6 @@ public class PlayerLocationCaptureHandlerTests
             fixture.Application.ApplyCalls,
             call => AssertApplyCall(
                 call,
-                fixture,
                 new PlayerLocation(
                     10,
                     PlayerLocationCellKind.Exterior,
@@ -411,7 +354,6 @@ public class PlayerLocationCaptureHandlerTests
             fixture.Application.ApplyCalls,
             call => AssertApplyCall(
                 call,
-                fixture,
                 new PlayerLocation(10, PlayerLocationCellKind.Interior, null, null, null, null, null),
                 isBaseline: false,
                 context: context));
@@ -435,7 +377,7 @@ public class PlayerLocationCaptureHandlerTests
 
         Assert.Collection(
             fixture.Application.ApplyCalls,
-            call => AssertApplyCall(call, fixture, null, isBaseline: true, context: context));
+            call => AssertApplyCall(call, null, isBaseline: true, context: context));
     }
 
     /// <summary>Verifies that malformed or inconsistent captures never publish partial state.</summary>

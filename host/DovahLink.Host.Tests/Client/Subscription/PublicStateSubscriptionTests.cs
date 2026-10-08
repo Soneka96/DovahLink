@@ -54,12 +54,13 @@ public class PublicStateSubscriptionTests
         return (subscription, policy, resolvedFeed);
     }
 
-    /// <summary>Builds a real feed and subscription whose adapter is available but still requires resynchronization.</summary>
+    /// <summary>Builds a real store, feed view, and subscription whose adapter is available but still requires resynchronization.</summary>
     /// <param name="area">The single registered area for the subscription.</param>
     /// <param name="pendingBaselineDeadline">The deadline for a baseline that remains unavailable.</param>
-    /// <returns>The subscription, feed, and current resynchronization authorization needed by the test.</returns>
-    private (PublicStateSubscription Subscription, StatePublicationFeed Feed, FakeAdapterAvailabilityTracker AdapterTracker, FakePlayContextTracker PlayContextTracker, AdapterInstanceId AdapterInstanceId, IAdapterResynchronizationToken ResynchronizationToken)
-        BuildResynchronizingSubscription(string area, TimeSpan pendingBaselineDeadline)
+    /// <param name="retainedValue">A value the store already holds for <paramref name="area"/> from before a continuity loss, or <see langword="null"/> for an empty store.</param>
+    /// <returns>The subscription, feed, store, and current resynchronization authorization needed by the test.</returns>
+    private (PublicStateSubscription Subscription, StatePublicationFeed Feed, FakeAdapterAvailabilityTracker AdapterTracker, FakePlayContextTracker PlayContextTracker, AdapterInstanceId AdapterInstanceId, IAdapterResynchronizationToken ResynchronizationToken, IAuthoritativeStateStore Store)
+        BuildResynchronizingSubscription(string area, TimeSpan pendingBaselineDeadline, int? retainedValue = null)
     {
         var adapterTracker = new FakeAdapterAvailabilityTracker
         {
@@ -75,10 +76,23 @@ public class PublicStateSubscriptionTests
         var policy = new RegisteredStateAreaPolicy();
         policy.TryRegister(new StateAreaId(area));
         IStateAuthorityLifecycle authorityLifecycle = Fixtures.BuildStateAuthorityLifecycle();
-        var feed = new StatePublicationFeed(adapterTracker, playContextTracker, policy, authorityLifecycle);
+        var store = new AuthoritativeStateStore(adapterTracker, playContextTracker, policy, authorityLifecycle);
+        if (retainedValue is not null)
+        {
+            // Seed the value as an ordinary capture, then lose currentness the way a continuity loss does,
+            // so the baseline the test applies later is an unchanged resynchronization baseline.
+            adapterTracker.NeedsResynchronization = false;
+            store.Apply(adapterInstanceId, adapterTracker.CurrentConnectionGeneration, playContextTracker.Current!.Value,
+                playContextTracker.TransitionGeneration, DateTimeOffset.UtcNow, new StateAreaId(area), retainedValue.Value);
+            adapterTracker.PublishTransition(new AdapterAvailabilityTransition(
+                AdapterAvailability.Unavailable, AdapterAvailability.Available, adapterInstanceId, adapterTracker.CurrentConnectionGeneration));
+            adapterTracker.NeedsResynchronization = true;
+        }
+
+        var feed = new StatePublicationFeed(store);
         var subscription = new PublicStateSubscription(
             policy, feed, new PublicEnvelopeCodec(authorityLifecycle), playContextTracker, authorityLifecycle, pendingBaselineDeadline);
-        return (subscription, feed, adapterTracker, playContextTracker, adapterInstanceId, resynchronizationToken);
+        return (subscription, feed, adapterTracker, playContextTracker, adapterInstanceId, resynchronizationToken, store);
     }
 
     /// <summary>
@@ -401,6 +415,60 @@ public class PublicStateSubscriptionTests
         Assert.Equal(sentAfterFirstBaseline, connectionContext.SentPayloads.Count);
     }
 
+    /// <summary>The eight areas the app requests at startup, in its request order.</summary>
+    private static readonly string[] AppRequiredAreas =
+    [
+        "character_vitals", "character_xp", "character_level", "character_identity",
+        "character_supernatural_traits", "player_location", "game_time", "tracked_quests",
+    ];
+
+    /// <summary>
+    /// Verifies the fresh-client contract for the app's startup pattern: every request grows the
+    /// complete desired set by one area, and across all eight requests each area receives exactly one
+    /// current baseline, on the Control/Recovery lane, correlated to the request that introduced it,
+    /// with no baseline lost to or repeated by a later superset request. A second, completely new
+    /// subscription seeded with identical snapshots produces the same result. Capacity limits are not
+    /// modeled: the fake connection reports unlimited Control/Recovery capacity.
+    /// </summary>
+    [Fact]
+    public void HandleSubscribe_AdditiveCompleteSetsFromTwoFreshConnections_EachAreaReceivesExactlyOneCurrentBaseline()
+    {
+        for (int connection = 0; connection < 2; connection++)
+        {
+            (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(AppRequiredAreas);
+            for (int index = 0; index < AppRequiredAreas.Length; index++)
+            {
+                feed.SetSnapshot(new StateAreaId(AppRequiredAreas[index]), BuildSnapshot(AppRequiredAreas[index], revision: (ulong)index + 3));
+            }
+
+            var connectionContext = new FakePublicConnectionContext();
+            var sessionId = SessionId.NewId();
+            subscription.Bind(connectionContext, sessionId);
+
+            for (int count = 1; count <= AppRequiredAreas.Length; count++)
+            {
+                (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) =
+                    Subscribe(subscription, $"sub-{count}", AppRequiredAreas.Take(count).ToArray(), reservedControlCapacity: 1);
+
+                Assert.Equal(AppRequiredAreas.Take(count), accepted);
+                Assert.Empty(rejected);
+                Assert.Equal(count, connectionContext.SentPayloads.Count);
+            }
+
+            for (int index = 0; index < AppRequiredAreas.Length; index++)
+            {
+                (byte[] bytes, PublicOutboundLane lane) = connectionContext.SentPayloads[index];
+                Assert.Equal(PublicOutboundLane.ControlOrRecovery, lane);
+                Assert.True(codec.TryDecode(bytes, out PublicEnvelope? envelope));
+                Assert.Equal($"sub-{index + 1}", envelope!.CorrelationId);
+                Assert.Equal(sessionId.ToString(), envelope.SessionId);
+                Assert.True(codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload));
+                Assert.Equal(AppRequiredAreas[index], payload!.StateArea);
+                Assert.Equal((ulong)index + 3, payload.Revision);
+            }
+        }
+    }
+
     /// <summary>
     /// Verifies that an accepted subscribe area with no value available at subscribe time reuses the
     /// same bounded pending-baseline machinery as snapshot_request: the baseline is delivered
@@ -532,6 +600,29 @@ public class PublicStateSubscriptionTests
         Assert.Equal(5, connectionContext.SentPayloads.Count);
         Assert.Equal(PublicOutboundLane.ControlOrRecovery, connectionContext.SentPayloads[3].Lane);
         Assert.Equal(PublicOutboundLane.Data, connectionContext.SentPayloads[4].Lane);
+    }
+
+    /// <summary>
+    /// Verifies that a live area ignores a change notification for a revision its baseline already
+    /// delivered, yet still forwards a newer one.
+    /// </summary>
+    [Fact]
+    public void SnapshotChanged_LiveAreaAlreadyDeliveredRevision_IsNotSentAgain()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        StateSnapshotPublication baseline = BuildSnapshot("area_a", revision: 5);
+        feed.SetSnapshot(new StateAreaId("area_a"), baseline);
+        Subscribe(subscription, "sub-dup", ["area_a"]);
+        Assert.Single(connectionContext.SentPayloads);
+
+        feed.RaiseSnapshotChanged(baseline);
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 4));
+        Assert.Empty(connectionContext.SentSnapshots);
+
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 6));
+        Assert.Single(connectionContext.SentSnapshots);
     }
 
     /// <summary>Verifies that a Snapshot racing timeout-response admission is queued after the terminal correlated error.</summary>
@@ -784,8 +875,8 @@ public class PublicStateSubscriptionTests
     [Fact]
     public async Task HandleSubscribe_UnchangedBaselineBecomesReadableAfterResynchronization_SendsInitialSnapshotWithoutResubscribingOrTimingOut()
     {
-        (PublicStateSubscription subscription, StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, FakePlayContextTracker playContextTracker, AdapterInstanceId adapterInstanceId, IAdapterResynchronizationToken resynchronizationToken) =
-            BuildResynchronizingSubscription("area_a", TimeSpan.FromMilliseconds(150));
+        (PublicStateSubscription subscription, StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, FakePlayContextTracker playContextTracker, AdapterInstanceId adapterInstanceId, IAdapterResynchronizationToken resynchronizationToken, IAuthoritativeStateStore store) =
+            BuildResynchronizingSubscription("area_a", TimeSpan.FromMilliseconds(150), retainedValue: 42);
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
         (IReadOnlyList<string> accepted, IReadOnlyList<string> rejected) = subscription.HandleSubscribe(["area_a"], reservedControlCapacity: 0);
@@ -794,7 +885,7 @@ public class PublicStateSubscriptionTests
         subscription.EstablishAcceptedBaselines(accepted, "sub-1");
 
         PlayContextSnapshot playContext = playContextTracker.GetSnapshot();
-        feed.EstablishBaseline(new StateAreaId("area_a"), new RevisionNumber(1), JsonSerializer.SerializeToElement(new { value = 42 }), playContext.Current!.Value, playContext.TransitionGeneration, DateTimeOffset.UtcNow);
+        Assert.False(store.ApplyResynchronizationBaseline(UpdateMode.Snapshot, resynchronizationToken, playContext.Current!.Value, playContext.TransitionGeneration, DateTimeOffset.UtcNow, new StateAreaId("area_a"), 42).Changed);
         Assert.True(adapterTracker.NeedsResynchronization);
         Assert.False(feed.TryGetSnapshot(new StateAreaId("area_a"), out _));
         Assert.Empty(connectionContext.SentPayloads);
@@ -879,14 +970,14 @@ public class PublicStateSubscriptionTests
     [Fact]
     public async Task HandleSnapshotRequest_UnchangedBaselineBecomesReadableAfterResynchronization_SendsOriginalRequestOnceAndCancelsDeadline()
     {
-        (PublicStateSubscription subscription, StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, FakePlayContextTracker playContextTracker, AdapterInstanceId adapterInstanceId, IAdapterResynchronizationToken resynchronizationToken) =
-            BuildResynchronizingSubscription("area_a", TimeSpan.FromMilliseconds(150));
+        (PublicStateSubscription subscription, StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, FakePlayContextTracker playContextTracker, AdapterInstanceId adapterInstanceId, IAdapterResynchronizationToken resynchronizationToken, IAuthoritativeStateStore store) =
+            BuildResynchronizingSubscription("area_a", TimeSpan.FromMilliseconds(150), retainedValue: 42);
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
 
         Assert.True(subscription.HandleSnapshotRequest("area_a", "m1"));
         PlayContextSnapshot playContext = playContextTracker.GetSnapshot();
-        feed.EstablishBaseline(new StateAreaId("area_a"), new RevisionNumber(1), JsonSerializer.SerializeToElement(new { value = 42 }), playContext.Current!.Value, playContext.TransitionGeneration, DateTimeOffset.UtcNow);
+        Assert.False(store.ApplyResynchronizationBaseline(UpdateMode.Snapshot, resynchronizationToken, playContext.Current!.Value, playContext.TransitionGeneration, DateTimeOffset.UtcNow, new StateAreaId("area_a"), 42).Changed);
         Assert.True(adapterTracker.NeedsResynchronization);
         Assert.False(feed.TryGetSnapshot(new StateAreaId("area_a"), out _));
         Assert.Empty(connectionContext.SentPayloads);
@@ -908,14 +999,14 @@ public class PublicStateSubscriptionTests
     [Fact]
     public async Task HandleSnapshotRequest_ChangedSnapshotWakeWhileResynchronizing_RemainsPendingUntilDeadline()
     {
-        (PublicStateSubscription subscription, StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, FakePlayContextTracker playContextTracker, _, _) =
+        (PublicStateSubscription subscription, StatePublicationFeed feed, FakeAdapterAvailabilityTracker adapterTracker, FakePlayContextTracker playContextTracker, _, IAdapterResynchronizationToken resynchronizationToken, IAuthoritativeStateStore store) =
             BuildResynchronizingSubscription("area_a", TimeSpan.FromMilliseconds(250));
         var connectionContext = new FakePublicConnectionContext();
         subscription.Bind(connectionContext, SessionId.NewId());
         subscription.HandleSnapshotRequest("area_a", "m1");
         PlayContextSnapshot playContext = playContextTracker.GetSnapshot();
 
-        feed.PublishSnapshot(new StateAreaId("area_a"), new RevisionNumber(1), JsonSerializer.SerializeToElement(new { value = 42 }), playContext.Current!.Value, playContext.TransitionGeneration, DateTimeOffset.UtcNow);
+        Assert.True(store.ApplyResynchronizationBaseline(UpdateMode.Snapshot, resynchronizationToken, playContext.Current!.Value, playContext.TransitionGeneration, DateTimeOffset.UtcNow, new StateAreaId("area_a"), 42).Changed);
 
         Assert.True(adapterTracker.NeedsResynchronization);
         Assert.False(feed.TryGetSnapshot(new StateAreaId("area_a"), out _));

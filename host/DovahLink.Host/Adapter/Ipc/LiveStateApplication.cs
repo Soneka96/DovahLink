@@ -1,4 +1,3 @@
-using System.Text.Json;
 using DovahLink.Host.Adapter;
 using DovahLink.Host.Identity;
 using DovahLink.Host.PlayContext;
@@ -13,8 +12,7 @@ public interface ILiveStateApplication
     /// Applies one area's value as an ordinary update, resynchronization baseline, or reliable
     /// Event according to the supplied capture identity and state-area mode.
     /// </summary>
-    /// <typeparam name="TState">The value type owned by <paramref name="publisher"/>.</typeparam>
-    /// <param name="publisher">The typed publisher responsible for the area's authoritative state.</param>
+    /// <typeparam name="TState">The decoded value type; an area's type is fixed by its first write.</typeparam>
     /// <param name="mode">Whether the area is replaceable Snapshot state or an ordered Event.</param>
     /// <param name="areaId">The state area receiving the value.</param>
     /// <param name="value">The decoded captured value.</param>
@@ -25,12 +23,12 @@ public interface ILiveStateApplication
     /// <param name="capturedPlayContextGeneration">The play-context generation read for this capture.</param>
     /// <param name="occurredAt">The capture timestamp used by any resulting publication.</param>
     /// <remarks>
-    /// Ordinary samples use ordinary publisher authority. Only a baseline sample can record an
-    /// accepted resynchronization area. Events remain reliable during resynchronization and request
-    /// controlled recovery if current authority cannot safely apply them.
+    /// Ordinary samples use ordinary source authority. Only a baseline sample can record an accepted
+    /// resynchronization area, and the authoritative store records it only after committing that baseline
+    /// as replayable current state. Events remain reliable during resynchronization
+    /// and request controlled recovery if current authority cannot safely apply them.
     /// </remarks>
     void Apply<TState>(
-        IStatePublisher<TState> publisher,
         UpdateMode mode,
         StateAreaId areaId,
         TState value,
@@ -51,26 +49,25 @@ public sealed class LiveStateApplication : ILiveStateApplication
     /// <summary>Requests controlled recovery when a reliable Event cannot be applied safely.</summary>
     private readonly IAdapterContinuityRecovery continuityRecovery;
 
-    /// <summary>Receives accepted changes and restored baseline snapshots.</summary>
-    private readonly IStatePublicationSink publicationSink;
+    /// <summary>The single owner of authoritative current state, revisions, and replay Snapshots.</summary>
+    private readonly IAuthoritativeStateStore stateStore;
 
-    /// <summary>Creates the shared authority and publication application service.</summary>
+    /// <summary>Creates the shared authority and application service.</summary>
     /// <param name="resynchronizationTransactionCoordinator">Coordinates accepted baseline areas.</param>
     /// <param name="continuityRecovery">Requests generation-checked recovery for rejected Events.</param>
-    /// <param name="publicationSink">Stores and publishes accepted state changes.</param>
+    /// <param name="stateStore">Commits accepted state and publishes its changes.</param>
     public LiveStateApplication(
         IResynchronizationTransactionCoordinator resynchronizationTransactionCoordinator,
         IAdapterContinuityRecovery continuityRecovery,
-        IStatePublicationSink publicationSink)
+        IAuthoritativeStateStore stateStore)
     {
         this.resynchronizationTransactionCoordinator = resynchronizationTransactionCoordinator;
         this.continuityRecovery = continuityRecovery;
-        this.publicationSink = publicationSink;
+        this.stateStore = stateStore;
     }
 
     /// <inheritdoc/>
     public void Apply<TState>(
-        IStatePublisher<TState> publisher,
         UpdateMode mode,
         StateAreaId areaId,
         TState value,
@@ -81,7 +78,6 @@ public sealed class LiveStateApplication : ILiveStateApplication
         long capturedPlayContextGeneration,
         DateTimeOffset occurredAt)
     {
-        StateApplyResult result;
         if (isResynchronizationBaseline)
         {
             IAdapterResynchronizationToken? token = resynchronizationTransactionCoordinator.AcquireToken(
@@ -91,70 +87,69 @@ public sealed class LiveStateApplication : ILiveStateApplication
                 return;
             }
 
-            result = publisher.ApplyResynchronizationBaseline(token, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
-            if (result.Accepted)
-            {
-                resynchronizationTransactionCoordinator.RecordAreaAccepted(
-                    areaId, source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
-            }
+            // The store runs this under its ordering lock after committing the baseline as replayable
+            // current state and before any change notification, and never for a rejected baseline, so a
+            // baseline counts toward resynchronization only once its area can be replayed.
+            stateStore.ApplyResynchronizationBaseline(
+                mode, token, capturedPlayContextId, capturedPlayContextGeneration, occurredAt, areaId, value,
+                onCommitted: () => resynchronizationTransactionCoordinator.RecordAreaAccepted(
+                    areaId, source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration));
+            return;
         }
-        else if (mode == UpdateMode.Event)
+
+        if (mode == UpdateMode.Event)
         {
-            IAdapterResynchronizationToken? token = adapterSnapshot.NeedsResynchronization
-                ? resynchronizationTransactionCoordinator.AcquireToken(
-                    source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration)
-                : null;
-            result = publisher.ApplyEvent(
-                source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
-                token, areaId, value);
-
-            if (!result.Accepted)
-            {
-                token = resynchronizationTransactionCoordinator.AcquireToken(
-                    source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
-                result = token is null
-                    ? StateApplyResult.Rejected
-                    : publisher.ApplyEvent(
-                        source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
-                        token, areaId, value);
-            }
-
-            if (!result.Accepted)
-            {
-                continuityRecovery.RequestRecovery(source.ConnectionGeneration);
-                return;
-            }
+            ApplyEvent(areaId, value, source, adapterSnapshot, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+            return;
         }
-        else
+
+        stateStore.Apply(
+            source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration, occurredAt, areaId, value);
+    }
+
+    /// <summary>
+    /// Applies a reliable Event, acquiring the resynchronization token when the adapter is gated and
+    /// requesting controlled recovery if current authority cannot apply it.
+    /// </summary>
+    /// <typeparam name="TState">The decoded value type.</typeparam>
+    /// <param name="areaId">The state area receiving the Event.</param>
+    /// <param name="value">The Event's resulting value.</param>
+    /// <param name="source">The exact adapter connection that delivered the Event.</param>
+    /// <param name="adapterSnapshot">The availability snapshot read for this capture.</param>
+    /// <param name="capturedPlayContextId">The play context stamped on the capture.</param>
+    /// <param name="capturedPlayContextGeneration">The play-context generation read for this capture.</param>
+    /// <param name="occurredAt">The capture timestamp used by any resulting publication.</param>
+    private void ApplyEvent<TState>(
+        StateAreaId areaId,
+        TState value,
+        AdapterCaptureSource source,
+        AdapterAvailabilitySnapshot adapterSnapshot,
+        PlayContextId capturedPlayContextId,
+        long capturedPlayContextGeneration,
+        DateTimeOffset occurredAt)
+    {
+        IAdapterResynchronizationToken? token = adapterSnapshot.NeedsResynchronization
+            ? resynchronizationTransactionCoordinator.AcquireToken(
+                source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration)
+            : null;
+        StateApplyResult result = stateStore.ApplyEvent(
+            source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
+            token, occurredAt, areaId, value);
+
+        if (!result.Accepted)
         {
-            result = publisher.Apply(source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration, areaId, value);
+            token = resynchronizationTransactionCoordinator.AcquireToken(
+                source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration);
+            result = token is null
+                ? StateApplyResult.Rejected
+                : stateStore.ApplyEvent(
+                    source.InstanceId, source.ConnectionGeneration, capturedPlayContextId, capturedPlayContextGeneration,
+                    token, occurredAt, areaId, value);
         }
 
         if (!result.Accepted)
         {
-            return;
-        }
-
-        JsonElement data = JsonSerializer.SerializeToElement(new { value });
-
-        if (!result.Changed)
-        {
-            if (isResynchronizationBaseline && mode == UpdateMode.Snapshot)
-            {
-                // Continuity loss clears the feed cache, so an unchanged baseline must restore it without publishing a change.
-                publicationSink.EstablishBaseline(areaId, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
-            }
-
-            return;
-        }
-
-        if (mode == UpdateMode.Snapshot)
-        {
-            publicationSink.PublishSnapshot(areaId, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
-        }
-        else
-        {
-            publicationSink.PublishEvent(areaId, result.BaseRevision, result.Revision, data, capturedPlayContextId, capturedPlayContextGeneration, occurredAt);
+            continuityRecovery.RequestRecovery(source.ConnectionGeneration);
         }
     }
 }

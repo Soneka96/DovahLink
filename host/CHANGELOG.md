@@ -37,6 +37,7 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Fixed
 
+- Host rejects captured state when no play context is active instead of faulting the tracked-quest capture loop.
 - Accepted state areas now receive a late authoritative baseline through ordered recovery admission
   before Events resume.
 - Play-context and authority boundaries now purge queued state and send generic revision-zero unavailable baselines before new-identity state.
