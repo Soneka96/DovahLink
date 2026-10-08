@@ -2620,8 +2620,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._normalize_whitespace(architecture),
         )
         self.assertIn(
-            "Session Overview prototype convergence (PR #122, delivered)",
-            character_deviation,
+            "Session Overview prototype convergence (PR #122) — delivered",
+            self._normalize_whitespace(character_deviation),
         )
         self.assertIn(
             "PR #122 delivered the state-backed Session Overview", world_deviation

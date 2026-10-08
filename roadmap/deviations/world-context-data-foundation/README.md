@@ -1,6 +1,7 @@
 # World Context Data Foundation Research
 
-**Status:** Runtime research is complete. The frozen findings below now inform the production World Context implementation.
+**Status:** Runtime research is complete and the production World Context data foundation is
+delivered in PRs #118–119. The frozen findings below record the implementation's source basis.
 
 ## Purpose and scope
 

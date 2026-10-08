@@ -35,10 +35,9 @@ The main roadmap answers **“What is the normal product delivery order?”** De
 - [Prototype → Flutter Convergence](prototype-flutter-convergence/README.md) — staged work to align
   the production Flutter client with the approved prototype while preserving SDK/domain authority
   over real connection and pairing semantics.
-- [Character Core Data Foundation](character-core-data-foundation/README.md) — backend and
-  typed-contract work establishing coherent Character state domains before deferred identity,
-  world-context, and Overview convergence.
+- [Character Core Data Foundation](character-core-data-foundation/README.md) — completed production
+  Character data domains and their follow-on state-backed Session Overview integration.
 - [World Context Data Foundation Research](world-context-data-foundation/README.md) — completed
-  runtime and source research for location, game time, and quest tracking/objective semantics;
-  production contract and implementation remain follow-on work.
+  runtime and source research for Location, Game Time, and quest semantics; the production data
+  foundation and its Session Overview projection are delivered.
 - [Initial Pairing Security Investigation and Extraction](initial-pairing-security/README.md)

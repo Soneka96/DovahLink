@@ -113,7 +113,7 @@ how progression resumes; they do not replace this roadmap or change its stage st
   canonical profile bytes, vectors, and Windows/Android/iOS builds have not been demonstrated. No
   production initial-pairing profile is selected; security migration S3–S11 remain blocked and
   incomplete. This STOP blocks production secure first contact and security-dependent network
-  exposure, not unrelated product development. Phase 5.4, ordinary Flutter/Redux work, local or
+  exposure, not unrelated product development. Phase 5.5, later ordinary Flutter/Redux work, local or
   loopback development, Known Host UX, and DovahLink-owned trust and pairing-authorization design may
   proceed independently. The current six-digit flow is not production security for hostile-network
   first contact, and unknown non-loopback peers must not be enabled on its basis. Stage 5A secure

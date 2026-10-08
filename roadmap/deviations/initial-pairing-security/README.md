@@ -51,17 +51,18 @@ decision must be tied to the exact attempt, not `clientId` alone. This is select
 while runtime implementation is deferred. The exact persistence semantics of Block before completed
 trust remain undecided.
 
-Implementing the pending Host/Skyrim authorization boundary is not a prerequisite for ordinary Phase
-5.4 product work. It may be scheduled in the separate connection/pairing convergence deviation; that
-record owns its exact milestones and timing. The boundary must exist before DovahLink relies on it for
-a production first-contact or non-loopback pairing path. Secure production pairing also remains
-dependent on `sas-pairing` research producing an approved construction and on DovahLink's security
-integration gate passing.
+Implementing the pending Host/Skyrim authorization boundary was not a prerequisite for Phase 5.4's
+ordinary product work, which is now complete. Phase 5.5 is the next normal roadmap step and remains
+independent of hostile-network first contact. The authorization boundary may be scheduled in the
+separate connection/pairing convergence deviation; that record owns its exact milestones and timing.
+It must exist before DovahLink relies on it for production first-contact or non-loopback pairing.
+Secure production pairing also remains dependent on `sas-pairing` research producing an approved
+construction and on DovahLink's security integration gate passing.
 
 ## Relationship to the main roadmap
 
-Normal product progression resumes at the roadmap's current next phase, 5.4, for work that does not
-depend on secure hostile-network first contact. Stage 5A secure Android/Wi-Fi development and
-production LAN exposure remain gated. This security deviation remains active until an approved
+Normal product progression resumes at Phase 5.5 — Version-Impact Audit and Stage 5 Closure, which
+does not depend on secure hostile-network first contact. Stage 5A secure Android/Wi-Fi development
+and production LAN exposure remain gated. This security deviation remains active until an approved
 generic profile and DovahLink's security integration gate pass. It does not change the normal stage
 order, mark S3–S11 complete, or create a new roadmap stage.
