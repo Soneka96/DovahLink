@@ -158,6 +158,13 @@ a revision counter.
   replayable current state, and completion is observable before that baseline's change notification.
   The store runs one caller-supplied step at exactly that point, for baselines only, because only a
   baseline can complete a transaction.
+- The store raises its change notifications (`SnapshotChanged`, `EventOccurred`,
+  `SnapshotAvailabilityChanged`) synchronously under its own lock, in commit order, so a subscriber
+  that reads `TryGetSnapshot` always sees state at least as new as the notification. Each
+  subscriber's failure is contained individually. A subscriber runs on the writer's thread and must
+  not block or call back into state application. Because a completing baseline can wake a waiting
+  subscription before its own change notification arrives, `PublicStateSubscription` ignores a
+  Snapshot at or below the revision it has already delivered for a live area.
 
 To diagnose a missing value, read `AuthoritativeStateStore.TryGetSnapshot` for the area. If it
 reports unavailable, the Host does not currently consider the area authoritative and replayable, so
