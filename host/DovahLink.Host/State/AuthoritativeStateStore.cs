@@ -93,7 +93,7 @@ public interface IAuthoritativeStateStore
     /// <param name="areaId">The state area the value belongs to.</param>
     /// <param name="value">The captured value.</param>
     /// <returns>The atomic outcome; when accepted, the area is already replayable.</returns>
-    /// <exception cref="InvalidOperationException">No play context is established, or the area was first written with a different value type.</exception>
+    /// <exception cref="InvalidOperationException">The area was first written with a different value type.</exception>
     StateApplyResult Apply<TState>(
         AdapterInstanceId sourceInstanceId,
         long sourceConnectionGeneration,
@@ -124,7 +124,7 @@ public interface IAuthoritativeStateStore
     /// area can be replayed. Used only on this path, because only a baseline completes a transaction.
     /// </param>
     /// <returns>The atomic outcome; when accepted, the area is already replayable.</returns>
-    /// <exception cref="InvalidOperationException">No play context is established, or the area was first written with a different value type.</exception>
+    /// <exception cref="InvalidOperationException">The area was first written with a different value type.</exception>
     StateApplyResult ApplyResynchronizationBaseline<TState>(
         UpdateMode mode,
         IAdapterResynchronizationToken resynchronizationToken,
@@ -150,7 +150,7 @@ public interface IAuthoritativeStateStore
     /// <param name="areaId">The state area the Event belongs to.</param>
     /// <param name="value">The Event's resulting value.</param>
     /// <returns>The atomic outcome; when accepted, the area is already replayable.</returns>
-    /// <exception cref="InvalidOperationException">No play context is established, or the area was first written with a different value type.</exception>
+    /// <exception cref="InvalidOperationException">The area was first written with a different value type.</exception>
     StateApplyResult ApplyEvent<TState>(
         AdapterInstanceId sourceInstanceId,
         long sourceConnectionGeneration,
@@ -353,7 +353,7 @@ public sealed class AuthoritativeStateStore : IAuthoritativeStateStore
     /// <param name="value">The value to apply.</param>
     /// <param name="onCommitted">Optional step run under <see cref="gate"/> after the record is committed and before any notification; see <see cref="ApplyResynchronizationBaseline{TState}"/>.</param>
     /// <returns>The atomic outcome of this call.</returns>
-    /// <exception cref="InvalidOperationException">No play context is established, or the area was first written with a different value type.</exception>
+    /// <exception cref="InvalidOperationException">The area was first written with a different value type.</exception>
     private StateApplyResult Commit<TState>(
         ApplyAuthority authority,
         UpdateMode mode,
@@ -403,10 +403,9 @@ public sealed class AuthoritativeStateStore : IAuthoritativeStateStore
             }
 
             PlayContextSnapshot contextSnapshot = playContextTracker.GetSnapshot();
-            PlayContextId currentContext = contextSnapshot.Current
-                ?? throw new InvalidOperationException("Cannot apply captured state before a play context has been established.");
-
-            if (capturedPlayContextId != currentContext || capturedPlayContextGeneration != contextSnapshot.TransitionGeneration)
+            if (contextSnapshot.Current is not PlayContextId currentContext
+                || capturedPlayContextId != currentContext
+                || capturedPlayContextGeneration != contextSnapshot.TransitionGeneration)
             {
                 // A capture stamped with a play context or generation other than the one currently
                 // applying state was queued or delayed across a transition; applying it here would

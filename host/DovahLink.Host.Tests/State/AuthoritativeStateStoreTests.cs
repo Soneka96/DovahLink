@@ -518,16 +518,16 @@ public class AuthoritativeStateStoreTests
             new StateAreaId("unregistered"), rig.PlayContextTracker.GetSnapshot(), AuthoritativeStateStoreRig.At));
     }
 
-    /// <summary>Verifies that applying before any play context exists fails loudly rather than storing under no context.</summary>
+    /// <summary>Verifies that applying before any play context exists rejects the capture without storing state.</summary>
     [Fact]
-    public void Apply_NoPlayContextYet_Throws()
+    public void Apply_NoPlayContextYet_IsRejected()
     {
         var adapter = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var registered = new RegisteredStateAreaPolicy();
         registered.TryRegister(new StateAreaId(Area));
         var store = new AuthoritativeStateStore(adapter, new FakePlayContextTracker(), registered, new FakeStateAuthorityLifecycle());
 
-        Assert.Throws<InvalidOperationException>(() => store.Apply(
+        Assert.Equal(StateApplyResult.Rejected, store.Apply(
             adapter.CurrentInstanceId!.Value, adapter.CurrentConnectionGeneration, PlayContextId.NewId(), 0,
             AuthoritativeStateStoreRig.At, new StateAreaId(Area), 1));
         Assert.False(store.TryGetSnapshot(new StateAreaId(Area), out _));
@@ -698,22 +698,27 @@ public class AuthoritativeStateStoreTests
         Assert.Equal(StateApplyResult.Rejected, result);
     }
 
-    /// <summary>Verifies that the Event and baseline paths fail loudly, like the ordinary path, when no play context exists yet.</summary>
+    /// <summary>Verifies that Event and baseline captures are rejected when no play context exists.</summary>
     [Fact]
-    public void ApplyEventAndBaseline_NoPlayContextYet_Throw()
+    public void ApplyEventAndBaseline_NoPlayContextYet_AreRejected()
     {
         var adapter = new FakeAdapterAvailabilityTracker { Current = AdapterAvailability.Available };
         var registered = new RegisteredStateAreaPolicy();
         registered.TryRegister(new StateAreaId(Area));
         var store = new AuthoritativeStateStore(adapter, new FakePlayContextTracker(), registered, new FakeStateAuthorityLifecycle());
 
-        Assert.Throws<InvalidOperationException>(() => store.ApplyEvent(
+        Assert.Equal(StateApplyResult.Rejected, store.ApplyEvent(
             adapter.CurrentInstanceId!.Value, adapter.CurrentConnectionGeneration, PlayContextId.NewId(), 0, null,
             AuthoritativeStateStoreRig.At, new StateAreaId(Area), 1));
         adapter.CommitConnected(adapter.CurrentInstanceId!.Value, 1);
         IAdapterResynchronizationToken token = adapter.TryClaimResynchronizationToken()!;
-        Assert.Throws<InvalidOperationException>(() => store.ApplyResynchronizationBaseline(
-            UpdateMode.Snapshot, token, PlayContextId.NewId(), 0, AuthoritativeStateStoreRig.At, new StateAreaId(Area), 1));
+        bool hookRan = false;
+        Assert.Equal(StateApplyResult.Rejected, store.ApplyResynchronizationBaseline(
+            UpdateMode.Snapshot, token, PlayContextId.NewId(), 0, AuthoritativeStateStoreRig.At,
+            new StateAreaId(Area), 1, onCommitted: () => hookRan = true));
+        Assert.False(hookRan);
+        Assert.False(store.TryGetSnapshot(new StateAreaId(Area), out _));
+        Assert.Equal(RevisionNumber.Initial, store.CurrentRevision(new StateAreaId(Area)));
     }
 
     /// <summary>Verifies that a baseline can create an area's first record, announced and replayable once resynchronization completes.</summary>
