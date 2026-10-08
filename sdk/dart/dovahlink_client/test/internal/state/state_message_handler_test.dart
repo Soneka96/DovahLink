@@ -954,6 +954,77 @@ void main() {
     );
   });
 
+  group('Behavior provisional subscribe admission behaves correctly', () {
+    test(
+      'Behavior provisional subscribe admission applies a baseline received before the acknowledgement and keeps later pending areas authorized',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{'area_b', 'area_c'});
+        expect(handler.isPendingBaselineCorrelation(''), isFalse);
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_b',
+            revision: 1,
+            data: const <String, dynamic>{'value': 10},
+            correlationId: 'subscribe-1',
+          ),
+        );
+        verify(
+          () => domainB.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        ).called(1);
+
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+          'area_c',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        // area_b already has its baseline; only area_c still awaits one under this request.
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isTrue);
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_c',
+            revision: 1,
+            data: const <String, dynamic>{'value': 20},
+            correlationId: 'subscribe-1',
+          ),
+        );
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isFalse);
+      },
+    );
+
+    test(
+      'Behavior provisional subscribe admission discards an area the acknowledgement rejects',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+        handler.setSubscribedStateAreas(<String>{'area_b', 'area_c'});
+        clearInteractions(trackerC);
+
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_c',
+            revision: 1,
+            data: const <String, dynamic>{'value': 20},
+          ),
+        );
+
+        verify(() => trackerC.resetToNotSubscribed()).called(1);
+        verifyNever(
+          () => domainC.applySnapshot(
+            envelope: any(named: 'envelope'),
+            payload: any(named: 'payload'),
+          ),
+        );
+      },
+    );
+  });
+
   group('Behavior shared subscribe baseline correlations behave correctly', () {
     test(
       'Behavior shared subscribe baseline correlations remain pending until every accepted area receives a Snapshot',

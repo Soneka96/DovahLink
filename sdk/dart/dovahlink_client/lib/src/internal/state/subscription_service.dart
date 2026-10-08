@@ -68,6 +68,17 @@ class SubscriptionService implements ISubscriptionService {
   /// Changes whenever a session ends, preventing its late acknowledgement from reopening the gate.
   int _sessionGeneration = 0;
 
+  /// Increases for every synchronization request so an older acknowledgement cannot replace a
+  /// newer Host-confirmed set when replies arrive out of order.
+  int _requestSequence = 0;
+
+  /// Sequence of the newest request whose acknowledgement updated [_acceptedProtocolAreas].
+  int _acceptedRequestSequence = 0;
+
+  /// The areas the Host last accepted for the current session, restored to the gate if a request
+  /// that provisionally admitted a larger set fails.
+  Set<String> _acceptedProtocolAreas = <String>{};
+
   /// Creates a subscription service over the shared request, session, and state-message owners.
   /// @param requestService Sends correlated subscription updates.
   /// @param sessionService Receives malformed-acknowledgement violations.
@@ -110,6 +121,7 @@ class SubscriptionService implements ISubscriptionService {
   Future<Set<DovahLinkStateArea>> synchronizeDesiredStateAreas() async {
     final int requestGeneration = _intentGeneration;
     final int requestSessionGeneration = _sessionGeneration;
+    final int requestSequence = ++_requestSequence;
     final Set<DovahLinkStateArea> requestedAreas = Set<DovahLinkStateArea>.of(
       _desiredStateAreas,
     );
@@ -117,7 +129,12 @@ class SubscriptionService implements ISubscriptionService {
       for (final DovahLinkStateArea area in DovahLinkStateArea.values)
         if (requestedAreas.contains(area)) area.protocolValue,
     ];
-    final Envelope response = await _requestService.sendAndAwait(
+    // The Host sends each baseline right behind this request's acknowledgement, and the wire can
+    // deliver both before this method resumes. Admit the desired set before the request exists, so no
+    // baseline can arrive ahead of the gate; the acknowledgement below then narrows it to what the
+    // Host accepted, and a failed request restores the last accepted set.
+    _stateMessageHandler.setSubscribedStateAreas(protocolAreas.toSet());
+    final Future<Envelope> pendingResponse = _requestService.sendAndAwait(
       messageType: ProtocolMessageType.subscribe,
       payload: SubscribePayload(stateAreas: protocolAreas).toJson(),
       expectedType: ProtocolMessageType.subscriptionAck,
@@ -127,42 +144,63 @@ class SubscriptionService implements ISubscriptionService {
         timeoutClass: TimeoutClass.normal,
       ),
     );
-    final SubscriptionAckPayload acknowledgement;
+    final Set<DovahLinkStateArea> rejectedAreas;
     try {
-      acknowledgement = ProtocolPayloadDecoder.decode(
-        SubscriptionAckPayload.fromJson,
-        response.payload,
+      final Envelope response = await pendingResponse;
+      final SubscriptionAckPayload acknowledgement;
+      try {
+        acknowledgement = ProtocolPayloadDecoder.decode(
+          SubscriptionAckPayload.fromJson,
+          response.payload,
+        );
+      } on DovahLinkProtocolException catch (error) {
+        _sessionService.onProtocolViolation(
+          error,
+          orphanRetrySafeOperations: false,
+        );
+        rethrow;
+      }
+      final Set<DovahLinkStateArea> acceptedAreas = _decodeAreas(
+        acknowledgement.acceptedStateAreas,
       );
-    } on DovahLinkProtocolException catch (error) {
-      _sessionService.onProtocolViolation(
-        error,
-        orphanRetrySafeOperations: false,
-      );
-      rethrow;
-    }
-    final Set<DovahLinkStateArea> acceptedAreas = _decodeAreas(
-      acknowledgement.acceptedStateAreas,
-    );
-    final Set<DovahLinkStateArea> rejectedAreas = _decodeAreas(
-      acknowledgement.rejectedStateAreas,
-    );
-    final Set<DovahLinkStateArea> acknowledgedAreas = <DovahLinkStateArea>{
-      ...acceptedAreas,
-      ...rejectedAreas,
-    };
-    if (acknowledgedAreas.length !=
-            acknowledgement.acceptedStateAreas.length +
-                acknowledgement.rejectedStateAreas.length ||
-        acknowledgedAreas.length != requestedAreas.length ||
-        !acknowledgedAreas.containsAll(requestedAreas)) {
-      _reportMalformedAcknowledgement();
-    }
+      rejectedAreas = _decodeAreas(acknowledgement.rejectedStateAreas);
+      final Set<DovahLinkStateArea> acknowledgedAreas = <DovahLinkStateArea>{
+        ...acceptedAreas,
+        ...rejectedAreas,
+      };
+      if (acknowledgedAreas.length !=
+              acknowledgement.acceptedStateAreas.length +
+                  acknowledgement.rejectedStateAreas.length ||
+          acknowledgedAreas.length != requestedAreas.length ||
+          !acknowledgedAreas.containsAll(requestedAreas)) {
+        _reportMalformedAcknowledgement();
+      }
 
-    if (_intentGeneration == requestGeneration &&
-        _sessionGeneration == requestSessionGeneration) {
-      _stateMessageHandler.setSubscribedStateAreas(<String>{
+      final Set<String> acceptedProtocolAreas = <String>{
         for (final DovahLinkStateArea area in acceptedAreas) area.protocolValue,
-      }, baselineCorrelationId: response.correlationId);
+      };
+      final bool isNewestAcknowledgementForSession =
+          _sessionGeneration == requestSessionGeneration &&
+          requestSequence > _acceptedRequestSequence;
+      if (isNewestAcknowledgementForSession) {
+        _acceptedRequestSequence = requestSequence;
+        _acceptedProtocolAreas = acceptedProtocolAreas;
+      }
+
+      if (isNewestAcknowledgementForSession &&
+          _intentGeneration == requestGeneration &&
+          _sessionGeneration == requestSessionGeneration) {
+        _stateMessageHandler.setSubscribedStateAreas(
+          acceptedProtocolAreas,
+          baselineCorrelationId: response.correlationId,
+        );
+      }
+    } on Object {
+      if (_intentGeneration == requestGeneration &&
+          _sessionGeneration == requestSessionGeneration) {
+        _stateMessageHandler.setSubscribedStateAreas(_acceptedProtocolAreas);
+      }
+      rethrow;
     }
     return Set<DovahLinkStateArea>.unmodifiable(rejectedAreas);
   }
@@ -190,6 +228,7 @@ class SubscriptionService implements ISubscriptionService {
   @override
   void onSessionEnded() {
     _sessionGeneration++;
+    _acceptedProtocolAreas = <String>{};
     _stateMessageHandler.setSubscribedStateAreas(<String>{});
   }
 

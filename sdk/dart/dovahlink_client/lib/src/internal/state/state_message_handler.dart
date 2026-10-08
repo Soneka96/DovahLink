@@ -10,8 +10,12 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// Decodes and routes one state envelope to its typed domain revision tracker.
 abstract interface class IStateMessageHandler {
   /// Replaces the areas whose state messages this client may apply, marking new areas as recovering.
-  /// @param stateAreas The complete accepted set for the current Host session.
-  /// @param baselineCorrelationId The `subscribe` request ID authorizing delayed initial baselines.
+  /// Called with the complete desired set when a `subscribe` is sent, so a baseline that follows its
+  /// acknowledgement on the wire is never discarded, and again with the Host's accepted set once the
+  /// acknowledgement is processed.
+  /// @param stateAreas The complete set whose state messages may be applied.
+  /// @param baselineCorrelationId The `subscribe` request ID authorizing delayed initial baselines;
+  ///   omitted for the provisional call made when the request is sent.
   void setSubscribedStateAreas(
     Set<String> stateAreas, {
     String? baselineCorrelationId,
@@ -35,8 +39,16 @@ class StateMessageHandler implements IStateMessageHandler {
   /// Looks up each supported state area by its canonical name.
   final Map<String, IStateDomainDefinition<Object?>> _domains;
 
-  /// State areas the current Host session accepted for this client.
+  /// State areas whose incoming state messages may currently be applied.
+  ///
+  /// During a pending `subscribe`, this provisionally contains the complete desired set so an
+  /// ACK-adjacent baseline cannot race ahead of the gate. After the acknowledgement, it is
+  /// reconciled to the Host-accepted set.
   final Set<String> _subscribedStateAreas = <String>{};
+
+  /// Marks an area admitted when its `subscribe` was sent, whose request ID is not yet known to be
+  /// authoritative. The acknowledgement replaces it with the real request ID; it never matches one.
+  static const String _provisionalBaselineCorrelation = '';
 
   /// Current subscribe correlation for accepted areas still waiting for their first Snapshot.
   final Map<String, String> _pendingBaselineCorrelations = <String, String>{};
@@ -80,6 +92,10 @@ class StateMessageHandler implements IStateMessageHandler {
           _pendingBaselineCorrelations[area] = baselineCorrelationId;
         }
       }
+    } else {
+      for (final String area in addedAreas) {
+        _pendingBaselineCorrelations[area] = _provisionalBaselineCorrelation;
+      }
     }
     _subscribedStateAreas
       ..clear()
@@ -89,6 +105,7 @@ class StateMessageHandler implements IStateMessageHandler {
   /// Implements [IStateMessageHandler.isPendingBaselineCorrelation].
   @override
   bool isPendingBaselineCorrelation(String correlationId) =>
+      correlationId != _provisionalBaselineCorrelation &&
       _pendingBaselineCorrelations.values.contains(correlationId);
 
   /// See [IStateMessageHandler.handle].

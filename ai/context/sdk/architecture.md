@@ -275,9 +275,12 @@ The nine Services:
   bounded attempt budget and hard deadline. Both modes use the same
   `ISessionService`/`IAuthenticationService` owners and never create a second connection engine.
 - `ISubscriptionService`/`SubscriptionService` — owns the client's desired state-area set and
-  reconciles it with the Host using the canonical complete-set `subscribe` operation. It applies
-  only Host-accepted areas to `StateMessageHandler`; rejected and removed areas stop updating their
-  typed state streams.
+  reconciles it with the Host using the canonical complete-set `subscribe` operation. Before sending
+  a `subscribe` request, it provisionally opens the `StateMessageHandler` gate for the complete
+  desired set so an ACK-adjacent baseline cannot be dropped before the acknowledgement continuation
+  runs. After the acknowledgement, it reconciles the gate to the Host-accepted set; rejected and
+  removed areas then stop updating their typed state streams. If the request fails, it restores the
+  last Host-accepted set.
 
 Each interface and its implementation are named classes in their own files under `src/`, absent
 from the public barrel per `ai/context/sdk/api-design.md`'s "curated public exports".
