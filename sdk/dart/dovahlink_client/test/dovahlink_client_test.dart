@@ -111,6 +111,11 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
   /// Optional gate that keeps transport teardown pending until a test releases it.
   Completer<void>? closeGate;
 
+  /// Whether the next [IDovahLinkTransport.connect] creates an inbound stream that delivers each
+  /// frame to the listener inside `add`, with no microtask turn between frames -- the harshest
+  /// ordering a transport could present for a Host ACK followed immediately by its baselines.
+  bool synchronousDelivery = false;
+
   /// Makes the next [IDovahLinkTransport.connect] call throw [error] instead of succeeding.
   Object? failConnectWith;
 
@@ -176,7 +181,7 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
     connectCalls.add(uri);
     // A fresh single-subscription stream per connection, matching the real transport: an old
     // connection's stream is simply discarded, never reused by a new one.
-    _incoming = StreamController<String>();
+    _incoming = StreamController<String>(sync: synchronousDelivery);
   }
 
   /// Implements [IDovahLinkTransport.send].
@@ -2780,6 +2785,139 @@ void main() {
           throwsA(isA<StateError>()),
         );
       },
+    );
+  });
+
+  group('Behavior fresh client baseline convergence behaves correctly', () {
+    // Host-style current state for all eight required areas, in the app's request order.
+    final List<({String stateArea, Object? value})>
+    hostState = <({String stateArea, Object? value})>[
+      (
+        stateArea: 'character_vitals',
+        value: _stateFixtureValue('state/state-snapshot-character-vitals.json'),
+      ),
+      (stateArea: 'character_xp', value: 42.5),
+      (stateArea: 'character_level', value: 15),
+      (
+        stateArea: 'character_identity',
+        value: _stateFixtureValue(
+          'state/state-snapshot-character-identity.json',
+        ),
+      ),
+      (
+        stateArea: 'character_supernatural_traits',
+        value: _stateFixtureValue(
+          'state/state-snapshot-character-supernatural-traits.json',
+        ),
+      ),
+      (
+        stateArea: 'player_location',
+        value: _stateFixtureValue('state/state-snapshot-player-location.json'),
+      ),
+      (
+        stateArea: 'game_time',
+        value: _stateFixtureValue('state/state-snapshot-game-time.json'),
+      ),
+      (
+        stateArea: 'tracked_quests',
+        value: _stateFixtureValue('state/state-snapshot-tracked-quests.json'),
+      ),
+    ];
+
+    /// Requests the eight areas the way the app does -- one additive call per area, awaiting each
+    /// ACK with no extra event-queue turn -- while the Host answers each request with its ACK and
+    /// that area's current baseline back to back.
+    Future<List<StateSynchronization<Object?>>> requestAllFromHost(
+      FakeDovahLinkTransport hostTransport,
+      DovahLinkClient hostClient,
+    ) async {
+      final Set<String> desired = <String>{};
+      for (final ({String stateArea, Object? value}) baseline in hostState) {
+        desired.add(baseline.stateArea);
+        hostTransport.queueResponsesForNextSend(<String>[
+          _rawSubscriptionAck(
+            accepted: <String>[
+              for (final DovahLinkStateArea area in DovahLinkStateArea.values)
+                if (desired.contains(area.protocolValue)) area.protocolValue,
+            ],
+          ),
+          _rawStateSnapshot(
+            stateArea: baseline.stateArea,
+            revision: 4,
+            value: baseline.value,
+            correlationId: 'subscribe-placeholder',
+          ),
+        ]);
+        expect(
+          await hostClient.currentHost.subscribeStateArea(
+            DovahLinkStateArea.values.firstWhere(
+              (DovahLinkStateArea area) =>
+                  area.protocolValue == baseline.stateArea,
+            ),
+          ),
+          isEmpty,
+        );
+      }
+      await pumpEventQueue();
+      final IDovahLinkCurrentHost host = hostClient.currentHost;
+      return <StateSynchronization<Object?>>[
+        await host.character.vitalsChanges.first,
+        await host.character.xpChanges.first,
+        await host.character.levelChanges.first,
+        await host.character.identityChanges.first,
+        await host.character.supernaturalTraitsChanges.first,
+        await host.playerLocationChanges.first,
+        await host.gameTimeChanges.first,
+        await host.trackedQuestsChanges.first,
+      ];
+    }
+
+    void expectAllSynchronized(List<StateSynchronization<Object?>> states) {
+      expect(states, hasLength(8));
+      for (final StateSynchronization<Object?> state in states) {
+        expect(state.status, DovahLinkStateStatus.synchronized);
+        expect(state.revision, 4);
+        expect(state.value, isNotNull);
+      }
+    }
+
+    test(
+      'Behavior fresh client baseline convergence synchronizes all eight areas for two fresh clients when each ACK is followed by its baseline',
+      () async {
+        await _connectAndTrustedHello(transport, client, storage);
+        expectAllSynchronized(await requestAllFromHost(transport, client));
+
+        final FakeDovahLinkTransport secondTransport = FakeDovahLinkTransport();
+        final InMemoryClientStorage secondStorage = InMemoryClientStorage();
+        final DovahLinkClient secondClient = buildDovahLinkClientForTesting(
+          transport: secondTransport,
+          storage: secondStorage,
+        );
+        addTearDown(secondClient.close);
+        await _connectAndTrustedHello(
+          secondTransport,
+          secondClient,
+          secondStorage,
+        );
+        expectAllSynchronized(
+          await requestAllFromHost(secondTransport, secondClient),
+        );
+      },
+    );
+
+    test(
+      'Behavior fresh client baseline convergence synchronizes all eight areas when the transport delivers the ACK and baseline with no turn between frames',
+      () async {
+        transport.synchronousDelivery = true;
+        await _connectAndTrustedHello(transport, client, storage);
+        expectAllSynchronized(await requestAllFromHost(transport, client));
+      },
+      // Reproduces the SDK's ACK gate dropping a baseline that is delivered in the same turn as its
+      // ACK (the gate opens only after the awaited ACK continuation). `dart:io` WebSocket never
+      // delivers frames this way, so this is a latent hazard, not the hot-restart cause. Unskip to
+      // reproduce; remove the skip when the gate is fixed.
+      skip:
+          'Known gap: gate opens after the ACK continuation; see investigation notes.',
     );
   });
 
