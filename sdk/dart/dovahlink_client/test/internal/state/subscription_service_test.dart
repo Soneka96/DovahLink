@@ -91,6 +91,106 @@ void main() {
 
   group('Method synchronizeDesiredStateAreas behaves correctly', () {
     test(
+      'Method synchronizeDesiredStateAreas admits the desired set before the acknowledgement and narrows it to the accepted set',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+        });
+        expect(stateMessageHandler.baselineCorrelationId, isNull);
+
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[],
+            rejected: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        expect(await update, <DovahLinkStateArea>{
+          DovahLinkStateArea.characterXp,
+        });
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+      },
+    );
+
+    test(
+      'Method synchronizeDesiredStateAreas keeps an area open when its unsubscribe request fails',
+      () async {
+        final Future<Set<DovahLinkStateArea>> subscribe = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await subscribe;
+
+        final Future<Set<DovahLinkStateArea>> unsubscribe = service
+            .unsubscribeStateArea(DovahLinkStateArea.characterXp);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+
+        requestService.requests.last.reply.completeError(
+          const DovahLinkConnectionException('The request failed.'),
+        );
+        await expectLater(
+          unsubscribe,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        // The Host never confirmed the removal, so it may still be sending this area.
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+        });
+      },
+    );
+
+    test(
+      'Method synchronizeDesiredStateAreas does not reopen the gate when a request fails after its session ended',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        service.onSessionEnded();
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+
+        requestService.requests.single.reply.completeError(
+          const DovahLinkConnectionException('The session ended.'),
+        );
+        await expectLater(update, throwsA(isA<DovahLinkConnectionException>()));
+
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+      },
+    );
+
+    test(
+      'Method synchronizeDesiredStateAreas restores the last accepted set when a request fails',
+      () async {
+        final Future<Set<DovahLinkStateArea>> first = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await first;
+
+        final Future<Set<DovahLinkStateArea>> second = service
+            .subscribeStateArea(DovahLinkStateArea.characterLevel);
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+          DovahLinkStateArea.characterLevel.protocolValue,
+        });
+
+        requestService.requests.last.reply.completeError(
+          const DovahLinkConnectionException('The request failed.'),
+        );
+        await expectLater(second, throwsA(isA<DovahLinkConnectionException>()));
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+        });
+      },
+    );
+
+    test(
       'Methods subscribe and unsubscribe send successive complete sets',
       () async {
         final Future<Set<DovahLinkStateArea>> first = service

@@ -2912,12 +2912,6 @@ void main() {
         await _connectAndTrustedHello(transport, client, storage);
         expectAllSynchronized(await requestAllFromHost(transport, client));
       },
-      // Reproduces the SDK's ACK gate dropping a baseline that is delivered in the same turn as its
-      // ACK (the gate opens only after the awaited ACK continuation). `dart:io` WebSocket never
-      // delivers frames this way, so this is a latent hazard, not the hot-restart cause. Unskip to
-      // reproduce; remove the skip when the gate is fixed.
-      skip:
-          'Known gap: gate opens after the ACK continuation; see investigation notes.',
     );
   });
 

@@ -10,8 +10,12 @@ import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 /// Decodes and routes one state envelope to its typed domain revision tracker.
 abstract interface class IStateMessageHandler {
   /// Replaces the areas whose state messages this client may apply, marking new areas as recovering.
-  /// @param stateAreas The complete accepted set for the current Host session.
-  /// @param baselineCorrelationId The `subscribe` request ID authorizing delayed initial baselines.
+  /// Called with the complete desired set when a `subscribe` is sent, so a baseline that follows its
+  /// acknowledgement on the wire is never discarded, and again with the Host's accepted set once the
+  /// acknowledgement is processed.
+  /// @param stateAreas The complete set whose state messages may be applied.
+  /// @param baselineCorrelationId The `subscribe` request ID authorizing delayed initial baselines;
+  ///   omitted for the provisional call made when the request is sent.
   void setSubscribedStateAreas(
     Set<String> stateAreas, {
     String? baselineCorrelationId,
@@ -38,6 +42,10 @@ class StateMessageHandler implements IStateMessageHandler {
   /// State areas the current Host session accepted for this client.
   final Set<String> _subscribedStateAreas = <String>{};
 
+  /// Marks an area admitted when its `subscribe` was sent, whose request ID is not yet known to be
+  /// authoritative. The acknowledgement replaces it with the real request ID; it never matches one.
+  static const String _provisionalBaselineCorrelation = '';
+
   /// Current subscribe correlation for accepted areas still waiting for their first Snapshot.
   final Map<String, String> _pendingBaselineCorrelations = <String, String>{};
 
@@ -62,6 +70,8 @@ class StateMessageHandler implements IStateMessageHandler {
     Set<String> stateAreas, {
     String? baselineCorrelationId,
   }) {
+    // ignore: avoid_print
+    print('DLTRACE sdk gate-set accepted=${stateAreas.toList()..sort()}');
     final Set<String> addedAreas = stateAreas.difference(_subscribedStateAreas);
     for (final String area in addedAreas) {
       _domains[area]?.tracker.beginRecovery();
@@ -80,6 +90,10 @@ class StateMessageHandler implements IStateMessageHandler {
           _pendingBaselineCorrelations[area] = baselineCorrelationId;
         }
       }
+    } else {
+      for (final String area in addedAreas) {
+        _pendingBaselineCorrelations[area] = _provisionalBaselineCorrelation;
+      }
     }
     _subscribedStateAreas
       ..clear()
@@ -89,6 +103,7 @@ class StateMessageHandler implements IStateMessageHandler {
   /// Implements [IStateMessageHandler.isPendingBaselineCorrelation].
   @override
   bool isPendingBaselineCorrelation(String correlationId) =>
+      correlationId != _provisionalBaselineCorrelation &&
       _pendingBaselineCorrelations.values.contains(correlationId);
 
   /// See [IStateMessageHandler.handle].
@@ -110,6 +125,10 @@ class StateMessageHandler implements IStateMessageHandler {
               retryable: false,
             );
           }
+          // ignore: avoid_print
+          print(
+            'DLTRACE sdk rx snapshot area=${payload.stateArea} rev=${payload.revision} corr=${envelope.correlationId} auth=${envelope.stateAuthorityId} ctx=${envelope.playContextId} gateOpen=${_subscribedStateAreas.contains(payload.stateArea)}',
+          );
           if (!_subscribedStateAreas.contains(payload.stateArea)) {
             break;
           }
@@ -136,6 +155,10 @@ class StateMessageHandler implements IStateMessageHandler {
               retryable: false,
             );
           }
+          // ignore: avoid_print
+          print(
+            'DLTRACE sdk rx event area=${payload.stateArea} base=${payload.baseRevision} rev=${payload.revision} ctx=${envelope.playContextId} gateOpen=${_subscribedStateAreas.contains(payload.stateArea)}',
+          );
           if (!_subscribedStateAreas.contains(payload.stateArea)) {
             break;
           }
@@ -179,6 +202,10 @@ class StateMessageHandler implements IStateMessageHandler {
       return;
     }
 
+    // ignore: avoid_print
+    print(
+      'DLTRACE sdk IDENTITY-RESET wiping ${_subscribedStateAreas.toList()..sort()} old=$_currentIdentity new=$incomingIdentity',
+    );
     for (final String area in _subscribedStateAreas) {
       _domains[area]?.tracker.resetForIdentity(
         stateAuthorityId: incomingIdentity.stateAuthorityId,
