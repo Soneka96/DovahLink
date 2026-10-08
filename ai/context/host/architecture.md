@@ -158,11 +158,16 @@ a revision counter.
   replayable current state, and completion is observable before that baseline's change notification.
   The store runs one caller-supplied step at exactly that point, for baselines only, because only a
   baseline can complete a transaction.
-- The store raises its change notifications (`SnapshotChanged`, `EventOccurred`,
-  `SnapshotAvailabilityChanged`) synchronously under its own lock, in commit order, so a subscriber
-  that reads `TryGetSnapshot` always sees state at least as new as the notification. Each
-  subscriber's failure is contained individually. A subscriber runs on the writer's thread and must
-  not block or call back into state application. Because a completing baseline can wake a waiting
+- The store raises `SnapshotChanged` and `EventOccurred` synchronously under its ordering lock, in
+  commit order and after the area's authoritative, replayable state is committed. A subscriber that
+  reads `TryGetSnapshot` therefore sees state at least as new as the notification. Each subscriber's
+  failure is contained individually. Subscribers run synchronously on the raising thread and must
+  not block or call back into state application.
+- `SnapshotAvailabilityChanged` is an availability hint emitted when the adapter availability
+  tracker reports that resynchronization has completed; it is not an authoritative state publication.
+  The tracker raises that event outside its own lock. A completing baseline can trigger it while the
+  store's ordering lock happens to be held, but that is not a general contract. Consumers must always
+  call `TryGetSnapshot` and re-check current state. Because a completing baseline can wake a waiting
   subscription before its own change notification arrives, `PublicStateSubscription` ignores a
   Snapshot at or below the revision it has already delivered for a live area.
 
