@@ -37,7 +37,8 @@ public static class DiagnosticTrace
                     Directory.CreateDirectory(directory);
                 }
 
-                File.AppendAllText(filePath, $"{DateTimeOffset.UtcNow:HH:mm:ss.fff} {message}{Environment.NewLine}");
+                string singleLineMessage = message.Replace("\r", "\\r").Replace("\n", "\\n");
+                File.AppendAllText(filePath, $"{DateTimeOffset.UtcNow:HH:mm:ss.fff} {singleLineMessage}{Environment.NewLine}");
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or ArgumentException or NotSupportedException)

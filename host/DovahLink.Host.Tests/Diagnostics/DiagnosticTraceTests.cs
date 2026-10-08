@@ -32,6 +32,19 @@ public class DiagnosticTraceTests : IDisposable
         Assert.EndsWith(" second", lines[1]);
     }
 
+    /// <summary>Verifies that carriage returns and line feeds remain inside one timestamped trace line.</summary>
+    [Fact]
+    public void WriteTo_MultilineMessage_EscapesLineBreaksWithinOneTimestampedLine()
+    {
+        string path = Path.Combine(directory, "trace.log");
+
+        DiagnosticTrace.WriteTo(path, "first\r\nsecond\nthird\rfourth");
+
+        string line = Assert.Single(File.ReadAllLines(path));
+        Assert.Matches(@"^\d{2}:\d{2}:\d{2}\.\d{3} ", line);
+        Assert.EndsWith(" first\\r\\nsecond\\nthird\\rfourth", line);
+    }
+
     /// <summary>Verifies that concurrent writers never lose or interleave a line.</summary>
     [Fact]
     public void WriteTo_ConcurrentWriters_KeepsEveryLineIntact()
