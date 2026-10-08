@@ -38,6 +38,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- The Session Overview's Current Status panel fills the side column to align with the Character panel.
 - Session Overview panels use clipped, theme-colored leading accents, and the Character kicker uses the theme's warm eyebrow color.
 - Session Overview panels restore Frostbound's hero fracture lines and Dovah's side-panel rings.
 - The Session Shell header and navigation now use the prototype's responsive margins and tab color transition.

@@ -138,8 +138,10 @@ class SessionOverviewScreen extends StatelessWidget {
                                     viewData: viewModel.questsViewData,
                                   ),
                                   SizedBox(height: overviewMetrics.gridGap),
-                                  SessionOverviewVitalsPanel(
-                                    viewData: viewModel.vitalsViewData,
+                                  Expanded(
+                                    child: SessionOverviewVitalsPanel(
+                                      viewData: viewModel.vitalsViewData,
+                                    ),
                                   ),
                                 ],
                               ),

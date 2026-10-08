@@ -11,6 +11,7 @@ import 'package:dovahlink_client/features/session/presentation/state/viewmodels/
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_theme_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_linear_layer.dart';
@@ -411,10 +412,39 @@ void main() {
 
   group('SessionOverviewScreen lays out', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewScreen aligns Current Status with Character under $preset',
+        (WidgetTester tester) async {
+          stubRepresentativeOverview();
+          setDovahTestWindow(tester, const Size(1280, 720));
+          await tester.pumpWidget(buildWidget(preset: preset));
+
+          final Rect characterRect = tester.getRect(
+            find.byKey(const Key('session-overview-character-panel')),
+          );
+          final Rect questRect = tester.getRect(
+            find.byKey(const Key('session-overview-quest-panel')),
+          );
+          final Rect statusRect = tester.getRect(
+            find.byKey(const Key('session-overview-vitals-panel')),
+          );
+          final double expectedGap = dovahThemeDataFor(
+            preset,
+          ).extension<DovahOverviewThemeMetrics>()!.gridGap;
+
+          expect(statusRect.bottom, closeTo(characterRect.bottom, 0.01));
+          expect(statusRect.top - questRect.bottom, closeTo(expectedGap, 0.01));
+          expect(tester.takeException(), isNull);
+        },
+      );
+    }
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final Size size in dovahResponsiveTestSizes) {
         testWidgets(
           'SessionOverviewScreen renders $preset at $size without overflow',
           (WidgetTester tester) async {
+            stubRepresentativeOverview();
             setDovahTestWindow(tester, size);
             await tester.pumpWidget(buildWidget(preset: preset));
 
