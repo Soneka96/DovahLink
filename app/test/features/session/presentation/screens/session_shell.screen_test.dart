@@ -522,6 +522,42 @@ void main() {
     }
   });
 
+  group('SessionShellScreen matches prototype chrome margins', () {
+    for (final (Size size, double margin) in <(Size, double)>[
+      (const Size(720, 720), 14),
+      (const Size(900, 720), 14),
+      (const Size(901, 720), 24),
+      (const Size(1280, 720), 24),
+      (const Size(1600, 720), 24),
+    ]) {
+      testWidgets('SessionShellScreen aligns header and navigation at $size', (
+        WidgetTester tester,
+      ) async {
+        setDovahTestWindow(tester, size);
+        await tester.pumpWidget(buildWidget());
+
+        final double chromeWidth = (size.width - margin * 2).clamp(
+          0.0,
+          DovahSessionMetrics.barMaxWidth,
+        );
+        final double expectedLeft = (size.width - chromeWidth) / 2;
+
+        expect(
+          tester
+              .getTopLeft(find.byKey(const Key('session-shell-back-button')))
+              .dx,
+          expectedLeft,
+        );
+        expect(
+          tester
+              .getTopLeft(find.byKey(const Key('session-shell-Overview-tab')))
+              .dx,
+          expectedLeft,
+        );
+      });
+    }
+  });
+
   group('SessionShellScreen calls callbacks', () {
     testWidgets('SessionShellScreen Back returns to Connections', (
       WidgetTester tester,
