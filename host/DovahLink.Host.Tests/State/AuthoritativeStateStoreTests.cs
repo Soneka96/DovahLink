@@ -822,6 +822,29 @@ public class AuthoritativeStateStoreTests
         Assert.False(ran);
     }
 
+    /// <summary>
+    /// Characterization: a throwing commit hook is a caller invariant violation and surfaces to the
+    /// caller rather than being swallowed, but the baseline is already committed and replayable, and
+    /// the store's lock is released so later applications still work. The production hook cannot throw.
+    /// </summary>
+    [Fact]
+    public void ApplyResynchronizationBaseline_OnCommittedThrows_PropagatesAfterCommitAndLeavesStoreUsable()
+    {
+        AuthoritativeStateStoreRig rig = BuildRig();
+        rig.Apply(Area, 42);
+        rig.LoseContinuity();
+        rig.Reconnect();
+
+        Assert.Throws<InvalidOperationException>(() =>
+            rig.Baseline(Area, 43, onCommitted: () => throw new InvalidOperationException("hook failed")));
+
+        rig.Adapter.NeedsResynchronization = false;
+        Assert.True(rig.Store.TryGetSnapshot(new StateAreaId(Area), out StateSnapshotPublication? snapshot));
+        Assert.Equal(43, snapshot.Data.GetProperty("value").GetInt32());
+        Assert.True(rig.Store.Apply(rig.Adapter.CurrentInstanceId!.Value, rig.Adapter.CurrentConnectionGeneration, rig.ContextId,
+            rig.PlayContextTracker.TransitionGeneration, AuthoritativeStateStoreRig.At, new StateAreaId(Area), 44).Accepted);
+    }
+
     /// <summary>Verifies that a new connection generation hides state committed under the old one even when no resynchronization gate is raised.</summary>
     [Fact]
     public void NewConnectionGeneration_HidesStateCommittedUnderTheOldOne()
