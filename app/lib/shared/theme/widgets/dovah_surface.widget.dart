@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
+import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
@@ -52,6 +53,9 @@ class DovahSurface extends StatelessWidget {
   /// Paints a gradient over the material and beneath [child], inside the clipped surface.
   final Gradient? overlayGradient;
 
+  /// Paints a theme-colored rail along the leading edge inside the clipped surface.
+  final Color? leadingAccent;
+
   /// Replaces the role material's border color, for a component whose prototype rule pins a border
   /// the role's own does not, or `null` to keep the material's.
   final Color? borderColor;
@@ -76,6 +80,7 @@ class DovahSurface extends StatelessWidget {
     this.underlay,
     this.overlay,
     this.overlayGradient,
+    this.leadingAccent,
     this.borderColor,
     this.borderTransitionDuration = Duration.zero,
     this.material,
@@ -100,7 +105,25 @@ class DovahSurface extends StatelessWidget {
         ? roleMaterial
         : roleMaterial.withoutShadow();
     final Color? pinnedBorder = borderColor;
-    Widget content = Padding(padding: padding ?? EdgeInsets.zero, child: child);
+    final Color? accent = leadingAccent;
+    Widget content = accent == null
+        ? Padding(padding: padding ?? EdgeInsets.zero, child: child)
+        : Stack(
+            fit: StackFit.passthrough,
+            children: [
+              Positioned(
+                left: 0,
+                top: 0,
+                bottom: 0,
+                width: DovahOverviewMetrics.panelAccentWidth,
+                child: ColoredBox(
+                  key: const Key('dovah-surface-leading-accent'),
+                  color: accent,
+                ),
+              ),
+              Padding(padding: padding ?? EdgeInsets.zero, child: child),
+            ],
+          );
     if (underlay != null || overlay != null) {
       content = CustomPaint(
         painter: underlay,

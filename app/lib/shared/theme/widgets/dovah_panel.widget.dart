@@ -15,6 +15,7 @@ class DovahPanel extends StatelessWidget {
     this.raised = false,
     this.padding,
     this.overlayGradient,
+    this.leadingAccent,
     super.key,
   });
 
@@ -30,6 +31,9 @@ class DovahPanel extends StatelessWidget {
   /// A theme-specific gradient painted over the panel material beneath [child].
   final Gradient? overlayGradient;
 
+  /// An optional theme color painted as a leading rail inside the panel's clipped outline.
+  final Color? leadingAccent;
+
   /// See [StatelessWidget.build].
   @override
   Widget build(BuildContext context) {
@@ -39,6 +43,7 @@ class DovahPanel extends StatelessWidget {
       cornerRadius: tokens.panelCornerRadius,
       padding: padding ?? context.dovahPageMetrics.panelPadding,
       overlayGradient: overlayGradient,
+      leadingAccent: leadingAccent,
       child: child,
     );
   }

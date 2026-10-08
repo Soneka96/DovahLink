@@ -165,6 +165,66 @@ void main() {
     );
   });
 
+  group('DovahSurface paints a leading accent', () {
+    testWidgets('DovahSurface omits the leading accent when null', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(child: Text('Unaccented surface')),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        find.byKey(const Key('dovah-surface-leading-accent')),
+        findsNothing,
+      );
+    });
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahSurface clips the supplied accent to the shared geometry under $preset',
+        (WidgetTester tester) async {
+          const Color accent = Color(0xFFE2A55E);
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahSurface(
+              leadingAccent: accent,
+              child: Text('Accented surface'),
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+
+          final ColoredBox rail = tester.widget(
+            find.byKey(const Key('dovah-surface-leading-accent')),
+          );
+          final DovahPanelClipper clipper = findSurfaceClipper(tester);
+          final DovahMaterialPainter painter = findSurfacePainter(tester);
+
+          expect(rail.color, accent);
+          expect(
+            tester
+                .getSize(find.byKey(const Key('dovah-surface-leading-accent')))
+                .width,
+            3,
+          );
+          expect(
+            find.ancestor(
+              of: find.byKey(const Key('dovah-surface-leading-accent')),
+              matching: find.byType(ClipPath),
+            ),
+            findsOneWidget,
+          );
+          expect(clipper.cornerStyle, painter.cornerStyle);
+          expect(clipper.cornerRadius, painter.cornerRadius);
+          expect(clipper.cutSize, painter.cutSize);
+        },
+      );
+    }
+  });
+
   group('DovahSurface paints the material of its role', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final DovahMaterialRole role in DovahMaterialRole.values) {
