@@ -37,6 +37,17 @@ public sealed class LivePipelineClient
         .Select(item => new ReceivedSnapshot(item.Payload.StateArea, item.Payload.Revision, item.Payload.Data, item.Envelope.StateAuthorityId, item.Envelope.PlayContextId))
         .ToArray();
 
+    /// <summary>
+    /// Every <c>state_snapshot</c> received on either lane so far: the Control/Recovery lane baselines
+    /// first, then the Data lane's keyed-replaceable snapshots. Lets a test detect the same revision
+    /// being delivered once on each lane, which <see cref="Snapshots"/> alone cannot see.
+    /// </summary>
+    public IReadOnlyList<ReceivedSnapshot> AllLaneSnapshots => Snapshots
+        .Concat(Connection.SentSnapshots
+            .Select(sent => DecodeSnapshot(sent.Payload))
+            .OfType<ReceivedSnapshot>())
+        .ToArray();
+
     /// <summary>Every <c>state_event</c> received so far, in arrival order.</summary>
     public IReadOnlyList<StateEventPayload> Events => DecodeAll<StateEventPayload>(PublicMessageType.StateEvent)
         .Select(item => item.Payload)
@@ -60,6 +71,16 @@ public sealed class LivePipelineClient
 
     /// <summary>Tears the client down the way a closed connection does: only per-connection state is destroyed.</summary>
     public void Disconnect() => Subscription.Unsubscribe();
+
+    /// <summary>Decodes one <c>state_snapshot</c> frame.</summary>
+    /// <param name="bytes">The encoded frame.</param>
+    /// <returns>The decoded snapshot, or <see langword="null"/> when the frame is not a decodable snapshot.</returns>
+    private ReceivedSnapshot? DecodeSnapshot(byte[] bytes) =>
+        codec.TryDecode(bytes, out PublicEnvelope? envelope)
+        && envelope.MessageType == PublicMessageType.StateSnapshot
+        && codec.TryDecodePayload(envelope, out StateSnapshotPayload? payload)
+            ? new ReceivedSnapshot(payload.StateArea, payload.Revision, payload.Data, envelope.StateAuthorityId, envelope.PlayContextId)
+            : null;
 
     /// <summary>Decodes every received message of one type together with its envelope.</summary>
     /// <typeparam name="TPayload">The payload type for <paramref name="type"/>.</typeparam>

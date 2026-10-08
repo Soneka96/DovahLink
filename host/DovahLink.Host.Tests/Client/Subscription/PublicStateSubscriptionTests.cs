@@ -548,6 +548,29 @@ public class PublicStateSubscriptionTests
         Assert.Equal(PublicOutboundLane.Data, connectionContext.SentPayloads[4].Lane);
     }
 
+    /// <summary>
+    /// Verifies that a live area ignores a change notification for a revision its baseline already
+    /// delivered, yet still forwards a newer one.
+    /// </summary>
+    [Fact]
+    public void SnapshotChanged_LiveAreaAlreadyDeliveredRevision_IsNotSentAgain()
+    {
+        (PublicStateSubscription subscription, _, FakeStatePublicationFeed feed) = BuildSubscription(["area_a"]);
+        var connectionContext = new FakePublicConnectionContext();
+        subscription.Bind(connectionContext, SessionId.NewId());
+        StateSnapshotPublication baseline = BuildSnapshot("area_a", revision: 5);
+        feed.SetSnapshot(new StateAreaId("area_a"), baseline);
+        Subscribe(subscription, "sub-dup", ["area_a"]);
+        Assert.Single(connectionContext.SentPayloads);
+
+        feed.RaiseSnapshotChanged(baseline);
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 4));
+        Assert.Empty(connectionContext.SentSnapshots);
+
+        feed.RaiseSnapshotChanged(BuildSnapshot("area_a", revision: 6));
+        Assert.Single(connectionContext.SentSnapshots);
+    }
+
     /// <summary>Verifies that a Snapshot racing timeout-response admission is queued after the terminal correlated error.</summary>
     [Fact]
     public async Task FailPendingBaselineOnTimeout_SnapshotDuringErrorAdmissionFollowsTerminalError()

@@ -205,4 +205,30 @@ public class LiveStateGenericAreaTests
             missing.Length == 0,
             $"Waiting subscriber never received: [{string.Join(", ", missing)}] (last baseline applied: {(futureAreaLast ? FutureArea : FutureAreaTwo)}).");
     }
+
+    /// <summary>
+    /// Verifies an invented area inherits the exactly-once guarantee: a waiting client receives a
+    /// changed completing baseline's revision once, not once per notification path.
+    /// </summary>
+    /// <param name="futureAreaLast">Whether <see cref="FutureArea"/> (rather than <see cref="FutureAreaTwo"/>) arrives last.</param>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void FutureArea_WaitingSubscriberDuringChangedResynchronization_ReceivesEachRevisionExactlyOnce(bool futureAreaLast)
+    {
+        Chain chain = BuildChain();
+        chain.Harness.LoseContinuity();
+        chain.Harness.ConnectAdapter();
+        chain.Harness.BeginResynchronization();
+        LivePipelineClient client = chain.Harness.CreateClient();
+        client.Subscribe(FutureAreas);
+        chain.Harness.AcceptAdapterPlan();
+
+        ApplyFutureBaselines(chain, "beta", 8, secondLast: futureAreaLast);
+
+        Assert.Empty(FutureAreas.Except(client.AllLaneSnapshots.Select(snapshot => snapshot.StateArea)));
+        Assert.All(
+            client.AllLaneSnapshots.GroupBy(snapshot => (snapshot.StateArea, snapshot.Revision)),
+            group => Assert.Single(group));
+    }
 }

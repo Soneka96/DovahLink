@@ -196,6 +196,81 @@ public class LiveStateResynchronizationOrderingTests
         Assert.Equal(0, client.ErrorCount);
     }
 
+    /// <summary>Asserts no (area, revision) pair reached the client more than once on either lane.</summary>
+    /// <param name="client">The client to inspect.</param>
+    private static void AssertEachRevisionDeliveredOnce(LivePipelineClient client)
+    {
+        string[] duplicates = client.AllLaneSnapshots
+            .GroupBy(snapshot => (snapshot.StateArea, snapshot.Revision))
+            .Where(group => group.Count() > 1)
+            .Select(group => $"{group.Key.StateArea}@{group.Key.Revision} x{group.Count()}")
+            .ToArray();
+        Assert.True(duplicates.Length == 0, $"Delivered more than once: [{string.Join(", ", duplicates)}].");
+    }
+
+    /// <summary>
+    /// Verifies a waiting subscribed client receives a changed completing baseline's revision exactly
+    /// once: the availability wake and the change notification both reach it, but only one may send.
+    /// </summary>
+    /// <param name="lastArea">The area whose changed baseline arrives last and completes the transaction.</param>
+    [Theory]
+    [MemberData(nameof(EachProductionArea))]
+    public void WaitingSubscriber_ChangedCompletingBaseline_ReceivesThatRevisionExactlyOnce(string lastArea)
+    {
+        ProductionStateValues before = Fixtures.BuildProductionStateValues(level: 43, locationName: "Whiterun", characterName: "Lydia");
+        ProductionStateValues after = Fixtures.BuildProductionStateValues(level: 44, locationName: "Riften", characterName: "Serana");
+        LivePipelineHarness harness = BuildGated(before);
+        LivePipelineClient client = harness.CreateClient();
+        client.Subscribe(LivePipelineHarness.ProductionAreas);
+        harness.AcceptAdapterPlan();
+
+        harness.ApplyAllProductionBaselines(after, lastArea);
+
+        AssertEachRevisionDeliveredOnce(client);
+        Assert.Empty(LivePipelineHarness.ProductionAreas.Except(client.AllLaneSnapshots.Select(snapshot => snapshot.StateArea)));
+        Assert.Equal(0, client.ErrorCount);
+    }
+
+    /// <summary>Verifies a pending <c>snapshot_request</c> answered by a changed completing baseline is answered once, not also re-sent as a change.</summary>
+    /// <param name="lastArea">The area whose changed baseline arrives last and completes the transaction.</param>
+    [Theory]
+    [MemberData(nameof(EachProductionArea))]
+    public void PendingSnapshotRequest_ChangedCompletingBaseline_ReceivesThatRevisionExactlyOnce(string lastArea)
+    {
+        ProductionStateValues before = Fixtures.BuildProductionStateValues(level: 43, locationName: "Whiterun", characterName: "Lydia");
+        ProductionStateValues after = Fixtures.BuildProductionStateValues(level: 44, locationName: "Riften", characterName: "Serana");
+        LivePipelineHarness harness = BuildGated(before);
+        LivePipelineClient client = harness.CreateClient();
+        Assert.True(client.Subscription.HandleSnapshotRequest(lastArea, "request-1"));
+        harness.AcceptAdapterPlan();
+
+        harness.ApplyAllProductionBaselines(after, lastArea);
+
+        AssertEachRevisionDeliveredOnce(client);
+        Assert.Contains(client.AllLaneSnapshots, snapshot => snapshot.StateArea == lastArea);
+    }
+
+    /// <summary>Verifies an unchanged completing baseline is delivered to a waiting client exactly once and raises no change notification.</summary>
+    /// <param name="lastArea">The area whose unchanged baseline arrives last and completes the transaction.</param>
+    [Theory]
+    [MemberData(nameof(EachProductionArea))]
+    public void WaitingSubscriber_UnchangedCompletingBaseline_ReceivesThatRevisionExactlyOnceWithoutChangeNotification(string lastArea)
+    {
+        ProductionStateValues values = Fixtures.BuildProductionStateValues();
+        LivePipelineHarness harness = BuildGated(values);
+        LivePipelineClient client = harness.CreateClient();
+        client.Subscribe(LivePipelineHarness.ProductionAreas);
+        harness.AcceptAdapterPlan();
+        int changeNotifications = 0;
+        harness.Feed.SnapshotChanged += _ => changeNotifications++;
+
+        harness.ApplyAllProductionBaselines(values, lastArea);
+
+        Assert.Equal(0, changeNotifications);
+        AssertEachRevisionDeliveredOnce(client);
+        Assert.Single(client.AllLaneSnapshots, snapshot => snapshot.StateArea == lastArea);
+    }
+
     /// <summary>
     /// Characterization: once the Apply call returns, the last unchanged baseline IS readable. Together
     /// with the ordering tests above, this distinguishes "the data is never restored" from "it is restored

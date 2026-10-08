@@ -880,6 +880,16 @@ public sealed class PublicStateSubscription : IPublicStateSubscription
 
                 case AreaDeliveryPhase.Live:
                     if (snapshotPublication.PlayContextGeneration == state.PlayContextGeneration
+                        && state.BarrierRevision is RevisionNumber delivered
+                        && snapshotPublication.Revision.Value <= delivered.Value)
+                    {
+                        // A completing resynchronization baseline can establish this area's baseline
+                        // (through the availability wake) before its own change notification arrives;
+                        // that revision was already delivered.
+                        break;
+                    }
+
+                    if (snapshotPublication.PlayContextGeneration == state.PlayContextGeneration
                         && connectionContext is not null && sessionId is not null)
                     {
                         state.BoundaryBaseline = null;
