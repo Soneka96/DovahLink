@@ -14,10 +14,12 @@ The canonical schema is `protocol/schema/README.md`. This file defines how that 
 - Skyrim runtime, SKSE, and CommonLib compatibility belong to the Adapter alone (`ai/context/adapter/architecture.md`'s "Ownership"), not to the Host's public compatibility boundary. A Skyrim/SKSE update that leaves the Host/client wire contract unchanged requires no client compatibility change.
 - SDK version, official app version, Host version, and roadmap phase are independent numbers. None is derived from another.
 - Once the Dart SDK exists, every SDK release declares an explicit supported Host-version range (for example a minimum and a maximum). Until then, the app-side Dart client documented in `ai/context/flutter/` follows this same policy.
-- The repository release is `0.5.0`, and the Dart SDK declares Host `0.5.x` as its supported range.
-  Released Host `0.4.0` used additive `subscribe.stateAreas` updates, while the Phase 5.3 contract
-  replaces the complete active set; the public SDK subscription API therefore does not support
-  released Host `0.4.0`. Before `1.0.0`, the
+- Root `VERSION` and current SDK source declare Host `0.5.0`/`0.5.x`. Host `0.5.0` was an internal
+  version only; no supported Host/Client `0.5.0` package was publicly released, so it is not a
+  compatibility target under `ai/context/common.md`'s pre-release policy. Current Host and SDK
+  source are aligned at this internal version. Released Host `0.4.0` used additive
+  `subscribe.stateAreas` updates, while the Phase 5.3 contract replaces the complete active set; the
+  public SDK subscription API therefore does not support released Host `0.4.0`. Before `1.0.0`, the
   major and minor must match and the patch is ignored; after `1.0.0`, the major must match, a Host
   minor above the SDK's accepted minor is rejected, and the patch is ignored. The SDK checks
   `hello_ack.hostVersion` before session admission and closes on an incompatible Host.
@@ -59,23 +61,22 @@ Before changing a message:
 3. Update both adapters and their contract tests in the same feature branch.
 4. If the change stays compatible, record that the existing supported range remains valid. If it does not, update the client/SDK's declared range, its implementation, fixtures, tests, and documentation together, and confirm an old unsupported client/SDK rejects the new Host release cleanly.
 
-The current pre-release `0.5.x` contract adds required `hostId` and `hostName` fields to
-`hello_ack`. The Host and Dart SDK sources are updated together in the same feature branch, so the
-current supported range remains `0.5.x`. Earlier unreleased `0.5.x` builds are not compatibility
-targets under `ai/context/common.md`'s pre-release policy; do not add nullable legacy fields or a
-compatibility fallback for them. The repository version remains release-managed and is not bumped
-in this feature change.
+Current source adds required `hostId` and `hostName` fields to `hello_ack`. Earlier internal builds
+using `0.5.0` did not have those fields, but no supported Host/Client `0.5.0` package was publicly
+released; those builds are not compatibility targets under `ai/context/common.md`'s pre-release
+policy. Do not add nullable legacy fields or a compatibility fallback solely for an internal build.
 
-The Character Vitals contract replaces the `character_health`, `character_magicka`, and
-`character_stamina` state areas with one coherent `character_vitals` area. The Host, protocol
-fixtures, and Dart SDK are updated together; earlier unreleased `0.5.x` builds using the scalar
-areas are not compatibility targets under the same pre-release policy. The declared `0.5.x` Host
-range remains valid for the updated SDK, and no legacy area aliases or fallback are added.
+The current Character Vitals contract replaces the `character_health`, `character_magicka`, and
+`character_stamina` state areas with one coherent `character_vitals` area. Earlier internal builds
+used the scalar areas, but those builds are not compatibility targets. Current Host, protocol
+fixtures, and Dart SDK source are aligned; no legacy area aliases or fallback are added.
 
 The Phase 5.3 meaning of `subscribe.stateAreas` is complete-set replacement. Released Host `0.4.0`
 treated successive requests additively, so it cannot satisfy the Phase 5.3 public SDK subscription
-API. The next compatible Host line is `0.5.x`; do not use capability negotiation or a second wire
-implementation to imply compatibility with `0.4.x`.
+API. The internal `0.5.0` source includes this subscription change and does not support `0.4.x`.
+Earlier unreleased builds remain outside the compatibility target under the pre-release policy. Do
+not use capability negotiation or a second wire implementation to imply compatibility with an older
+supported release.
 
 ## Release compatibility review
 

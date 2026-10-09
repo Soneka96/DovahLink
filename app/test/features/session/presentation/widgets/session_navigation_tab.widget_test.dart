@@ -47,23 +47,41 @@ void main() {
       WidgetTester tester,
     ) async {
       await tester.pumpWidget(buildTab(onTap: () {}));
-      final Finder label = find.text('Map');
-      expect(tester.widget<Text>(label).style?.color, tokens.textMuted);
+      final Finder tab = find.byKey(const Key('session-shell-Map-tab'));
+      final Finder labelStyle = find.descendant(
+        of: tab,
+        matching: find.byType(AnimatedDefaultTextStyle),
+      );
+      expect(
+        tester.widget<AnimatedDefaultTextStyle>(labelStyle).style.color,
+        tokens.textMuted,
+      );
 
       final TestGesture mouse = await tester.createGesture(
         kind: PointerDeviceKind.mouse,
       );
-      final Offset center = tester.getCenter(
-        find.byKey(const Key('session-shell-Map-tab')),
-      );
+      final Offset center = tester.getCenter(tab);
       await mouse.addPointer(location: center);
       await mouse.moveTo(center);
       await tester.pump();
 
-      expect(tester.widget<Text>(label).style?.color, tokens.textPrimary);
+      final InkWell inkWell = tester.widget(find.byType(InkWell));
+      expect(inkWell.hoverColor, Colors.white.withValues(alpha: 0.018));
+      expect(inkWell.splashFactory, NoSplash.splashFactory);
+      expect(
+        tester.widget<AnimatedDefaultTextStyle>(labelStyle).duration,
+        DovahSessionMetrics.tabColorTransitionDuration,
+      );
+      expect(
+        tester.widget<AnimatedDefaultTextStyle>(labelStyle).style.color,
+        tokens.textPrimary,
+      );
       await mouse.removePointer();
       await tester.pump();
-      expect(tester.widget<Text>(label).style?.color, tokens.textMuted);
+      expect(
+        tester.widget<AnimatedDefaultTextStyle>(labelStyle).style.color,
+        tokens.textMuted,
+      );
     });
   });
 
@@ -92,8 +110,12 @@ void main() {
           tester.getSemantics(find.byKey(const Key('session-shell-Map-tab'))),
           isSemantics(isButton: true, isSelected: true),
         );
+        final Finder labelStyle = find.descendant(
+          of: find.byKey(const Key('session-shell-Map-tab')),
+          matching: find.byType(AnimatedDefaultTextStyle),
+        );
         expect(
-          tester.widget<Text>(find.text('Map')).style?.color,
+          tester.widget<AnimatedDefaultTextStyle>(labelStyle).style.color,
           tokens.textPrimary,
         );
       } finally {

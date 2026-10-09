@@ -6,6 +6,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/session/presentation/widgets/session_overview_character.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
@@ -40,6 +42,142 @@ SessionOverviewCharacterPanel _buildPanel({
 /// Exercises the Current Character hero and its three real vital values.
 void main() {
   group('SessionOverviewCharacterPanel displays', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewCharacterPanel uses the shared signal accent and eyebrow token under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            _buildPanel(),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final DovahPanel panel = tester.widget(find.byType(DovahPanel));
+          final ColoredBox accent = tester.widget(
+            find.byKey(const Key('dovah-surface-leading-accent')),
+          );
+          final Stack surfaceLayers = tester.widget(
+            find
+                .ancestor(
+                  of: find.byKey(const Key('dovah-surface-leading-accent')),
+                  matching: find.byType(Stack),
+                )
+                .first,
+          );
+          final Text kicker = tester.widget(
+            find.byKey(const Key('session-overview-character-kicker')),
+          );
+
+          expect(panel.leadingAccent, tokens.signal);
+          expect(accent.color, tokens.signal);
+          expect(surfaceLayers.children, hasLength(2));
+          expect(surfaceLayers.children.last, isA<Positioned>());
+          expect(
+            find.descendant(
+              of: find.byWidget(surfaceLayers.children.first),
+              matching: find.byKey(
+                const Key('session-overview-character-artwork'),
+              ),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.ancestor(
+              of: find.byKey(const Key('session-overview-character-artwork')),
+              matching: find.byType(ClipPath),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('session-overview-character-artwork')),
+              matching: find.byType(Image),
+            ),
+            findsOneWidget,
+          );
+          expect(kicker.style?.color, tokens.eyebrow);
+        },
+      );
+    }
+
+    testWidgets(
+      'SessionOverviewCharacterPanel layers Frostbound textures beneath recovery and content',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          _buildPanel(vitalStatus: DovahLinkStateStatus.recovering),
+          preset: DovahThemePreset.frostbound,
+          size: const Size(1280, 720),
+        );
+
+        final Stack artwork = tester.widget(
+          find.byKey(const Key('session-overview-character-artwork')),
+        );
+        final List<Key?> layerKeys = artwork.children
+            .map((Widget layer) => layer.key)
+            .toList();
+
+        expect(
+          layerKeys.indexOf(const Key('session-overview-character-hero-scrim')),
+          lessThan(
+            layerKeys.indexOf(const Key('session-overview-character-texture')),
+          ),
+        );
+        expect(
+          layerKeys.indexOf(const Key('session-overview-character-texture')),
+          lessThan(
+            layerKeys.indexOf(
+              const Key('session-overview-character-floor-scrim'),
+            ),
+          ),
+        );
+        expect(
+          layerKeys.indexOf(
+            const Key('session-overview-character-floor-scrim'),
+          ),
+          lessThan(
+            layerKeys.indexOf(const Key('session-overview-character-sheen')),
+          ),
+        );
+        expect(artwork.children.last, isA<Padding>());
+      },
+    );
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewCharacterPanel uses the $preset hero texture',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            _buildPanel(),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+
+          final Finder texture = find.byKey(
+            const Key('session-overview-character-texture'),
+          );
+          expect(
+            texture,
+            preset == DovahThemePreset.frostbound
+                ? findsOneWidget
+                : findsNothing,
+          );
+          if (preset == DovahThemePreset.frostbound) {
+            expect(
+              (tester.widget<DecoratedBox>(texture).decoration as BoxDecoration)
+                  .gradient,
+              isA<LinearGradient>(),
+            );
+          }
+        },
+      );
+    }
+
     testWidgets(
       'SessionOverviewCharacterPanel displays the character and current vitals',
       (WidgetTester tester) async {
@@ -62,6 +200,130 @@ void main() {
         expect(find.text('Health'), findsOneWidget);
         expect(find.text('Magicka'), findsOneWidget);
         expect(find.text('Stamina'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'SessionOverviewCharacterPanel rounds positive vitals upward for display',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          _buildPanel(
+            vitalValues: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 19.01, max: 40),
+              magicka: Fixtures.buildCharacterVital(current: 19.31, max: 40),
+              stamina: Fixtures.buildCharacterVital(current: 19.99, max: 40),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(1280, 720),
+        );
+
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-health-current')),
+              )
+              .data,
+          '20',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-magicka-current')),
+              )
+              .data,
+          '20',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-stamina-current')),
+              )
+              .data,
+          '20',
+        );
+        expect(find.text('19.01'), findsNothing);
+        expect(find.text('19.31'), findsNothing);
+        expect(find.text('19.99'), findsNothing);
+      },
+    );
+
+    testWidgets(
+      'SessionOverviewCharacterPanel keeps integral values unchanged and omits negative vitals',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          _buildPanel(
+            vitalValues: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 20, max: 40),
+              magicka: Fixtures.buildCharacterVital(current: -0.2, max: 40),
+              stamina: Fixtures.buildCharacterVital(current: 50, max: 90),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(1280, 720),
+        );
+
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-health-current')),
+              )
+              .data,
+          '20',
+        );
+        expect(
+          tester
+              .widget<Text>(
+                find.byKey(const Key('session-overview-magicka-current')),
+              )
+              .data,
+          ' ',
+        );
+        expect(find.text('0'), findsNothing);
+        expect(find.text('-0.2'), findsNothing);
+        expect(find.text('50'), findsOneWidget);
+      },
+    );
+
+    testWidgets(
+      'SessionOverviewCharacterPanel omits non-finite vitals from display',
+      (WidgetTester tester) async {
+        await pumpDovahThemedWidget(
+          tester,
+          _buildPanel(
+            vitalValues: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(
+                current: double.nan,
+                max: 100,
+              ),
+              magicka: Fixtures.buildCharacterVital(
+                current: double.infinity,
+                max: 100,
+              ),
+              stamina: Fixtures.buildCharacterVital(
+                current: double.negativeInfinity,
+                max: 100,
+              ),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: const Size(1280, 720),
+        );
+
+        for (final String vital in <String>['health', 'magicka', 'stamina']) {
+          expect(
+            tester
+                .widget<Text>(
+                  find.byKey(Key('session-overview-$vital-current')),
+                )
+                .data,
+            ' ',
+          );
+        }
+        expect(find.textContaining('NaN'), findsNothing);
+        expect(find.textContaining('Infinity'), findsNothing);
       },
     );
 

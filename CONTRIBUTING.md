@@ -88,8 +88,7 @@ git config core.hooksPath .githooks
 ```
 
 On Unix-like hosts, also make the hook executable with `chmod +x .githooks/pre-commit` before
-committing it. Repository CI fails closed if it cannot determine the changed-file set for its
-formatter check; it never treats a diff error as “nothing to format.”
+committing it.
 
 The formatter matrix is:
 
@@ -101,8 +100,7 @@ The formatter matrix is:
 | Python (`.py`) | `ruff format` |
 | PowerShell (`.ps1`) | PSScriptAnalyzer's `Invoke-Formatter` through `pwsh` |
 
-Other files remain outside this hook until the repository adopts a formatter for them. The same
-formatter entry point checks changed supported files in repository CI.
+Other files remain outside this hook until the repository adopts a formatter for them.
 
 On Windows, formatter paths that resolve to `.BAT` or `.CMD` wrappers are launched through Python's
 shell-quoting path so staged filenames are not parsed as command text. Ordinary formatter

@@ -5,6 +5,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/session/presentation/widgets/session_overview_quest.widget.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
+import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
@@ -26,6 +27,32 @@ SessionOverviewQuestPanel _buildPanel({
 /// Exercises the single quest panel's plurality and text layout.
 void main() {
   group('SessionOverviewQuestPanel displays', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewQuestPanel uses the $preset side-panel texture',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            _buildPanel(quests: <TrackedQuest>[Fixtures.buildTrackedQuest()]),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+
+          final DovahPanel panel = tester.widget(
+            find.byKey(const Key('session-overview-quest-panel')),
+          );
+          expect(
+            panel.overlayGradient,
+            preset == DovahThemePreset.dovah ? isA<RadialGradient>() : isNull,
+          );
+          expect(
+            panel.leadingAccent,
+            dovahThemeDataFor(preset).extension<DovahThemeTokens>()!.ember,
+          );
+        },
+      );
+    }
+
     testWidgets('SessionOverviewQuestPanel displays the approved empty copy', (
       WidgetTester tester,
     ) async {
@@ -196,6 +223,42 @@ void main() {
           },
         );
       }
+    }
+  });
+
+  group('SessionOverviewQuestPanel preserves both accent rules', () {
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'SessionOverviewQuestPanel keeps the outer rail and inner quest rule under $preset',
+        (WidgetTester tester) async {
+          await pumpDovahThemedWidget(
+            tester,
+            _buildPanel(quests: <TrackedQuest>[Fixtures.buildTrackedQuest()]),
+            preset: preset,
+            size: const Size(1280, 720),
+          );
+
+          final DovahThemeTokens tokens = dovahThemeDataFor(
+            preset,
+          ).extension<DovahThemeTokens>()!;
+          final ColoredBox outerAccent = tester.widget(
+            find.byKey(const Key('dovah-surface-leading-accent')),
+          );
+          final Container innerRule = tester.widget(
+            find.byKey(const Key('session-overview-quest-inner-rule')),
+          );
+
+          expect(outerAccent.color, tokens.ember);
+          expect(
+            (innerRule.decoration! as BoxDecoration).gradient,
+            isA<LinearGradient>(),
+          );
+          final LinearGradient innerGradient =
+              (innerRule.decoration! as BoxDecoration).gradient!
+                  as LinearGradient;
+          expect(innerGradient.colors, [tokens.ember, tokens.signal]);
+        },
+      );
     }
   });
 }

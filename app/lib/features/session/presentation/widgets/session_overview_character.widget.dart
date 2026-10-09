@@ -5,7 +5,7 @@ import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_page_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
-import 'package:dovahlink_client/shared/theme/widgets/dovah_surface.widget.dart';
+import 'package:dovahlink_client/shared/theme/widgets/dovah_panel.widget.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show DovahLinkStateStatus;
@@ -60,31 +60,21 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
         levelStatus == DovahLinkStateStatus.recovering ||
         supernaturalStatus == DovahLinkStateStatus.recovering ||
         vitals.status == DovahLinkStateStatus.recovering;
+    final String? health = _formatVital(vitals.healthCurrent);
+    final String? magicka = _formatVital(vitals.magickaCurrent);
+    final String? stamina = _formatVital(vitals.staminaCurrent);
     final List<(String, String?, Color, bool)> statValues = [
-      (
-        'Health',
-        _formatVital(vitals.healthCurrent),
-        tokens.health,
-        vitals.healthCurrent != null,
-      ),
-      (
-        'Magicka',
-        _formatVital(vitals.magickaCurrent),
-        tokens.magicka,
-        vitals.magickaCurrent != null,
-      ),
-      (
-        'Stamina',
-        _formatVital(vitals.staminaCurrent),
-        tokens.stamina,
-        vitals.staminaCurrent != null,
-      ),
+      ('Health', health, tokens.health, health != null),
+      ('Magicka', magicka, tokens.magicka, magicka != null),
+      ('Stamina', stamina, tokens.stamina, stamina != null),
     ];
 
     return ConstrainedBox(
       key: const Key('session-overview-character-panel'),
       constraints: BoxConstraints(minHeight: overviewMetrics.heroMinHeight),
-      child: DovahSurface(
+      child: DovahPanel(
+        padding: EdgeInsets.zero,
+        leadingAccent: tokens.signal,
         child: Stack(
           fit: StackFit.expand,
           children: [
@@ -94,6 +84,7 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
               right: 1,
               bottom: 1,
               child: Stack(
+                key: const Key('session-overview-character-artwork'),
                 fit: StackFit.expand,
                 children: [
                   const ExcludeSemantics(
@@ -103,9 +94,16 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
                     ),
                   ),
                   DecoratedBox(
+                    key: const Key('session-overview-character-hero-scrim'),
                     decoration: BoxDecoration(gradient: tokens.heroScrim),
                   ),
+                  if (tokens.heroTexture case final Gradient texture)
+                    DecoratedBox(
+                      key: const Key('session-overview-character-texture'),
+                      decoration: BoxDecoration(gradient: texture),
+                    ),
                   DecoratedBox(
+                    key: const Key('session-overview-character-floor-scrim'),
                     decoration: BoxDecoration(gradient: tokens.heroFloorScrim),
                   ),
                   if (isRecovering)
@@ -123,13 +121,6 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
                         ),
                       ),
                     ),
-                  Positioned(
-                    left: 0,
-                    top: 0,
-                    bottom: 0,
-                    width: DovahOverviewMetrics.panelAccentWidth,
-                    child: ColoredBox(color: tokens.signal),
-                  ),
                   Padding(
                     padding: pageMetrics.panelPadding,
                     child: Column(
@@ -140,7 +131,7 @@ class SessionOverviewCharacterPanel extends StatelessWidget {
                           'CURRENT CHARACTER',
                           key: const Key('session-overview-character-kicker'),
                           style: TextStyle(
-                            color: tokens.accentSecondary,
+                            color: tokens.eyebrow,
                             fontSize: DovahOverviewMetrics.kickerFontSize,
                             fontWeight: FontWeight.w800,
                             letterSpacing:
@@ -368,10 +359,8 @@ Color _vitalValueColor(DovahThemeTokens tokens, DovahLinkStateStatus status) =>
 
 /// Formats a current vital for display while keeping the SDK value untouched.
 String? _formatVital(double? value) {
-  if (value == null || !value.isFinite) {
+  if (value == null || !value.isFinite || value < 0) {
     return null;
   }
-  return value == value.truncateToDouble()
-      ? value.toInt().toString()
-      : value.toString();
+  return value.ceil().toString();
 }

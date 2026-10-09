@@ -27,6 +27,9 @@ The first milestone is successful when a player can:
 - **Player-controlled:** layouts and information density should be configurable.
 - **Mod-aware:** design for real modded load orders, not only a clean install.
 - **Safe by default:** read-only companion features come before actions that can alter the game.
+- **Technical truth, player-facing presentation:** preserve precise state and diagnostics internally;
+  present them in Skyrim-appropriate language and visual terms. Show technical detail only when it
+  is needed for understanding, diagnosis, or user action.
 - **Open development:** decisions, limitations, and contribution paths stay visible.
 
 ## Out of scope for the first milestone

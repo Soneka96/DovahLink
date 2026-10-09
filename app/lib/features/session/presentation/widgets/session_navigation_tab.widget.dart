@@ -48,12 +48,13 @@ class _SessionNavigationTabState extends State<SessionNavigationTab> {
         cursor: SystemMouseCursors.click,
         child: InkWell(
           onTap: widget.onTap,
+          splashFactory: NoSplash.splashFactory,
           onHover: (bool hovering) {
             if (_hovered != hovering) {
               setState(() => _hovered = hovering);
             }
           },
-          hoverColor: tokens.textPrimary.withValues(alpha: 0.018),
+          hoverColor: Colors.white.withValues(alpha: 0.018),
           focusColor: tokens.textPrimary.withValues(alpha: 0.035),
           child: SizedBox(
             key: Key('session-shell-${widget.label}-tab'),
@@ -69,10 +70,11 @@ class _SessionNavigationTabState extends State<SessionNavigationTab> {
                       padding: EdgeInsets.symmetric(
                         horizontal: metrics.tabHorizontalPadding,
                       ),
-                      child: Text(
-                        tokens.uppercaseLabels
-                            ? widget.label.toUpperCase()
-                            : widget.label,
+                      child: AnimatedDefaultTextStyle(
+                        duration: MediaQuery.disableAnimationsOf(context)
+                            ? Duration.zero
+                            : DovahSessionMetrics.tabColorTransitionDuration,
+                        curve: Curves.ease,
                         style: TextStyle(
                           color: widget.selected || _hovered
                               ? tokens.textPrimary
@@ -82,6 +84,11 @@ class _SessionNavigationTabState extends State<SessionNavigationTab> {
                           letterSpacing: tokens.uppercaseLabels
                               ? DovahSessionMetrics.tabUppercaseLetterSpacingEm
                               : null,
+                        ),
+                        child: Text(
+                          tokens.uppercaseLabels
+                              ? widget.label.toUpperCase()
+                              : widget.label,
                         ),
                       ),
                     ),

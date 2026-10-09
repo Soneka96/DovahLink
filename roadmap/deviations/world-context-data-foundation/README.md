@@ -1,6 +1,7 @@
 # World Context Data Foundation Research
 
-**Status:** Runtime research is complete. The frozen findings below now inform the production World Context implementation.
+**Status:** Runtime research is complete and the production World Context data foundation is
+delivered in PRs #118–119. The frozen findings below record the implementation's source basis.
 
 ## Purpose and scope
 
@@ -137,6 +138,5 @@ instances. It preserves SDK synchronization status so an available empty quest l
 from unavailable quest state. Route navigation does not own these subscriptions; the SDK owns
 desired-intent restoration and reconnect recovery.
 
-The next intended presentation change is PR #121 — Session Overview Prototype Convergence. It
-consumes this state through the typed Session Overview ViewModel; it does not add quest navigation or
-change the frozen capture contract above.
+PR #122 delivered the state-backed Session Overview through the typed Session Overview ViewModel. It
+does not add quest navigation or change the frozen capture contract above.

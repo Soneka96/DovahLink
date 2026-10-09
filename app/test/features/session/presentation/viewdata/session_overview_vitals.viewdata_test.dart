@@ -29,6 +29,26 @@ void main() {
       expect(viewData.staminaCurrent, 74);
     });
 
+    test('Method fromSynchronization retains precise current values', () {
+      final SessionOverviewVitalsViewData
+      viewData = SessionOverviewVitalsViewData.fromSynchronization(
+        Fixtures.buildStateSynchronization<CharacterVitalsState>(
+          value: Fixtures.buildCharacterVitals(
+            health: Fixtures.buildCharacterVital(current: 19.01, max: 20.01),
+            magicka: Fixtures.buildCharacterVital(current: 19.31, max: 20.31),
+            stamina: Fixtures.buildCharacterVital(current: 19.99, max: 20.99),
+          ),
+        ),
+      );
+
+      expect(viewData.healthCurrent, 19.01);
+      expect(viewData.magickaCurrent, 19.31);
+      expect(viewData.staminaCurrent, 19.99);
+      expect(viewData.healthRatio, closeTo(19.01 / 20.01, 0.0001));
+      expect(viewData.magickaRatio, closeTo(19.31 / 20.31, 0.0001));
+      expect(viewData.staminaRatio, closeTo(19.99 / 20.99, 0.0001));
+    });
+
     test('Method fromSynchronization clamps values outside their bounds', () {
       final SessionOverviewVitalsViewData viewData =
           SessionOverviewVitalsViewData.fromSynchronization(

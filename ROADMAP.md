@@ -53,6 +53,10 @@ ai/context/protocol/security.md owns reusable transport and security constraints
   meaningful independently reviewable behavior, architecture, or testing; trivial glue should stay
   with the surrounding phase. When a feature crosses meaningful boundaries, finish and validate
   each boundary independently before moving outward.
+- Player-facing acceptance follows PRODUCT.md's **Technical truth, player-facing presentation**
+  principle. Keep state correctness, diagnostics, and other engineering guarantees testable
+  internally; expose technical detail in normal player surfaces only when it is needed for
+  understanding, diagnosis, or action.
 - For routine work on one phase, load ROADMAP.md, that phase's stage file, the next relevant
   stage file when rolling planning requires it, and only the relevant architecture, security,
   protocol, SDK, or other context documents. Repo-wide planning may load the full roadmap corpus.
@@ -66,28 +70,31 @@ how progression resumes; they do not replace this roadmap or change its stage st
 
 ## Current position
 
-- **Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phases 5.1–5.3 are complete and
-  Phase 5.4's app state pipeline is implemented while its specified proof surface remains
-  undelivered. Stages 3 and
-  3A are complete. Stage 4 — Live State
-  Synchronization Foundation is complete on Host + Adapter, including Phase 4.5's version-impact
-  audit.
-- **Current phase:** Phase 5.4 — Flutter Middleware and Minimal Live-State Proof (**Active**).
-  PR #120 establishes the app-owned SDK-to-Redux pipeline for all currently available Overview
-  domains. The specified visible proof surface has not been delivered: it still calls for XP,
-  Vitals, and Level values; unavailable/stale/recovering states; compatibility and connection
-  lifecycle; and slow-consumer diagnostics. The current public SDK has no slow-consumer diagnostic
-  API. PR #120 stays within the approved state-integration scope, so Phase 5.4 remains active until
-  that complete proof acceptance is delivered or re-planned. The next intended PR, #121 — Session
-  Overview Prototype Convergence, consumes this Redux state; it does not complete Stage 8.
-  Phase 5.3 completed per-domain subscribe/unsubscribe with Host complete-set reconciliation and
+- **Current stage:** Stage 5 — Dart Client SDK Foundation is complete; Phases 5.1–5.5 are complete.
+  Stages 3 and 3A are complete. Stage 4 — Live State Synchronization Foundation is complete on Host
+  + Adapter, including Phase 4.5's version-impact audit.
+- **Next planning action:** Audit the remaining Stage 6 acceptance criteria against implementation
+  already delivered before adding new work. Stage 6 remains planned; no Stage 6 implementation is
+  part of this closeout.
+  Phase 5.4's SDK-to-Redux pipeline shipped in PR #120, and the state-backed Session Overview
+  shipped in PR #122. Its closeout completed the player-facing number formatting and visual audit,
+  records the maintainer's runtime validation, and rebaselines the proof criteria. Current vitals
+  display as whole numbers; precise synchronized values and ratios remain intact. The Overview
+  presents stale, recovering, and unavailable values truthfully, while compatibility and connection
+  failures surface at their actionable boundary. Slow-client queue limits and overflow behavior
+  remain Host transport concerns covered by internal tests; developer diagnostics are not part of
+  the normal Overview. Separate maximum-value text and visible slow-client diagnostics are not
+  current player-facing acceptance criteria. Phase 5.4 does not close Stage 8. Phase 5.3 completed
+  per-domain subscribe/unsubscribe with Host complete-set reconciliation and
   trusted-session restoration, including ordinary reconnect, administrative dormancy, explicit
   pairing recovery, and intentional-disconnect cleanup. Phase 5.2 completed the SDK State
   Synchronization API. Phase 5.1 completed the typed protocol boundary
   and Host-version compatibility checks. The Phase 5.3 complete-set subscription contract is
-  incompatible with released Host `0.4.0`'s additive behavior, so the SDK now accepts `0.5.x` and
-  rejects incompatible or malformed Host versions before session admission. The current repository
-  release is `0.5.0`. Stage 4 delivered the typed
+  incompatible with released Host `0.4.0`'s additive behavior. Host `0.5.0` is an internal version;
+  no supported Host/Client `0.5.0` package was publicly released, so prior internal builds are not
+  compatibility targets. The SDK's current source range is `0.5.x` alongside the current Host source,
+  and the current full SDK surface is implemented by that source pair. The SDK rejects incompatible
+  or malformed Host versions before session admission. Stage 4 delivered the typed
   Host/client contract, Host-owned bounded live-state publication, and real Skyrim capture for
   health, magicka, stamina, XP, and level. The maintainer recorded live runtime validation on
   2026-09-23, and a deterministic process-level test proves the Host/Adapter/public-client path using
@@ -95,14 +102,21 @@ how progression resumes; they do not replace this roadmap or change its stage st
   and recommends `0.4.0` for the incompatible Host/client contract changes; that release shipped on
   2026-09-23. The current public grouping is `character_vitals` alongside independent Character XP
   and Level domains.
+- **Pulled-forward Stage 6–8 acceptance:** Stage 6 is **PARTIALLY DELIVERED**: the connected
+  Windows workflow and technical recovery behaviors exist, while player comprehension has not had a
+  dedicated validation. Stage 7 is **PARTIALLY DELIVERED**: shared themes, components, and responsive
+  checks exist, while the canonical screenshot comparison remains unverified. Stage 8 is **PARTIALLY
+  DELIVERED**: the eight-domain live Overview and synchronization treatments exist; real runtime
+  play-context replacement remains unverified. These stages remain formally **Planned** and are not
+  closed solely because implementation landed early.
 - **Security gate:** S2.2 ended **STOP**. The Pasini–Vaudenay SAS-AKE construction survives at the
   paper level, but no proof justifies composing it with DovahLink's Host/Client identity transcript,
   MACs, and pairing PoP; the exact KEM assumptions and lifetime retry bound also remain unresolved.
   Shortcake is still prerelease and unaudited, its P-256 DHKEM change remains an open PR, and
   canonical profile bytes, vectors, and Windows/Android/iOS builds have not been demonstrated. No
   production initial-pairing profile is selected; security migration S3–S11 remain incomplete and,
-  apart from the pre-alpha integration authorized below, blocked. This STOP blocks production secure first contact and security-dependent network
-  exposure, not unrelated product development. Phase 5.4, ordinary Flutter/Redux work, local or
+  apart from the pre-alpha integration authorized below, blocked. This STOP blocks production
+  secure first contact and security-dependent network exposure, not unrelated product development. Phase 5.5, later ordinary Flutter/Redux work, local or
   loopback development, Known Host UX, and DovahLink-owned trust and pairing-authorization design may
   proceed independently. The current six-digit flow is not production security for hostile-network
   first contact, and unknown non-loopback peers must not be enabled on its basis. Stage 5A secure
@@ -150,7 +164,7 @@ Stage 4+ development continues only on Host + Adapter.
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
 | 4 | Complete. Host/Adapter live-state delivery, real Skyrim capture, automated process-level proof, runtime validation, and the Phase 4.5 version-impact audit are complete. Phase 4.5 recommended 0.4.0, released on 2026-09-23. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
-| 5 | Active. Phases 5.1–5.3 are complete; Phase 5.4's app state pipeline is implemented, while its minimal proof acceptance remains open. The package scaffold, protocol/transport layer, pairing persistence, and bounded reconnect were partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
+| 5 | Complete. Phases 5.1–5.5 are complete. Host `0.5.0` is an internal version, not a supported public release; prior internal builds are not compatibility targets. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |
@@ -198,10 +212,12 @@ Stage 4+ development continues only on Host + Adapter.
   as retained engineering evidence; Stage 4 continues this scope exclusively on Host + Adapter, per
   `roadmap/04-live-state-synchronization-foundation.md`'s "Host/Adapter continuation (post-3A)"
   section.
-- Stage 5 consumes Stage 4's stable contract and synchronization kernel to complete the reusable Dart
-  client boundary, public subscription/recovery API, middleware-owned Flutter integration, and the
-  minimal live-state proof surface. Its scaffold and persistence work may be pulled forward when
-  required by earlier pairing/client work without closing the phase.
+- Stage 5 consumed Stage 4's stable contract and synchronization kernel to complete the reusable Dart
+  client boundary, public subscription/recovery API, and middleware-owned Flutter integration. Its
+  complete-range version audit is recorded in the Stage 5 specification. The next planning action is
+  to audit remaining Stage 6 acceptance against delivered implementation before adding new work.
+  The Stage 5 scaffold and persistence work was pulled forward when required by earlier pairing/client
+  work without closing the phase early.
 - Stage 5A deliberately pulls forward the smallest complete Android and secure same-LAN path needed
   for real-device development. It consumes the already-approved identity/pairing semantics and
   pulled-forward SDK ports, but does not close Stage 5 or replace the later generalized LAN/mobile

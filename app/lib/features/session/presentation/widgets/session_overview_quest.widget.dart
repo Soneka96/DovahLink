@@ -32,6 +32,8 @@ class SessionOverviewQuestPanel extends StatelessWidget {
     return DovahPanel(
       key: const Key('session-overview-quest-panel'),
       raised: isRecovering,
+      overlayGradient: tokens.overviewSidePanelTexture,
+      leadingAccent: tokens.ember,
       child: Stack(
         children: [
           if (isRecovering)
@@ -94,6 +96,7 @@ class SessionOverviewQuestPanel extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     Container(
+                      key: const Key('session-overview-quest-inner-rule'),
                       width: DovahOverviewMetrics.questRuleWidth,
                       decoration: BoxDecoration(
                         gradient: LinearGradient(

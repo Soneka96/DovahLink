@@ -9,10 +9,10 @@ import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.da
 
 /// DovahLink's typed theme identity: the semantic colors, status tones, corner treatment, and
 /// typography a [DovahThemePreset] resolves to, beyond what a plain Material [ColorScheme] can
-/// express. Layered component textures, the canvas atmosphere, the dialog backdrop, and the
-/// appearance preview are recipes, not tokens, and live in [DovahThemeMaterials]. Shared DovahLink
-/// surfaces and components read these extensions rather than branching on which concrete preset is
-/// active.
+/// express. Layered component materials, the canvas atmosphere, the dialog backdrop, and appearance
+/// previews are recipes, not tokens, and live in [DovahThemeMaterials]. Feature-specific gradients
+/// such as hero scrims and Overview decorations stay with these tokens. Shared DovahLink surfaces
+/// and components read these extensions rather than branching on which concrete preset is active.
 @immutable
 class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// Font size for supporting text and compact labels.
@@ -188,6 +188,12 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
   /// `linear-gradient(0deg, ...)`).
   final Gradient heroFloorScrim;
 
+  /// Frostbound's fine hero-panel fracture lines, or `null` when the preset has no overlay.
+  final Gradient? heroTexture;
+
+  /// Dovah's faint radial rings on the Overview's side panels, or `null` when unused.
+  final Gradient? overviewSidePanelTexture;
+
   /// Creates a complete token set. Every field is required so no theme can be assembled with an
   /// accidentally-inherited default.
   const DovahThemeTokens({
@@ -233,6 +239,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     required this.panelNote,
     required this.heroScrim,
     required this.heroFloorScrim,
+    required this.heroTexture,
+    required this.overviewSidePanelTexture,
   });
 
   /// Returns a copy with selected values replaced.
@@ -286,6 +294,8 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     Color? panelNote,
     Gradient? heroScrim,
     Gradient? heroFloorScrim,
+    Gradient? heroTexture,
+    Gradient? overviewSidePanelTexture,
   }) => DovahThemeTokens(
     background: background ?? this.background,
     surface: surface ?? this.surface,
@@ -333,6 +343,9 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     panelNote: panelNote ?? this.panelNote,
     heroScrim: heroScrim ?? this.heroScrim,
     heroFloorScrim: heroFloorScrim ?? this.heroFloorScrim,
+    heroTexture: heroTexture ?? this.heroTexture,
+    overviewSidePanelTexture:
+        overviewSidePanelTexture ?? this.overviewSidePanelTexture,
   );
 
   /// Interpolates colors and continuous numeric values. Discrete values (corner style, font
@@ -412,6 +425,10 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
       panelNote: Color.lerp(panelNote, other.panelNote, t)!,
       heroScrim: t < 0.5 ? heroScrim : other.heroScrim,
       heroFloorScrim: t < 0.5 ? heroFloorScrim : other.heroFloorScrim,
+      heroTexture: t < 0.5 ? heroTexture : other.heroTexture,
+      overviewSidePanelTexture: t < 0.5
+          ? overviewSidePanelTexture
+          : other.overviewSidePanelTexture,
     );
   }
 
@@ -460,5 +477,7 @@ class DovahThemeTokens extends ThemeExtension<DovahThemeTokens> with Equatable {
     panelNote,
     heroScrim,
     heroFloorScrim,
+    heroTexture,
+    overviewSidePanelTexture,
   ];
 }
