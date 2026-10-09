@@ -77,8 +77,27 @@ jobs:
             throw "PSScriptAnalyzer 1.25.0 did not provide Invoke-Formatter."
           }
 
-          $flutterMetadata = (flutter --version --machine | ConvertFrom-Json)
-          if ($LASTEXITCODE -ne 0 -or $flutterMetadata.frameworkVersion -ne "3.47.5") {
+          $flutterOutput = @(& flutter --version --machine 2>&1)
+          $flutterExitCode = $LASTEXITCODE
+          if ($flutterExitCode -ne 0) {
+            throw "Flutter version query failed with exit code $flutterExitCode."
+          }
+
+          $flutterText = ($flutterOutput | ForEach-Object { $_.ToString() }) -join [Environment]::NewLine
+          $jsonStart = $flutterText.IndexOf('{', [StringComparison]::Ordinal)
+          $jsonEnd = $flutterText.LastIndexOf('}', [StringComparison]::Ordinal)
+          if ($jsonStart -lt 0 -or $jsonEnd -lt $jsonStart) {
+            throw "Flutter version output did not contain its machine-readable JSON object."
+          }
+
+          $flutterJson = $flutterText.Substring($jsonStart, $jsonEnd - $jsonStart + 1)
+          try {
+            $flutterMetadata = $flutterJson | ConvertFrom-Json -ErrorAction Stop
+          }
+          catch {
+            throw "Flutter version output contained invalid machine-readable JSON: $($_.Exception.Message)"
+          }
+          if ($flutterMetadata.frameworkVersion -ne "3.47.5") {
             throw "Expected Flutter 3.47.5, found '$($flutterMetadata.frameworkVersion)'."
           }
 
