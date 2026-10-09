@@ -32,17 +32,17 @@ a future approved task depends on unresolved behavior; do not resume them from t
 
 ## Current closeout
 
-**Phase 5.4 — Flutter Middleware and Minimal Live-State Proof:** this branch completes the vitals
-display formatting, Session visual audit, Phase 5.4 acceptance review, and roadmap rebaseline. The
-maintainer has confirmed initial connection, state population, hot restart without changing Skyrim
-state, repopulation, reconnect, tracked quests, and general Overview live-state behavior. Phase 5.4
-is complete in this branch. Stage 5 remains active until Phase 5.5 is performed.
+**Stage 5 — Dart Client SDK Foundation:** Phases 5.1–5.4 delivered the typed SDK contract,
+synchronization, subscription/recovery lifecycle, and Flutter live-state proof. Phase 5.5 audited the
+complete Stage 5 range, recorded version and compatibility decisions, reviewed all acceptance
+criteria, and closed Stage 5. The maintainer's Phase 5.4 runtime validation remains recorded in the
+Stage 5 specification.
 
 ## Next
 
-**Phase 5.5 — Version-Impact Audit and Stage 5 Closure.** Audit the full Stage 5 version impact and
-close Stage 5 only when that phase is complete. No Phase 5.5 implementation is part of this
-closeout.
+**Next planning action:** audit the remaining Stage 6 acceptance criteria against the implementation
+already delivered before adding new work. Keep Stage 6 planned until that review identifies its
+remaining requirements. Do not begin Stage 6 implementation as part of the Stage 5 closeout.
 
 Stages 6–8 remain planned. Implementation pulled forward into the Session Shell, theme system, and
 live-state Overview does not by itself close those stages. Their acceptance must be reviewed against

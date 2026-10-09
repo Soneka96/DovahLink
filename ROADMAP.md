@@ -70,13 +70,14 @@ how progression resumes; they do not replace this roadmap or change its stage st
 
 ## Current position
 
-- **Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phases 5.1–5.4 are complete.
-  Phase 5.5 — Version-Impact Audit and Stage 5 Closure is next; it has not been performed. Stages 3
-  and 3A are complete. Stage 4 — Live State Synchronization Foundation is complete on Host + Adapter,
-  including Phase 4.5's version-impact audit.
-- **Current phase:** Phase 5.5 — Version-Impact Audit and Stage 5 Closure (**Planned next**).
+- **Current stage:** Stage 5 — Dart Client SDK Foundation is complete; Phases 5.1–5.5 are complete.
+  Stages 3 and 3A are complete. Stage 4 — Live State Synchronization Foundation is complete on Host
+  + Adapter, including Phase 4.5's version-impact audit.
+- **Next planning action:** Audit the remaining Stage 6 acceptance criteria against implementation
+  already delivered before adding new work. Stage 6 remains planned; no Stage 6 implementation is
+  part of this closeout.
   Phase 5.4's SDK-to-Redux pipeline shipped in PR #120, and the state-backed Session Overview
-  shipped in PR #122. This closeout completes the player-facing number formatting and visual audit,
+  shipped in PR #122. Its closeout completed the player-facing number formatting and visual audit,
   records the maintainer's runtime validation, and rebaselines the proof criteria. Current vitals
   display as whole numbers; precise synchronized values and ratios remain intact. The Overview
   presents stale, recovering, and unavailable values truthfully, while compatibility and connection
@@ -150,7 +151,7 @@ Stage 4+ development continues only on Host + Adapter.
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
 | 4 | Complete. Host/Adapter live-state delivery, real Skyrim capture, automated process-level proof, runtime validation, and the Phase 4.5 version-impact audit are complete. Phase 4.5 recommended 0.4.0, released on 2026-09-23. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
-| 5 | Active. Phases 5.1–5.4 are complete; Phase 5.5 — Version-Impact Audit and Stage 5 Closure is next. The package scaffold, protocol/transport layer, pairing persistence, and bounded reconnect were partially implemented and pulled forward. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
+| 5 | Complete. Phases 5.1–5.5 are complete. The Stage 5 audit recommends a separate `release/0.6.0` after this closeout merges; the SDK remains repository-internal. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |
@@ -198,11 +199,12 @@ Stage 4+ development continues only on Host + Adapter.
   as retained engineering evidence; Stage 4 continues this scope exclusively on Host + Adapter, per
   `roadmap/04-live-state-synchronization-foundation.md`'s "Host/Adapter continuation (post-3A)"
   section.
-- Stage 5 consumes Stage 4's stable contract and synchronization kernel to complete the reusable Dart
-  client boundary, public subscription/recovery API, and middleware-owned Flutter integration. Phase
-  5.4's connected-client proof is complete; Phase 5.5 audits version impact before Stage 5 closes.
-  Its scaffold and persistence work may be pulled forward when
-  required by earlier pairing/client work without closing the phase.
+- Stage 5 consumed Stage 4's stable contract and synchronization kernel to complete the reusable Dart
+  client boundary, public subscription/recovery API, and middleware-owned Flutter integration. Its
+  complete-range version audit is recorded in the Stage 5 specification. The next planning action is
+  to audit remaining Stage 6 acceptance against delivered implementation before adding new work.
+  The Stage 5 scaffold and persistence work was pulled forward when required by earlier pairing/client
+  work without closing the phase early.
 - Stage 5A deliberately pulls forward the smallest complete Android and secure same-LAN path needed
   for real-device development. It consumes the already-approved identity/pairing semantics and
   pulled-forward SDK ports, but does not close Stage 5 or replace the later generalized LAN/mobile
