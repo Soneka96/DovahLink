@@ -10,11 +10,11 @@ namespace dovahlink::adapter::ipc {
 ///  unavailable adapter never blocks the client response that already
 ///  reported the outcome.
 struct IpcPairingAttemptsExhaustedMessage {
-  ///  Always zero; this notification is unsolicited and expects no reply.
-  std::uint64_t correlationId = 0;
+    ///  Always zero; this notification is unsolicited and expects no reply.
+    std::uint64_t correlationId = 0;
 
-  ///  Structural equality over every field.
-  bool operator==(const IpcPairingAttemptsExhaustedMessage &) const = default;
+    ///  Structural equality over every field.
+    bool operator==(const IpcPairingAttemptsExhaustedMessage&) const = default;
 };
 
 } //  namespace dovahlink::adapter::ipc

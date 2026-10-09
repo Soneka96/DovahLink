@@ -11,20 +11,20 @@ namespace {
 ///  non-deterministic source. Keeps generation free of shared mutable state
 ///  across `AdapterInstanceIdGenerator` instances or threads, without paying
 ///  the cost of reseeding on every call.
-std::mt19937_64 &RandomEngine() {
-  thread_local std::mt19937_64 engine{std::random_device{}()};
-  return engine;
+std::mt19937_64& RandomEngine() {
+    thread_local std::mt19937_64 engine{std::random_device{}()};
+    return engine;
 }
 
 } //  namespace
 
 AdapterInstanceId AdapterInstanceIdGenerator::Generate() {
-  std::uniform_int_distribution<int> byteDistribution(0, 255);
-  AdapterInstanceId id;
-  std::ranges::generate(id.value, [&] {
-    return static_cast<std::byte>(byteDistribution(RandomEngine()));
-  });
-  return id;
+    std::uniform_int_distribution<int> byteDistribution(0, 255);
+    AdapterInstanceId id;
+    std::ranges::generate(id.value, [&] {
+        return static_cast<std::byte>(byteDistribution(RandomEngine()));
+    });
+    return id;
 }
 
 } //  namespace dovahlink::adapter::identity

@@ -1,10 +1,17 @@
-# Stage 5A — Android and Secure Wi-Fi Development Path
+# Stage 5B — Android and Secure Wi-Fi Development Path
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./05-dart-client-sdk-foundation.md) · [Next stage](./06-pc-second-screen-baseline.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./05a-windows-sas-integration-validation.md) · [Next stage](./06-pc-second-screen-baseline.md)
 
-## 5A. Android and Secure Wi-Fi Development Path
+## 5B. Android and Secure Wi-Fi Development Path
 
 **Status:** Planned
+
+This stage was originally specified as Stage 5A. The 5A.0 rebaseline split that stage: Windows SAS
+pairing integration validation moved to
+[Stage 5A — Windows SAS Integration Validation](./05a-windows-sas-integration-validation.md), and the
+Android and secure Wi-Fi requirements below are retained here unchanged in meaning. Completing Stage
+5A does not approve or unblock this stage; it remains blocked wherever the production-security
+approvals it needs are missing.
 
 This stage is gated on completion of security migration S1–S11. Its target identity, pairing, and
 transport authority is [`ai/context/security/identity-and-transport.md`](../ai/context/security/identity-and-transport.md);
@@ -24,7 +31,7 @@ port into the app.
 ### Scope and behavior
 
 - Add Android as a supported development target for the official Flutter client.
-- Keep the Stage 5A Android client landscape-only and reuse the same primary second-screen layout
+- Keep the Stage 5B Android client landscape-only and reuse the same primary second-screen layout
   structure/model as the Windows client. This shared layout must still respond to the phone's smaller
   physical viewport through appropriate sizing, scrolling, and existing responsive minimum
   constraints; reusing the layout model does not mean using fixed desktop pixel dimensions.
@@ -104,25 +111,25 @@ directly. Guest-network client isolation, VPNs, mobile hotspots, routed or multi
 IPv6-only environments, firewall edge cases, and other network-topology compatibility concerns are
 deferred to later hardening.
 
-### `sas-pairing` activation
+### Relationship to Stage 5A and `sas-pairing`
 
-Under the maintainer's pre-alpha `sas-pairing` P10 authorization (see the
-[initial-pairing security deviation](deviations/initial-pairing-security/README.md#p10-pre-alpha-integration-authorization)),
-the Host gains a persistent cryptographic identity and a dormant, test-exercised `sas-pairing`
-integration foundation that the running product does not use. This stage owns activating it:
+Activating the dormant Host `sas-pairing` foundation (Host identity key and integration composition,
+the Host listener and driver lifecycle, the interactive Skyrim SAS prompt, Flutter SAS rendering,
+the human MATCH/MISMATCH decisions, and handing a local result to DovahLink's pairing authorization)
+is owned by [Stage 5A](./05a-windows-sas-integration-validation.md), restricted to the approved
+Windows loopback development environment under the maintainer's pre-alpha P10 authorization (see the
+[initial-pairing security deviation](deviations/initial-pairing-security/README.md#p10-pre-alpha-integration-authorization)).
 
-- composing the Host identity key and the integration into the running Host, by adding the
-  `DovahLink.Host` reference to `DovahLink.Host.PairingCeremony`;
-- the production Host `sas-pairing` listener and driver lifecycle;
-- the interactive Host/Adapter Skyrim prompt for SAS comparison;
-- Flutter SAS rendering and the explicit human comparison UX;
-- ceremony activation and the human MATCH/MISMATCH decisions;
-- integrating a local `sas-pairing` result with DovahLink's pairing authorization;
-- the production failure, shutdown, and responsiveness evidence for that path.
+This stage consumes what Stage 5A validates but inherits no security approval from it:
 
-The existing six-digit flow remains the active product behavior until that migration. Activation
-also remains subject to this stage's security gate above; the dormant foundation does not satisfy
-it.
+- Stage 5A validation is loopback integration evidence on Windows. It is not evidence of
+  hostile-network security, and it does not complete S3–S11 or close the S2.2 STOP.
+- `sas-pairing` is experimental and pre-alpha, and does not support Android (its own P11 milestone).
+  Android initial pairing needs an Android-capable carrier and Client key, and its own approval.
+- Android Keystore Client identity, Host pinning, WSS/TLS, and Client proof of possession remain this
+  stage's work under S4–S7 and are not delivered by Stage 5A.
+- The existing six-digit flow remains the active product behavior outside Stage 5A's validated
+  Windows path, and is not production security for hostile-network first contact.
 
 ### Explicit non-goals
 

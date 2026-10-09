@@ -11,11 +11,11 @@ namespace dovahlink::adapter::identity {
 ///  matching `ai/context/host/architecture.md`'s "Restart behavior" for
 ///  `adapterInstanceId`.
 struct AdapterInstanceId {
-  ///  The underlying 16 opaque identity bytes.
-  std::array<std::byte, 16> value{};
+    ///  The underlying 16 opaque identity bytes.
+    std::array<std::byte, 16> value{};
 
-  ///  Structural equality over the underlying value.
-  bool operator==(const AdapterInstanceId &) const = default;
+    ///  Structural equality over the underlying value.
+    bool operator==(const AdapterInstanceId&) const = default;
 };
 
 } //  namespace dovahlink::adapter::identity

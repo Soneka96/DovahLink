@@ -1,6 +1,6 @@
 # Stage 5 — Dart Client SDK Foundation
 
-[Back to the roadmap index](../ROADMAP.md). [Previous stage](./04-live-state-synchronization-foundation.md) · [Next stage](./05a-android-wifi-development-path.md)
+[Back to the roadmap index](../ROADMAP.md). [Previous stage](./04-live-state-synchronization-foundation.md) · [Next stage](./05a-windows-sas-integration-validation.md)
 
 ## 5. Dart Client SDK Foundation
 
@@ -206,6 +206,8 @@ invoke it independently; a contract-breaking bugfix must not be forced into a pa
 
 ##### Stage 5 version-impact audit record
 
+_Note: this record predates the 5A/5B split. Its references to Stage 5A mean the then-combined Android and secure-LAN security track, now [Stage 5B](./05b-android-secure-wifi-development-path.md); the audit scope and conclusions are unchanged._
+
 1. **Audited range:** `75b23938` (the `0.4.0` release merge and Stage 5.1's parent) through
    `20b01f51` (current `main`, containing PR #127). The first Stage 5 implementation merge is
    `b4172153` (PR #79, Phase 5.1). The audit includes merged Stage 5 SDK, Host/protocol, Flutter,
@@ -268,8 +270,8 @@ invoke it independently; a contract-breaking bugfix must not be forced into a pa
 ### Dependencies and boundaries
 
 This phase depends on Phases 2, 3, and 4 and consumes their approved identity, pairing/reconnection,
-protocol, and live-synchronization semantics rather than redesigning them. The separate Stage 5A
-development slice consumes the SDK's pulled-forward platform-port and transport boundaries but does
+protocol, and live-synchronization semantics rather than redesigning them. The separate Stage 5A and Stage 5B
+development slices consume the SDK's pulled-forward platform-port and transport boundaries but does
 not close this phase. Stage 5 itself does not implement Phase 9 concurrent-client delivery, Phase 10
 multi-instance discovery, Phase 11 automatic connection/transport selection, or the generalized Stage
 22 secure LAN transport; when those phases are implemented, their Dart client behavior extends the

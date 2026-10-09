@@ -12,8 +12,8 @@ namespace dovahlink::adapter::ipc {
 ///  `AdapterIpcSession::availableMutex_`; every read and write happens while
 ///  that lock is held.
 struct PendingDispatchCancellationState {
-  ///  Set once an `IpcCancelMessage` has marked this exact dispatch cancelled.
-  bool cancelled = false;
+    ///  Set once an `IpcCancelMessage` has marked this exact dispatch cancelled.
+    bool cancelled = false;
 };
 
 } //  namespace dovahlink::adapter::ipc

@@ -6,7 +6,7 @@
 
 **Status:** Planned
 
-Stage 5A pulls forward a narrow single-client Android development slice; this stage remains the
+Stage 5B pulls forward a narrow single-client Android development slice; this stage remains the
 generalized and hardened LAN capability.
 
 ### Outcome
@@ -28,7 +28,7 @@ Approved LAN clients securely discover and connect to the intended Host without 
 ### Dependencies and boundaries
 
 This phase depends on identity, multi-client isolation, local discovery, and automatic selection, and
-builds on the secure single-client proof from Stage 5A. It does not imply internet exposure, hosted
+builds on the secure single-client proof from Stage 5B. It does not imply internet exposure, hosted
 relay, accounts, or cloud presence.
 
 ### Acceptance criteria

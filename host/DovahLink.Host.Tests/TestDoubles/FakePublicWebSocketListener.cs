@@ -5,6 +5,9 @@ namespace DovahLink.Host.Tests.TestDoubles;
 /// <summary>A controllable stand-in for <see cref="IPublicWebSocketListener"/> whose <see cref="RunAsync"/> completion is settable directly.</summary>
 public sealed class FakePublicWebSocketListener : IPublicWebSocketListener
 {
+    /// <summary>Completes when <see cref="RunAsync"/> first starts.</summary>
+    private readonly TaskCompletionSource runStarted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
     /// <inheritdoc/>
     public int BoundPort { get; set; }
 
@@ -13,6 +16,9 @@ public sealed class FakePublicWebSocketListener : IPublicWebSocketListener
 
     /// <summary>Whether <see cref="RunAsync"/> has been called.</summary>
     public bool RunAsyncCalled { get; private set; }
+
+    /// <summary>Completes when <see cref="RunAsync"/> first starts.</summary>
+    public Task RunStarted => runStarted.Task;
 
     /// <summary>
     /// Optional task <see cref="RunAsync"/> awaits before returning, letting a test control exactly
@@ -25,6 +31,7 @@ public sealed class FakePublicWebSocketListener : IPublicWebSocketListener
     public async Task RunAsync(CancellationToken cancellationToken)
     {
         RunAsyncCalled = true;
+        runStarted.TrySetResult();
         if (RunAsyncCompletion is { } completion)
         {
             await completion;

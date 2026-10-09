@@ -9,18 +9,18 @@ namespace dovahlink::adapter::identity {
 ///  for peer-ownership bookkeeping, distinct from the separate peer-proof
 ///  token that actually establishes trust.
 class IAdapterInstanceIdGenerator {
-public:
-  virtual ~IAdapterInstanceIdGenerator() = default;
+  public:
+    virtual ~IAdapterInstanceIdGenerator() = default;
 
-  ///  Generates a new, randomly generated identifier.
-  virtual AdapterInstanceId Generate() = 0;
+    ///  Generates a new, randomly generated identifier.
+    virtual AdapterInstanceId Generate() = 0;
 };
 
 ///  @copydoc IAdapterInstanceIdGenerator
 class AdapterInstanceIdGenerator final : public IAdapterInstanceIdGenerator {
-public:
-  ///  @copydoc IAdapterInstanceIdGenerator::Generate
-  AdapterInstanceId Generate() override;
+  public:
+    ///  @copydoc IAdapterInstanceIdGenerator::Generate
+    AdapterInstanceId Generate() override;
 };
 
 } //  namespace dovahlink::adapter::identity

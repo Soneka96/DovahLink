@@ -9,7 +9,7 @@ FixedAdapterIpcPeerProofProvider::FixedAdapterIpcPeerProofProvider(
     : token_(std::move(token)) {}
 
 std::vector<std::byte> FixedAdapterIpcPeerProofProvider::Token() const {
-  return token_;
+    return token_;
 }
 
 } //  namespace dovahlink::adapter::ipc

@@ -98,7 +98,7 @@ installation's authority scope has exactly one owner across processes, and the i
 thread leaves ordinary Host work responsive. Nothing in the running Host uses either foundation.
 
 DovahLink's production-security gate remains **closed**. No hostile-LAN or production
-secure-pairing claim is made. Stage 5A and production LAN exposure remain gated. `sas-pairing`
+secure-pairing claim is made. Stage 5B and production LAN exposure remain gated. `sas-pairing`
 itself remains experimental and pre-alpha, not professionally audited or formally verified. A human
 SAS match is bounded probabilistic evidence under `sas-pairing`'s stated assumptions, not a
 deterministic proof that no attacker mediated the ceremony.
@@ -107,13 +107,13 @@ The current six-digit flow and bearer reconnect remain the running product behav
 `sas-pairing` in the product (the Host listener and driver lifecycle, the interactive Skyrim SAS
 prompt, Flutter SAS rendering and comparison, human MATCH/MISMATCH decisions, and handing a result to
 DovahLink's pairing authorization) belongs to
-[Stage 5A](../../05a-android-wifi-development-path.md#sas-pairing-activation).
+[Stage 5A](../../05a-windows-sas-integration-validation.md#sas-pairing-activation).
 
 ## Relationship to the main roadmap
 
 Normal product progression continued independently of this detour: Phase 5.5 — Version-Impact Audit
 and Stage 5 Closure is complete, so Stage 5 is closed, and the next normal product-planning task is
-the Stage 6 acceptance audit. None of that depends on secure hostile-network first contact. Stage 5A secure Android/Wi-Fi development
+the Stage 6 acceptance audit. None of that depends on secure hostile-network first contact. Stage 5B secure Android/Wi-Fi development
 and production LAN exposure remain gated. This security deviation remains active until an approved
 generic profile and DovahLink's security integration gate pass. It does not change the normal stage
 order, mark S3–S11 complete, or create a new roadmap stage. The P10 authorization above pulls the S3

@@ -12,7 +12,7 @@ Multiple DovahLink instances coexist on one machine without port collisions or a
 
 ### Scope and behavior
 
-- Treat the Phase 1 port as a preference rather than identity; the early Stage 5A path may use
+- Treat the Phase 1 port as a preference rather than identity; the early Stage 5B path may use
   automatic OS-selected ports, while this phase establishes the generalized multi-instance policy.
 - Select another local port when the preferred port is occupied, or use an OS-selected port when no
   deterministic port is required.
@@ -28,7 +28,7 @@ Multiple DovahLink instances coexist on one machine without port collisions or a
 
 ### Dependencies and boundaries
 
-This phase depends on Phases 2 and 9. Stage 5A proves a narrow single-client Android/LAN discovery
+This phase depends on Phases 2 and 9. Stage 5B proves a narrow single-client Android/LAN discovery
 path early; this phase remains responsible for generalized same-machine multi-instance coordination.
 Generalized secure LAN discovery belongs to Stage 22.
 
