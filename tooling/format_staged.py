@@ -1,4 +1,4 @@
-"""Format staged repository code without touching unrelated working-tree files."""
+"""Format selected repository source files with shared staged and full-tree checks."""
 
 from __future__ import annotations
 
@@ -55,6 +55,14 @@ def staged_paths(repository_root: Path) -> list[str]:
         repository_root,
         ["diff", "--cached", "--name-only", "-z", "--diff-filter=ACMR"],
     )
+    if result.returncode != 0:
+        raise RuntimeError(result.stderr.decode("utf-8").strip())
+    return parse_git_paths(result.stdout)
+
+
+def tracked_paths(repository_root: Path) -> list[str]:
+    """Return every path tracked by the repository index, including ignored tracked files."""
+    result = run_git(repository_root, ["ls-files", "--cached", "--full-name", "-z"])
     if result.returncode != 0:
         raise RuntimeError(result.stderr.decode("utf-8").strip())
     return parse_git_paths(result.stdout)
@@ -123,12 +131,19 @@ def is_ignored(repository_root: Path, path: str) -> bool:
 
 
 def supported_paths(repository_root: Path, paths: list[str]) -> list[str]:
-    """Filter ignored, missing, and unsupported paths while preserving input order."""
+    """Filter ignored, missing, symlinked, and unsupported paths in input order."""
+    resolved_root = repository_root.resolve()
     selected: list[str] = []
     for path in paths:
         if formatter_group(path) is None or is_ignored(repository_root, path):
             continue
-        if not (repository_root / path).is_file():
+        candidate = repository_root / path
+        resolved_candidate = candidate.resolve()
+        if (
+            candidate.is_symlink()
+            or not resolved_candidate.is_relative_to(resolved_root)
+            or not candidate.is_file()
+        ):
             continue
         selected.append(path)
     return selected
@@ -391,8 +406,13 @@ def format_paths(
     repository_root: Path,
     paths: list[str],
     check: bool,
+    require_review: bool = True,
 ) -> int:
-    """Format selected paths and require review before they can be committed."""
+    """Format selected paths and optionally stop when formatting changes need review.
+
+    Args:
+        require_review: Return nonzero after changes so staged-file formatting can stop a commit.
+    """
     selected = supported_paths(repository_root, paths)
     if not selected:
         return 0
@@ -410,12 +430,14 @@ def format_paths(
         return 1
     changed = sorted(set(selected).intersection(unstaged_paths(repository_root)))
     if changed:
-        print(
-            "Formatting changed files; review and stage them before retrying:\n"
-            + "\n".join(f"  {path}" for path in changed),
-            file=sys.stderr,
-        )
-        return 1
+        message = "Formatting changed files; review and stage them manually:\n"
+        if require_review:
+            print(
+                message + "\n".join(f"  {path}" for path in changed),
+                file=sys.stderr,
+            )
+            return 1
+        print(message + "\n".join(f"  {path}" for path in changed))
     return 0
 
 
@@ -434,30 +456,56 @@ def parse_arguments(arguments: list[str] | None) -> argparse.Namespace:
         "--base-ref",
         help="check files changed since this Git ref, including local changes",
     )
+    parser.add_argument(
+        "--all-tracked",
+        action="store_true",
+        help="select all tracked files supported by the formatter matrix",
+    )
     return parser.parse_args(arguments)
 
 
 def main(arguments: list[str] | None = None) -> int:
-    """Run the staged formatter hook, an explicit-path check, or a base-ref check."""
+    """Run staged, explicit-path, base-ref, or all-tracked formatting."""
     options = parse_arguments(arguments)
     repository_root = REPOSITORY_ROOT
     try:
-        if options.paths is not None and (
+        swallowed_selector = options.paths is not None and any(
+            argument in {"--base-ref", "--all-tracked"}
+            or argument.startswith("--base-ref=")
+            or argument.startswith("--all-tracked=")
+            for argument in options.paths
+        )
+        selector_count = sum(
+            [
+                options.paths is not None,
+                options.base_ref is not None,
+                options.all_tracked,
+            ]
+        )
+        base_ref_conflict = options.paths is not None and (
             options.base_ref is not None
             or any(
                 argument == "--base-ref" or argument.startswith("--base-ref=")
                 for argument in options.paths
             )
-        ):
-            raise RuntimeError("Use either --paths or --base-ref, not both.")
-        paths = (
-            options.paths
-            if options.paths is not None
-            else comparison_paths(repository_root, options.base_ref)
-            if options.base_ref is not None
-            else staged_paths(repository_root)
         )
-        if options.paths is None and options.base_ref is None:
+        if base_ref_conflict:
+            raise RuntimeError("Use either --paths or --base-ref, not both.")
+        if selector_count > 1 or swallowed_selector:
+            raise RuntimeError("Use only one of --paths, --base-ref, or --all-tracked.")
+        if options.paths is not None:
+            paths = options.paths
+        elif options.all_tracked:
+            paths = tracked_paths(repository_root)
+        elif options.base_ref is not None:
+            paths = comparison_paths(repository_root, options.base_ref)
+        else:
+            paths = staged_paths(repository_root)
+        if (
+            options.paths is None
+            and options.base_ref is None
+            and not options.all_tracked
+        ):
             partial = supported_paths(
                 repository_root,
                 partial_staged_paths(paths, unstaged_paths(repository_root)),
@@ -469,6 +517,10 @@ def main(arguments: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 1
+        if options.all_tracked:
+            return format_paths(
+                repository_root, paths, options.check, require_review=False
+            )
         return format_paths(repository_root, paths, options.check)
     except RuntimeError as error:
         print(str(error), file=sys.stderr)

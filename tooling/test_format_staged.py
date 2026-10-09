@@ -4,7 +4,7 @@ import re
 import subprocess
 import tempfile
 import unittest
-from contextlib import redirect_stderr
+from contextlib import redirect_stderr, redirect_stdout
 from io import StringIO
 from pathlib import Path
 from unittest.mock import patch
@@ -13,7 +13,7 @@ from tooling import format_staged
 
 
 class FormatStagedTests(unittest.TestCase):
-    """Verify the formatter hook's safety rules and command mapping."""
+    """Verify formatter selection safety rules and command mapping."""
 
     def test_partial_staged_paths_returns_only_overlapping_paths(self) -> None:
         """Reject only files that have both index and worktree changes."""
@@ -71,6 +71,36 @@ class FormatStagedTests(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, "git failed"):
                     format_staged.comparison_paths(Path("."), "main")
 
+    def test_tracked_paths_preserves_spaces_and_uses_nul_delimited_git_output(
+        self,
+    ) -> None:
+        """Select tracked paths without splitting filenames that contain spaces."""
+        with patch.object(
+            format_staged,
+            "run_git",
+            return_value=subprocess.CompletedProcess(
+                [], 0, stdout=b"tooling/source file.py\0README.md\0", stderr=b""
+            ),
+        ) as run_git:
+            paths = format_staged.tracked_paths(Path("."))
+
+        self.assertEqual(paths, ["tooling/source file.py", "README.md"])
+        run_git.assert_called_once_with(
+            Path("."), ["ls-files", "--cached", "--full-name", "-z"]
+        )
+
+    def test_tracked_paths_fails_closed_when_git_selection_fails(self) -> None:
+        """Reject an all-tracked check when Git cannot enumerate the index."""
+        with patch.object(
+            format_staged,
+            "run_git",
+            return_value=subprocess.CompletedProcess(
+                [], 128, stdout=b"", stderr=b"not a repository"
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "not a repository"):
+                format_staged.tracked_paths(Path("."))
+
     def test_formatter_group_selects_supported_extensions(self) -> None:
         """Map the selected core-language extensions and leave other files unsupported."""
         self.assertEqual(format_staged.formatter_group("app/main.dart"), "dart")
@@ -80,6 +110,136 @@ class FormatStagedTests(unittest.TestCase):
             format_staged.formatter_group("tooling/check.ps1"), "powershell"
         )
         self.assertIsNone(format_staged.formatter_group("protocol/schema.json"))
+
+    def test_supported_paths_excludes_markdown_and_ignored_generated_sources(
+        self,
+    ) -> None:
+        """Never select Markdown, and omit generated paths covered by Git ignore rules."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "README.md").write_text("#bad\n---\n", encoding="utf-8")
+            (root / "tooling").mkdir()
+            source_path = "tooling/source file.py"
+            generated_path = "tooling/generated.py"
+            (root / source_path).write_text("print('ok')\n", encoding="utf-8")
+            (root / generated_path).write_text("generated\n", encoding="utf-8")
+            with patch.object(
+                format_staged,
+                "is_ignored",
+                side_effect=lambda _root, path: path == generated_path,
+            ) as is_ignored:
+                selected = format_staged.supported_paths(
+                    root, ["README.md", source_path, generated_path]
+                )
+
+        self.assertEqual(selected, [source_path])
+        self.assertNotIn(
+            "README.md", [call.args[1] for call in is_ignored.call_args_list]
+        )
+        commands = format_staged.formatter_commands(root, selected, check=True)
+        self.assertEqual(commands[0][1][-1], source_path)
+
+    def test_full_tree_check_skips_markdown_and_git_ignored_generated_files(
+        self,
+    ) -> None:
+        """Keep malformed Markdown and tracked generated files out of formatter commands."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "tooling").mkdir()
+            (root / ".gitignore").write_text("tooling/generated.py\n", encoding="utf-8")
+            source_path = "tooling/source file.py"
+            generated_path = "tooling/generated.py"
+            markdown_path = "README.md"
+            contents = {
+                source_path: b"print(  'needs formatting')\n",
+                generated_path: b"generated code\n",
+                markdown_path: b"#bad\n---\n",
+            }
+            for path, value in contents.items():
+                (root / path).write_bytes(value)
+            subprocess.run(["git", "init", "--quiet"], cwd=root, check=True)
+            subprocess.run(
+                ["git", "add", "-f", *contents],
+                cwd=root,
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+            )
+
+            paths = format_staged.tracked_paths(root)
+            with patch.object(
+                format_staged, "execute_commands", return_value=0
+            ) as execute_commands:
+                result = format_staged.format_paths(root, paths, check=True)
+
+            self.assertEqual(result, 0)
+            execute_commands.assert_called_once()
+            commands = execute_commands.call_args.args[1]
+            flattened = [argument for _, command in commands for argument in command]
+            self.assertIn(source_path, flattened)
+            self.assertNotIn(generated_path, flattened)
+            self.assertNotIn(markdown_path, flattened)
+            for path, value in contents.items():
+                self.assertEqual((root / path).read_bytes(), value)
+
+    def test_supported_paths_excludes_symlinks(self) -> None:
+        """Do not let fix mode follow a tracked source symlink outside the repository."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "tooling").mkdir()
+            source_path = "tooling/source.py"
+            symlink_path = "tooling/external.py"
+            (root / source_path).write_text("print('ok')\n", encoding="utf-8")
+            (root / symlink_path).write_text("print('outside')\n", encoding="utf-8")
+            with (
+                patch.object(format_staged, "is_ignored", return_value=False),
+                patch.object(
+                    Path,
+                    "is_symlink",
+                    autospec=True,
+                    side_effect=lambda candidate: candidate.name == "external.py",
+                ),
+            ):
+                selected = format_staged.supported_paths(
+                    root, [source_path, symlink_path]
+                )
+
+        self.assertEqual(selected, [source_path])
+
+    def test_supported_paths_excludes_candidates_resolving_outside_repository(
+        self,
+    ) -> None:
+        """Do not follow a repository path whose parent resolves outside the checkout."""
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            (root / "tooling").mkdir()
+            source_path = "tooling/source.py"
+            outside_path = "linked/tooling.py"
+            (root / source_path).write_text("print('ok')\n", encoding="utf-8")
+            (root / outside_path).parent.mkdir(parents=True)
+            (root / outside_path).write_text("print('outside')\n", encoding="utf-8")
+            original_resolve = Path.resolve
+            resolved_outside = root.parent / "outside.py"
+
+            def resolve_candidate(candidate: Path, strict: bool = False) -> Path:
+                if candidate.as_posix().endswith("/linked/tooling.py"):
+                    return resolved_outside
+                return original_resolve(candidate, strict=strict)
+
+            with (
+                patch.object(format_staged, "is_ignored", return_value=False),
+                patch.object(
+                    Path,
+                    "resolve",
+                    autospec=True,
+                    side_effect=resolve_candidate,
+                ),
+            ):
+                selected = format_staged.supported_paths(
+                    root, [source_path, outside_path]
+                )
+
+        self.assertEqual(selected, [source_path])
 
     def test_parse_arguments_accepts_option_looking_paths(self) -> None:
         """Capture a repository path beginning with a hyphen after `--paths`."""
@@ -94,6 +254,13 @@ class FormatStagedTests(unittest.TestCase):
 
         self.assertTrue(options.check)
         self.assertEqual(options.base_ref, "main")
+
+    def test_parse_arguments_accepts_all_tracked_selection(self) -> None:
+        """Select every tracked supported source for repository-wide validation."""
+        options = format_staged.parse_arguments(["--check", "--all-tracked"])
+
+        self.assertTrue(options.check)
+        self.assertTrue(options.all_tracked)
 
     def test_parse_git_paths_preserves_non_utf8_bytes(self) -> None:
         """Decode Git paths without crashing on bytes outside UTF-8."""
@@ -699,13 +866,49 @@ class FormatStagedTests(unittest.TestCase):
         ):
             result = format_staged.main(["--check", "--base-ref", "main"])
 
-        self.assertEqual(result, 0)
+            self.assertEqual(result, 0)
         comparison_paths.assert_called_once_with(format_staged.REPOSITORY_ROOT, "main")
         format_paths.assert_called_once_with(
             format_staged.REPOSITORY_ROOT,
             ["app/lib/main.dart"],
             True,
         )
+
+    def test_main_uses_all_tracked_paths_without_partial_stage_checks(self) -> None:
+        """Check all tracked files without applying staged-file safety restrictions."""
+        with (
+            patch.object(
+                format_staged, "tracked_paths", return_value=["tooling/check.py"]
+            ) as tracked_paths,
+            patch.object(format_staged, "unstaged_paths") as unstaged_paths,
+            patch.object(format_staged, "format_paths", return_value=0) as format_paths,
+        ):
+            result = format_staged.main(["--check", "--all-tracked"])
+
+        self.assertEqual(result, 0)
+        tracked_paths.assert_called_once_with(format_staged.REPOSITORY_ROOT)
+        unstaged_paths.assert_not_called()
+        format_paths.assert_called_once_with(
+            format_staged.REPOSITORY_ROOT,
+            ["tooling/check.py"],
+            True,
+            require_review=False,
+        )
+
+    def test_main_rejects_all_tracked_with_other_selection_modes(self) -> None:
+        """Reject ambiguous all-tracked selection, including options swallowed by paths."""
+        for arguments in (
+            ["--all-tracked", "--base-ref", "main"],
+            ["--all-tracked", "--paths", "tooling/check.py"],
+            ["--paths", "tooling/check.py", "--all-tracked"],
+        ):
+            with self.subTest(arguments=arguments):
+                stderr = StringIO()
+                with redirect_stderr(stderr):
+                    result = format_staged.main(arguments)
+
+                self.assertEqual(result, 1)
+                self.assertIn("Use only one of", stderr.getvalue())
 
     def test_main_rejects_paths_and_a_base_ref_together(self) -> None:
         """Reject ambiguous selection between explicit paths and a base ref."""
@@ -780,6 +983,29 @@ class FormatStagedTests(unittest.TestCase):
 
         self.assertEqual(result, 0)
         run_git.assert_not_called()
+
+    def test_format_paths_all_tracked_fix_succeeds_after_reviewable_changes(
+        self,
+    ) -> None:
+        """Apply a full-tree fix successfully while leaving changes unstaged for review."""
+        repository_root = Path(".")
+        selected = ["tooling/check.py"]
+        stdout = StringIO()
+        with (
+            patch.object(format_staged, "supported_paths", return_value=selected),
+            patch.object(
+                format_staged, "index_snapshot", side_effect=[b"same", b"same"]
+            ),
+            patch.object(format_staged, "execute_commands", return_value=0),
+            patch.object(format_staged, "unstaged_paths", return_value=selected),
+            redirect_stdout(stdout),
+        ):
+            result = format_staged.format_paths(
+                repository_root, selected, check=False, require_review=False
+            )
+
+        self.assertEqual(result, 0)
+        self.assertIn("tooling/check.py", stdout.getvalue())
 
 
 if __name__ == "__main__":

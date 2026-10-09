@@ -81,6 +81,17 @@ a required formatter is unavailable, and leaves formatter changes in the worktre
 formatting change makes the hook exit nonzero; review the diff, stage the intended files manually,
 and retry the commit.
 
+Check or fix formatting across all tracked supported source files with the same formatter matrix:
+
+```powershell
+python tooling/format_staged.py --check --all-tracked
+python tooling/format_staged.py --all-tracked
+```
+
+The check does not modify files. The fix command leaves changes unstaged for review. Both commands
+exclude unsupported file types, including Markdown, and tracked generated files matched by the
+repository's `.gitignore` rules.
+
 Enable it once per checkout:
 
 ```text
@@ -96,7 +107,7 @@ The formatter matrix is:
 | --- | --- |
 | Dart (`.dart`) | `dart format` and `dart run tidy_imports` from the owning package root |
 | C/C++ (`.cc`, `.cpp`, `.h`, `.hpp`) | `clang-format` |
-| C# (`.cs`) | `dotnet format whitespace`, limited to the owning project and staged paths |
+| C# (`.cs`) | `dotnet format whitespace`, limited to the owning project and selected paths |
 | Python (`.py`) | `ruff format` |
 | PowerShell (`.ps1`) | PSScriptAnalyzer's `Invoke-Formatter` through `pwsh` |
 
