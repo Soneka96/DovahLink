@@ -44,6 +44,19 @@ dangling links into it (D-1 in Section 8).
 | Open PRs | None. The unauthenticated GitHub API returned `[]` for `pulls?state=open`. |
 | Active branches | Six recently updated remote branches were compared to `origin/main` (`feature/sas-pairing-host-integration`, `chore/stage-5-version-audit-and-closeout`, `fix/phase-5-4-overview-parity-and-roadmap-rebaseline`, `refactor/authoritative-state-store`, `investigate/partial-state-after-hot-restart`, `docs/5a-windows-sas-rebaseline`). Each has zero commits ahead of `main`, so none carries unmerged work. |
 
+**Audit revision (2026-10-09).** An independent review raised four issues, resolved on the same
+branch: ARCH-001 conflated connection-lifecycle correctness with gameplay-value retention; ARCH-004
+proposed admission as the only subscription-restoration trigger, missing trust upgrades on an
+existing session; ARCH-006 proposed a new domain-registration abstraction although
+`StateDomainDefinition<T>` already exists; and the report had no permanent location. The revision
+re-read the cited source. Between the audited commit and this revision only Markdown under
+`roadmap/deviations/` changed (this record and its index entry; `git diff --stat 64e8d158 HEAD` lists
+no source or test file), so every line reference still points at `main@64e8d158`. In the same
+revision task the maintainer approved two future product requirements, persistent offline-accessible
+Overviews and Skyrim gameplay readiness; this record is where that approval is recorded, and no
+roadmap stage owns them yet. Additional SDK persistence, Host, and Adapter source was read for them;
+that reading is source inspection, not runtime validation.
+
 **Baseline checks (observations, not behavior validation)**
 
 | Check | Result |
@@ -74,7 +87,9 @@ DovahLink's SDK/Flutter split is in good structural condition. The SDK is a cohe
 engine with a documented composition root, a single owner for session state, a single inbound reader
 with correlation, and generation-guarded teardown. The Flutter app consumes only the SDK's public
 barrel, mirrors SDK values into Redux, and does not re-implement reconnect, authentication, pairing
-sequencing, revision handling, or subscription recovery. No Critical finding was confirmed.
+sequencing, revision handling, or subscription recovery. It does issue its own redundant
+desired-area requests on top of SDK restoration (ARCH-001, ARCH-004, ARCH-007); those are intent
+requests, not a competing recovery engine. No Critical finding was confirmed.
 
 **Verified strengths**
 
@@ -149,7 +164,7 @@ finding.
 | Initial retry and established-session recovery | SDK | `ReconnectService` | Project status only | ARCH-001 (transient `disconnected`) |
 | Pairing protocol sequencing | SDK | `PairingService`, `DovahLinkPairing` | Invoke; own dialog phase, code digits, countdown clocks | ARCH-002 |
 | Pairing UI lifecycle (`PairingPhase`) | Flutter | None | Reducer-driven presentation lifecycle | Suspected S-1 |
-| Subscription intent and recovery | SDK | `SubscriptionService`, recovery services | Decides which areas the Overview wants | ARCH-007 |
+| Subscription intent and recovery | SDK | `SubscriptionService`, recovery services | Decides which areas the Overview wants | ARCH-004 (restoration triggers spread), ARCH-007 |
 | Revision and identity tracking, stale suppression | SDK | `StateRevisionTracker`, `StateMessageHandler` | None | None |
 | Domain state and typed streams | SDK | Models and modules | Redux mirror, unchanged | ARCH-006 |
 | Typed failures and operation outcomes | SDK | Typed exceptions and enums | Map to user wording | ARCH-007 (invalidation classification) |
@@ -168,10 +183,17 @@ named. No finding below proposes a security, pairing-semantics, protocol, or per
 - **Severity:** High. **Evidence:** Confirmed (code and SDK test); not exercised end to end.
 - **Paths and symbols:** `sdk/dart/dovahlink_client/lib/src/internal/session/session_service.dart` `_beginRecoveryAfterOrdinaryTransportLoss` (434-454); `connection_teardown_coordinator.dart` `tearDown` (56-90); `session_state.dart` `resetAfterTeardown` (312-331) and `markReconnecting` (219); `app/lib/features/live_state/presentation/state/live_state.middleware.dart` `_connectionStateChanged` (136-157), `_endAdmittedSession` (317-330), `_ensureTrustedSession` (172-184).
 - **Evidence:** Ordinary loss from `connected` tears down with `preserveReconnecting: true`, but `resetAfterTeardown` only preserves `reconnecting` when the session was already recovering, so the state goes `connected → disconnected`, and only a later queued step calls `markReconnecting`. The SDK test `dovahlink_client_test.dart:5730` asserts the sequence `connected, disconnected, reconnecting, reauthenticating, connected` and comments that this is intended. The app middleware treats every `disconnected` as the end of the admitted session: it cancels all eight listeners, clears `_requestedDesiredAreaStores`, and dispatches `SessionLiveStateResetAction`. The app test `live_state.middleware_test.dart:738` ("ordinary reconnect keeps projection listeners") feeds `reconnecting → reauthenticating → connected` and so never produces the `disconnected` the real SDK emits. `ai/context/flutter/architecture.md` (Live gameplay state) states that ordinary reconnect keeps those listeners attached.
-- **Current behavior:** After a real transport drop the app tears down and re-attaches its listeners, clears the Overview slice, and re-issues eight sequential `subscribeStateArea` calls on top of the SDK's own `restoreDesiredStateAreas`.
-- **Why problematic:** A consumer cannot tell a final disconnect from the first step of recovery. Documented behavior, test fake, and real SDK disagree. The SDK itself also clears gameplay values at teardown (`onTeardown` closure in `dovahlink_client.dart:243-250` calls `SubscriptionService.onSessionEnded`, which resets every area to `notSubscribed`), so the documented "stale retained values across reconnect" is not what either side does for transport loss.
+- **SDK value reset (revision evidence):** Independently of the connection-state sequence, the SDK discards gameplay values on every teardown. The `onTeardown` closure (`dovahlink_client.dart:243-250`) calls `SubscriptionService.onSessionEnded` (`subscription_service.dart:229`), which bumps the session generation, clears the accepted set, and calls `StateMessageHandler.setSubscribedStateAreas({})`. That resets every previously accepted area through `resetToNotSubscribed` (`state_message_handler.dart:85`, `state_revision_tracker.dart:133`), and `StateSynchronization.notSubscribed()` carries `value: null` with no authority, play context, or revision (`state_synchronization.dart:39-44`). Desired intent survives (`onSessionEnded` does not touch `_desiredStateAreas`); values do not.
+- **Current behavior:** After a real transport drop the app tears down and re-attaches its listeners, clears the Overview slice, and re-issues eight sequential `subscribeStateArea` calls on top of the SDK's own `restoreDesiredStateAreas`. Even without the app reset, every area the Host had accepted would already have been reset by the SDK to `notSubscribed` with no value.
+- **Why problematic:** A consumer cannot tell a final disconnect from the first step of recovery. Documented behavior, test fake, and real SDK disagree. The documented "stale retained values across reconnect" (`ai/context/flutter/architecture.md`, Live gameplay state) is not what either side does for transport loss.
 - **Consequence if unchanged:** Redundant subscribe traffic and a visible Overview reset on every drop; any new consumer must rediscover the transient state; tests keep passing against a state sequence production never emits.
-- **Recommended correction:** A maintainer decision is needed first because the connection-state sequence is public SDK behavior: either (a) the SDK stops publishing `disconnected` between `connected` and `reconnecting` when recovery will follow, or (b) the documented contract is changed to say the transient is part of the API and the app handles it. Either way the app test must be driven by the real sequence (for example an SDK-level contract fixture).
+- **Four separate concerns.** This finding is only the first. They must not be merged into one change, and fixing an earlier one does not deliver a later one:
+  1. *Connection-lifecycle correctness* — the public `DovahLinkConnectionState` sequence on ordinary loss and how consumers interpret it. This is ARCH-001's defect.
+  2. *In-memory gameplay retention* — whether a domain's last accepted value stays visible, explicitly marked non-current, while the SDK recovers. Today it does not (the value reset above). Correcting item 1 alone leaves the Overview empty during every reconnect, because the trackers are already reset to `notSubscribed`.
+  3. *Durable historical snapshots* — last-known values that survive application or computer restart. Not implemented and not an architecture defect; a future requirement approved in this revision (Section 1).
+  4. *Offline Overview presentation* — showing historical values when no session exists. Not implemented; an approved future requirement.
+- **Recommended correction (item 1 only):** A maintainer decision is needed first because the connection-state sequence is public SDK behavior: either (a) the SDK stops publishing `disconnected` between `connected` and `reconnecting` when recovery will follow, or (b) the documented contract is changed to say the transient is part of the API and the app handles it. Either way the app test must be driven by the real sequence (for example an SDK-level contract fixture), and the app must end an admitted observation only on a terminal state. The `ai/context/flutter/architecture.md` sentence about retained values is corrected to match actual SDK behavior in the same change, not left implying item 2.
+- **Compatibility with later work:** Item 2 is a separate SDK decision (what `status`, `value`, `playContextId`, and `revision` a tracker exposes between teardown and the next accepted baseline). Whatever it decides must keep values from the ended session distinguishable from newly synchronized ones and must never assign them a fabricated revision or identity. Items 3 and 4 must not be implemented inside the reconnect fix: durable persistence belongs to a separate SDK capability that reads from the live trackers and never writes into them.
 - **Risk of changing:** Medium. Touches `SessionState` transitions that `KnownHostSessionState`, pairing status, and presence evidence also read. Protected by `session_state_test.dart`, `session_service_test.dart`, and `dovahlink_client_test.dart`.
 - **Protecting tests:** SDK `dovahlink_client_test.dart:5730`; app `live_state.middleware_test.dart:738`, which currently does not cover the real path.
 - **SAS:** Independent of SAS. Safe before SAS.
@@ -206,10 +228,15 @@ named. No finding below proposes a security, pairing-semantics, protocol, or per
 ### ARCH-004: Public facades carry protocol and lifecycle logic
 
 - **Severity:** Medium. **Evidence:** Confirmed.
-- **Paths and symbols:** `dovahlink_connections.dart` `renameDevice` (154-179) and `disconnect` (183-189); `dovahlink_client.dart` `close` (513-542); `dovahlink_pairing.dart` four `restoreDesiredStateAreas` calls (123, 137, 163, 173); `session_admission_service.dart:66-68`.
-- **Evidence:** `renameDevice` builds the request, applies `RequestPolicy`, decodes the reply, and reports protocol violations inside the facade. The four-step cancel sequence (`cancelPendingAuthentication`, `stopInitialConnectionRetry`, `stopRecovery`, `clearDesiredStateAreas`) is duplicated in `disconnect` and `close`, and `connectWithInitialRetry` repeats a subset. Trusted admission already restores desired areas, and the pairing facade restores them again after pairing recovery. `api-design.md` says these groups are views that do not own behavior.
-- **Why problematic:** Anything that ends a session must remember the sequence; a fifth caller will miss a step. Restoration being triggered from two layers makes ownership unclear.
-- **Recommended correction:** Give deliberate-disconnect and rename each a service owner; make admission the single trigger for restoration after pairing becomes trusted.
+- **Paths and symbols:** `dovahlink_connections.dart` `renameDevice` (154-179) and `disconnect` (183-189); `dovahlink_client.dart` `close` (513-542); `dovahlink_pairing.dart` four `restoreDesiredStateAreas` calls (123, 137, 163, 172); `session_admission_service.dart:66-68`; `session_trust_service.dart` `markTrusted`; `pairing_service.dart` `_authenticate` (167-186), `acknowledgeTrustedCredential` (405-501, `markTrusted` at 494), `recoverPendingPairing` (505-548); app `live_state.middleware.dart` `_sessionTrusted` (161-167, on `PairingSessionTrustedAction` at 84).
+- **Evidence:** `renameDevice` builds the request, applies `RequestPolicy`, decodes the reply, and reports protocol violations inside the facade. The four-step cancel sequence (`cancelPendingAuthentication`, `stopInitialConnectionRetry`, `stopRecovery`, `clearDesiredStateAreas`) is duplicated in `disconnect` and `close`, and `connectWithInitialRetry` repeats a subset. `api-design.md` says these groups are views that do not own behavior.
+- **Restoration evidence (revised).** A session becomes trusted through exactly two SDK paths, and both are legitimate restoration triggers:
+  - *Trusted admission.* `SessionAdmissionService.admitSession` restores desired areas only when the admitted `trustState` is `trusted` (`session_admission_service.dart:66-68`). This covers trusted initial admission of a Known Host and ordinary reconnect, because `ReconnectService` re-authenticates through `AuthenticationService`, which admits through this service.
+  - *Trust upgrade of an existing session.* A session admitted `unpaired` never passes the admission check. It becomes trusted later only through `ISessionTrustService.markTrusted()`, which only `PairingService.acknowledgeTrustedCredential` calls (`pairing_service.dart:494`), and only while the acknowledged session is still current. That path is reached from successful code confirmation (`confirmPairingCodeAndAcknowledge`, 400) and from pending-pairing recovery (`recoverPendingPairing`, 525), which `_authenticate` invokes for every `unpaired` hello (174-177); `recoverPendingPairing` itself returns `unpaired` unless a pending `CONFIRMING` record exists for the same Host.
+  - The four facade calls therefore are not duplicates of admission: `authenticateCandidate` and `authenticateKnownHost` restore when `hello` was `unpaired` but recovery produced `trusted`; `confirmCode` restores after confirmation; `recoverPendingPairing` restores when recovery returns `trusted`. Removing them while keeping admission as the only trigger would leave a freshly paired session with no restored subscriptions.
+  - The facade placement has two weaknesses. `confirmCode` restores unconditionally, even when `acknowledgeTrustedCredential` skipped `markTrusted` because the session changed; the request then fails its `requiredTrustState: trusted` policy, so this is harmless today but shows the decision sits in the wrong layer. And Flutter adds a third trigger: `_sessionTrusted` reacts to the app's own `PairingSessionTrustedAction` and runs `_ensureTrustedSession`, which issues its own `subscribeStateArea` sequence.
+- **Why problematic:** Anything that ends a session must remember the sequence; a fifth caller will miss a step. Restoration policy is spread across an internal service, a public facade, and the app, so no single owner answers "when does a session that became trusted restore its desired areas?"
+- **Recommended correction:** Give deliberate-disconnect and rename each a service owner. Move restoration policy into one SDK-internal owner that reacts to *the session becoming trusted*, from either path: trusted admission or a successful `markTrusted` on the current session. The five cases that must keep restoring are: trusted initial admission, ordinary reconnect, trust upgrade of an existing unpaired session, successful pairing confirmation, and pending-pairing recovery. The facade calls are removed only after this owner covers all five, each with its own test, and the owner must not restore for an `unpaired` admission, for a stale session, or after administrative invalidation (desired areas stay dormant until an explicit retry, `api-design.md` "Subscription intent versus mechanics"). The app's `_sessionTrusted` subscribe sequence is then removed with T6's removal of app-side subscription requests, so Flutter only expresses intent and observes streams. No restoration trigger is eliminated; each moves to one owner.
 - **Risk of changing:** Medium: ordering of cancellation matters. Protected by `dovahlink_connections_test.dart`, `dovahlink_pairing_test.dart`, `dovahlink_client_test.dart`.
 - **SAS:** Better after 5A.7/5A.8 (they extend pairing operations).
 - **Follow-up PR:** T3 (shared with ARCH-003).
@@ -231,8 +258,13 @@ named. No finding below proposes a security, pairing-semantics, protocol, or per
 - **Paths and symbols (SDK):** `game_time_state_module.dart`, `player_location_state_module.dart`, `tracked_quests_state_module.dart` (identical 48-line shape), `character_state_module.dart`, `dovahlink_current_host.dart` (one constructor field, getter, and interface member per non-Character domain), `dovahlink_client.dart:158-172, 210-217, 292-299`, `shared/enums.dart` (`DovahLinkStateArea`), `lib/dovahlink_client.dart` exports.
 - **Paths and symbols (app):** `live_state.middleware.dart` (`_requiredAreas`, eight `_observe` calls), `live_state.actions.dart`, `session_live_state.state.dart`, `live_state.reducer.dart`, `live_state.selectors.dart`, `session_overview.viewmodel.dart`.
 - **Evidence:** `ai/context/sdk/architecture.md` ("State synchronization composition") says root facades must not gain one field or constructor dependency for every state area; Game Time, Location, and Tracked Quests each did. Recovery is hand-wired for Level only (`dovahlink_client.dart:210-216`, plus an `ICharacterStateModule.levelDomain` getter that exists only for that), so a future Event-mode domain can silently miss recovery.
+- **Existing mechanism (revised).** The registration the original recommendation asked for already exists. `StateDomainDefinition<T>` (`internal/state/state_domain_definition.dart`) already binds one area's name, decoder, availability rule, tracker, and Event support, and `StateMessageHandler` already dispatches by definition without branching on area names (`state_message_handler.dart`). `StateRecoveryService<T>` already takes a definition. The gaps are narrower:
+  - Event support is a private constructor flag (`_supportsEvents`), not readable through `IStateDomainDefinition<T>`, so the root cannot derive which definitions need recovery and wires Level by name. Level is the only Event domain today (`character_state_module.dart:124`).
+  - `GameTimeStateModule`, `PlayerLocationStateModule`, and `TrackedQuestsStateModule` repeat the same single-definition module shape (47-48 lines each), each with its own interface.
+  - `IDovahLinkCurrentHost` gains one constructor parameter, field, and getter per non-Character domain.
 - **Why problematic:** Every new domain (map, inventory, equipment in the roadmap) repeats ~10 edits per side with no compile-time reminder to wire recovery.
-- **Recommended correction:** SDK only: a small domain registration abstraction so a module declares its area, decoder, availability rule, and event support once and recovery is derived from it, and `currentHost` exposes domains without a field each. Do not create one global stream or merge domain modules. App-side repetition is presentation-owned and should be handled when the next domain is actually added.
+- **Recommended correction:** Extend and consolidate the existing mechanism; do not add a second registration system. (1) Make Event support readable on `IStateDomainDefinition<T>` and have the composition root create one `StateRecoveryService<T>` for every registered Event-capable definition, removing `levelDomain`. (2) Collapse the three identical single-definition modules onto one generic internal module over `StateDomainDefinition<T>`, keeping a distinct typed definition per domain. (3) Stop the per-domain growth of `currentHost` for *future* domains by grouping them the way `currentHost.character` already groups Character domains; existing public getters (`playerLocationChanges`, `gameTimeChanges`, `trackedQuestsChanges`, the `character` group) stay unchanged. Public typed `Stream<StateSynchronization<T>>` streams and exported models are preserved, and no global stream is created. App-side repetition is presentation-owned and should be handled when the next domain is actually added.
+- **Relevance to future capabilities:** The same set of registered definitions is the natural single source for any later SDK capability that must enumerate domains (for example a historical-snapshot capability that records each domain's last accepted value). That capability would read the definitions and trackers; it must not register a parallel definition list or apply its data back through the trackers.
 - **Risk of changing:** Medium. Protected by the module tests and `state_*` tests.
 - **SAS:** Independent of SAS.
 - **Follow-up PR:** T5.
@@ -268,7 +300,7 @@ Source documents were not edited. Each row proposes a correction for maintainer 
 | D-2 | Documentation says X, code does Y | `ai/context/sdk/architecture.md` "Internal composition" | States `ConnectionTeardownCoordinator` and `PendingOperationTransmitter` have their own contract; only `MessageRouter` does (`IMessageRouter`). `PendingOperationBookkeeping`, `LifecycleOperationQueue`, `ClientIdResolver`, `ClientIdCache` also have none. | Either add the contracts or record these as accepted pre-existing exceptions under the "phase-forward" rule. |
 | D-3 | Outdated description | Same section: "nine major Services" | `HostAvailabilityService`, `KnownHostPresenceMonitor`, and discovery are behavior-bearing and not in the list. | List them or define the category. |
 | D-4 | Documentation says X, code does Y | Same document, "Session-state ownership" | Says the root never keeps `SessionState` as a field; `dovahlink_client.dart:314` does. Also says Authentication's only caches are `clientId`/`hostVersion`; code also caches `_lastHelloResult`. | Fix the code (ARCH-003) or the text. |
-| D-5 | Contradiction with behavior | `ai/context/flutter/architecture.md` "Live gameplay state" | Says ordinary reconnect keeps listeners attached; real SDK emits a transient `disconnected` (ARCH-001). | Resolve with ARCH-001's decision. |
+| D-5 | Contradiction with behavior | `ai/context/flutter/architecture.md` "Live gameplay state" | Says ordinary reconnect keeps listeners attached and that stale retained values stay distinguishable; real SDK emits a transient `disconnected` and resets every accepted area to `notSubscribed` with no value on teardown (ARCH-001). | Resolve the listener sentence with ARCH-001's decision; describe value retention only as the SDK actually implements it. |
 | D-6 | Ambiguous ownership | `flutter/architecture.md` "Feature call chain" versus `sdk/api-design.md:76-78` | One forbids forwarding layers, the other keeps them with no exit criterion. | Record the removal condition and owner (ARCH-002). |
 | D-7 | Outdated description | `ARCHITECTURE.md:17` | Says the SDK "is added when the Dart Client SDK Foundation phase begins" and points at planned status; Stage 5 is complete. | Update to the current state. |
 | D-8 | Ambiguous ownership | `flutter/architecture.md` ownership table | Assigns pairing "expiry, attempts, cooldown" to the SDK, but the SDK returns relative seconds and Flutter computes deadlines (S-2). | Clarify which side owns the clock. |
@@ -296,17 +328,17 @@ T2 and the app half of T1.
 | T2 | Pairing feature: call the SDK boundary directly | ARCH-002, S-1, S-2 | High | Coordinate with 5A.1 and 5A.10 |
 | T3 | SDK composition root and facade responsibilities | ARCH-003, ARCH-004, S-3, S-4 | Medium | Better after 5A.7/5A.8 |
 | T4 | Single owner for rejection and availability policy | ARCH-005 | Medium | Better after SAS |
-| T5 | SDK state-domain registration | ARCH-006 | Medium | Independent of SAS |
+| T5 | Consolidate the existing state-domain definitions | ARCH-006 | Medium | Independent of SAS |
 | T6 | SDK subscription and typed-failure API additions | ARCH-007 | Medium | Coordinate with 5A.7 (public SDK change) |
 | T7 | Documentation corrections and guardrails | D-1..D-8, S-5 | Low | Independent of SAS |
 
 ### T1. Resolve the reconnect state sequence
 
 - **Branch:** `fix/reconnect-state-sequence`
-- **Scope:** The maintainer decides between the two options in ARCH-001. Implement the chosen one: either the SDK suppresses the transient `disconnected` when recovery will follow, or the documented contract and the app's `LiveStateMiddleware` are updated to treat it explicitly. Replace the app test's hand-built sequence with one derived from the real SDK sequence, and correct the matching sentence in `ai/context/flutter/architecture.md`.
+- **Scope:** Connection-lifecycle correctness only (ARCH-001 concern 1). The maintainer decides between the two options in ARCH-001. Implement the chosen one: either the SDK suppresses the transient `disconnected` when recovery will follow, or the documented contract and the app's `LiveStateMiddleware` are updated to treat it explicitly. The app ends an admitted observation only on a terminal state. Replace the app test's hand-built sequence with one derived from the real SDK sequence, and correct the matching sentences in `ai/context/flutter/architecture.md` so they describe value behavior as the SDK actually implements it.
 - **Dependencies:** none. **Public SDK change:** yes if option (a).
-- **Non-goals:** changing reconnect timing, retry budgets, subscription semantics, or any security behavior; adding new states.
-- **Benefit:** the documented, tested, and real behavior agree; no redundant subscribe traffic or Overview reset on drops.
+- **Non-goals:** changing reconnect timing, retry budgets, subscription semantics, or any security behavior; adding new states; retaining gameplay values across teardown (concern 2, a separate decision); durable snapshots or offline presentation (concerns 3-4).
+- **Benefit:** the documented, tested, and real behavior agree; no redundant app-side subscribe traffic or app-initiated Overview reset on drops. The Overview still shows no values during recovery until concern 2 is decided, because the SDK trackers reset to `notSubscribed`; this task must not claim otherwise.
 - **Estimated files:** 10-14 (3 SDK source, 4 SDK tests, 1-2 app source, 1-2 app tests, 2 docs).
 - **Regression risks:** `KnownHostSessionState` and pairing connection-status mapping read the same transitions; presence monitor evidence.
 - **Acceptance criteria:** a test asserts the real emitted sequence on ordinary loss and the app reacts exactly as documented; SDK and app analyze and test pass; no change to `PendingOperation` retry behavior.
@@ -325,13 +357,13 @@ T2 and the app half of T1.
 ### T3. SDK composition root and facade responsibilities
 
 - **Branch:** `refactor/sdk-root-and-facade-ownership`
-- **Scope:** Move discovery reconciliation and Known Host invalidation cleanup out of `DovahLinkClient` into contracted collaborators; give deliberate disconnect and rename a service owner; make admission the single restore trigger; delete the test-only observation hook; verify S-3 and S-4 with throwaway tests and fix only if confirmed.
+- **Scope:** Move discovery reconciliation and Known Host invalidation cleanup out of `DovahLinkClient` into contracted collaborators; give deliberate disconnect and rename a service owner; move subscription-restoration policy into one SDK-internal owner keyed on the session becoming trusted (trusted admission or a successful `markTrusted` on the current session), then remove the four `DovahLinkPairing` restore calls; delete the test-only observation hook; verify S-3 and S-4 with throwaway tests and fix only if confirmed.
 - **Dependencies:** none, but sequence after 5A.7/5A.8 if those restructure pairing.
 - **Non-goals:** new public API, a second client engine, changes to the three documented callbacks.
 - **Benefit:** the root only wires; discovery logic becomes independently testable.
 - **Estimated files:** 20-30.
 - **Regression risks:** discovery race suppression, storage-error propagation, cancellation order on close.
-- **Acceptance criteria:** the root holds no behavior or mutable discovery fields; all existing `discoverHosts`, `close`, and disconnect tests pass; no public export changes.
+- **Acceptance criteria:** the root holds no behavior or mutable discovery fields; all existing `discoverHosts`, `close`, and disconnect tests pass; no public export changes; one restoration test exists per trigger (trusted initial admission, ordinary reconnect, trust upgrade of an existing unpaired session, successful pairing confirmation, pending-pairing recovery) plus negative tests showing no restoration for an `unpaired` admission, a superseded session, or after administrative invalidation.
 
 ### T4. Single owner for rejection and availability policy
 
@@ -344,21 +376,21 @@ T2 and the app half of T1.
 - **Regression risks:** subtle availability transitions during recovery.
 - **Acceptance criteria:** table-driven policy tests reproduce today's mapping exactly; all callers delegate.
 
-### T5. SDK state-domain registration
+### T5. Consolidate the existing state-domain definitions
 
-- **Branch:** `refactor/sdk-state-domain-registration`
-- **Scope:** A registration type declares area, decoder, availability rule, and event support once; recovery is derived from it; `currentHost` exposes domains without a field each; the three identical modules collapse onto it. Domain streams and models stay separate.
-- **Dependencies:** none; do before the next gameplay domain (Stage 15 onward).
-- **Non-goals:** a global state stream, merging domains, protocol changes, app-side Redux changes.
-- **Benefit:** a new domain becomes a registration plus a model; Event domains cannot miss recovery.
-- **Estimated files:** 25-35.
-- **Regression risks:** gate and baseline behavior in `StateMessageHandler` and `SubscriptionService`.
-- **Acceptance criteria:** existing state, module, and subscription tests pass; a test registers a stub domain without touching `DovahLinkClient`.
+- **Branch:** `refactor/sdk-state-domain-definitions`
+- **Scope:** Extend `IStateDomainDefinition<T>` so Event support is readable; derive one `StateRecoveryService<T>` per registered Event-capable definition and remove `ICharacterStateModule.levelDomain`; collapse the three identical single-definition modules onto one generic internal module over `StateDomainDefinition<T>`; record in `ai/context/sdk/architecture.md` how future domains are grouped under `currentHost` without one root field each. No new registration type.
+- **Dependencies:** none; do before the next gameplay domain (Stage 15 onward) and before any SDK capability that enumerates domains.
+- **Non-goals:** a second registration system, a global state stream, merging domains, changing existing public getters or exported models, protocol changes, app-side Redux changes.
+- **Benefit:** a new domain becomes a definition plus a model; Event domains cannot miss recovery.
+- **Estimated files:** 15-25.
+- **Regression risks:** gate and baseline behavior in `StateMessageHandler` and `SubscriptionService`; recovery start order relative to `RequestService`.
+- **Acceptance criteria:** existing state, module, recovery, and subscription tests pass unchanged; `lib/dovahlink_client.dart` exports are unchanged; a test registers a stub Event-capable definition and observes recovery wired without touching `DovahLinkClient`.
 
 ### T6. SDK subscription and typed-failure API additions
 
 - **Branch:** `feature/sdk-subscription-and-failure-api`
-- **Scope:** Add a multi-area subscribe, a readable desired set, and a typed administrative-invalidation failure; remove the app's `_requestedDesiredAreaStores` and connection-state probe.
+- **Scope:** Add a multi-area subscribe, a readable desired set, and a typed administrative-invalidation failure; remove the app's `_requestedDesiredAreaStores`, its `_sessionTrusted` subscribe sequence (once T3's SDK restoration owner covers trust upgrades), and the connection-state probe.
 - **Dependencies:** maintainer approval of the public contract; coordinate with 5A.7.
 - **Non-goals:** protocol or Host changes; changing intent-retention semantics.
 - **Benefit:** another Dart consumer gets the same capability without copying app logic.
