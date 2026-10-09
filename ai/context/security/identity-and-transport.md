@@ -26,8 +26,8 @@ to the S3 persistent Host cryptographic identity and a dormant, test-exercised H
 integration foundation that the running Host does not compose. For that work the Host key is ECDSA
 P-256, represented as DER SPKI like the Client key, because the same key is the Host's future TLS
 certificate key. DovahLink's production-security gate remains closed: no hostile-LAN or production
-secure-pairing claim is made, S4–S11 remain incomplete and unauthorized, and Stage 5A and production
-LAN exposure remain gated. `sas-pairing` is experimental and pre-alpha, not professionally audited
+secure-pairing claim is made, S4–S11 remain incomplete and unauthorized, and Stage 5B and production
+LAN exposure remain gated (Stage 5A activation is limited to Windows loopback integration validation). `sas-pairing` is experimental and pre-alpha, not professionally audited
 or formally verified. That dormant foundation is implemented (see the
 [Host architecture](../host/architecture.md#host-cryptographic-identity-key)); the running Host
 composes neither the key nor the integration. See the

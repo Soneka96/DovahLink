@@ -54,8 +54,8 @@ The S2.2 initial-pairing security decision remains **STOP**. Generic `sas-pairin
 separately authorized pre-alpha integration work remain on the security track. The maintainer-authorized
 P10 work adds only a persistent Host identity and a dormant, test-exercised Host `sas-pairing`
 integration foundation that the running product does not use; the six-digit flow and bearer reconnect
-remain current behavior, and Stage 5A owns activation. The running six-digit pairing flow is not
-production security for hostile-network first contact. Stage 5A secure
+remain current behavior, and Stage 5A owns activation, limited to Windows loopback. The running six-digit pairing flow is not
+production security for hostile-network first contact. Stage 5B secure
 Android/Wi-Fi, unknown non-loopback peers, and production LAN exposure remain blocked until the
 required security profiles and integration gates pass. This work does not claim secure LAN is
 solved.

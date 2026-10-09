@@ -89,7 +89,7 @@ provider does not reliably refuse two processes creating the same key name at on
 
 The running Host does not load this key yet: no startup, handshake, discovery, pairing, or trust path
 uses it, and nothing publishes its public key or fingerprint. Activation belongs to
-[Stage 5A](../../../roadmap/05a-android-wifi-development-path.md#sas-pairing-activation).
+[Stage 5A](../../../roadmap/05a-windows-sas-integration-validation.md#sas-pairing-activation).
 
 ## Dormant `sas-pairing` integration foundation
 
@@ -123,7 +123,7 @@ target, and native ABI. `tooling/sas_pairing_dependency.py` builds that pinned s
 The running Host composes none of this. It binds no `sas-pairing` listener, runs no ceremony, displays
 or approves no SAS, produces no Pair/Reject/Block decision, and writes no trust from a result, and the
 packaged Host contains no `sas-pairing` assembly or native library. The six-digit pairing flow and
-bearer reconnect remain the product behavior. Stage 5A activates the foundation by adding the
+bearer reconnect remain the product behavior. Stage 5A activates the foundation, limited to Windows loopback, by adding the
 `DovahLink.Host` reference to `DovahLink.Host.PairingCeremony` and the production lifecycle,
 presentation, and authorization integration around it.
 
