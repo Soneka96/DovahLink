@@ -34,9 +34,6 @@ for the player-facing summary posted with each Nexus Mods package. See
 ### Fixed
 
 - Host connection teardown and shutdown no longer hang when a client connection's writer starts after the connection was cancelled.
-
-### Fixed
-
 - Host rejects captured state when no play context is active instead of faulting the tracked-quest capture loop.
 - Accepted state areas now receive a late authoritative baseline through ordered recovery admission
   before Events resume.
