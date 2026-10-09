@@ -47,9 +47,12 @@ public sealed class WindowsCngHostKeyStore : IHostKeyStore
     /// <summary>How long a load waits for another Host process's key lock.</summary>
     private readonly TimeSpan lockTimeout;
 
+    /// <summary>Creates the persisted key when it is absent.</summary>
+    private readonly Func<string, bool> tryCreateKey;
+
     /// <summary>Creates a store for the current Windows user's Host identity directory and key names.</summary>
     public WindowsCngHostKeyStore()
-        : this(Path.GetDirectoryName(Constants.HostIdentityFilePath)!, Constants.HostKeyNamePrefix, Constants.HostKeyLockTimeout)
+        : this(Path.GetDirectoryName(Constants.HostIdentityFilePath)!, Constants.HostKeyNamePrefix, Constants.HostKeyLockTimeout, TryCreateKey)
     {
     }
 
@@ -60,10 +63,25 @@ public sealed class WindowsCngHostKeyStore : IHostKeyStore
     /// <exception cref="ArgumentException">The directory is not absolute or the prefix is empty.</exception>
     /// <exception cref="ArgumentOutOfRangeException"><paramref name="lockTimeout"/> is negative.</exception>
     internal WindowsCngHostKeyStore(string recordDirectory, string keyNamePrefix, TimeSpan lockTimeout)
+        : this(recordDirectory, keyNamePrefix, lockTimeout, TryCreateKey)
+    {
+    }
+
+    /// <summary>Creates a store over isolated records and a controlled key-creation operation.</summary>
+    /// <param name="recordDirectory">The absolute directory holding public-key records.</param>
+    /// <param name="keyNamePrefix">The non-empty persisted key-name prefix.</param>
+    /// <param name="lockTimeout">How long a load waits for another Host process's key lock.</param>
+    /// <param name="tryCreateKey">Creates the persisted key and reports whether this call created it.</param>
+    /// <exception cref="ArgumentException">The directory is not absolute or the prefix is empty.</exception>
+    /// <exception cref="ArgumentOutOfRangeException"><paramref name="lockTimeout"/> is negative.</exception>
+    /// <exception cref="ArgumentNullException"><paramref name="tryCreateKey"/> is <see langword="null"/>.</exception>
+    internal WindowsCngHostKeyStore(
+        string recordDirectory, string keyNamePrefix, TimeSpan lockTimeout, Func<string, bool> tryCreateKey)
     {
         ArgumentOutOfRangeException.ThrowIfLessThan(lockTimeout, TimeSpan.Zero);
         ArgumentException.ThrowIfNullOrWhiteSpace(recordDirectory);
         ArgumentException.ThrowIfNullOrWhiteSpace(keyNamePrefix);
+        ArgumentNullException.ThrowIfNull(tryCreateKey);
         if (!Path.IsPathFullyQualified(recordDirectory))
         {
             throw new ArgumentException("The Host key record directory must be absolute.", nameof(recordDirectory));
@@ -72,6 +90,7 @@ public sealed class WindowsCngHostKeyStore : IHostKeyStore
         this.recordDirectory = Path.GetFullPath(recordDirectory);
         this.keyNamePrefix = keyNamePrefix;
         this.lockTimeout = lockTimeout;
+        this.tryCreateKey = tryCreateKey;
     }
 
     /// <inheritdoc/>
@@ -132,7 +151,16 @@ public sealed class WindowsCngHostKeyStore : IHostKeyStore
 
         // No record: this Host ID never finished provisioning. Create the key unless a crash happened
         // after creating it but before recording it, then record it.
-        bool created = !keyExists && TryCreateKey(keyName);
+        bool created;
+        try
+        {
+            created = !keyExists && tryCreateKey(keyName);
+        }
+        catch (CryptographicException)
+        {
+            return HostKeyLoadResult.Unavailable(HostKeyStatus.KeyInaccessible);
+        }
+
         HostKeyStatus? readFailure = ReadPublicKey(keyName, out P256PublicKey? publicKey);
         if (readFailure is not null)
         {

@@ -107,6 +107,31 @@ public sealed class WindowsCngHostKeyStoreTests : IDisposable
         Assert.Equal(record, File.ReadAllBytes(RecordPath(hostId)));
     }
 
+    /// <summary>Verifies a cryptographic provider error during key creation becomes a fail-closed result without a record.</summary>
+    [Fact]
+    public void LoadOrProvision_KeyCreationThrowsCryptographicException_FailsClosed()
+    {
+        Assert.False(CngKey.Exists(KeyName(hostId), Provider));
+        int attempts = 0;
+        var store = new WindowsCngHostKeyStore(
+            recordDirectory,
+            keyNamePrefix,
+            TimeSpan.FromSeconds(10),
+            _ =>
+            {
+                attempts++;
+                throw new CryptographicException("Injected key-provider failure.");
+            });
+
+        HostKeyLoadResult result = store.LoadOrProvision(hostId);
+
+        Assert.Equal(1, attempts);
+        Assert.Equal(HostKeyStatus.KeyInaccessible, result.Status);
+        Assert.Null(result.PublicKey);
+        Assert.False(File.Exists(RecordPath(hostId)));
+        Assert.False(CngKey.Exists(KeyName(hostId), Provider));
+    }
+
     /// <summary>Verifies a key that exists before its record (an interrupted provisioning) is adopted and recorded.</summary>
     [Fact]
     public void LoadOrProvision_KeyWithoutRecord_LoadsAndRecordsIt()
