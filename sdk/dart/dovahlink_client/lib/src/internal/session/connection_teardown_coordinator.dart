@@ -53,17 +53,27 @@ class ConnectionTeardownCoordinator {
   /// -run cleanup or a second `failAll`. Does not skip a call made after the connection actually
   /// moved on (a fresh `connect()` bumps the generation itself), so a deliberate, later teardown
   /// -- for example finalizing operations an earlier teardown preserved for retry -- still runs.
-  Future<void> tearDown(
+  ///
+  /// [canRecover], when supplied, is evaluated synchronously at the reset point, after every
+  /// generation and invalidation guard, and only when [orphanRetrySafeOperations] is `true`. When
+  /// it returns `true` for a session that was not already recovering, the session resolves directly
+  /// to `reconnecting` -- never through a transient `disconnected`.
+  /// @param reason The failure delivered to pending operations.
+  /// @param orphanRetrySafeOperations Whether retry-safe operations survive for recovery.
+  /// @param canRecover Decides, at the reset point, whether recovery will follow this teardown.
+  /// @return Whether this teardown moved a non-recovering session into `reconnecting`.
+  Future<bool> tearDown(
     Exception reason, {
     bool orphanRetrySafeOperations = true,
+    bool Function()? canRecover,
   }) {
     final int callGeneration = _state.connectionGeneration;
     return _lifecycleQueue.run(() async {
       if (_state.isAdministrativelyInvalidated) {
-        return;
+        return false;
       }
       if (_state.connectionGeneration != callGeneration) {
-        return;
+        return false;
       }
       _state.bumpGeneration();
       final int generation = _state.connectionGeneration;
@@ -72,20 +82,23 @@ class ConnectionTeardownCoordinator {
       await cancelSubscription(subscription);
       if (_state.isAdministrativelyInvalidated ||
           generation != _state.connectionGeneration) {
-        return;
+        return false;
       }
       await closeTransport();
       if (_state.isAdministrativelyInvalidated ||
           generation != _state.connectionGeneration) {
-        return;
+        return false;
       }
-      _state.resetAfterTeardown(
+      final bool enteredRecovery = _state.resetAfterTeardown(
         preserveReconnecting: orphanRetrySafeOperations,
+        beginRecovery:
+            orphanRetrySafeOperations && (canRecover?.call() ?? false),
       );
       _pendingOperationFailureHandler(
         reason,
         orphanRetrySafeOperations: orphanRetrySafeOperations,
       );
+      return enteredRecovery;
     });
   }
 

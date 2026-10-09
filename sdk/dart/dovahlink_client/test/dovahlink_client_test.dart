@@ -5776,9 +5776,8 @@ void main() {
         DovahLinkConnectionState.disconnected,
         DovahLinkConnectionState.connecting,
         DovahLinkConnectionState.connected,
-        // Ordinary transport loss tears a fully connected session down to disconnected first
-        // (it was not already recovering), then hands off to bounded automatic reconnect.
-        DovahLinkConnectionState.disconnected,
+        // Ordinary transport loss resolves directly to reconnecting -- consumers must never see a
+        // transient disconnected they would have to mistake for a terminal state.
         DovahLinkConnectionState.reconnecting,
         DovahLinkConnectionState.reauthenticating,
         DovahLinkConnectionState.connected,
@@ -5850,6 +5849,334 @@ void main() {
       // continue, not end the cycle after hello#2.
       expect(helloSends, hasLength(3));
     });
+
+    test(
+      'Behavior automatic reconnect stays inside the recovery lifecycle across a failed '
+      'attempt, never publishing disconnected between connected and reconnecting',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          InMemoryClientStorage(),
+        );
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription =
+            reconnectClient.connections.stateChanges.listen(observed.add);
+        addTearDown(subscription.cancel);
+        await _connectAndHello(reconnectTransport, reconnectClient);
+        observed.clear();
+
+        reconnectTransport.queueResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'error',
+            'messageId': 'message-error-rate-limited-retry-1',
+            'sessionId': null,
+            'correlationId': 'message-hello-placeholder',
+            'payload': <String, dynamic>{
+              'code': 'rate_limited',
+              'message':
+                  'Inbound message rate exceeded 100 messages per second',
+              'retryable': true,
+              'details': null,
+            },
+            'playContextId': null,
+            'clientId': null,
+          }),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 30; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(observed, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.connected,
+        ]);
+      },
+    );
+
+    test(
+      'Behavior automatic reconnect ends in disconnected only when recovery gives up, with '
+      'no earlier disconnected',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          InMemoryClientStorage(),
+        );
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription =
+            reconnectClient.connections.stateChanges.listen(observed.add);
+        addTearDown(subscription.cancel);
+        await _connectAndHello(reconnectTransport, reconnectClient);
+        observed.clear();
+
+        reconnectTransport.failConnectWith = const SocketException(
+          'unreachable',
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 40; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(observed, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.disconnected,
+        ]);
+        expect(
+          reconnectClient.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+      },
+    );
+
+    test(
+      'Behavior explicit disconnect while recovery is in flight ends in a single '
+      'disconnected and starts no further recovery',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          InMemoryClientStorage(),
+        );
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription =
+            reconnectClient.connections.stateChanges.listen(observed.add);
+        addTearDown(subscription.cancel);
+        await _connectAndHello(reconnectTransport, reconnectClient);
+        observed.clear();
+
+        // No hello answer is queued, so recovery parks in reauthenticating.
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (
+          int i = 0;
+          i < 30 &&
+              reconnectClient.connections.state ==
+                  DovahLinkConnectionState.connected;
+          i++
+        ) {
+          await pumpEventQueue();
+        }
+        await reconnectClient.connections.disconnect();
+        final int sentAfterDisconnect = reconnectTransport.sent.length;
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(observed.first, DovahLinkConnectionState.reconnecting);
+        expect(observed.last, DovahLinkConnectionState.disconnected);
+        expect(
+          observed.where(
+            (DovahLinkConnectionState state) =>
+                state == DovahLinkConnectionState.disconnected,
+          ),
+          hasLength(1),
+        );
+        expect(reconnectTransport.sent, hasLength(sentAfterDisconnect));
+      },
+    );
+
+    test(
+      'Behavior explicit disconnect racing the transport drop never starts recovery',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          InMemoryClientStorage(),
+        );
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription =
+            reconnectClient.connections.stateChanges.listen(observed.add);
+        addTearDown(subscription.cancel);
+        await _connectAndHello(reconnectTransport, reconnectClient);
+        observed.clear();
+        final int sentBefore = reconnectTransport.sent.length;
+
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        await reconnectClient.connections.disconnect();
+        for (int i = 0; i < 20; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(observed, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.disconnected,
+        ]);
+        expect(reconnectTransport.sent, hasLength(sentBefore));
+      },
+    );
+
+    test(
+      'Behavior administrative invalidation stays terminal, with no recovery from the '
+      'transport close that follows it',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          InMemoryClientStorage(),
+        );
+        final List<DovahLinkConnectionState> observed =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> subscription =
+            reconnectClient.connections.stateChanges.listen(observed.add);
+        addTearDown(subscription.cancel);
+        await _connectAndHello(reconnectTransport, reconnectClient);
+        observed.clear();
+        final int sentBefore = reconnectTransport.sent.length;
+
+        reconnectTransport.queueResponse(_rawSessionInvalidated('revoked'));
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 30; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(observed, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.administrativelyInvalidated,
+        ]);
+        expect(
+          reconnectClient.connections.invalidationReason,
+          AdministrativeInvalidationReason.revoked,
+        );
+        expect(reconnectTransport.sent, hasLength(sentBefore));
+      },
+    );
+
+    test(
+      'Behavior overlapping onError and onDone for one dropped transport start exactly one '
+      'recovery',
+      () async {
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          InMemoryClientStorage(),
+        );
+        await _connectAndHello(reconnectTransport, reconnectClient);
+        final int helloCountBefore = reconnectTransport.sent
+            .where(
+              (String raw) =>
+                  (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
+            )
+            .length;
+
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 30; i++) {
+          await pumpEventQueue();
+        }
+
+        final int helloCountAfter = reconnectTransport.sent
+            .where(
+              (String raw) =>
+                  (jsonDecode(raw) as JsonMap)['messageType'] == 'hello',
+            )
+            .length;
+        expect(
+          reconnectClient.connections.state,
+          DovahLinkConnectionState.connected,
+        );
+        expect(helloCountAfter - helloCountBefore, 1);
+      },
+    );
+
+    test(
+      'Behavior Known Host session projection goes connected, reconnecting, '
+      'reauthenticating, connected without a transient disconnected',
+      () async {
+        const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        final DovahLinkHost hostA = Fixtures.buildDovahLinkHost(
+          hostId: hostAId,
+          hostName: 'Soneka-Desktop',
+        );
+        final InMemoryClientStorage reconnectStorage = InMemoryClientStorage();
+        await reconnectStorage.save(
+          PersistedClientState(
+            clientId: 'client-1',
+            knownHosts: <String, PersistedKnownHost>{
+              hostAId: PersistedKnownHost(
+                host: hostA,
+                credential: 'credential-a',
+              ),
+            },
+          ),
+        );
+        final FakeDovahLinkTransport reconnectTransport =
+            FakeDovahLinkTransport();
+        final DovahLinkClient reconnectClient = _buildFastReconnectClient(
+          reconnectTransport,
+          reconnectStorage,
+        );
+        final List<DovahLinkKnownHostSessionState> sessionStates =
+            <DovahLinkKnownHostSessionState>[];
+        final StreamSubscription<List<DovahLinkKnownHostState>> subscription =
+            reconnectClient.hosts.knownHostStatesChanges.listen((
+              List<DovahLinkKnownHostState> snapshot,
+            ) {
+              final DovahLinkKnownHostSessionState next =
+                  snapshot.single.sessionState;
+              if (sessionStates.isEmpty || sessionStates.last != next) {
+                sessionStates.add(next);
+              }
+            });
+        addTearDown(subscription.cancel);
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await reconnectClient.connections.connectKnownHost(
+          DovahLinkHostId(hostAId),
+        );
+        await pumpEventQueue();
+
+        reconnectTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        reconnectTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        reconnectTransport.failMessagesWith(const SocketException('dropped'));
+        for (int i = 0; i < 30; i++) {
+          await pumpEventQueue();
+        }
+
+        expect(
+          sessionStates.skipWhile(
+            (DovahLinkKnownHostSessionState state) =>
+                state != DovahLinkKnownHostSessionState.connected,
+          ),
+          <DovahLinkKnownHostSessionState>[
+            DovahLinkKnownHostSessionState.connected,
+            DovahLinkKnownHostSessionState.reconnecting,
+            DovahLinkKnownHostSessionState.reauthenticating,
+            DovahLinkKnownHostSessionState.connected,
+          ],
+        );
+      },
+    );
   });
 
   group('Behavior credential cleanup during automatic reconnect behaves correctly', () {

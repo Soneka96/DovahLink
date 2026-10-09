@@ -311,11 +311,10 @@ class SessionService implements ISessionService {
     return disconnect();
   }
 
-  /// Implements [ISessionService.onUnhealthy]. Ordinary transport loss: tears down, then -- only if
-  /// that teardown actually reached plain `disconnected` (not raced by a concurrent administrative
-  /// invalidation, which owns its own terminal state) and both a last-connected URI and
-  /// [onOrdinaryTransportLoss] are available -- transitions to `reconnecting` and hands off to
-  /// attempt bounded automatic recovery.
+  /// Implements [ISessionService.onUnhealthy]. Ordinary transport loss: tears down, and -- only if
+  /// that teardown was not raced by a concurrent administrative invalidation or explicit
+  /// disconnect, and both a last-connected URI and [onOrdinaryTransportLoss] are available --
+  /// resolves directly to `reconnecting` and hands off to attempt bounded automatic recovery.
   @override
   void onUnhealthy(Exception reason) {
     unawaited(_beginRecoveryAfterOrdinaryTransportLoss(reason));
@@ -427,19 +426,32 @@ class SessionService implements ISessionService {
   }
 
   /// Runs teardown after an ordinary loss, then starts bounded recovery if its handoff generation
-  /// is still current and the connection remains eligible. SessionState retains the selected Known
-  /// Host relationship ID across this teardown so it can be handed to ReconnectService. The admission check and
-  /// `reconnecting` transition run as a queued step after teardown, serialized with connect and
-  /// disconnect operations.
+  /// is still current and the connection remains eligible. Eligibility (a current handoff
+  /// generation, a last-connected URI, an [onOrdinaryTransportLoss] callback, and a client not
+  /// permanently closed) is decided inside teardown at its reset point, so an eligible session goes
+  /// directly to `reconnecting` without a transient `disconnected`. SessionState retains the
+  /// selected Known Host relationship ID across this teardown so it can be handed to
+  /// ReconnectService. The recovery start runs as a queued step after teardown, serialized with
+  /// connect and disconnect operations, and is skipped if the handoff went stale in between.
   Future<void> _beginRecoveryAfterOrdinaryTransportLoss(
     Exception reason,
   ) async {
     final int handoffGeneration = _recoveryHandoffGeneration;
     final DovahLinkHostId? knownHostId = _state.knownHostId;
-    await _teardownCoordinator.tearDown(reason);
+    final bool enteredRecovery = await _teardownCoordinator.tearDown(
+      reason,
+      canRecover: () =>
+          handoffGeneration == _recoveryHandoffGeneration &&
+          !_isTerminallyClosed &&
+          _state.lastConnectedUri != null &&
+          onOrdinaryTransportLoss != null,
+    );
+    if (!enteredRecovery) {
+      return;
+    }
     await _lifecycleQueue.run(() async {
       if (handoffGeneration != _recoveryHandoffGeneration ||
-          _state.connectionState != DovahLinkConnectionState.disconnected) {
+          _state.connectionState != DovahLinkConnectionState.reconnecting) {
         return;
       }
       final Uri? uri = _state.lastConnectedUri;
@@ -448,7 +460,6 @@ class SessionService implements ISessionService {
       if (uri == null || observer == null) {
         return;
       }
-      _state.markReconnecting();
       observer(uri, knownHostId);
     });
   }

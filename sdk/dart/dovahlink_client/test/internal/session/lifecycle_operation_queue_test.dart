@@ -37,6 +37,36 @@ void main() {
     });
 
     test(
+      'Method run returns each operation\'s own typed result in order',
+      () async {
+        final Completer<void> gate = Completer<void>();
+        final Future<bool> first = queue.run<bool>(() async {
+          await gate.future;
+          return true;
+        });
+        final Future<int> second = queue.run<int>(() async => 7);
+
+        gate.complete();
+
+        expect(await first, isTrue);
+        expect(await second, 7);
+      },
+    );
+
+    test(
+      'Method run still releases the queue when a typed operation fails',
+      () async {
+        final Future<bool> first = queue.run<bool>(
+          () async => throw StateError('typed failure'),
+        );
+        final Future<bool> second = queue.run<bool>(() async => false);
+
+        await expectLater(first, throwsStateError);
+        expect(await second, isFalse);
+      },
+    );
+
+    test(
       'Method run continues with later operations after a failure',
       () async {
         final List<String> order = <String>[];
