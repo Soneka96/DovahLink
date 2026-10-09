@@ -38,6 +38,10 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Changed
 
+- The Session Overview's Quest and Current Status panels share extra side-column height to align with the Character panel.
+- Session Overview panels use clipped, theme-colored leading accents, and the Character kicker uses the theme's warm eyebrow color.
+- Session Overview panels restore Frostbound's hero fracture lines and Dovah's side-panel rings.
+- The Session Shell header and navigation now use the prototype's responsive margins and tab color transition.
 - Long Overview character names and context lines now truncate with a one-line ellipsis.
 - Session context and header summaries derive synchronization styling only from displayed values.
 - Session navigation follows the prototype's text-only tabs with a 6 px gap while preserving accessible
@@ -100,6 +104,9 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- The Character panel's shared leading accent remains visible above its hero artwork.
+- Session Overview vital bars fill their tracks to the exact displayed ratios.
+- Session Overview Health, Magicka, and Stamina values display as whole numbers without changing synchronized precision.
 - An already connected trusted Host now starts live-state subscriptions when the app begins observing the session.
 - Invalid operating-system device names now fall back safely before pairing.
 - Disposing pairing while secure storage is unavailable still cancels retry observation and ignores

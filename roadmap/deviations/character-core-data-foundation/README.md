@@ -1,11 +1,12 @@
 # Character Core Data Foundation
 
-**Status:** Backend foundation implemented; ordered follow-on work remains.
+**Status:** Complete. Character Vitals, XP, Level, Identity, and Supernatural Traits data are
+implemented through the production Adapter, Host, protocol, and Dart SDK path.
 
-This deviation adds the production character data needed by the approved DovahLink prototype
-before the currently ordered client presentation work. It leaves the main roadmap's stage numbering
-and completed stages intact. The work is a backend and data-contract foundation; it does not add
-Flutter UI.
+This deviation delivered the production character data needed by the approved DovahLink prototype
+ahead of its ordered client presentation work. It leaves the main roadmap's stage numbering and
+completed stages intact. The work was a backend and data-contract foundation; it did not add Flutter
+UI.
 
 ## Scope and ownership
 
@@ -193,15 +194,15 @@ presentation contract only; no Flutter code belongs to this deviation.
 
 After this foundation, the separately scoped phases are:
 
-1. **World Context Data Foundation:** location, game time, and tracked quest summary. Runtime and
-   source research is recorded in the [World Context Data Foundation research report](../world-context-data-foundation/README.md).
-2. **Session Overview app-state integration (PR #120):** project the character and world-context
-   SDK domains into app-owned Redux state while preserving synchronization truth.
-3. **Session Overview prototype convergence (PR #121):** connect the approved Overview prototype
-   to the Redux state and its typed ViewModel. This presentation work can proceed without redesigning
-   main-menu or save-switch admission behavior.
-4. **Active Play Context Lifecycle:** main menu, New Game, loading, save switching, return to menu,
-   and gameplay-session admission/closure remain a later, separately scoped phase.
+1. **World Context Data Foundation — delivered:** Location, Game Time, and Tracked Quests are
+   implemented; runtime and source research is retained in the
+   [World Context Data Foundation report](../world-context-data-foundation/README.md).
+2. **Session Overview app-state integration (PR #120) — delivered:** character and world-context
+   SDK domains flow into app-owned Redux state while preserving synchronization truth.
+3. **Session Overview prototype convergence (PR #122) — delivered:** the approved Overview consumes
+   Redux state through its typed ViewModel. It did not redesign main-menu or save-switch admission.
+4. **Active Play Context Lifecycle — deferred:** main menu, New Game, loading, save switching, return
+   to menu, and gameplay-session admission/closure remain a later, separately scoped phase.
 
 These are follow-on phases, not implementation scope for this deviation. Stage 8 remains planned;
-data integration alone does not complete its presentation acceptance.
+the current Overview does not by itself complete its broader live-player-state acceptance.

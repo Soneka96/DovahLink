@@ -16,9 +16,6 @@ import 'package:dovahlink_client/shared/theme/dovah_root_metrics.dart';
 /// is `DovahPageMetrics.panelPadding`.
 @immutable
 class DovahOverviewMetrics extends Equatable {
-  /// Width of the accent bar down a panel's leading edge (the prototype's `inset 3px 0` shadow).
-  static const double panelAccentWidth = 3;
-
   /// Font size of the hero panel's kicker (the prototype's `.kicker`).
   static const double kickerFontSize = 10;
 

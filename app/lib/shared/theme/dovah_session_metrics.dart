@@ -28,6 +28,15 @@ class DovahSessionMetrics extends Equatable {
   /// Size of the back arrow (the prototype's `.back svg`).
   static const double backIconSize = 18;
 
+  /// Font size of the back action (the prototype's inherited 14px body font).
+  static const double backFontSize = 14;
+
+  /// Vertical padding of the back action (the prototype's `.back` `padding:10px 8px 10px 0`).
+  static const double backVerticalPadding = 10;
+
+  /// Right padding of the back action (the prototype's `.back` `padding:10px 8px 10px 0`).
+  static const double backRightPadding = 8;
+
   /// Width of the divider after the back button (the prototype's `.divider`).
   static const double dividerWidth = 1;
 
@@ -72,6 +81,11 @@ class DovahSessionMetrics extends Equatable {
 
   /// Font size of a navigation tab (the prototype's `.game-tab`).
   static const double tabFontSize = 14;
+
+  /// Duration of the prototype's `.game-tab` color transition.
+  static const Duration tabColorTransitionDuration = Duration(
+    milliseconds: 180,
+  );
 
   /// Size of an icon inside a navigation tab (the prototype's `.game-tab svg`).
   static const double tabIconSize = 17;

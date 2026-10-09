@@ -68,6 +68,21 @@ ThemeData buildDovahPresetTheme() {
       colors: [Color(0xE00B141D), Color(0x000B141D)],
       stops: [0, 0.72],
     ),
+    heroTexture: null,
+    overviewSidePanelTexture: RadialGradient(
+      center: Alignment(1.16, 0),
+      radius: 1.7,
+      colors: [
+        Colors.transparent,
+        Colors.transparent,
+        Color.fromRGBO(116, 189, 232, 0.035),
+        Colors.transparent,
+        Colors.transparent,
+        Color.fromRGBO(226, 165, 94, 0.024),
+        Colors.transparent,
+      ],
+      stops: [0, 0.31, 0.313, 0.3165, 0.4, 0.403, 0.4065],
+    ),
   );
 
   return ThemeData(

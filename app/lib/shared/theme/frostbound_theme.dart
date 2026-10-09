@@ -67,6 +67,21 @@ ThemeData buildFrostboundTheme() {
       colors: [Color(0xEB030709), Color(0x00030709)],
       stops: [0, 0.66],
     ),
+    heroTexture: LinearGradient(
+      begin: Alignment(-1, -0.487),
+      end: Alignment(1, 0.487),
+      colors: [
+        Color.fromRGBO(207, 226, 232, 0.1),
+        Color.fromRGBO(207, 226, 232, 0.1),
+        Colors.transparent,
+        Colors.transparent,
+        Color.fromRGBO(207, 226, 232, 0.07),
+        Colors.transparent,
+        Colors.transparent,
+      ],
+      stops: [0, 0.001, 0.003, 0.31, 0.3115, 0.315, 1],
+    ),
+    overviewSidePanelTexture: null,
   );
 
   return ThemeData(

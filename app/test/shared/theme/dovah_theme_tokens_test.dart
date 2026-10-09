@@ -29,11 +29,20 @@ void main() {
 
   group('Method copyWith behaves correctly', () {
     test('Method copyWith with no arguments returns an equal copy', () {
-      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens();
+      final DovahThemeTokens original = Fixtures.buildDovahThemeTokens(
+        heroTexture: const LinearGradient(
+          colors: [Color(0xFF111111), Color(0xFF222222)],
+        ),
+        overviewSidePanelTexture: const RadialGradient(
+          colors: [Color(0xFF333333), Color(0xFF444444)],
+        ),
+      );
 
       final DovahThemeTokens copy = original.copyWith();
 
       expect(copy, original);
+      expect(copy.heroTexture, original.heroTexture);
+      expect(copy.overviewSidePanelTexture, original.overviewSidePanelTexture);
     });
 
     test('Method copyWith replaces only the given fields', () {
@@ -111,6 +120,12 @@ void main() {
         heroFloorScrim: const LinearGradient(
           colors: [Color(0xFF333333), Color(0xFF444444)],
         ),
+        heroTexture: const LinearGradient(
+          colors: [Color(0xFF555555), Color(0xFF666666)],
+        ),
+        overviewSidePanelTexture: const RadialGradient(
+          colors: [Color(0xFF777777), Color(0xFF888888)],
+        ),
       );
 
       expect(copy.barTrack, const Color(0xFF0D0E0F));
@@ -122,6 +137,14 @@ void main() {
       expect((copy.heroFloorScrim as LinearGradient).colors, const [
         Color(0xFF333333),
         Color(0xFF444444),
+      ]);
+      expect((copy.heroTexture as LinearGradient).colors, const [
+        Color(0xFF555555),
+        Color(0xFF666666),
+      ]);
+      expect((copy.overviewSidePanelTexture as RadialGradient).colors, const [
+        Color(0xFF777777),
+        Color(0xFF888888),
       ]);
       expect(copy.statusOffline, const Color(0xFF010203));
       expect(copy.brandTagline, const Color(0xFF040506));
@@ -205,6 +228,53 @@ void main() {
       final DovahThemeTokens result = tokens.lerp(other, 1);
 
       expect(result, other);
+    });
+
+    test('Method lerp snaps Overview texture gradients at the midpoint', () {
+      const LinearGradient before = LinearGradient(
+        colors: [Color(0xFF111111), Color(0xFF222222)],
+      );
+      const RadialGradient after = RadialGradient(
+        colors: [Color(0xFF333333), Color(0xFF444444)],
+      );
+      final DovahThemeTokens tokens = Fixtures.buildDovahThemeTokens(
+        heroTexture: before,
+        overviewSidePanelTexture: after,
+      );
+      final DovahThemeTokens other = Fixtures.buildDovahThemeTokens();
+
+      expect(tokens.lerp(other, 0.49).heroTexture, before);
+      expect(tokens.lerp(other, 0.5).heroTexture, isNull);
+      expect(tokens.lerp(other, 0.49).overviewSidePanelTexture, after);
+      expect(tokens.lerp(other, 0.5).overviewSidePanelTexture, isNull);
+    });
+
+    test('Method lerp switches between Overview texture gradients', () {
+      const LinearGradient firstHeroTexture = LinearGradient(
+        colors: [Color(0xFF111111), Color(0xFF222222)],
+      );
+      const LinearGradient nextHeroTexture = LinearGradient(
+        colors: [Color(0xFF333333), Color(0xFF444444)],
+      );
+      const RadialGradient firstSideTexture = RadialGradient(
+        colors: [Color(0xFF555555), Color(0xFF666666)],
+      );
+      const RadialGradient nextSideTexture = RadialGradient(
+        colors: [Color(0xFF777777), Color(0xFF888888)],
+      );
+      final DovahThemeTokens first = Fixtures.buildDovahThemeTokens(
+        heroTexture: firstHeroTexture,
+        overviewSidePanelTexture: firstSideTexture,
+      );
+      final DovahThemeTokens next = Fixtures.buildDovahThemeTokens(
+        heroTexture: nextHeroTexture,
+        overviewSidePanelTexture: nextSideTexture,
+      );
+
+      expect(first.lerp(next, 0.49).heroTexture, firstHeroTexture);
+      expect(first.lerp(next, 0.5).heroTexture, nextHeroTexture);
+      expect(first.lerp(next, 0.49).overviewSidePanelTexture, firstSideTexture);
+      expect(first.lerp(next, 0.5).overviewSidePanelTexture, nextSideTexture);
     });
 
     test('Method lerp interpolates continuous values partway', () {
@@ -475,6 +545,16 @@ void main() {
         ),
         first.copyWith(
           heroFloorScrim: const LinearGradient(
+            colors: [Color(0xFF000000), Color(0xFF111111)],
+          ),
+        ),
+        first.copyWith(
+          heroTexture: const LinearGradient(
+            colors: [Color(0xFF000000), Color(0xFF111111)],
+          ),
+        ),
+        first.copyWith(
+          overviewSidePanelTexture: const RadialGradient(
             colors: [Color(0xFF000000), Color(0xFF111111)],
           ),
         ),

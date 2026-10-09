@@ -1349,20 +1349,18 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "## Ordered stages", 1
         )[0]
         self.assertIn(
-            "**Current stage:** Stage 5 — Dart Client SDK Foundation is active; "
-            "Phases 5.1–5.3 are complete and",
+            "**Current stage:** Stage 5 — Dart Client SDK Foundation is active; Phases 5.1–5.4 are complete.",
             current_position,
         )
         self.assertIn(
-            "**Current phase:** Phase 5.4 — Flutter Middleware and Minimal Live-State "
-            "Proof (**Active**).",
+            "**Current phase:** Phase 5.5 — Version-Impact Audit and Stage 5 Closure (**Planned next**).",
             current_position,
         )
         ordered_stages = root_roadmap.split("## Ordered stages", 1)[1].split(
             "## Major dependencies", 1
         )[0]
         self.assertIn(
-            "| 5 | Active. Phases 5.1–5.3 are complete; Phase 5.4's app state pipeline is implemented, while its minimal proof acceptance remains open.",
+            "| 5 | Active. Phases 5.1–5.4 are complete; Phase 5.5 — Version-Impact Audit and Stage 5 Closure is next.",
             ordered_stages,
         )
         self.assertIn(
@@ -1371,8 +1369,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
         )
         self.assertIn("recommends `0.4.0`", current_position)
         self.assertNotIn("Stage 4 remains Active", current_position)
-        # Stage 5 is active because Phase 5.4's minimal proof acceptance remains open;
-        # the status line also records work pulled forward for Phase 3's pairing needs.
+        # Stage 5 remains active because Phase 5.5 is still next; the status line also records
+        # work pulled forward for Phase 3's pairing needs.
         phase_5_status = (
             "**Status:** Active. The package scaffold, protocol/transport layer, and "
             "persistence boundary"
@@ -1384,13 +1382,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             )[0]
         )
         self.assertIn(
-            "Phases 5.1–5.3 — the typed protocol/compatibility boundary, state synchronization "
-            "API, and subscription/reconnect/session lifecycle — are complete.",
+            "Phases 5.1–5.4 are complete: the typed protocol/compatibility boundary, state synchronization API, "
+            "subscription/reconnect/session lifecycle, and Flutter live-state proof.",
             phase_5_summary,
         )
         self.assertIn(
-            "Phase 5.4's Flutter application state pipeline is implemented by PR #120; its minimal "
-            "proof acceptance remains open, followed by Phase 5.5's version-impact audit",
+            "PR #120 delivered the SDK-to-Redux pipeline, and PR #122 delivered the state-backed Session Overview.",
             phase_5_summary,
         )
 
@@ -2510,11 +2507,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             protocol_readme,
         )
 
-    def test_phase_5_4_app_passthrough_and_follow_on_are_documented(self) -> None:
-        """Keep Phase 5.4's delivered pipeline and incomplete proof boundary explicit."""
+    def test_phase_5_4_app_passthrough_and_replanned_proof_are_documented(self) -> None:
+        """Keep Phase 5.4's complete integration and player-facing proof explicit."""
         phase_5 = self._read("roadmap/05-dart-client-sdk-foundation.md")
         roadmap = self._read("ROADMAP.md")
         architecture = self._read("ai/context/flutter/architecture.md")
+        execution_flow = self._read("roadmap/deviations/current-execution-flow.md")
         character_deviation = self._read(
             "roadmap/deviations/character-core-data-foundation/README.md"
         )
@@ -2564,39 +2562,50 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "cancels gameplay listeners and resets the Redux slice", normalized_phase_54
         )
         self.assertIn(
-            "Phase 5.4 — Flutter Middleware and Minimal Live-State Proof (**Active**).",
+            "Phase 5.5 — Version-Impact Audit and Stage 5 Closure (**Planned next**).",
             roadmap,
         )
         self.assertIn(
-            "PR #120 establishes the app-owned SDK-to-Redux pipeline", roadmap
+            "Phases 5.1–5.4 are complete.",
+            roadmap,
         )
         self.assertIn(
-            "Phase 5.4 remains **Active** because its specified visible proof surface has not been delivered",
+            "Phase 5.5 — Version-Impact Audit and Stage 5 Closure (**Planned next**).",
+            roadmap,
+        )
+        self.assertIn(
+            "Phase 5.4 is **Complete**. It does not complete Stage 5 or Stage 8; Phase 5.5 remains next.",
             normalized_phase_54,
         )
         for proof_requirement in (
-            "XP, Vitals, and Level values",
-            "unavailable/stale/recovering states",
-            "compatibility and connection lifecycle",
-            "slow-consumer diagnostics",
+            "Current Health, Magicka, and Stamina display as whole numbers",
+            "effective maximums and ratios remain precise in synchronized state",
+            "Disconnection cancels gameplay observation and resets the live-state slice",
+            "Compatibility failures surface at the connection/error boundary",
+            "bounded outbound behavior and overflow termination remain Host-owned",
+            "OBSOLETE / REPLANNED — Visible slow-client diagnostics",
+            "COMPLETE — Runtime validation",
         ):
             self.assertIn(proof_requirement, normalized_phase_54)
         self.assertIn(
-            "current public SDK does not expose slow-consumer diagnostics",
+            "no slow-client diagnostic appears on the normal Overview",
             normalized_phase_54,
         )
         self.assertIn(
-            "does not add that diagnostic API or a temporary proof UI",
+            "Stage 8 remains open for its broader live-player-state acceptance",
             normalized_phase_54,
         )
-        self.assertIn("Session Overview Prototype Convergence", phase_54)
+        normalized_execution_flow = self._normalize_whitespace(execution_flow)
         self.assertIn(
-            "does not by itself complete Stage 8 or this proof acceptance",
-            normalized_phase_54,
+            "Phase 5.4 is complete in this branch.", normalized_execution_flow
+        )
+        self.assertIn(
+            "Stage 5 remains active until Phase 5.5 is performed.",
+            normalized_execution_flow,
         )
         self.assertIn("| 8 | Planned |", roadmap)
         self.assertIn(
-            "The Phase 5.4 visible proof surface has not been delivered",
+            "Phase 5.4 is complete",
             self._read("app/README.md"),
         )
         self.assertIn(
@@ -2612,12 +2621,57 @@ class RepositoryConsistencyTests(unittest.TestCase):
             self._normalize_whitespace(architecture),
         )
         self.assertIn(
-            "Session Overview prototype convergence (PR #121)", character_deviation
+            "Session Overview prototype convergence (PR #122) — delivered",
+            self._normalize_whitespace(character_deviation),
         )
         self.assertIn(
-            "PR #120 projects `player_location`, `game_time`", world_deviation
+            "PR #122 delivered the state-backed Session Overview", world_deviation
         )
         self.assertIn("Stage 8 remains planned", character_deviation)
+
+    def test_pulled_forward_stage_6_to_8_acceptance_statuses_are_explicit(self) -> None:
+        """Keep pulled-forward implementation distinct from whole-stage completion."""
+        product = self._read("PRODUCT.md")
+        roadmap = self._read("ROADMAP.md")
+        stage_6 = self._read("roadmap/06-pc-second-screen-baseline.md")
+        stage_7 = self._read("roadmap/07-core-ui-theme-system.md")
+        stage_8 = self._read("roadmap/08-live-player-state.md")
+
+        self.assertIn("Technical truth, player-facing presentation", product)
+        self.assertIn("PARTIALLY DELIVERED", roadmap)
+        self.assertIn("These stages remain formally **Planned**", roadmap)
+        normalized_stage_6 = self._normalize_whitespace(stage_6)
+        normalized_stage_7 = self._normalize_whitespace(stage_7)
+        normalized_stage_8 = self._normalize_whitespace(stage_8)
+        for stage in (stage_6, stage_7, stage_8):
+            status = re.search(r"(?m)^\*\*Status:\*\* (.+)$", stage)
+            self.assertIsNotNone(status)
+            self.assertEqual(status.group(1), "Planned")
+        self.assertIn(
+            "PARTIALLY DELIVERED — Comprehension without developer guidance", stage_6
+        )
+        self.assertIn("No dedicated usability validation", normalized_stage_6)
+        self.assertNotIn("COMPLETE — Comprehension without developer guidance", stage_6)
+        self.assertIn("Stage 6 remains **Planned**", stage_6)
+        self.assertIn("PARTIALLY DELIVERED — Canonical visual fidelity", stage_7)
+        self.assertIn(
+            "A rendered screenshot comparison has not been completed",
+            normalized_stage_7,
+        )
+        self.assertNotIn("COMPLETE — Canonical visual fidelity", stage_7)
+        self.assertIn("Stage 7 remains **Planned**", stage_7)
+        self.assertIn(
+            "PARTIALLY DELIVERED — Runtime accuracy through play-context replacement",
+            stage_8,
+        )
+        self.assertIn(
+            "A runtime replacement of the active play context was not part of that validation",
+            normalized_stage_8,
+        )
+        self.assertNotIn(
+            "COMPLETE — Runtime accuracy through play-context replacement", stage_8
+        )
+        self.assertIn("Stage 8 remains **Planned**", stage_8)
 
     def test_flutter_live_state_keeps_sdk_streams_inside_middleware(self) -> None:
         """Keep gameplay observation inside middleware and the SDK public API."""

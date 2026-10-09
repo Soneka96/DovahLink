@@ -12,6 +12,9 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
 /// active theme. Every other shared DovahLink surface (panel, card, button, dialog) is built on
 /// this; a caller picks a role and never sees the texture behind it.
 class DovahSurface extends StatelessWidget {
+  /// Width of the shared surface's leading accent rail.
+  static const double leadingAccentWidth = 3;
+
   /// The content to render inside the surface, clipped to its corner treatment.
   final Widget child;
 
@@ -49,6 +52,12 @@ class DovahSurface extends StatelessWidget {
   /// Paints above [child], inside the clipped surface, or `null` for nothing.
   final CustomPainter? overlay;
 
+  /// Paints a gradient over the material and beneath [child], inside the clipped surface.
+  final Gradient? overlayGradient;
+
+  /// Paints a theme-colored rail along the leading edge inside the clipped surface.
+  final Color? leadingAccent;
+
   /// Replaces the role material's border color, for a component whose prototype rule pins a border
   /// the role's own does not, or `null` to keep the material's.
   final Color? borderColor;
@@ -72,6 +81,8 @@ class DovahSurface extends StatelessWidget {
     this.castsShadow = true,
     this.underlay,
     this.overlay,
+    this.overlayGradient,
+    this.leadingAccent,
     this.borderColor,
     this.borderTransitionDuration = Duration.zero,
     this.material,
@@ -96,12 +107,37 @@ class DovahSurface extends StatelessWidget {
         ? roleMaterial
         : roleMaterial.withoutShadow();
     final Color? pinnedBorder = borderColor;
+    final Color? accent = leadingAccent;
     Widget content = Padding(padding: padding ?? EdgeInsets.zero, child: child);
     if (underlay != null || overlay != null) {
       content = CustomPaint(
         painter: underlay,
         foregroundPainter: overlay,
         child: content,
+      );
+    }
+    if (overlayGradient case final Gradient gradient) {
+      content = DecoratedBox(
+        decoration: BoxDecoration(gradient: gradient),
+        child: content,
+      );
+    }
+    if (accent case final Color leadingAccent) {
+      content = Stack(
+        fit: StackFit.passthrough,
+        children: [
+          content,
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: leadingAccentWidth,
+            child: ColoredBox(
+              key: const Key('dovah-surface-leading-accent'),
+              color: leadingAccent,
+            ),
+          ),
+        ],
       );
     }
 

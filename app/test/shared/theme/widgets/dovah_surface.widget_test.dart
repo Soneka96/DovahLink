@@ -165,6 +165,130 @@ void main() {
     );
   });
 
+  group('DovahSurface paints a leading accent', () {
+    testWidgets('DovahSurface omits the leading accent when null', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahSurface(child: Text('Unaccented surface')),
+        preset: DovahThemePreset.dovah,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        find.byKey(const Key('dovah-surface-leading-accent')),
+        findsNothing,
+      );
+    });
+
+    for (final DovahThemePreset preset in DovahThemePreset.values) {
+      testWidgets(
+        'DovahSurface clips the supplied accent to the shared geometry under $preset',
+        (WidgetTester tester) async {
+          const Color accent = Color(0xFFE2A55E);
+          await pumpDovahThemedWidget(
+            tester,
+            const DovahSurface(
+              leadingAccent: accent,
+              child: Text('Accented surface'),
+            ),
+            preset: preset,
+            size: dovahTestSizes.first,
+          );
+
+          final ColoredBox rail = tester.widget(
+            find.byKey(const Key('dovah-surface-leading-accent')),
+          );
+          final DovahPanelClipper clipper = findSurfaceClipper(tester);
+          final DovahMaterialPainter painter = findSurfacePainter(tester);
+
+          expect(rail.color, accent);
+          expect(
+            tester
+                .getSize(find.byKey(const Key('dovah-surface-leading-accent')))
+                .width,
+            DovahSurface.leadingAccentWidth,
+          );
+          expect(
+            find.ancestor(
+              of: find.byKey(const Key('dovah-surface-leading-accent')),
+              matching: find.byType(ClipPath),
+            ),
+            findsOneWidget,
+          );
+          expect(clipper.cornerStyle, painter.cornerStyle);
+          expect(clipper.cornerRadius, painter.cornerRadius);
+          expect(clipper.cutSize, painter.cutSize);
+        },
+      );
+    }
+
+    testWidgets(
+      'DovahSurface paints the accent above opaque content and overlay painters',
+      (WidgetTester tester) async {
+        const Color accent = Color(0xFFE2A55E);
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            leadingAccent: accent,
+            underlay: _MarkerPainter(),
+            overlay: _MarkerPainter(),
+            overlayGradient: LinearGradient(
+              colors: [Colors.transparent, Colors.black],
+            ),
+            child: SizedBox(
+              width: 180,
+              height: 100,
+              child: ColoredBox(
+                key: Key('dovah-surface-opaque-content'),
+                color: Colors.black,
+              ),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final Finder accentFinder = find.byKey(
+          const Key('dovah-surface-leading-accent'),
+        );
+        final Stack surfaceLayers = tester.widget(
+          find.ancestor(of: accentFinder, matching: find.byType(Stack)).first,
+        );
+        final Widget contentLayer = surfaceLayers.children.first;
+        final Positioned accentLayer =
+            surfaceLayers.children.last as Positioned;
+        final DecoratedBox contentGradient = contentLayer as DecoratedBox;
+        final CustomPaint decorationPainters = tester.widget(
+          find
+              .descendant(
+                of: find.byWidget(contentLayer),
+                matching: find.byType(CustomPaint),
+              )
+              .first,
+        );
+
+        expect(
+          find.descendant(
+            of: find.byWidget(contentLayer),
+            matching: find.byKey(const Key('dovah-surface-opaque-content')),
+          ),
+          findsOneWidget,
+        );
+        expect(decorationPainters.painter, isA<_MarkerPainter>());
+        expect(decorationPainters.foregroundPainter, isA<_MarkerPainter>());
+        expect(
+          (contentGradient.decoration as BoxDecoration).gradient,
+          isA<LinearGradient>(),
+        );
+        expect(accentLayer.width, DovahSurface.leadingAccentWidth);
+        expect((accentLayer.child as ColoredBox).color, accent);
+        expect(tester.takeException(), isNull);
+      },
+    );
+  });
+
   group('DovahSurface paints the material of its role', () {
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       for (final DovahMaterialRole role in DovahMaterialRole.values) {
@@ -298,6 +422,56 @@ void main() {
   });
 
   group('DovahSurface layers decoration and pins a border', () {
+    testWidgets(
+      'DovahSurface paints an overlay gradient beneath padded content',
+      (WidgetTester tester) async {
+        const RadialGradient gradient = RadialGradient(
+          colors: [Colors.transparent, Color(0x2274BDE8)],
+        );
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            padding: EdgeInsets.all(18),
+            overlayGradient: gradient,
+            child: Text('Gradient overlay'),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final Finder gradientLayer = find.byWidgetPredicate(
+          (Widget widget) =>
+              widget is DecoratedBox &&
+              identical(
+                (widget.decoration as BoxDecoration).gradient,
+                gradient,
+              ),
+        );
+        expect(gradientLayer, findsOneWidget);
+        expect(
+          tester.getSize(gradientLayer),
+          tester.getSize(find.byType(DovahSurface)),
+        );
+        expect(
+          find.descendant(
+            of: gradientLayer,
+            matching: find.text('Gradient overlay'),
+          ),
+          findsOneWidget,
+        );
+        expect(
+          find.ancestor(of: gradientLayer, matching: find.byType(ClipPath)),
+          findsOneWidget,
+        );
+        expect(
+          findSurfaceClipper(tester).cornerStyle,
+          DovahPanelCornerStyle.doubleBevel,
+        );
+        expect(findSurfaceClipper(tester).cutSize, 12);
+        expect(find.text('Gradient overlay'), findsOneWidget);
+      },
+    );
+
     testWidgets(
       'DovahSurface paints an underlay beneath and an overlay above its child',
       (WidgetTester tester) async {

@@ -24,8 +24,6 @@ typedef _OverviewCase = (
 void main() {
   group('Property hero and stats constants behave correctly', () {
     test('Property hero constants keep the prototype values', () {
-      expect(DovahOverviewMetrics.panelAccentWidth, isA<double>());
-      expect(DovahOverviewMetrics.panelAccentWidth, 3);
       expect(DovahOverviewMetrics.kickerFontSize, isA<double>());
       expect(DovahOverviewMetrics.kickerFontSize, 10);
       expect(DovahOverviewMetrics.kickerLetterSpacingEm, isA<double>());

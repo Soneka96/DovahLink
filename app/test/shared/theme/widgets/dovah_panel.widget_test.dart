@@ -186,4 +186,53 @@ void main() {
       });
     }
   });
+
+  group('DovahPanel forwards a leading accent', () {
+    testWidgets('DovahPanel passes its accent color to DovahSurface', (
+      WidgetTester tester,
+    ) async {
+      const Color accent = Color(0xFF74BDE8);
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahPanel(leadingAccent: accent, child: Text('Accented panel')),
+        preset: DovahThemePreset.hearth,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        tester
+            .widget<DovahSurface>(
+              find.descendant(
+                of: find.byType(DovahPanel),
+                matching: find.byType(DovahSurface),
+              ),
+            )
+            .leadingAccent,
+        accent,
+      );
+    });
+
+    testWidgets('DovahPanel leaves the surface accent unset when null', (
+      WidgetTester tester,
+    ) async {
+      await pumpDovahThemedWidget(
+        tester,
+        const DovahPanel(child: Text('Plain panel')),
+        preset: DovahThemePreset.frostbound,
+        size: dovahTestSizes.first,
+      );
+
+      expect(
+        tester
+            .widget<DovahSurface>(
+              find.descendant(
+                of: find.byType(DovahPanel),
+                matching: find.byType(DovahSurface),
+              ),
+            )
+            .leadingAccent,
+        isNull,
+      );
+    });
+  });
 }

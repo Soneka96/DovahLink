@@ -35,6 +35,8 @@ class SessionOverviewVitalsPanel extends StatelessWidget {
     return DovahPanel(
       key: const Key('session-overview-vitals-panel'),
       raised: isRecovering,
+      overlayGradient: tokens.overviewSidePanelTexture,
+      leadingAccent: tokens.signal,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
@@ -81,6 +83,9 @@ class SessionOverviewVitalsPanel extends StatelessWidget {
                         ),
                         Expanded(
                           child: Container(
+                            key: Key(
+                              'session-overview-${label.toLowerCase()}-bar-track',
+                            ),
                             height: DovahOverviewMetrics.barHeight,
                             decoration: BoxDecoration(
                               color: tokens.barTrack,
@@ -94,6 +99,7 @@ class SessionOverviewVitalsPanel extends StatelessWidget {
                                   ? const SizedBox.shrink()
                                   : FractionallySizedBox(
                                       widthFactor: ratio,
+                                      heightFactor: 1,
                                       child: DecoratedBox(
                                         key: Key(
                                           'session-overview-${label.toLowerCase()}-bar-fill',

@@ -7,6 +7,7 @@ import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/session/presentation/screens/session_overview.screen.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_shell.viewmodel.dart';
+import 'package:dovahlink_client/features/session/presentation/widgets/session_back_button.widget.dart';
 import 'package:dovahlink_client/features/session/presentation/widgets/session_navigation_tab.widget.dart';
 import 'package:dovahlink_client/features/session/presentation/widgets/session_section_placeholder.widget.dart';
 import 'package:dovahlink_client/features/settings/presentation/widgets/settings_dialog.widget.dart';
@@ -16,7 +17,6 @@ import 'package:dovahlink_client/shared/state/app_state.dart';
 import 'package:dovahlink_client/shared/theme/dovah_session_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
-import 'package:dovahlink_client/shared/theme/widgets/dovah_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_environment_background.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_icon_button.widget.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_sigil.widget.dart';
@@ -55,6 +55,10 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
     builder: (BuildContext context, SessionShellViewModel viewModel) {
       final DovahThemeTokens tokens = context.dovahTokens;
       final DovahSessionMetrics metrics = context.dovahSessionMetrics;
+      final double chromeWidth =
+          (MediaQuery.sizeOf(context).width - metrics.barSideMargin * 2)
+              .clamp(0.0, DovahSessionMetrics.barMaxWidth)
+              .toDouble();
       final String hostName = viewModel.host?.title ?? 'Host unavailable';
       final DovahConnectionCardState status =
           viewModel.host?.state ?? DovahConnectionCardState.unknown;
@@ -93,8 +97,9 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
                           height: metrics.barHeight,
                           child: Center(
                             child: ConstrainedBox(
-                              constraints: const BoxConstraints(
-                                maxWidth: DovahSessionMetrics.barMaxWidth,
+                              constraints: BoxConstraints(
+                                maxWidth:
+                                    chromeWidth + metrics.barSideMargin * 2,
                               ),
                               child: Padding(
                                 padding: EdgeInsets.symmetric(
@@ -102,13 +107,10 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
                                 ),
                                 child: Row(
                                   children: [
-                                    DovahButton(
+                                    SessionBackButton(
                                       key: const Key(
                                         'session-shell-back-button',
                                       ),
-                                      label: 'Connections',
-                                      icon: Icons.chevron_left,
-                                      variant: DovahButtonVariant.quiet,
                                       onPressed: viewModel.onBack,
                                     ),
                                     const SizedBox(
@@ -248,10 +250,8 @@ class _SessionShellScreenState extends State<SessionShellScreen> {
                         SizedBox(
                           height: metrics.navTapTargetHeight,
                           child: Center(
-                            child: ConstrainedBox(
-                              constraints: const BoxConstraints(
-                                maxWidth: DovahSessionMetrics.barMaxWidth,
-                              ),
+                            child: SizedBox(
+                              width: chromeWidth,
                               child: SingleChildScrollView(
                                 scrollDirection: Axis.horizontal,
                                 child: Row(
