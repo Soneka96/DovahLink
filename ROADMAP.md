@@ -90,9 +90,13 @@ how progression resumes; they do not replace this roadmap or change its stage st
   pairing recovery, and intentional-disconnect cleanup. Phase 5.2 completed the SDK State
   Synchronization API. Phase 5.1 completed the typed protocol boundary
   and Host-version compatibility checks. The Phase 5.3 complete-set subscription contract is
-  incompatible with released Host `0.4.0`'s additive behavior, so the SDK now accepts `0.5.x` and
-  rejects incompatible or malformed Host versions before session admission. The current repository
-  release is `0.5.0`. Stage 4 delivered the typed
+  incompatible with released Host `0.4.0`'s additive behavior. Released Host `0.5.0` is the previous
+  released contract and does not satisfy current unreleased main's full SDK surface; root `VERSION`
+  remains `0.5.0` only because release-version synchronization belongs on a dedicated release
+  branch. The SDK's current source range remains `0.5.x` alongside the current Host source. The next
+  compatible packaged Host/SDK contract is `0.6.x`; prepare `release/0.6.0` and synchronize versions
+  before packaging current main. The SDK rejects incompatible or malformed Host versions before
+  session admission. Stage 4 delivered the typed
   Host/client contract, Host-owned bounded live-state publication, and real Skyrim capture for
   health, magicka, stamina, XP, and level. The maintainer recorded live runtime validation on
   2026-09-23, and a deterministic process-level test proves the Host/Adapter/public-client path using
@@ -151,7 +155,7 @@ Stage 4+ development continues only on Host + Adapter.
 | 3 | Complete | [Stage 3 — Local Device Pairing and Reconnection](roadmap/03-local-device-pairing-and-reconnection.md) |
 | 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
 | 4 | Complete. Host/Adapter live-state delivery, real Skyrim capture, automated process-level proof, runtime validation, and the Phase 4.5 version-impact audit are complete. Phase 4.5 recommended 0.4.0, released on 2026-09-23. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
-| 5 | Complete. Phases 5.1–5.5 are complete. The Stage 5 audit recommends a separate `release/0.6.0` after this closeout merges; the SDK remains repository-internal. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
+| 5 | Complete. Phases 5.1–5.5 are complete. Released Host `0.5.0` predates current main's SDK contract; a separate `release/0.6.0` must synchronize versions before current main is packaged. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
 | 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |

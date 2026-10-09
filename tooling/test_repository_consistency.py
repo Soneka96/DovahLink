@@ -1920,8 +1920,8 @@ class RepositoryConsistencyTests(unittest.TestCase):
             "sdk/\n  dart/\n    dovahlink_client/",
             "It provides one client engine through four grouped views: `client.hosts`, `client.connections`,\n`client.pairing`, and `client.currentHost`.",
             "The official\nFlutter app consumes the same public API through `dovahlink_client_sdk`.",
-            "The SDK supports Host releases in the `0.5.x` range and rejects older or newer Host "
-            "versions during\n`hello`, before admitting a session.",
+            "Current SDK source declares Host `0.5.x` and rejects older or newer Host versions "
+            "during `hello`,\nbefore admitting a session.",
             "Phase 5.2 is complete: `client.currentHost.character` exposes "
             "replayable typed streams for coherent\n"
             "Vitals, XP, and Level domains",
@@ -1936,6 +1936,15 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn(
             "It mirrors Known Host and candidate state from the same persistent SDK client; "
             "the SDK owns candidate membership and reconciliation.",
+            normalized_sdk_readme,
+        )
+        self.assertIn(
+            "Released Host `0.5.0` is the previous released contract and does not satisfy current "
+            "unreleased main's complete SDK surface",
+            normalized_sdk_readme,
+        )
+        self.assertIn(
+            "`release/0.6.0` must synchronize both versions before current main is packaged",
             normalized_sdk_readme,
         )
         for required_phrase in (
@@ -2578,6 +2587,23 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIsNotNone(phase_55_match)
         phase_55 = phase_55_match.group("body")
         self.assertRegex(phase_55, r"(?m)^\*\*Status:\*\* Complete$")
+        for compatibility_invariant in (
+            "The declared range does not make released Host `0.5.0` compatible with current main",
+            "`release/0.6.0` must update the version literals, SDK range, fixtures, compatibility documentation, tests, and affected changelog sections before current main is packaged",
+            "The full-surface range criterion is satisfied by the current unreleased Host/SDK source pair, not by released Host `0.5.0`",
+            "follow-up release work, not a Stage 5 blocker",
+        ):
+            self.assertIn(compatibility_invariant, self._normalize_whitespace(phase_55))
+        compatibility = self._normalize_whitespace(
+            self._read("ai/context/protocol/compatibility.md")
+        )
+        for compatibility_invariant in (
+            "Released Host `0.5.0` is the previous released contract and does not satisfy the current SDK's complete public surface",
+            "it predates required `hello_ack.hostId`/`hostName`, coherent `character_vitals`, and later registered state domains",
+            "root `VERSION` and source range literals remain `0.5.0`/`0.5.x`",
+            "`release/0.6.0` must synchronize the Host version and SDK range before current main is packaged",
+        ):
+            self.assertIn(compatibility_invariant, compatibility)
         acceptance_section = phase_5.split("### Acceptance criteria", 1)[1]
         criterion_numbers = re.findall(r"(?m)^(\d+)\. ", acceptance_section)
         classified_criteria = re.findall(
@@ -2607,7 +2633,7 @@ class RepositoryConsistencyTests(unittest.TestCase):
         self.assertIn("Stage 5A remains separate", phase_55)
         self.assertIn(
             "secure LAN, production SAS pairing, Host pinning, and WSS/TLS remain separate work",
-            phase_55,
+            self._normalize_whitespace(phase_55),
         )
         self.assertIn("3A.2", self._read("integration/README.md"))
         self.assertIn("independent .NET", self._read("integration/README.md"))
