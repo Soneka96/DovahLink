@@ -57,8 +57,8 @@ while runtime implementation is deferred. The exact persistence semantics of Blo
 trust remain undecided.
 
 Implementing the pending Host/Skyrim authorization boundary was not a prerequisite for Phase 5.4's
-ordinary product work, which is now complete. Phase 5.5 is the next normal roadmap step and remains
-independent of hostile-network first contact. The authorization boundary may be scheduled in the
+ordinary product work or Phase 5.5's closure of Stage 5, both now complete; neither depended on
+hostile-network first contact. The authorization boundary may be scheduled in the
 separate connection/pairing convergence deviation; that record owns its exact milestones and timing.
 It must exist before DovahLink relies on it for production first-contact or non-loopback pairing.
 Secure production pairing also remains dependent on `sas-pairing` research producing an approved
@@ -111,8 +111,9 @@ DovahLink's pairing authorization) belongs to
 
 ## Relationship to the main roadmap
 
-Normal product progression resumes at Phase 5.5 — Version-Impact Audit and Stage 5 Closure, which
-does not depend on secure hostile-network first contact. Stage 5A secure Android/Wi-Fi development
+Normal product progression continued independently of this detour: Phase 5.5 — Version-Impact Audit
+and Stage 5 Closure is complete, so Stage 5 is closed, and the next normal product-planning task is
+the Stage 6 acceptance audit. None of that depends on secure hostile-network first contact. Stage 5A secure Android/Wi-Fi development
 and production LAN exposure remain gated. This security deviation remains active until an approved
 generic profile and DovahLink's security integration gate pass. It does not change the normal stage
 order, mark S3–S11 complete, or create a new roadmap stage. The P10 authorization above pulls the S3
