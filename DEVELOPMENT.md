@@ -19,7 +19,8 @@ command, and official setup link for each one. It never installs software or cha
 | CMake 4.4.2 | [Official CMake 4.4.2 release](https://github.com/Kitware/CMake/releases/tag/v4.4.2). Add `cmake.exe` to PATH or set `DOVAHLINK_CMAKE_PATH` to its full path. | `cmake --version` must report 4.4.2. |
 | Ninja 1.13.2 | [Official Ninja 1.13.2 release](https://github.com/ninja-build/ninja/releases/tag/v1.13.2). Add `ninja.exe` to PATH or set `DOVAHLINK_NINJA_PATH` to its full path. | `ninja --version` must report 1.13.2. |
 | Python 3.13.x | [Python for Windows](https://www.python.org/downloads/windows/). | `python --version` |
-| .NET 9 SDK | [Download the .NET 9 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/9.0). The runtime alone cannot build or test the Host. | `dotnet --list-sdks` must include a 9.x SDK. |
+| .NET 10 and .NET 9 SDKs | [Download the .NET 10 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/10.0) for the Host and the [.NET 9 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/9.0) for DovahLinkBuilder, which still targets .NET 9. A runtime alone cannot build or test either. | `dotnet --list-sdks` must include a 10.x and a 9.x SDK. |
+| rustup | [Install rustup](https://rustup.rs/). The pinned Rust release builds the `sas-pairing` native library the Host tests load; `rustup` installs that release on first use. | `rustup --version` |
 | Flutter stable and its bundled Dart SDK | [Install Flutter](https://docs.flutter.dev/install), then add Flutter's `bin` directory to PATH. Do not install Dart separately. | `flutter --version --machine` and `dart --version` |
 | clang-format 19.1.5 | [Official LLVM 19.1.5 release](https://github.com/llvm/llvm-project/releases/tag/llvmorg-19.1.5); install the Windows x64 package alongside Visual Studio's copy and put its `bin` directory first on PATH. | `clang-format.exe --version` must report 19.1.5. A newer Visual Studio-bundled version does not satisfy the CI pin. |
 | Ruff | [Installation guide](https://docs.astral.sh/ruff/installation/); run `python -m pip install ruff`. | `python -m ruff --version` |
@@ -28,6 +29,18 @@ command, and official setup link for each one. It never installs software or cha
 The checker also verifies that `dotnet format` is available through the .NET SDK. vcpkg is cloned,
 checked out at the repository's pinned commit, and bootstrapped by `run-local-ci.ps1`; it does not
 need a separate installation.
+
+The Host tests also exercise a dormant `sas-pairing` integration that the running Host does not use.
+Before restoring or testing the Host projects directly, and again whenever
+`host/sas-pairing-dependency.json` changes, build its pinned dependency from the repository root
+(`run-local-ci.ps1` does this itself):
+
+```powershell
+python tooling/sas_pairing_dependency.py acquire --native
+```
+
+It fetches only the pinned `sas-pairing` commit and builds, verifies, and stages its `SasPairing`
+package and Windows x64 native library under the ignored `out/sas-pairing/` directory.
 
 After the checker reports all prerequisites available, run the complete local CI sequence from the
 repository root:

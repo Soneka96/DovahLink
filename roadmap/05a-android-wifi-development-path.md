@@ -104,6 +104,26 @@ directly. Guest-network client isolation, VPNs, mobile hotspots, routed or multi
 IPv6-only environments, firewall edge cases, and other network-topology compatibility concerns are
 deferred to later hardening.
 
+### `sas-pairing` activation
+
+Under the maintainer's pre-alpha `sas-pairing` P10 authorization (see the
+[initial-pairing security deviation](deviations/initial-pairing-security/README.md#p10-pre-alpha-integration-authorization)),
+the Host gains a persistent cryptographic identity and a dormant, test-exercised `sas-pairing`
+integration foundation that the running product does not use. This stage owns activating it:
+
+- composing the Host identity key and the integration into the running Host, by adding the
+  `DovahLink.Host` reference to `DovahLink.Host.PairingCeremony`;
+- the production Host `sas-pairing` listener and driver lifecycle;
+- the interactive Host/Adapter Skyrim prompt for SAS comparison;
+- Flutter SAS rendering and the explicit human comparison UX;
+- ceremony activation and the human MATCH/MISMATCH decisions;
+- integrating a local `sas-pairing` result with DovahLink's pairing authorization;
+- the production failure, shutdown, and responsiveness evidence for that path.
+
+The existing six-digit flow remains the active product behavior until that migration. Activation
+also remains subject to this stage's security gate above; the dormant foundation does not satisfy
+it.
+
 ### Explicit non-goals
 
 - No internet, hosted relay, account system, or cloud synchronization.

@@ -142,16 +142,20 @@ function Invoke-LocalCommand {
     }
 }
 
-Write-Host "=== tooling-ci ==="
+Write-Host "=== tooling ==="
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList @(
     "-m", "unittest", "discover", "-s", "tooling", "-p", "test_*.py"
 )
-# Mirror tooling-ci's changed-file formatter check, including committed and local branch changes.
+# Local-only changed-file formatter check, including committed and local branch changes.
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList @(
     "tooling/format_staged.py", "--check", "--base-ref", "main"
 )
 
 Write-Host "=== host-ci ==="
+# Builds the pinned sas-pairing package and native library the dormant Host integration tests use.
+Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList @(
+    "tooling/sas_pairing_dependency.py", "acquire", "--native"
+)
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList @(
     "restore", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj"
 )
@@ -159,7 +163,7 @@ Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "dotnet" -ArgumentList
     "build", "host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj", "--configuration", "Release",
     "--no-restore", "--no-incremental"
 )
-$hostExecutablePath = Join-Path $repoRoot "host\DovahLink.Host\bin\Release\net9.0-windows\DovahLink.Host.exe"
+$hostExecutablePath = Join-Path $repoRoot "host\DovahLink.Host\bin\Release\net10.0-windows\DovahLink.Host.exe"
 if (-not (Test-Path -LiteralPath $hostExecutablePath -PathType Leaf)) {
     throw "Expected headless host executable was not built: $hostExecutablePath"
 }

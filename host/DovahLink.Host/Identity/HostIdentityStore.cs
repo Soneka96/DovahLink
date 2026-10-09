@@ -86,13 +86,18 @@ public sealed class FileHostIdentityStore : IHostIdentityStore
     /// <exception cref="InvalidDataException">The file is oversized or contains a malformed UUID.</exception>
     private HostId ReadExisting()
     {
-        var info = new FileInfo(filePath);
-        if (info.Length != 36)
+        // Another Host process may be renaming its new identity file into place, which holds a handle
+        // with delete access; sharing delete lets this read proceed instead of a sharing violation.
+        using var stream = new FileStream(
+            filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+        if (stream.Length != 36)
         {
             throw new InvalidDataException("The Host identity file must contain exactly one UUID.");
         }
 
-        string text = File.ReadAllText(filePath, Encoding.ASCII);
+        byte[] bytes = new byte[36];
+        stream.ReadExactly(bytes);
+        string text = Encoding.ASCII.GetString(bytes);
         if (!Guid.TryParseExact(text, "D", out Guid value) || value == Guid.Empty)
         {
             throw new InvalidDataException("The Host identity file does not contain a valid UUID.");

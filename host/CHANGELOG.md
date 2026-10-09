@@ -29,9 +29,11 @@ for the player-facing summary posted with each Nexus Mods package. See
   `character_vitals` snapshot instead of three scalar state areas.
 - Pairing outcomes now expose Host-calculated attempts remaining and the committed renotify cooldown.
 - Raw public connection capacity is bounded separately from authenticated session capacity.
+- The packaged Host now targets and bundles .NET 10 instead of .NET 9.
 
 ### Fixed
 
+- Host connection teardown and shutdown no longer hang when a client connection's writer starts after the connection was cancelled.
 - Host rejects captured state when no play context is active instead of faulting the tracked-quest capture loop.
 - Accepted state areas now receive a late authoritative baseline through ordered recovery admission
   before Events resume.

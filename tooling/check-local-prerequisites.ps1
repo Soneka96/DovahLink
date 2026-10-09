@@ -1,4 +1,4 @@
-﻿# Checks the local prerequisites used by the full DovahLink CI run. Dot-source this file to use
+# Checks the local prerequisites used by the full DovahLink CI run. Dot-source this file to use
 # Invoke-LocalCiPrerequisiteCheck from another script; direct invocation prints the report and exits.
 
 if (-not (Get-Command Resolve-PinnedExecutablePath -ErrorAction SilentlyContinue)) {
@@ -48,10 +48,17 @@ function Get-LocalCiPrerequisiteDefinitions {
         }
         [pscustomobject]@{
             Id             = "dotnet"
-            Name           = ".NET 9 SDK"
-            InstallCommand = "Install the .NET 9 SDK. The .NET Runtime alone cannot build or test the Host."
-            VerifyCommand  = "dotnet --list-sdks (must include a 9.x SDK); dotnet format --version"
-            InstallUrl     = "https://dotnet.microsoft.com/en-us/download/dotnet/9.0"
+            Name           = ".NET 10 and .NET 9 SDKs"
+            InstallCommand = "Install the .NET 10 SDK for the Host and the .NET 9 SDK for DovahLinkBuilder. A .NET Runtime alone cannot build or test either."
+            VerifyCommand  = "dotnet --list-sdks (must include a 10.x and a 9.x SDK); dotnet format --version"
+            InstallUrl     = "https://dotnet.microsoft.com/en-us/download/dotnet/10.0"
+        }
+        [pscustomobject]@{
+            Id             = "rustup"
+            Name           = "rustup"
+            InstallCommand = "Install rustup; the pinned Rust release builds the sas-pairing native library the Host tests load."
+            VerifyCommand  = "rustup --version"
+            InstallUrl     = "https://rustup.rs/"
         }
         [pscustomobject]@{
             Id             = "flutter"
@@ -351,6 +358,34 @@ function Test-LocalCiClangFormat {
 
 <#
 .SYNOPSIS
+Selects the .NET SDK reported for local CI from `dotnet --list-sdks` output.
+
+.DESCRIPTION
+The Host requires a .NET 10 SDK, and DovahLinkBuilder, which still targets .NET 9, requires a .NET 9
+SDK, so both majors must be installed.
+
+.PARAMETER SdkListing
+The lines printed by `dotnet --list-sdks`.
+
+.OUTPUTS
+The first .NET 10 SDK listing line.
+#>
+function Select-LocalCiDotnetSdk {
+    param([string[]]$SdkListing)
+
+    $sdk = @($SdkListing) | Where-Object { $_ -match "^10\." } | Select-Object -First 1
+    if ($null -eq $sdk) {
+        throw "No .NET 10 SDK was found; the Host requires it. A .NET Runtime alone does not include the SDK."
+    }
+    if ($null -eq (@($SdkListing) | Where-Object { $_ -match "^9\." } | Select-Object -First 1)) {
+        throw "No .NET 9 SDK was found; DovahLinkBuilder still requires it. A .NET Runtime alone does not include the SDK."
+    }
+
+    return $sdk
+}
+
+<#
+.SYNOPSIS
 Runs one local CI prerequisite probe and records its result without stopping other probes.
 
 .PARAMETER Requirement
@@ -432,15 +467,32 @@ function Test-LocalCiPrerequisite {
                 if ($LASTEXITCODE -ne 0) {
                     throw "dotnet --list-sdks exited with code $LASTEXITCODE."
                 }
-                $sdk = $sdks | Where-Object { $_ -match "^9\." } | Select-Object -First 1
-                if ($null -eq $sdk) {
-                    throw "No .NET 9 SDK was found. A .NET Runtime alone does not include the SDK."
-                }
+                $sdk = Select-LocalCiDotnetSdk -SdkListing @($sdks | ForEach-Object { $_.ToString() })
                 $null = @(& $command.Source format --version 2>&1)
                 if ($LASTEXITCODE -ne 0) {
                     throw "The installed SDK does not provide dotnet format."
                 }
                 return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version (($sdk -split "\s+")[0]) -Details "dotnet format available" -Path $command.Source
+            }
+            "rustup" {
+                $command = Get-Command -Name "rustup.exe" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+                if ($null -eq $command) {
+                    throw "rustup.exe was not found on PATH."
+                }
+                # rustup prints an informational line on stderr; Windows PowerShell 5.1 would turn
+                # that into a terminating error under Stop, so read stdout only with Continue.
+                $previousPreference = $ErrorActionPreference
+                $ErrorActionPreference = "Continue"
+                try {
+                    $output = @(& $command.Source --version 2>$null)
+                }
+                finally {
+                    $ErrorActionPreference = $previousPreference
+                }
+                if ($LASTEXITCODE -ne 0) {
+                    throw "rustup --version exited with code $LASTEXITCODE."
+                }
+                return New-LocalCiPrerequisiteResult -Requirement $Requirement -Available $true -Version (($output | Select-Object -First 1).ToString().Trim()) -Path $command.Source
             }
             "flutter" {
                 $command = Get-Command -Name "flutter" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1

@@ -46,6 +46,24 @@ public sealed class HostIdentityStoreTests : IDisposable
         Assert.Single(ids.Distinct());
     }
 
+    /// <summary>
+    /// Verifies the existing ID is still read while another handle with delete access is open on the
+    /// file, as during another Host process's atomic rename of its newly created identity file.
+    /// </summary>
+    [Fact]
+    public void LoadOrCreate_FileOpenWithDeleteAccess_StillReadsExistingId()
+    {
+        HostId created = new FileHostIdentityStore(filePath).LoadOrCreate();
+
+        HostId read;
+        using (new FileStream(filePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.DeleteOnClose))
+        {
+            read = new FileHostIdentityStore(filePath).LoadOrCreate();
+        }
+
+        Assert.Equal(created, read);
+    }
+
     /// <summary>Verifies malformed persisted identity fails closed instead of silently rotating the ID.</summary>
     [Fact]
     public void LoadOrCreate_MalformedFile_ThrowsInvalidData()

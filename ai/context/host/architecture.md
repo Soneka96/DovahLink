@@ -68,6 +68,65 @@ read or is invalid, the Host uses `Skyrim PC` and continues starting. `endpoint`
 network location. None of these values substitutes for `stateAuthorityId`, `adapterInstanceId`,
 `sessionId`, `clientId`, Steam ID, or a hardware/device ID.
 
+## Host cryptographic identity key
+
+Beside `host-id.dat`, the Host has a persistent ECDSA P-256 identity key for its installation,
+implemented as a dormant pre-alpha foundation under the P10 authorization recorded in
+`ai/context/security/identity-and-transport.md`. The private key is a persisted, per-Windows-user key
+in the Microsoft Software Key Storage Provider, named from the `hostId` and created with export
+disabled. It is never exported, serialized, logged, or returned; that export policy guards against
+ordinary key export, not against code already running as the same Windows user. A public-key record
+beside the identity file holds only the key's exact DER SubjectPublicKeyInfo, whose fingerprint is the
+unpadded base64url SHA-256 of those bytes.
+
+The first load for a `hostId` creates the key and then writes its record atomically. Every later
+load verifies the persisted key against that record. A recorded key that is missing, inaccessible,
+not a P-256 key with export disabled, or different from the record, and a corrupt record, all fail
+closed: the Host never regenerates or silently replaces a key its record says existed. A deliberate
+identity reset (a new `hostId`) retires the previous ID's key and record together on the next load.
+Host processes of one Windows user serialize key loads through a per-user lock file, because the
+provider does not reliably refuse two processes creating the same key name at once.
+
+The running Host does not load this key yet: no startup, handshake, discovery, pairing, or trust path
+uses it, and nothing publishes its public key or fingerprint. Activation belongs to
+[Stage 5A](../../../roadmap/05a-android-wifi-development-path.md#sas-pairing-activation).
+
+## Dormant `sas-pairing` integration foundation
+
+The Host's pre-alpha [`sas-pairing`](https://github.com/Soneka96/sas-pairing) integration is split by
+dependency so the running Host cannot compose it by accident:
+
+- `DovahLink.Host` owns everything that does not need `sas-pairing`: the identity key above, the
+  RFC 9562 UUID encoding, and the encoders for the Host's DovahLink Bootstrap frame and pairing
+  authority scope, which reproduce `sas-pairing`'s frozen DovahLink mapping vectors byte for byte. It
+  references neither `sas-pairing` nor the integration project.
+- `DovahLink.Host.PairingCeremony` is a class library that references the pinned `SasPairing` .NET
+  package and not `DovahLink.Host`, so it cannot reach trust, KnownDevice, Pair/Reject/Block, bearer,
+  or session code. Its public boundary carries only detached values and bytes, never package objects,
+  sockets, or native handles. One dedicated owner thread holds the process's single `sas-pairing`
+  runtime, authority, host, and loopback listener, and is the only code that drives the native host or
+  approves a SAS; other threads post commands through a bounded queue and never wait on a drive. A SAS
+  decision takes effect only for the exact ceremony the owner has presented, and no production code
+  submits one. The library validates a local result into detached ceremony evidence by comparing the peer's
+  whole Bootstrap frame with the expected frame. One Host installation's authority scope has a single
+  owner across processes of one Windows user; a second process fails closed as authority-unavailable.
+- `DovahLink.Host.PairingCeremony.TestPeer` is test infrastructure: a separate process that plays a
+  real `sas-pairing` Initiator or holds an authority scope for the real-native tests. It is never
+  packaged, published, or referenced by the product.
+- `DovahLink.Host.Tests` alone references the integration library and builds the test peer.
+
+`host/sas-pairing-dependency.json` pins the dependency to one `sas-pairing` commit, package version,
+target, and native ABI. `tooling/sas_pairing_dependency.py` builds that pinned source into the ignored
+`out/sas-pairing/` folder and checks it with `sas-pairing`'s own package and export verifiers;
+`host/nuget.config` restores `SasPairing` from that local feed only.
+
+The running Host composes none of this. It binds no `sas-pairing` listener, runs no ceremony, displays
+or approves no SAS, produces no Pair/Reject/Block decision, and writes no trust from a result, and the
+packaged Host contains no `sas-pairing` assembly or native library. The six-digit pairing flow and
+bearer reconnect remain the product behavior. Stage 5A activates the foundation by adding the
+`DovahLink.Host` reference to `DovahLink.Host.PairingCeremony` and the production lifecycle,
+presentation, and authorization integration around it.
+
 ## Ownership
 
 The host is the sole new owner of:

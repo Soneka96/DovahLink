@@ -96,17 +96,17 @@ jobs:
             throw "Expected the windows-2022 image to provide Ninja 1.13.2, but found '$ninjaVersion'."
           }
 
-      - name: Set up .NET 9
+      - name: Set up .NET 10
         # The real Host<->Adapter process test (adapter_host_real_process_test.cpp) launches the
         # built headless host executable; it must exist before the Debug native test run below.
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
 
       - name: Set up Python
         # Used only by AssembleRealAdapterHostPackage's CTest fixture, which shells out to
         # tooling/assemble_adapter_host_package_for_ctest.py to assemble the real Vortex package for
-        # the real-package-layout test below. Same pin as tooling-ci.yml.
+        # the real-package-layout test below.
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"

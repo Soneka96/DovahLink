@@ -1,4 +1,4 @@
-﻿$ErrorActionPreference = "Stop"
+$ErrorActionPreference = "Stop"
 $InformationPreference = "SilentlyContinue"
 . (Join-Path $PSScriptRoot "check-local-prerequisites.ps1")
 
@@ -25,7 +25,7 @@ function Assert-True {
 
 $definitions = @(Get-LocalCiPrerequisiteDefinitions)
 $expectedIds = @(
-    "visual-studio", "git", "cmake", "ninja", "python", "dotnet",
+    "visual-studio", "git", "cmake", "ninja", "python", "dotnet", "rustup",
     "flutter", "dart", "clang-format", "ruff", "psscriptanalyzer"
 )
 Assert-True ($definitions.Count -eq $expectedIds.Count) "The prerequisite inventory has an unexpected number of entries."
@@ -37,6 +37,23 @@ foreach ($definition in $definitions) {
 }
 $ruffRequirement = $definitions | Where-Object { $_.Id -eq "ruff" } | Select-Object -First 1
 Assert-True ($ruffRequirement.VerifyCommand -eq "python -m ruff --version") "Ruff verification must use the Python module command."
+
+$bothSdks = @("9.0.318 [C:\Program Files\dotnet\sdk]", "10.0.401 [C:\Program Files\dotnet\sdk]")
+Assert-True ((Select-LocalCiDotnetSdk -SdkListing $bothSdks) -eq "10.0.401 [C:\Program Files\dotnet\sdk]") "The checker must report the .NET 10 SDK the Host builds with."
+foreach ($case in @(
+        @{ Listing = @("9.0.318 [C:\Program Files\dotnet\sdk]"); Expected = "*No .NET 10 SDK*" },
+        @{ Listing = @("10.0.401 [C:\Program Files\dotnet\sdk]"); Expected = "*No .NET 9 SDK*" },
+        @{ Listing = @("8.0.100 [C:\Program Files\dotnet\sdk]", "11.0.100 [C:\Program Files\dotnet\sdk]"); Expected = "*No .NET 10 SDK*" },
+        @{ Listing = @(); Expected = "*No .NET 10 SDK*" })) {
+    $failure = $null
+    try {
+        $null = Select-LocalCiDotnetSdk -SdkListing $case.Listing
+    }
+    catch {
+        $failure = $_.Exception.Message
+    }
+    Assert-True ($failure -like $case.Expected) "The checker accepted an SDK listing without both required majors: $($case.Listing -join ', ')."
+}
 
 $ruffAvailableProbe = {
     param([string]$PythonPath)

@@ -128,6 +128,13 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
     /// <summary>The clock used to enforce the inbound message rate.</summary>
     private readonly IClock clock;
 
+    /// <summary>
+    /// The time provider that drives only the fragment-assembly deadline timer:
+    /// <see cref="TimeProvider.System"/> in production, replaceable solely so tests can prove which
+    /// fragment anchors that deadline without depending on wall-clock scheduling.
+    /// </summary>
+    private readonly TimeProvider fragmentAssemblyTimeProvider;
+
     /// <summary>The bounded configuration this connection enforces.</summary>
     private readonly PublicWebSocketTransportOptions options;
 
@@ -300,10 +307,33 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
         IPublicWebSocketTransportDiagnostics diagnostics,
         IDataLaneOutboundQueue dataLaneQueue,
         HostIdentity hostIdentity)
+        : this(stream, messageHandler, clock, options, diagnostics, dataLaneQueue, hostIdentity, TimeProvider.System)
+    {
+    }
+
+    /// <summary>Creates a connection whose fragment-assembly deadline runs on <paramref name="fragmentAssemblyTimeProvider"/>.</summary>
+    /// <param name="stream">The underlying transport, owned by this connection for its lifetime.</param>
+    /// <param name="messageHandler">The handler this connection delegates inbound messages and disconnection to.</param>
+    /// <param name="clock">The clock used to enforce the inbound message rate.</param>
+    /// <param name="options">The bounded configuration this connection enforces.</param>
+    /// <param name="diagnostics">The Host-local abnormal-termination reporting sink this connection reports its root-cause end reason through, at most once.</param>
+    /// <param name="dataLaneQueue">The <see cref="PublicOutboundLane.Data"/> lane's own ordered admission and draining structure, scoped to this connection for its entire lifetime.</param>
+    /// <param name="hostIdentity">The stable Host ID and current display name exposed by the sessionless metadata probe.</param>
+    /// <param name="fragmentAssemblyTimeProvider">The time provider that drives only the fragment-assembly deadline timer; production always uses <see cref="TimeProvider.System"/>.</param>
+    internal PublicWebSocketConnection(
+        Stream stream,
+        IPublicWebSocketMessageHandler messageHandler,
+        IClock clock,
+        PublicWebSocketTransportOptions options,
+        IPublicWebSocketTransportDiagnostics diagnostics,
+        IDataLaneOutboundQueue dataLaneQueue,
+        HostIdentity hostIdentity,
+        TimeProvider fragmentAssemblyTimeProvider)
     {
         this.stream = stream;
         this.messageHandler = messageHandler;
         this.clock = clock;
+        this.fragmentAssemblyTimeProvider = fragmentAssemblyTimeProvider;
         this.options = options;
         this.diagnostics = diagnostics;
         this.dataLaneQueue = dataLaneQueue;
@@ -931,7 +961,7 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
 
                 if (!result.EndOfMessage)
                 {
-                    fragmentAssemblyDeadline ??= new CancellationTokenSource(options.FragmentAssemblyTimeout);
+                    fragmentAssemblyDeadline ??= new CancellationTokenSource(options.FragmentAssemblyTimeout, fragmentAssemblyTimeProvider);
                     continue;
                 }
 
@@ -1038,6 +1068,10 @@ public sealed class PublicWebSocketConnection : IPublicWebSocketConnection
                     // Neither lane has a frame ready right now, but at least one is still open. Wake up
                     // as soon as either lane's state changes -- a new admission or that lane completing
                     // -- then loop back to the top, which re-checks control-first priority from scratch.
+                    // Stop first if cancellation is already requested: both waits would then complete
+                    // synchronously, so this loop would spin without ever yielding -- forever when the
+                    // writer started after cancellation on the thread whose teardown completes the lanes.
+                    writerCancellation.Token.ThrowIfCancellationRequested();
                     Task<bool> controlWaitTask = controlOutbound.Reader.WaitToReadAsync(writerCancellation.Token).AsTask();
                     Task dataWaitTask = dataLaneQueue.WaitForReadyAsync(writerCancellation.Token);
                     await Task.WhenAny(controlWaitTask, dataWaitTask).ConfigureAwait(false);

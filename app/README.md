@@ -32,7 +32,7 @@ and PR #122 connected the state-backed Session Overview. Current vitals display 
 while SDK values and ratios retain their precision. Stale, recovering, and unavailable states remain
 truthful; compatibility and connection failures appear at the actionable connection/error boundary.
 Slow-client behavior remains covered by Host transport tests and is not shown as developer
-diagnostics in normal Overview. Phase 5.5 is next; Stage 8 remains planned.
+diagnostics in normal Overview. Phase 5.5 is complete and closed Stage 5; Stage 8 remains planned.
 
 The SDK pairing group also owns authentication, pending-confirmation recovery, and the
 confirmation/credential-acknowledgement sequence; Flutter maps typed results for presentation.

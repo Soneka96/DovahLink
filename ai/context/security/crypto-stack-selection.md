@@ -17,6 +17,13 @@ security context; generic SAS research should not continue independently here. D
 intended consumer. Its application-level authorization and trust work may proceed without treating
 the unresolved bootstrap as production-secure.
 
+**Current-state note.** This STOP is preserved as history; it is not converted to a pass. The
+maintainer has since explicitly authorized experimental, pre-alpha integration of `sas-pairing`'s
+separately developed profile under that project's P10, limited to the S3 Host identity foundation
+and a dormant Host integration foundation. The production-security gate remains closed; see the
+[P10 pre-alpha integration authorization](../../../roadmap/deviations/initial-pairing-security/README.md#p10-pre-alpha-integration-authorization).
+The analysis below records the S2.2 review and is not re-evaluated by that authorization.
+
 The latest upstream release remains `0.1.0-pre.4` and its README still says the code has not been
 audited. PR #35 adding RFC 9180 P-256/P-384 DHKEM remains open. The repository's current issues page
 has no issues; no reviewed maintainer statement or open issue/PR promises to add the paper's extra

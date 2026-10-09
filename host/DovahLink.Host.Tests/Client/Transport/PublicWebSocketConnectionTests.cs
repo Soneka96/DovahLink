@@ -748,45 +748,57 @@ public class PublicWebSocketConnectionTests
     }
 
     /// <summary>
-    /// Verifies that later fragments of one still-incomplete message do not extend the assembly
-    /// deadline anchored by its first fragment -- the exact guarantee this deadline exists to enforce:
-    /// a deadline re-derived per fragment would let a peer trickle a message open indefinitely.
+    /// Verifies that the first incomplete fragment alone establishes the assembly deadline: later
+    /// fragments of the same message neither replace it with a new deadline nor reschedule it, and
+    /// that one deadline expiring closes the connection -- the exact guarantee this deadline exists
+    /// to enforce, since a deadline re-derived per fragment would let a peer trickle a message open
+    /// indefinitely. The deadline runs on a manual time provider and each fragment is awaited until
+    /// the read loop has consumed it, so the proof never depends on wall-clock scheduling.
     /// </summary>
     [Fact]
     public async Task RunAsync_RepeatedFragmentsBeforeExpiry_DoNotExtendAssemblyDeadline()
     {
         var handler = new FakePublicWebSocketMessageHandler();
         var diagnostics = new FakePublicWebSocketTransportDiagnostics();
+        var timeProvider = new ManualTimeProvider();
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
+
+        // No unsolicited client keep-alive frames: the only inbound bytes are the fragments below.
+        clientWebSocket.Options.KeepAliveInterval = TimeSpan.Zero;
         Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
 
         using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var serverStream = new ReadObservingStream(serverTcpClient.GetStream());
         var options = Fixtures.BuildPublicWebSocketTransportOptions(fragmentAssemblyTimeout: TimeSpan.FromMilliseconds(300));
-        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler, options: options, diagnostics: diagnostics);
+        var connection = Fixtures.BuildPublicWebSocketConnection(
+            serverStream, handler, options: options, diagnostics: diagnostics, fragmentAssemblyTimeProvider: timeProvider);
         Task runTask = connection.RunAsync(CancellationToken.None);
         await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-        await clientWebSocket.SendAsync("a"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(150));
-        await clientWebSocket.SendAsync("b"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
-        await Task.Delay(TimeSpan.FromMilliseconds(100));
-        await clientWebSocket.SendAsync("c"u8.ToArray(), WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await SendNonFinalFragmentAndAwaitConsumedAsync(clientWebSocket, serverStream, "a");
+        ManualTimer deadline = Assert.Single(timeProvider.Timers);
+        Assert.Equal(TimeSpan.FromMilliseconds(300), deadline.DueTime);
 
+        await SendNonFinalFragmentAndAwaitConsumedAsync(clientWebSocket, serverStream, "b");
+        await SendNonFinalFragmentAndAwaitConsumedAsync(clientWebSocket, serverStream, "c");
+
+        // Both later fragments were fully processed, yet the first fragment's deadline is still the
+        // only one: never replaced by a new timer, never rescheduled, never cleared.
+        Assert.Same(deadline, Assert.Single(timeProvider.Timers));
+        Assert.Equal(0, deadline.ChangeCount);
+        Assert.False(deadline.IsDisposed);
+        Assert.False(runTask.IsCompleted);
+
+        // Expire that one deadline on a pool thread, as a real timer would.
+        await Task.Run(deadline.Fire);
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
-        stopwatch.Stop();
 
-        // A per-fragment reset would push closure out to roughly 250ms (last fragment) + 300ms = 550ms;
-        // the correct anchored-once deadline closes around 300ms from the first fragment. 450ms sits
-        // comfortably between the two, with headroom on both sides for ordinary scheduling jitter.
-        Assert.True(
-            stopwatch.Elapsed < TimeSpan.FromMilliseconds(450),
-            $"Connection took {stopwatch.Elapsed} to close; a per-fragment reset would push this past 550ms instead of the correct ~300ms.");
         Assert.Empty(handler.ReceivedMessages);
         Assert.Equal(1, handler.ConnectionEndedCalls);
         Assert.Equal([PublicWebSocketConnectionEndReason.FragmentAssemblyTimeout], diagnostics.Reports);
+        Assert.True(deadline.IsDisposed);
         listener.Stop();
     }
 
@@ -2850,6 +2862,37 @@ public class PublicWebSocketConnectionTests
         listener.Stop();
     }
 
+    /// <summary>
+    /// Verifies that cancellation requested from inside
+    /// <see cref="IPublicWebSocketMessageHandler.HandleConnectionEstablished"/> -- after the upgrade but
+    /// before the writer loop starts, as when Host shutdown races a newly upgraded client -- still ends
+    /// the connection within a bounded time instead of leaving the writer spinning on already-cancelled
+    /// waits and blocking teardown forever.
+    /// </summary>
+    [Fact]
+    public async Task RunAsync_CancelledBeforeWriterStarts_EndsWithoutSpinning()
+    {
+        using var cancellation = new CancellationTokenSource();
+        var handler = new FakePublicWebSocketMessageHandler();
+        handler.OnConnectionEstablished = _ => cancellation.Cancel();
+        (TcpListener listener, int port) = StartLoopbackListener();
+        Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
+        using var clientWebSocket = new ClientWebSocket();
+        Task connectTask = clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/"), CancellationToken.None);
+
+        using TcpClient serverTcpClient = await acceptTask.WaitAsync(TimeSpan.FromSeconds(5));
+        var connection = Fixtures.BuildPublicWebSocketConnection(serverTcpClient.GetStream(), handler);
+        Task runTask = connection.RunAsync(cancellation.Token);
+        await connectTask.WaitAsync(TimeSpan.FromSeconds(5));
+
+        // The caller's own cancellation propagates from RunAsync; a timeout here would mean teardown hung.
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => runTask.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.Equal(1, handler.ConnectionEstablishedCalls);
+        Assert.Equal(1, handler.ConnectionEndedCalls);
+        listener.Stop();
+    }
+
     // ---- Admission-handler close-ordering integration ----
 
     /// <summary>
@@ -3563,6 +3606,22 @@ public class PublicWebSocketConnectionTests
         }
 
         return buffer.ToArray();
+    }
+
+    /// <summary>
+    /// Sends one single-byte-per-character, non-final text fragment and waits until the server's
+    /// read loop has consumed that whole frame and asked its transport for more -- which it does only
+    /// after the fragment has gone through every check the loop applies to it.
+    /// </summary>
+    private static async Task SendNonFinalFragmentAndAwaitConsumedAsync(ClientWebSocket clientWebSocket, ReadObservingStream serverStream, string payload)
+    {
+        byte[] bytes = Encoding.ASCII.GetBytes(payload);
+
+        // A masked client frame with a payload of at most 125 bytes is a 2-byte header, a 4-byte
+        // masking key, then the payload (RFC 6455 section 5.2).
+        Task consumed = serverStream.WaitForReadStartedAfterAsync(serverStream.BytesRead + 2 + 4 + bytes.Length);
+        await clientWebSocket.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: false, CancellationToken.None);
+        await consumed.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>Polls a condition until it becomes true, failing the test if the guard task ends unexpectedly early or the condition times out.</summary>

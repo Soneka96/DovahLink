@@ -4,6 +4,8 @@ Security rules apply before the Host accepts any client connection. A local-netw
 
 This file records the current transport and trust implementation. The target cryptographic identity, balanced-PAKE pairing, and WSS/TLS migration contract is [`ai/context/security/identity-and-transport.md`](../security/identity-and-transport.md). Current rules below remain in force until their implementation slices land; the target contract does not change the current wire schema by itself.
 
+The pre-alpha `sas-pairing` Host integration foundation authorized under `sas-pairing` P10 (see the [initial-pairing security deviation](../../../roadmap/deviations/initial-pairing-security/README.md#p10-pre-alpha-integration-authorization)) is dormant: the running Host composes no `sas-pairing` listener, accepts no connection for it, and changes none of the exposure, pairing, authentication, or trust rules below. Its tests bind loopback (`127.0.0.1`) only. Exposing or activating it is Stage 5A work and remains subject to the LAN gate.
+
 ## Phase 1 exposure
 
 - The first connection proof binds to loopback only (`127.0.0.1` and `::1`). It must not listen on a LAN or wildcard address.

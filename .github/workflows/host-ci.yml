@@ -11,6 +11,7 @@ on:
       - "ai/context/dotnet/**"
       - ".github/workflows/host-ci.yml"
       - "adapter-host-ipc/**"
+      - "tooling/sas_pairing_*.py"
   pull_request:
   workflow_dispatch:
 
@@ -25,7 +26,7 @@ jobs:
   build-and-test:
     name: Host Build & Test
     runs-on: windows-2022
-    timeout-minutes: 10
+    timeout-minutes: 20
     defaults:
       run:
         shell: pwsh
@@ -37,7 +38,23 @@ jobs:
       - name: Set up .NET
         uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
         with:
-          dotnet-version: 9.0.x
+          dotnet-version: 10.0.x
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.13"
+
+      - name: Install the pinned Rust toolchain
+        # The exact Rust release host/sas-pairing-dependency.json pins for the sas-pairing native build.
+        run: |
+          $toolchain = (Get-Content -Raw host/sas-pairing-dependency.json | ConvertFrom-Json).rust_toolchain
+          rustup toolchain install $toolchain --profile minimal --no-self-update
+
+      - name: Acquire the pinned sas-pairing dependency
+        # Builds the SasPairing package and Windows x64 native library from the pinned commit, verified by
+        # that commit's own packaging tools, before anything restores the dormant integration project.
+        run: python tooling/sas_pairing_dependency.py acquire --native
 
       - name: Restore host dependencies
         run: dotnet restore host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj
@@ -45,7 +62,7 @@ jobs:
       - name: Build host executable
         run: |
           dotnet build host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj --configuration Release --no-restore --no-incremental
-          $exe = "host/DovahLink.Host/bin/Release/net9.0-windows/DovahLink.Host.exe"
+          $exe = "host/DovahLink.Host/bin/Release/net10.0-windows/DovahLink.Host.exe"
           if (-not (Test-Path -LiteralPath $exe -PathType Leaf)) {
             throw "Expected headless host executable was not built: $exe"
           }
