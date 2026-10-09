@@ -1939,12 +1939,12 @@ class RepositoryConsistencyTests(unittest.TestCase):
             normalized_sdk_readme,
         )
         self.assertIn(
-            "Released Host `0.5.0` is the previous released contract and does not satisfy current "
-            "unreleased main's complete SDK surface",
+            "Host `0.5.0` is an internal version; no supported Host/Client `0.5.0` package was "
+            "publicly released",
             normalized_sdk_readme,
         )
         self.assertIn(
-            "`release/0.6.0` must synchronize both versions before current main is packaged",
+            "Earlier internal builds that pass the `0.5.x` version check are not compatibility targets",
             normalized_sdk_readme,
         )
         for required_phrase in (
@@ -2588,22 +2588,26 @@ class RepositoryConsistencyTests(unittest.TestCase):
         phase_55 = phase_55_match.group("body")
         self.assertRegex(phase_55, r"(?m)^\*\*Status:\*\* Complete$")
         for compatibility_invariant in (
-            "The declared range does not make released Host `0.5.0` compatible with current main",
-            "`release/0.6.0` must update the version literals, SDK range, fixtures, compatibility documentation, tests, and affected changelog sections before current main is packaged",
-            "The full-surface range criterion is satisfied by the current unreleased Host/SDK source pair, not by released Host `0.5.0`",
-            "follow-up release work, not a Stage 5 blocker",
+            "Host `0.5.0` is an internal version; no supported Host/Client `0.5.0` package was publicly released",
+            "Earlier internal builds that pass the `0.5.x` check are not compatibility targets",
+            "The current Host/SDK source pair provides the full SDK surface at the declared range",
+            "Do not bump to `0.5.1` solely to distinguish the unpublished internal `0.5.0`",
         ):
             self.assertIn(compatibility_invariant, self._normalize_whitespace(phase_55))
         compatibility = self._normalize_whitespace(
             self._read("ai/context/protocol/compatibility.md")
         )
         for compatibility_invariant in (
-            "Released Host `0.5.0` is the previous released contract and does not satisfy the current SDK's complete public surface",
-            "it predates required `hello_ack.hostId`/`hostName`, coherent `character_vitals`, and later registered state domains",
-            "root `VERSION` and source range literals remain `0.5.0`/`0.5.x`",
-            "`release/0.6.0` must synchronize the Host version and SDK range before current main is packaged",
+            "Host `0.5.0` was an internal version only; no supported Host/Client `0.5.0` package was publicly released",
+            "Earlier internal builds using `0.5.0` did not have those fields",
+            "root `VERSION` and current SDK source declare Host `0.5.0`/`0.5.x`",
         ):
             self.assertIn(compatibility_invariant, compatibility)
+        common = self._normalize_whitespace(self._read("ai/context/common.md"))
+        self.assertIn(
+            "The repository's `0.5.0` version and dated `0.5.0` changelog sections are internal records",
+            common,
+        )
         acceptance_section = phase_5.split("### Acceptance criteria", 1)[1]
         criterion_numbers = re.findall(r"(?m)^(\d+)\. ", acceptance_section)
         classified_criteria = re.findall(

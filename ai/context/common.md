@@ -321,6 +321,12 @@ instead of it.
 DovahLink has no supported public release yet. The previous Nexus listing was removed because the
 Skyrim component required the DovahLink Companion App, which had no public way to be downloaded.
 
+The repository's `0.5.0` version and dated `0.5.0` changelog sections describe internal snapshots;
+no supported Host/Client `0.5.0` package was publicly released. Those snapshots will never be
+compatibility targets. The current Host and SDK source may evolve together while retaining the
+internal `0.5.0` version; compatibility obligations begin with the first supported public release.
+Do not bump to `0.5.1` solely to distinguish the unpublished snapshots.
+
 - Until a usable Companion App is publicly downloadable, do not publish or re-publish DovahLink on
   Nexus as a public, usable release. Private and development testing is unaffected.
 - Until DovahLink has its first supported public release, no previous PR, branch, local build, test

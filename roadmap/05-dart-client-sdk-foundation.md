@@ -16,11 +16,10 @@ Phase 5.3 adds canonical complete-set subscription updates with Host reconciliat
 intent, ordinary reconnect restoration, administrative dormancy until explicit recovery, and
 intentional-disconnect cleanup.
 Its complete-set subscription meaning is incompatible with released Host `0.4.0`'s additive behavior.
-The `0.5.0` release included that change, but released Host `0.5.0` is the previous released
-contract and does not satisfy the current SDK surface. Current unreleased main has moved beyond that
-contract while root `VERSION` remains `0.5.0` under the dedicated release-branch policy; the source
-literal must not be read as proof that the released binary matches current main. The next compatible
-packaged Host/SDK contract is `0.6.x`, prepared on `release/0.6.0` before current main is packaged.
+The repository's `0.5.0` version and dated changelog sections are internal records; no supported
+Host/Client `0.5.0` package was publicly released. Earlier internal `0.5.0` builds are not
+compatibility targets under the pre-release policy, and current Host/SDK source is aligned at
+`0.5.0`/`0.5.x`. A `0.5.1` bump is not needed solely to distinguish an unpublished internal build.
 PR #120 delivered the SDK-to-Redux pipeline, and PR #122 delivered the state-backed Session
 Overview. Phase 5.4 finished player-facing number formatting and visual parity, recorded the
 maintainer's runtime validation, and rebaselined the proof acceptance. Phase 5.5 completed the full
@@ -73,10 +72,9 @@ prevent raw JSON, transport types, and internal codecs from crossing the public 
 The SDK reads `hello_ack.hostVersion`, applies the repository's pre-1.0 same-major/same-minor and
 post-1.0 accepted-minor rules, and closes before capabilities or state traffic when the Host is
 incompatible. Phase 5.3's complete-set subscription semantics make released Host `0.4.0`
-incompatible with the public subscription API; `0.5.0` was the next release for that change. Later
-current-main contract changes exceed released Host `0.5.0` and require `0.6.x` before current main
-is packaged. The SDK owns the explanation; the Host only advertises its version and does not reject
-SDK versions.
+incompatible with the public subscription API; the current `0.5.0` source includes that change.
+Earlier internal builds are not compatibility targets under the pre-release policy. The SDK owns the
+explanation; the Host only advertises its version and does not reject SDK versions.
 
 #### 5.2 SDK State Synchronization API
 
@@ -223,10 +221,11 @@ invoke it independently; a contract-breaking bugfix must not be forced into a pa
    presentation; and repository consistency tooling. Supported Skyrim/SKSE/CommonLib minimums do
    not change. The Stage 5A security profile is outside this audit.
 4. **Protocol impact:** **BREAKING CONTRACT CHANGE** across the complete Stage 5 range. Phase 5.3
-   changed `subscribe.stateAreas` to complete-set replacement, making Host `0.4.0` incompatible;
-   the `0.5.0` release records that change. Later pre-release work added required Host identity
-   fields and new state domains, and consolidated Vitals. The canonical schema, fixtures, Host, SDK,
-   and app are aligned. Earlier unreleased builds are not compatibility targets under the
+   changed `subscribe.stateAreas` to complete-set replacement, making Host `0.4.0` incompatible. The
+   repository's `0.5.0` version and dated changelog sections are internal records; no supported
+   Host/Client `0.5.0` package was publicly released. Later internal work added required Host
+   identity fields and new state domains, and consolidated Vitals. The canonical schema, fixtures,
+   Host, SDK, and app are aligned. Earlier unreleased builds are not compatibility targets under the
    documented pre-release policy.
 5. **Persistence impact:** SDK-owned client state writes format v4. Its decoder migrates v3 while
    preserving client identity, Known Hosts, credentials, and valid recovery state; formats v1/v2
@@ -240,38 +239,29 @@ invoke it independently; a contract-breaking bugfix must not be forced into a pa
    gate.
 7. **Compatibility impact:** the SDK explicitly supports Host `0.5.x`, rejects older/newer or
    malformed versions before session admission, and has tests for accepted patches, old/new Hosts,
-   and malformed versions. The declared range does not make released Host `0.5.0` compatible with
-   current main: that binary predates required `hostId`/`hostName`, coherent `character_vitals`, and
-   later registered state domains. Current main is unreleased development source whose Host and SDK
-   contract has moved beyond the shipped `0.5.0` contract. Root `VERSION` and current Host/SDK range
-   literals remain `0.5.0`/`0.5.x` until the dedicated release workflow synchronizes them. The next
-   compatible packaged Host/SDK contract is `0.6.x`; `release/0.6.0` must update the version
-   literals, SDK range, fixtures, compatibility documentation, tests, and affected changelog
-   sections before current main is packaged. The full-surface range criterion is satisfied by the
-   current unreleased Host/SDK source pair, not by released Host `0.5.0`; the documented pre-release
-   policy makes that acceptable for phase closure, with the `0.6.0` synchronization required before
-   current main is packaged.
+   and malformed versions. Host `0.5.0` is an internal version; no supported Host/Client `0.5.0`
+   package was publicly released. Earlier internal builds that pass the `0.5.x` check are not
+   compatibility targets under the documented pre-release policy. The current Host/SDK source pair
+   provides the full SDK surface at the declared range. Compatibility obligations begin with the
+   first supported public release.
 8. **Version ownership and recommendation:** root `VERSION` (`0.5.0`) owns the Host/Adapter
    packaged version. The SDK package (`0.1.0`) and Flutter app (`0.1.0+2`) are repository-internal
-   and unpublished. No version literal changes on this phase branch. The current Stage 5 contract
-   after the `0.5.0` release requires the next packaged release to be `0.6.0`; prepare that as a
-   separate `release/0.6.0` branch after this phase merges, synchronize the repository-owned
-   literals, and update the SDK supported range to `0.6.x` in that release. This is a release
-   follow-up, not a blocker to closing the unreleased phase.
+   and unpublished. No version literal changes on this phase branch. Do not bump to `0.5.1` solely
+   to distinguish the unpublished internal `0.5.0`; version synchronization remains part of the
+   dedicated release workflow.
 9. **Changelog impact:** the Host/Adapter, SDK, and app `[Unreleased]` sections already record
-   their distinct Stage 5 and pulled-forward outcomes. The Host `0.5.0` section records the
-   complete-set subscription release. No duplicate entry or additional Phase 5.5 consumer change
+   their distinct Stage 5 and pulled-forward outcomes. The internal Host `0.5.0` section records the
+   complete-set subscription change. No duplicate entry or additional Phase 5.5 consumer change
    warrants a changelog edit. `CHANGELOG.md` remains the frozen archive through `0.4.0`.
 10. **Independent .NET validator:** **OBSOLETE / SUPERSEDED.** The former independent validator
     and its native-plugin end-to-end scenarios were intentionally removed in Stage 3A.2 when the
     retired Bridge was deleted. `integration/README.md` and the Phase 4.5 audit record document
     that removal and the current Host/SDK/fixture/process-level validation path. No replacement
     validator is introduced by Stage 5.
-11. **Unresolved blockers:** none for Stage 5 closure under the release workflow. Released Host
-    `0.5.0` does not satisfy current main's SDK surface, so current main must not be packaged under
-    that release identity. The required `release/0.6.0` synchronization is follow-up release work,
-    not a Stage 5 blocker: version bumps happen on a dedicated release branch after phase work
-    merges, and an unreleased version may wait without blocking phase closure. The SDK remains
+11. **Unresolved blockers:** none for Stage 5 closure under the release workflow. Host `0.5.0` is
+    an internal version, not a supported public release, and earlier internal builds are not
+    compatibility targets. Version synchronization remains a dedicated release step after phase
+    work merges; an unreleased version may wait without blocking phase closure. The SDK remains
     unpublished (`publish_to: none`); Stage 5A, secure LAN, production SAS pairing, Host pinning, and
     WSS/TLS remain separate work.
 
@@ -293,10 +283,8 @@ validation client was retired with the legacy Bridge in Stage 3A.2; see the Phas
    types are not exported; the public storage port and state value are deliberate injection types.
 2. **COMPLETE — Host compatibility implementation:** the SDK declares and tests its explicit
    Host-version range and applies the documented pre-1.0 and post-1.0 policy without generic SemVer
-   inference. Current source literals remain `0.5.0`/`0.5.x` until release synchronization; this is
-   not a claim that released Host `0.5.0` satisfies the current SDK surface. The next packaged
-   contract is `0.6.x`, and its dedicated release branch must synchronize Host and SDK versions
-   before packaging current main.
+   inference. Current source literals are `0.5.0`/`0.5.x`; earlier internal builds are not
+   compatibility targets because no supported Host/Client `0.5.0` package was publicly released.
 3. **COMPLETE — Flutter boundary:** the official app uses the SDK for normal DovahLink communication
    and has no parallel app-private protocol/client stack.
 4. **COMPLETE — One client engine:** all grouped API views share one underlying client composition;

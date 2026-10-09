@@ -70,13 +70,11 @@ use an explicit unsupported-storage boundary, and pairing stays unavailable unti
 implemented for that platform.
 
 Current SDK source declares Host `0.5.x` and rejects older or newer Host versions during `hello`,
-before admitting a session. Released Host `0.5.0` is the previous released contract and does not
-satisfy current unreleased main's complete SDK surface; its `0.5.0` version passes the current range
-check but predates required identity fields and later state-contract changes. The root `VERSION`
-remains `0.5.0` only because release-version synchronization is managed separately. The next
-compatible packaged Host/SDK contract is `0.6.x`, and `release/0.6.0` must synchronize both versions
-before current main is packaged. Released Host `0.4.0` also remains incompatible with the Phase 5.3
-complete-set subscription API.
+before admitting a session. Host `0.5.0` is an internal version; no supported Host/Client `0.5.0`
+package was publicly released. Earlier internal builds that pass the `0.5.x` version check are not
+compatibility targets under the repository's pre-release policy, and the current Host/SDK source pair
+implements the current public SDK surface. Released Host `0.4.0` remains incompatible with the
+Phase 5.3 complete-set subscription API.
 Subscribe and unsubscribe calls update local desired intent before Host synchronization, so a failed
 request does not necessarily roll back the change; retained intent may be synchronized on a later
 trusted session, while intentional disconnect clears it.
