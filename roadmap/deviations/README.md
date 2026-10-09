@@ -42,5 +42,7 @@ The main roadmap answers **“What is the normal product delivery order?”** De
   foundation and its Session Overview projection are delivered.
 - [Initial Pairing Security Investigation and Extraction](initial-pairing-security/README.md)
 - [SDK and Flutter Architecture Refactoring](sdk-flutter-architecture-refactoring/README.md) —
-  active planning record: the SDK/Flutter architecture audit, its findings, and the ordered
-  refactoring backlog that precedes further SDK and Flutter feature work.
+  active planning record: the SDK/Flutter architecture audit, its findings, and an advisory
+  refactoring backlog. The backlog is not a mandatory prerequisite for further SDK and Flutter
+  feature work; the maintainer decides implementation priorities and when normal roadmap
+  progression resumes.
