@@ -41,3 +41,8 @@ The main roadmap answers **“What is the normal product delivery order?”** De
   runtime and source research for Location, Game Time, and quest semantics; the production data
   foundation and its Session Overview projection are delivered.
 - [Initial Pairing Security Investigation and Extraction](initial-pairing-security/README.md)
+- [SDK and Flutter Architecture Refactoring](sdk-flutter-architecture-refactoring/README.md) —
+  active planning record: the SDK/Flutter architecture audit, its findings, and an advisory
+  refactoring backlog. The backlog is not a mandatory prerequisite for further SDK and Flutter
+  feature work; the maintainer decides implementation priorities and when normal roadmap
+  progression resumes.
