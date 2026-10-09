@@ -147,7 +147,7 @@ named. No finding below proposes a security, pairing-semantics, protocol, or per
 ### ARCH-001: SDK publishes a transient `disconnected` on ordinary transport loss; the app and its docs assume it does not
 
 - **Severity:** High. **Evidence:** Confirmed (code and SDK test); not exercised end to end.
-- **Paths and symbols:** `sdk/.../internal/session/session_service.dart` `_beginRecoveryAfterOrdinaryTransportLoss` (434-454); `connection_teardown_coordinator.dart` `tearDown` (56-90); `session_state.dart` `resetAfterTeardown` (312-331) and `markReconnecting` (219); `app/lib/features/live_state/presentation/state/live_state.middleware.dart` `_connectionStateChanged` (136-157), `_endAdmittedSession` (317-330), `_ensureTrustedSession` (172-184).
+- **Paths and symbols:** `sdk/dart/dovahlink_client/lib/src/internal/session/session_service.dart` `_beginRecoveryAfterOrdinaryTransportLoss` (434-454); `connection_teardown_coordinator.dart` `tearDown` (56-90); `session_state.dart` `resetAfterTeardown` (312-331) and `markReconnecting` (219); `app/lib/features/live_state/presentation/state/live_state.middleware.dart` `_connectionStateChanged` (136-157), `_endAdmittedSession` (317-330), `_ensureTrustedSession` (172-184).
 - **Evidence:** Ordinary loss from `connected` tears down with `preserveReconnecting: true`, but `resetAfterTeardown` only preserves `reconnecting` when the session was already recovering, so the state goes `connected → disconnected`, and only a later queued step calls `markReconnecting`. The SDK test `dovahlink_client_test.dart:5730` asserts the sequence `connected, disconnected, reconnecting, reauthenticating, connected` and comments that this is intended. The app middleware treats every `disconnected` as the end of the admitted session: it cancels all eight listeners, clears `_requestedDesiredAreaStores`, and dispatches `SessionLiveStateResetAction`. The app test `live_state.middleware_test.dart:738` ("ordinary reconnect keeps projection listeners") feeds `reconnecting → reauthenticating → connected` and so never produces the `disconnected` the real SDK emits. `ai/context/flutter/architecture.md` (Live gameplay state) states that ordinary reconnect keeps those listeners attached.
 - **Current behavior:** After a real transport drop the app tears down and re-attaches its listeners, clears the Overview slice, and re-issues eight sequential `subscribeStateArea` calls on top of the SDK's own `restoreDesiredStateAreas`.
 - **Why problematic:** A consumer cannot tell a final disconnect from the first step of recovery. Documented behavior, test fake, and real SDK disagree. The SDK itself also clears gameplay values at teardown (`onTeardown` closure in `dovahlink_client.dart:243-250` calls `SubscriptionService.onSessionEnded`, which resets every area to `notSubscribed`), so the documented "stale retained values across reconnect" is not what either side does for transport loss.
@@ -253,3 +253,121 @@ Source documents were not edited. Each row proposes a correction for maintainer 
 | D-6 | Ambiguous ownership | `flutter/architecture.md` "Feature call chain" versus `sdk/api-design.md:76-78` | One forbids forwarding layers, the other keeps them with no exit criterion. | Record the removal condition and owner (ARCH-002). |
 | D-7 | Outdated description | `ARCHITECTURE.md:17` | Says the SDK "is added when the Dart Client SDK Foundation phase begins" and points at planned status; Stage 5 is complete. | Update to the current state. |
 | D-8 | Ambiguous ownership | `flutter/architecture.md` ownership table | Assigns pairing "expiry, attempts, cooldown" to the SDK, but the SDK returns relative seconds and Flutter computes deadlines (S-2). | Clarify which side owns the clock. |
+
+## 9. Architecture improvement backlog
+
+Ordered by the task's priority list (correctness first, then ownership, change amplification, SAS
+overlap, isolation). File counts are estimates of tracked changed files, including tests and
+documentation; all are below the 80-file limit and none needs splitting. Every task needs an explicit
+maintainer instruction naming its scope (`AGENTS.md`), and any task marked "public SDK change" needs
+maintainer approval of that contract change before implementation.
+
+Hypothesis areas not carried forward: **Screens, widgets and shared UI** has no justified task. The
+Session Overview widgets and dialogs were reviewed for orchestration mixed into layout and for
+widget-local state; the only local state found (timers and text controllers in `pairing_countdown`,
+`device_name_editor`, `pairing_code_form`) is legitimately local. The 64-file theme area was not read
+line by line (Section 1), so this is "no evidence of a problem", not a clean bill. **Flutter
+infrastructure and lifecycle** is folded into T3 and T7 because its only item is suspected S-4.
+**Flutter connection and pairing presentation** and **live-state and session architecture** reduce to
+T2 and the app half of T1.
+
+| Order | Task | Findings | Priority | SAS overlap |
+| --- | --- | --- | --- | --- |
+| T1 | Resolve the reconnect state sequence | ARCH-001 | High | Independent of SAS |
+| T2 | Pairing feature: call the SDK boundary directly | ARCH-002, S-1, S-2 | High | Coordinate with 5A.1 and 5A.10 |
+| T3 | SDK composition root and facade responsibilities | ARCH-003, ARCH-004, S-3, S-4 | Medium | Better after 5A.7/5A.8 |
+| T4 | Single owner for rejection and availability policy | ARCH-005 | Medium | Better after SAS |
+| T5 | SDK state-domain registration | ARCH-006 | Medium | Independent of SAS |
+| T6 | SDK subscription and typed-failure API additions | ARCH-007 | Medium | Coordinate with 5A.7 (public SDK change) |
+| T7 | Documentation corrections and guardrails | D-1..D-8, S-5 | Low | Independent of SAS |
+
+### T1. Resolve the reconnect state sequence
+
+- **Branch:** `fix/reconnect-state-sequence`
+- **Scope:** The maintainer decides between the two options in ARCH-001. Implement the chosen one: either the SDK suppresses the transient `disconnected` when recovery will follow, or the documented contract and the app's `LiveStateMiddleware` are updated to treat it explicitly. Replace the app test's hand-built sequence with one derived from the real SDK sequence, and correct the matching sentence in `ai/context/flutter/architecture.md`.
+- **Dependencies:** none. **Public SDK change:** yes if option (a).
+- **Non-goals:** changing reconnect timing, retry budgets, subscription semantics, or any security behavior; adding new states.
+- **Benefit:** the documented, tested, and real behavior agree; no redundant subscribe traffic or Overview reset on drops.
+- **Estimated files:** 10-14 (3 SDK source, 4 SDK tests, 1-2 app source, 1-2 app tests, 2 docs).
+- **Regression risks:** `KnownHostSessionState` and pairing connection-status mapping read the same transitions; presence monitor evidence.
+- **Acceptance criteria:** a test asserts the real emitted sequence on ordinary loss and the app reacts exactly as documented; SDK and app analyze and test pass; no change to `PendingOperation` retry behavior.
+
+### T2. Pairing feature: call the SDK boundary directly
+
+- **Branch:** `refactor/pairing-direct-sdk-boundary`
+- **Scope:** Remove the seven pairing use cases, `IPairingRepository`/`PairingRepository`, and the `PairingHandshakeModel`/entity pass-through. Keep failure mapping, handshake mapping, and connection-status mapping in one app boundary. Resolve S-1 and S-2 in the same branch if the decisions are quick; otherwise split them out.
+- **Dependencies:** best done before or inside 5A.1.
+- **Non-goals:** changing pairing UX, copy, phases, or SDK calls; touching the device-identity or appearance layers (their repositories do real persistence).
+- **Benefit:** removes ten forwarding types and nine tests; each later SAS state is one change, not five.
+- **Estimated files:** 28-38 (about 20 deletions, edits to middleware, DI, mapper and their tests, 2 docs).
+- **Regression risks:** middleware tests that stub use cases; `sl` registration order; shutdown behavior.
+- **Acceptance criteria:** no forwarding-only type remains; behavior tests for authenticate, confirm, renotify, cancel, disconnect, status mapping, and shutdown pass with unchanged intent; `flutter analyze` is clean.
+
+### T3. SDK composition root and facade responsibilities
+
+- **Branch:** `refactor/sdk-root-and-facade-ownership`
+- **Scope:** Move discovery reconciliation and Known Host invalidation cleanup out of `DovahLinkClient` into contracted collaborators; give deliberate disconnect and rename a service owner; make admission the single restore trigger; delete the test-only observation hook; verify S-3 and S-4 with throwaway tests and fix only if confirmed.
+- **Dependencies:** none, but sequence after 5A.7/5A.8 if those restructure pairing.
+- **Non-goals:** new public API, a second client engine, changes to the three documented callbacks.
+- **Benefit:** the root only wires; discovery logic becomes independently testable.
+- **Estimated files:** 20-30.
+- **Regression risks:** discovery race suppression, storage-error propagation, cancellation order on close.
+- **Acceptance criteria:** the root holds no behavior or mutable discovery fields; all existing `discoverHosts`, `close`, and disconnect tests pass; no public export changes.
+
+### T4. Single owner for rejection and availability policy
+
+- **Branch:** `refactor/sdk-rejection-availability-policy`
+- **Scope:** One contracted policy maps rejection or invalidation evidence to `pairingRequired` and availability, used by the root, authentication, reconnect, pairing, and the presence monitor.
+- **Dependencies:** after SAS phases that add rejection outcomes (5A.7).
+- **Non-goals:** changing which outcomes require pairing or what availability each yields.
+- **Benefit:** one place to extend when trust outcomes grow.
+- **Estimated files:** 12-18.
+- **Regression risks:** subtle availability transitions during recovery.
+- **Acceptance criteria:** table-driven policy tests reproduce today's mapping exactly; all callers delegate.
+
+### T5. SDK state-domain registration
+
+- **Branch:** `refactor/sdk-state-domain-registration`
+- **Scope:** A registration type declares area, decoder, availability rule, and event support once; recovery is derived from it; `currentHost` exposes domains without a field each; the three identical modules collapse onto it. Domain streams and models stay separate.
+- **Dependencies:** none; do before the next gameplay domain (Stage 15 onward).
+- **Non-goals:** a global state stream, merging domains, protocol changes, app-side Redux changes.
+- **Benefit:** a new domain becomes a registration plus a model; Event domains cannot miss recovery.
+- **Estimated files:** 25-35.
+- **Regression risks:** gate and baseline behavior in `StateMessageHandler` and `SubscriptionService`.
+- **Acceptance criteria:** existing state, module, and subscription tests pass; a test registers a stub domain without touching `DovahLinkClient`.
+
+### T6. SDK subscription and typed-failure API additions
+
+- **Branch:** `feature/sdk-subscription-and-failure-api`
+- **Scope:** Add a multi-area subscribe, a readable desired set, and a typed administrative-invalidation failure; remove the app's `_requestedDesiredAreaStores` and connection-state probe.
+- **Dependencies:** maintainer approval of the public contract; coordinate with 5A.7.
+- **Non-goals:** protocol or Host changes; changing intent-retention semantics.
+- **Benefit:** another Dart consumer gets the same capability without copying app logic.
+- **Estimated files:** 15-25.
+- **Regression risks:** intent clearing on disconnect; duplicate subscribes.
+- **Acceptance criteria:** the app issues one subscribe per admitted session; failure classification reads a typed value; SDK and app tests pass.
+
+### T7. Documentation corrections and guardrails
+
+- **Branch:** `docs/architecture-guardrails`
+- **Scope:** Apply the corrections in Section 8 after the maintainer decides each; re-home the content the dangling `plans/` links refer to; add a reviewable check for forwarding-only layers or app imports of SDK `src/` if the maintainer wants one. Include S-5 only if still relevant.
+- **Dependencies:** after T1 (D-5) and T2 (D-6) so the text matches the code.
+- **Non-goals:** editing code or rules the maintainer has not approved.
+- **Benefit:** governing documents match the code.
+- **Estimated files:** 10-14.
+- **Regression risks:** none to runtime.
+- **Acceptance criteria:** no governing document links to a missing path; each discrepancy is resolved or recorded as accepted.
+
+## 10. Single recommended next task
+
+**T1. Resolve the reconnect state sequence** (`fix/reconnect-state-sequence`).
+
+It is the only item where the documented behavior, the test fake, and the real SDK disagree, and it
+affects every transport drop for a connected player. It is independent of SAS, so it can land at any
+time, and its first step is a maintainer decision between two options rather than a speculative
+refactor. Everything else in the backlog is structural improvement with no demonstrated
+user-visible effect today.
+
+The audit found no Critical issue and no ownership violation that lets Flutter implement reconnect,
+authentication, pairing sequencing, revision handling, or subscription recovery on its own. The
+SDK/Flutter split is sound; the remaining work is targeted, not a rewrite.
