@@ -1,8 +1,10 @@
 using System.Diagnostics;
 using System.Globalization;
+using System.Reflection;
 using System.Security.Cryptography;
 using DovahLink.Host.Identity;
 using DovahLink.Host.PairingCeremony;
+using DovahLink.Host.PairingCeremony.Native;
 using DovahLink.Host.Tests.TestDoubles;
 using Xunit.Abstractions;
 
@@ -53,43 +55,50 @@ public sealed class RealCeremonyTests(ITestOutputHelper output) : IDisposable
         (IPairingCeremonyHost host, RecordingPairingCeremonyObserver observer, MeasuringNativeSessionFactory measured, byte[] expectedClientFrame) = StartHost();
         using (host)
         using (var probe = new ResponsivenessProbe())
-        using (TestPeerProcess peer = StartPeer(host))
         {
-            string peerSas = AwaitPeerLine(peer, "SAS ");
-            Eventually(() => !observer.SasRequests.IsEmpty);
-            SasComparisonRequest hostSas = observer.SasRequests.Single();
-            Assert.Equal(hostSas.DecimalDisplay, peerSas["SAS ".Length..]);
+            SasPairingNativeSession nativeSession = measured.OpenedSession!;
+            (int HandlesByRun, int RunsByHandle, int PresentedIdentities)? mapsAtCompletion = null;
+            observer.OnCompletion = () => mapsAtCompletion = NativeSessionMapCounts(nativeSession);
 
-            Assert.True(host.TrySubmitSasDecision(hostSas.CeremonyIdentity, SasComparisonDecision.Match));
-            peer.WriteLine("APPROVE");
-
-            Eventually(() => !observer.Completions.IsEmpty);
-            (CeremonyAttemptId? attempt, CeremonyResultSnapshot result) = observer.Completions.Single();
-            string peerResult = AwaitPeerLine(peer, "RESULT ");
-            Assert.Equal(hostSas.Attempt, attempt);
-            Assert.Equal($"RESULT {Convert.ToHexStringLower(result.CeremonyIdentity)} Responder", peerResult);
-            Assert.True(result.CeremonyIdentity.SequenceEqual(hostSas.CeremonyIdentity));
-            Assert.Equal(0, peer.WaitForExit(Milestone));
-
-            CeremonyEvidenceResult accepted = new CeremonyResultValidator().Validate(result, HostFields(), expectedClientFrame);
-            Assert.Null(accepted.Rejection);
-            foreach ((string field, byte[] frame) in OneFieldCandidateChanges())
+            using (TestPeerProcess peer = StartPeer(host))
             {
-                Assert.True(
-                    new CeremonyResultValidator().Validate(result, HostFields(), frame).Rejection == CeremonyEvidenceRejection.PeerBootstrapMismatch,
-                    field);
+                string peerSas = AwaitPeerLine(peer, "SAS ");
+                Eventually(() => !observer.SasRequests.IsEmpty);
+                SasComparisonRequest hostSas = observer.SasRequests.Single();
+                Assert.Equal(hostSas.DecimalDisplay, peerSas["SAS ".Length..]);
+
+                Assert.True(host.TrySubmitSasDecision(hostSas.CeremonyIdentity, SasComparisonDecision.Match));
+                peer.WriteLine("APPROVE");
+
+                Eventually(() => !observer.Completions.IsEmpty);
+                (CeremonyAttemptId? attempt, CeremonyResultSnapshot result) = observer.Completions.Single();
+                string peerResult = AwaitPeerLine(peer, "RESULT ");
+                Assert.Equal(hostSas.Attempt, attempt);
+                Assert.Equal($"RESULT {Convert.ToHexStringLower(result.CeremonyIdentity)} Responder", peerResult);
+                Assert.True(result.CeremonyIdentity.SequenceEqual(hostSas.CeremonyIdentity));
+                Assert.Equal(0, peer.WaitForExit(Milestone));
+                Assert.Equal((0, 0, 0), mapsAtCompletion);
+
+                CeremonyEvidenceResult accepted = new CeremonyResultValidator().Validate(result, HostFields(), expectedClientFrame);
+                Assert.Null(accepted.Rejection);
+                foreach ((string field, byte[] frame) in OneFieldCandidateChanges())
+                {
+                    Assert.True(
+                        new CeremonyResultValidator().Validate(result, HostFields(), frame).Rejection == CeremonyEvidenceRejection.PeerBootstrapMismatch,
+                        field);
+                }
+
+                TimeSpan worstPoolLateness = probe.Stop();
+                var stopwatch = Stopwatch.StartNew();
+                host.Stop();
+                TimeSpan stopLatency = stopwatch.Elapsed;
+
+                SasCeremonyCompletedLocally evidence = accepted.Evidence!;
+                Assert.True(evidence.CeremonyIdentity.SequenceEqual(hostSas.CeremonyIdentity));
+                Assert.True(evidence.AuthenticatedPeerBootstrap.SequenceEqual(expectedClientFrame));
+                Assert.Equal(PairingCeremonyHostState.Stopped, host.State);
+                ReportResponsiveness(measured, worstPoolLateness, stopLatency);
             }
-
-            TimeSpan worstPoolLateness = probe.Stop();
-            var stopwatch = Stopwatch.StartNew();
-            host.Stop();
-            TimeSpan stopLatency = stopwatch.Elapsed;
-
-            SasCeremonyCompletedLocally evidence = accepted.Evidence!;
-            Assert.True(evidence.CeremonyIdentity.SequenceEqual(hostSas.CeremonyIdentity));
-            Assert.True(evidence.AuthenticatedPeerBootstrap.SequenceEqual(expectedClientFrame));
-            Assert.Equal(PairingCeremonyHostState.Stopped, host.State);
-            ReportResponsiveness(measured, worstPoolLateness, stopLatency);
         }
     }
 
@@ -97,22 +106,29 @@ public sealed class RealCeremonyTests(ITestOutputHelper output) : IDisposable
     [Fact]
     public void RealCeremony_SasMismatch_EndsWithoutResult()
     {
-        (IPairingCeremonyHost host, RecordingPairingCeremonyObserver observer, _, _) = StartHost();
+        (IPairingCeremonyHost host, RecordingPairingCeremonyObserver observer, MeasuringNativeSessionFactory measured, _) = StartHost();
         using (host)
-        using (TestPeerProcess peer = StartPeer(host))
         {
-            AwaitPeerLine(peer, "SAS ");
-            Eventually(() => !observer.SasRequests.IsEmpty);
-            SasComparisonRequest hostSas = observer.SasRequests.Single();
+            SasPairingNativeSession nativeSession = measured.OpenedSession!;
+            (int HandlesByRun, int RunsByHandle, int PresentedIdentities)? mapsAtEnd = null;
+            observer.OnEnded = () => mapsAtEnd = NativeSessionMapCounts(nativeSession);
 
-            Assert.True(host.TrySubmitSasDecision(hostSas.CeremonyIdentity, SasComparisonDecision.Mismatch));
-            peer.WriteLine("REJECT");
+            using (TestPeerProcess peer = StartPeer(host))
+            {
+                AwaitPeerLine(peer, "SAS ");
+                Eventually(() => !observer.SasRequests.IsEmpty);
+                SasComparisonRequest hostSas = observer.SasRequests.Single();
 
-            Eventually(() => !observer.EndedAttempts.IsEmpty);
-            Assert.Equal(hostSas.Attempt, observer.EndedAttempts.Single());
-            Assert.StartsWith("ENDED", AwaitPeerLine(peer, "ENDED"));
-            Assert.Empty(observer.Completions);
-            Assert.Equal(PairingCeremonyHostState.Running, host.State);
+                Assert.True(host.TrySubmitSasDecision(hostSas.CeremonyIdentity, SasComparisonDecision.Mismatch));
+                peer.WriteLine("REJECT");
+
+                Eventually(() => !observer.EndedAttempts.IsEmpty);
+                Assert.Equal(hostSas.Attempt, observer.EndedAttempts.Single());
+                Assert.StartsWith("ENDED", AwaitPeerLine(peer, "ENDED"));
+                Assert.Empty(observer.Completions);
+                Assert.Equal((0, 0, 0), mapsAtEnd);
+                Assert.Equal(PairingCeremonyHostState.Running, host.State);
+            }
         }
     }
 
@@ -154,6 +170,22 @@ public sealed class RealCeremonyTests(ITestOutputHelper output) : IDisposable
         string line = peer.ReadLine(Milestone);
         Assert.True(line.StartsWith(prefix, StringComparison.Ordinal), $"The test peer reported '{line}' instead of '{prefix}…'.");
         return line;
+    }
+
+    /// <summary>Counts the native session's run, reverse-handle, and presented-identity maps.</summary>
+    /// <param name="session">The native session.</param>
+    /// <returns>The three map counts.</returns>
+    private static (int HandlesByRun, int RunsByHandle, int PresentedIdentities) NativeSessionMapCounts(SasPairingNativeSession session) =>
+        (NativeMapCount(session, "handlesByRun"), NativeMapCount(session, "runsByHandle"), NativeMapCount(session, "presentedIdentities"));
+
+    /// <summary>Reads one private native-session map count to verify its resource lifecycle.</summary>
+    /// <param name="session">The native session.</param>
+    /// <param name="fieldName">The private map field name.</param>
+    /// <returns>The number of entries.</returns>
+    private static int NativeMapCount(SasPairingNativeSession session, string fieldName)
+    {
+        FieldInfo field = typeof(SasPairingNativeSession).GetField(fieldName, BindingFlags.Instance | BindingFlags.NonPublic)!;
+        return ((System.Collections.IDictionary)field.GetValue(session)!).Count;
     }
 
     /// <summary>Builds this test's Host Bootstrap fields from its real persisted Host key.</summary>

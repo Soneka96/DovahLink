@@ -138,20 +138,29 @@ internal sealed class SasPairingNativeSession : ISasPairingNativeSession
     public NativeDriveResult Drive()
     {
         SasPairingDriveBatch batch = Guard("SasPairingHost.Drive", host.Drive);
-        var events = new List<NativeCeremonyEvent>(batch.Events.Count);
-        foreach (SasPairingEvent evt in batch.Events)
+        var batchEvents = new List<SasPairingEvent>(batch.Events);
+        List<NativeCeremonyEvent> events;
+        try
         {
-            NativeRunHandle? run = evt.Run is null ? null : HandleFor(evt.Run);
-            events.Add(new NativeCeremonyEvent(
-                Translate(evt.Kind), Translate(evt.ProtocolEvent), run, evt.Run?.IsEnded ?? false, evt.Result is null ? null : ReadOnceAndRelease(evt.Result)));
+            events = TranslateAndCleanupBatch(
+                batchEvents,
+                evt =>
+                {
+                    CeremonyResultSnapshot? result = evt.Result is null ? null : ReadOnceAndRelease(evt.Result);
+                    NativeRunHandle? run = evt.Run is null ? null : HandleFor(evt.Run);
+                    return new NativeCeremonyEvent(
+                        Translate(evt.Kind), Translate(evt.ProtocolEvent), run, evt.Run?.IsEnded ?? false, result);
+                },
+                evt => evt.Result,
+                evt => evt.ShouldDisposeConnection,
+                evt => evt.Connection,
+                evt => evt.Run?.IsEnded ?? false,
+                evt => ForgetEnded(evt.Run!),
+                ReleaseQuietly);
         }
-
-        foreach (SasPairingEvent evt in batch.Events)
+        finally
         {
-            if (evt.ShouldDisposeConnection)
-            {
-                evt.Connection?.Dispose();
-            }
+            ForgetEndedRuns();
         }
 
         NativeFailureKind? failure = batch.Failure switch
@@ -214,6 +223,116 @@ internal sealed class SasPairingNativeSession : ISasPairingNativeSession
         ReleaseQuietly(runtime);
     }
 
+    /// <summary>Translates one event batch and releases every owned resource on success or failure.</summary>
+    /// <typeparam name="TEvent">The event value.</typeparam>
+    /// <typeparam name="TOutput">The detached translated value.</typeparam>
+    /// <param name="events">The package events in their original order.</param>
+    /// <param name="translate">Translates one event and releases its result on every path when present.</param>
+    /// <param name="result">Gets the event's result resource, if any.</param>
+    /// <param name="shouldDisposeConnection">Whether the event transfers its connection for disposal after translation.</param>
+    /// <param name="connection">Gets the event's connection resource, if any.</param>
+    /// <param name="runEnded">Whether the event names an ended run.</param>
+    /// <param name="forgetEndedRun">Forgets an ended run after every event has been translated.</param>
+    /// <param name="release">Releases a result or flagged connection.</param>
+    /// <returns>The translated events, in their original order.</returns>
+    /// <exception cref="ArgumentNullException">A required argument is <see langword="null"/>.</exception>
+    /// <exception cref="Exception"><paramref name="translate"/> fails; remaining resources are still released.</exception>
+    internal static List<TOutput> TranslateAndCleanupBatch<TEvent, TOutput>(
+        IReadOnlyList<TEvent> events,
+        Func<TEvent, TOutput> translate,
+        Func<TEvent, IDisposable?> result,
+        Func<TEvent, bool> shouldDisposeConnection,
+        Func<TEvent, IDisposable?> connection,
+        Func<TEvent, bool> runEnded,
+        Action<TEvent> forgetEndedRun,
+        Action<IDisposable?> release)
+    {
+        ArgumentNullException.ThrowIfNull(events);
+        ArgumentNullException.ThrowIfNull(translate);
+        ArgumentNullException.ThrowIfNull(result);
+        ArgumentNullException.ThrowIfNull(shouldDisposeConnection);
+        ArgumentNullException.ThrowIfNull(connection);
+        ArgumentNullException.ThrowIfNull(runEnded);
+        ArgumentNullException.ThrowIfNull(forgetEndedRun);
+        ArgumentNullException.ThrowIfNull(release);
+
+        var translated = new List<TOutput>(events.Count);
+        var resultReleased = new bool[events.Count];
+        try
+        {
+            for (int index = 0; index < events.Count; index++)
+            {
+                TEvent evt = events[index];
+                resultReleased[index] = result(evt) is not null;
+                translated.Add(translate(evt));
+            }
+        }
+        finally
+        {
+            for (int index = 0; index < events.Count; index++)
+            {
+                TEvent evt = events[index];
+                if (!resultReleased[index] && result(evt) is { } unprocessedResult)
+                {
+                    release(unprocessedResult);
+                }
+
+                if (shouldDisposeConnection(evt) && connection(evt) is { } flaggedConnection)
+                {
+                    release(flaggedConnection);
+                }
+            }
+
+            foreach (TEvent evt in events)
+            {
+                if (runEnded(evt))
+                {
+                    forgetEndedRun(evt);
+                }
+            }
+        }
+
+        return translated;
+    }
+
+    /// <summary>Forgets ended runs from a stable snapshot while preserving every still-live run.</summary>
+    /// <typeparam name="TRun">The tracked run value.</typeparam>
+    /// <param name="runs">The current run values.</param>
+    /// <param name="isEnded">Whether a run has ended.</param>
+    /// <param name="forget">Removes one ended run from its owning maps.</param>
+    /// <exception cref="ArgumentNullException">A required argument is <see langword="null"/>.</exception>
+    internal static void ForgetEndedRuns<TRun>(
+        IReadOnlyCollection<TRun> runs,
+        Func<TRun, bool> isEnded,
+        Action<TRun> forget)
+    {
+        ArgumentNullException.ThrowIfNull(runs);
+        ArgumentNullException.ThrowIfNull(isEnded);
+        ArgumentNullException.ThrowIfNull(forget);
+
+        foreach (TRun run in runs.ToArray())
+        {
+            if (isEnded(run))
+            {
+                forget(run);
+            }
+        }
+    }
+
+    /// <summary>Disposes a native object, ignoring cleanup failures so every later release still runs.</summary>
+    /// <param name="resource">The object to release, or <see langword="null"/>.</param>
+    internal static void ReleaseQuietly(IDisposable? resource)
+    {
+        try
+        {
+            resource?.Dispose();
+        }
+        catch (Exception exception) when (exception is SasPairingNativeException or SasPairingContractException)
+        {
+            // Native cleanup reports a failure, but the object is disposed regardless; nothing is retried.
+        }
+    }
+
     /// <summary>Runs one package call and classifies every package failure.</summary>
     /// <typeparam name="T">The call's result type.</typeparam>
     /// <param name="operation">The operation name for diagnostics.</param>
@@ -266,20 +385,6 @@ internal sealed class SasPairingNativeSession : ISasPairingNativeSession
         call();
         return true;
     });
-
-    /// <summary>Disposes a native object, ignoring cleanup failures so every later release still runs.</summary>
-    /// <param name="resource">The object to release, or <see langword="null"/>.</param>
-    private static void ReleaseQuietly(IDisposable? resource)
-    {
-        try
-        {
-            resource?.Dispose();
-        }
-        catch (Exception exception) when (exception is SasPairingNativeException or SasPairingContractException)
-        {
-            // Native cleanup reports a failure, but the object is disposed regardless; nothing is retried.
-        }
-    }
 
     /// <summary>Reads a local result exactly once into detached values and releases the native result on every path.</summary>
     /// <param name="result">The result an event delivered.</param>
@@ -342,6 +447,23 @@ internal sealed class SasPairingNativeSession : ISasPairingNativeSession
         }
 
         return handle;
+    }
+
+    /// <summary>Forgets a run after its final event batch has been translated.</summary>
+    /// <param name="run">The ended package run.</param>
+    private void ForgetEnded(SasPairingRun run)
+    {
+        if (handlesByRun.Remove(run, out NativeRunHandle? handle))
+        {
+            runsByHandle.Remove(handle);
+            presentedIdentities.Remove(handle);
+        }
+    }
+
+    /// <summary>Forgets every tracked run the package has observed ending, including runs absent from this batch.</summary>
+    private void ForgetEndedRuns()
+    {
+        ForgetEndedRuns(runsByHandle.Values, run => run.IsEnded, ForgetEnded);
     }
 
     /// <summary>Resolves a handle to its package run.</summary>

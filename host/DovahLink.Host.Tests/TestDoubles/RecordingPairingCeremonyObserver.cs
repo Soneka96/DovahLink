@@ -30,6 +30,12 @@ internal sealed class RecordingPairingCeremonyObserver : IPairingCeremonyObserve
     /// <summary>Run after a SAS request is recorded.</summary>
     public Action<SasComparisonRequest>? OnSas { get; set; }
 
+    /// <summary>Run after a local completion is recorded.</summary>
+    public Action? OnCompletion { get; set; }
+
+    /// <summary>Run after an ended attempt is recorded.</summary>
+    public Action? OnEnded { get; set; }
+
     /// <summary>When set, every notification throws after being recorded.</summary>
     public bool ThrowFromEveryNotification { get; set; }
 
@@ -56,6 +62,7 @@ internal sealed class RecordingPairingCeremonyObserver : IPairingCeremonyObserve
     {
         Completions.Enqueue((attempt, result));
         Finish();
+        OnCompletion?.Invoke();
         ThrowIfConfigured();
     }
 
@@ -64,6 +71,7 @@ internal sealed class RecordingPairingCeremonyObserver : IPairingCeremonyObserve
     {
         EndedAttempts.Enqueue(attempt);
         Finish();
+        OnEnded?.Invoke();
         ThrowIfConfigured();
     }
 
