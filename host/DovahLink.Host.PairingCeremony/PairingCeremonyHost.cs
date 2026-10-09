@@ -264,7 +264,10 @@ public sealed class PairingCeremonyHost : IPairingCeremonyHost
     private static PairingCeremonyFailure StartFailureFor(NativeFailureKind kind) => kind switch
     {
         NativeFailureKind.OwnershipUnavailable => PairingCeremonyFailure.AuthorityUnavailable,
-        _ => RunningFailureFor(kind),
+        NativeFailureKind.ProcessFatal => PairingCeremonyFailure.ProcessFatal,
+        NativeFailureKind.ContractViolation => PairingCeremonyFailure.ContractViolation,
+        NativeFailureKind.OwnerLoopFailed => PairingCeremonyFailure.OwnerLoopFailed,
+        _ => PairingCeremonyFailure.StartFailed,
     };
 
     /// <summary>Maps a host-wide native failure to the host failure it causes.</summary>
@@ -274,8 +277,7 @@ public sealed class PairingCeremonyHost : IPairingCeremonyHost
     {
         NativeFailureKind.ProcessFatal => PairingCeremonyFailure.ProcessFatal,
         NativeFailureKind.ContractViolation => PairingCeremonyFailure.ContractViolation,
-        NativeFailureKind.OwnerLoopFailed => PairingCeremonyFailure.OwnerLoopFailed,
-        _ => PairingCeremonyFailure.StartFailed,
+        _ => PairingCeremonyFailure.OwnerLoopFailed,
     };
 
     /// <summary>Whether a native failure only affects the step and attempt it happened in, rather than the whole host.</summary>

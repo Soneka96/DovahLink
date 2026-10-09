@@ -261,6 +261,10 @@ public sealed class PairingCeremonyHostTests : IDisposable
     [InlineData("ProcessFatal", PairingCeremonyFailure.ProcessFatal, true)]
     [InlineData("ContractViolation", PairingCeremonyFailure.ContractViolation, true)]
     [InlineData("OwnerLoopFailed", PairingCeremonyFailure.OwnerLoopFailed, false)]
+    [InlineData("OperationFailed", PairingCeremonyFailure.OwnerLoopFailed, false)]
+    [InlineData("RunEnded", PairingCeremonyFailure.OwnerLoopFailed, false)]
+    [InlineData("WritePending", PairingCeremonyFailure.OwnerLoopFailed, false)]
+    [InlineData("OwnershipUnavailable", PairingCeremonyFailure.OwnerLoopFailed, false)]
     public void DriveFailure_LatchesFailedWithoutRecreatingAnything(string driveFailureName, PairingCeremonyFailure expected, bool restartRequired)
     {
         host.Start();
@@ -305,12 +309,17 @@ public sealed class PairingCeremonyHostTests : IDisposable
     /// <param name="failOpen">Whether opening fails instead of attaching.</param>
     /// <param name="kindName">The name of the native failure.</param>
     /// <param name="expected">The resulting host failure.</param>
+    /// <param name="restartRequired">Whether a process restart is required after the failure.</param>
     [Theory]
-    [InlineData(true, "OwnershipUnavailable", PairingCeremonyFailure.AuthorityUnavailable)]
-    [InlineData(true, "ProcessFatal", PairingCeremonyFailure.ProcessFatal)]
-    [InlineData(true, "OperationFailed", PairingCeremonyFailure.StartFailed)]
-    [InlineData(false, "OperationFailed", PairingCeremonyFailure.StartFailed)]
-    public void StartFailure_FailsClosedAndReleasesWhatWasOpened(bool failOpen, string kindName, PairingCeremonyFailure expected)
+    [InlineData(true, "OwnershipUnavailable", PairingCeremonyFailure.AuthorityUnavailable, false)]
+    [InlineData(true, "ProcessFatal", PairingCeremonyFailure.ProcessFatal, true)]
+    [InlineData(true, "ContractViolation", PairingCeremonyFailure.ContractViolation, true)]
+    [InlineData(true, "OwnerLoopFailed", PairingCeremonyFailure.OwnerLoopFailed, false)]
+    [InlineData(true, "OperationFailed", PairingCeremonyFailure.StartFailed, false)]
+    [InlineData(true, "RunEnded", PairingCeremonyFailure.StartFailed, false)]
+    [InlineData(true, "WritePending", PairingCeremonyFailure.StartFailed, false)]
+    [InlineData(false, "OperationFailed", PairingCeremonyFailure.StartFailed, false)]
+    public void StartFailure_FailsClosedAndReleasesWhatWasOpened(bool failOpen, string kindName, PairingCeremonyFailure expected, bool restartRequired)
     {
         NativeFailureKind kind = Enum.Parse<NativeFailureKind>(kindName);
         if (failOpen)
@@ -329,7 +338,7 @@ public sealed class PairingCeremonyHostTests : IDisposable
         Assert.Null(host.ListenerEndpoint);
         Assert.Equal(failOpen ? 0 : 1, session.DisposeCount);
         Assert.Equal(0, session.DriveCount);
-        Assert.Equal((expected, kind == NativeFailureKind.ProcessFatal), observer.Failures.Single());
+        Assert.Equal((expected, restartRequired), observer.Failures.Single());
     }
 
     /// <summary>Verifies an observer that throws never stops the owner thread or the ceremony.</summary>
