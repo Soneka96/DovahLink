@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <string>
 
+using dovahlink::adapter::test_support::NormalizeWhitespace;
 using dovahlink::adapter::test_support::ReadSource;
 
 TEST_CASE("no adapter/papyrus header includes a Skyrim or SKSE runtime "
@@ -77,9 +78,11 @@ TEST_CASE("CommonLibAdapterStatusPapyrusAdapter reports explicit "
           "[papyrus][commonlib_adapter_status_papyrus_adapter][structural]") {
     std::string source =
         ReadSource(DOVAHLINK_ADAPTER_STATUS_PAPYRUS_ADAPTER_SOURCE_FILE);
+    std::string normalizedSource = NormalizeWhitespace(source);
 
-    CHECK(source.find("RE::BSFixedString GetHostStatus(RE::StaticFunctionTag "
-                      "*)") != std::string::npos);
+    CHECK(normalizedSource.find(NormalizeWhitespace(
+              "RE::BSFixedString GetHostStatus(RE::StaticFunctionTag *)")) !=
+          std::string::npos);
     CHECK(source.find("if (!g_session)") != std::string::npos);
     CHECK(source.find("\"DovahLink adapter status is unavailable.\"") !=
           std::string::npos);
@@ -107,7 +110,12 @@ TEST_CASE("CommonLibAdapterStatusPapyrusAdapter stores the session behind "
           "[papyrus][commonlib_adapter_status_papyrus_adapter][structural]") {
     std::string source =
         ReadSource(DOVAHLINK_ADAPTER_STATUS_PAPYRUS_ADAPTER_SOURCE_FILE);
+    std::string normalizedSource = NormalizeWhitespace(source);
 
-    CHECK(source.find("ipc::IAdapterIpcSession *g_session") != std::string::npos);
-    CHECK(source.find("ipc::AdapterIpcSession *g_session") == std::string::npos);
+    CHECK(normalizedSource.find(
+              NormalizeWhitespace("ipc::IAdapterIpcSession *g_session")) !=
+          std::string::npos);
+    CHECK(normalizedSource.find(
+              NormalizeWhitespace("ipc::AdapterIpcSession *g_session")) ==
+          std::string::npos);
 }
