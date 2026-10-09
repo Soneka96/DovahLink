@@ -119,6 +119,13 @@ The large files (for example the 6.7k-line `dovahlink_client_test.dart`, 599-lin
 549-line `PairingService`) were treated as investigation candidates only. Size alone produced no
 finding.
 
+**Approved future requirements (Section 11).** Persistent, offline-accessible Overviews and Skyrim
+gameplay readiness are recorded as product requirements, not defects. The current architecture
+already provides the foundations they need: typed domain models with identity metadata, durable
+`hostId`-keyed Known Hosts, and Host-internal play-context and Adapter tracking. The backlog
+(Section 9) separates necessary corrections (A), small preparation (B), and the feature work itself
+(C). The Host owns readiness, the SDK owns historical snapshots, and Flutter owns presentation.
+
 ## 3. SDK architecture inventory
 
 | Subsystem | Main types (under `lib/src/`) | Owns | Boundary notes |
@@ -238,7 +245,7 @@ named. No finding below proposes a security, pairing-semantics, protocol, or per
 - **Why problematic:** Anything that ends a session must remember the sequence; a fifth caller will miss a step. Restoration policy is spread across an internal service, a public facade, and the app, so no single owner answers "when does a session that became trusted restore its desired areas?"
 - **Recommended correction:** Give deliberate-disconnect and rename each a service owner. Move restoration policy into one SDK-internal owner that reacts to *the session becoming trusted*, from either path: trusted admission or a successful `markTrusted` on the current session. The five cases that must keep restoring are: trusted initial admission, ordinary reconnect, trust upgrade of an existing unpaired session, successful pairing confirmation, and pending-pairing recovery. The facade calls are removed only after this owner covers all five, each with its own test, and the owner must not restore for an `unpaired` admission, for a stale session, or after administrative invalidation (desired areas stay dormant until an explicit retry, `api-design.md` "Subscription intent versus mechanics"). The app's `_sessionTrusted` subscribe sequence is then removed with T6's removal of app-side subscription requests, so Flutter only expresses intent and observes streams. No restoration trigger is eliminated; each moves to one owner.
 - **Risk of changing:** Medium: ordering of cancellation matters. Protected by `dovahlink_connections_test.dart`, `dovahlink_pairing_test.dart`, `dovahlink_client_test.dart`.
-- **SAS:** Better after 5A.7/5A.8 (they extend pairing operations).
+- **SAS:** 5A.7/5A.8 extend pairing operations. Revised sequencing: land the restoration owner before they begin so SAS pairing uses it (Section 9, T3).
 - **Follow-up PR:** T3 (shared with ARCH-003).
 
 ### ARCH-005: Rejection-to-`pairingRequired` and availability rules are written in several places
@@ -307,11 +314,29 @@ Source documents were not edited. Each row proposes a correction for maintainer 
 
 ## 9. Architecture improvement backlog
 
-Ordered by the task's priority list (correctness first, then ownership, change amplification, SAS
-overlap, isolation). File counts are estimates of tracked changed files, including tests and
-documentation; all are below the 80-file limit and none needs splitting. Every task needs an explicit
-maintainer instruction naming its scope (`AGENTS.md`), and any task marked "public SDK change" needs
-maintainer approval of that contract change before implementation.
+Revised for the approved future requirements (Section 11). File counts are estimates of tracked
+changed files, including tests and documentation; every task stays below the 80-file limit, and
+none of them, or of the Section 11 work, is combined into one large branch. Every task needs an
+explicit maintainer instruction naming its scope (`AGENTS.md`), and any task marked "public SDK
+change" or "protocol change" needs maintainer approval of that contract before implementation.
+Branch names use short descriptions because no roadmap phase owns these tasks yet; a task placed
+into a roadmap phase takes that phase's `feature/<phase-number>-<slug>` name (`CONTRIBUTING.md`).
+
+Tasks fall into three categories, which are not merged:
+
+- **A. Necessary architecture corrections** — justified by a confirmed finding in Sections 6 and 8:
+  T1-T7. Suspected items (S-1..S-5) ride along only after the throwaway reproduction in Section 7
+  confirms them; otherwise they are dropped from the branch. T5 is a confirmed correction (ARCH-006)
+  that is also the main preparation for historical snapshots, and T3 also prepares SDK composition
+  for new capabilities.
+- **B. Architecture preparation** — small changes justified only by the approved requirements:
+  T14, documentation that records the Section 11 ownership rules in their owning documents before
+  any feature PR. No preparatory code abstraction is added. The historical storage port, readiness
+  contract, and offline navigation are built inside the category C tasks that need them.
+- **C. Future feature implementation** — never-implemented product scope from Section 11, delivered
+  outward (Host/protocol, then SDK, then Flutter) in focused PRs: T8-T13. T8 is the first slice: it
+  delivers "Reconnecting keeps last-known values" with no persistence. These are not architecture
+  defects.
 
 Hypothesis areas not carried forward: **Screens, widgets and shared UI** has no justified task. The
 Session Overview widgets and dialogs were reviewed for orchestration mixed into layout and for
@@ -322,15 +347,41 @@ infrastructure and lifecycle** is folded into T3 and T7 because its only item is
 **Flutter connection and pairing presentation** and **live-state and session architecture** reduce to
 T2 and the app half of T1.
 
-| Order | Task | Findings | Priority | SAS overlap |
-| --- | --- | --- | --- | --- |
-| T1 | Resolve the reconnect state sequence | ARCH-001 | High | Independent of SAS |
-| T2 | Pairing feature: call the SDK boundary directly | ARCH-002, S-1, S-2 | High | Coordinate with 5A.1 and 5A.10 |
-| T3 | SDK composition root and facade responsibilities | ARCH-003, ARCH-004, S-3, S-4 | Medium | Better after 5A.7/5A.8 |
-| T4 | Single owner for rejection and availability policy | ARCH-005 | Medium | Better after SAS |
-| T5 | Consolidate the existing state-domain definitions | ARCH-006 | Medium | Independent of SAS |
-| T6 | SDK subscription and typed-failure API additions | ARCH-007 | Medium | Coordinate with 5A.7 (public SDK change) |
-| T7 | Documentation corrections and guardrails | D-1..D-8, S-5 | Low | Independent of SAS |
+| ID | Cat. | Task | Findings or requirement | Priority | SAS overlap |
+| --- | --- | --- | --- | --- | --- |
+| T1 | A | Resolve the reconnect state sequence | ARCH-001 (concern 1) | High | Independent of SAS |
+| T2 | A | Pairing feature: call the SDK boundary directly | ARCH-002, S-1, S-2 | High | Before or inside 5A.1; feeds 5A.10 |
+| T3 | A | SDK composition root and facade responsibilities | ARCH-003, ARCH-004, S-3, S-4 | Medium | Before 5A.7/5A.8 begin (revised); rebase after 5A.7 if it is already in flight |
+| T4 | A | Single owner for rejection and availability policy | ARCH-005 | Medium | After 5A.7 |
+| T5 | A | Consolidate the existing state-domain definitions | ARCH-006 | Medium | Independent of SAS |
+| T6 | A | SDK subscription and typed-failure API additions | ARCH-007 | Medium | Coordinate with 5A.7 (public SDK change) |
+| T7 | A | Documentation corrections and guardrails | D-1..D-8, S-5 | Low | Independent of SAS |
+| T8 | C | SDK live-value retention across recovery | ARCH-001 concern 2; Section 11.2 Reconnecting row | Requirement | Independent of SAS |
+| T9 | C | Host gameplay and pairing readiness contract | Section 11.6-11.7 | Requirement | Coordinate with 5A.3, 5A.4, 5A.7 |
+| T10 | C | SDK gameplay-readiness capability | Section 11.6 | Requirement | Coordinate with 5A.7 |
+| T11 | C | SDK historical Overview snapshots | Section 11.4-11.5, 11.8 | Requirement | Independent of SAS |
+| T12 | C | Flutter offline Overview | Section 11.2 required states | Requirement | Independent of SAS |
+| T13 | C | Flutter gameplay and pairing readiness | Section 11.6-11.7 | Requirement | Pairing parts alongside 5A.10 |
+| T14 | B | Record Section 11 ownership rules in their owning documents | Section 11.3-11.8 | Before any category C PR | Independent of SAS |
+
+**Planning fields per task**
+
+| ID | What changes now | Future requirement supported | Responsibilities unchanged | Independent of feature work | Creates a prerequisite for | SAS coordination |
+| --- | --- | --- | --- | --- | --- | --- |
+| T1 | Public connection-state semantics on ordinary loss; app ends observation only on a terminal state | Offline Overview can treat `disconnected` as terminal | Reconnect timing, retry budgets, desired intent, security | Yes | T8, T12 | None |
+| T2 | Removes pairing forwarding layers; one app mapping boundary | A typed "not ready" pairing outcome lands in one place | Pairing UX, SDK calls, Redux pairing flow | Yes | T13 | Before or inside 5A.1 |
+| T3 | Root wires only; disconnect, rename, discovery, and restoration get contracted owners | New SDK capabilities (T10, T11) arrive as services, not root fields | Public API; the one-engine rule; the three documented callbacks | Yes | T10, T11, and T6's `_sessionTrusted` removal | Do before 5A.7/5A.8 so they build on the restoration owner |
+| T4 | One rejection and availability policy | Readiness stays separate from availability | Which outcomes need pairing; availability values | Yes | None | After 5A.7 adds trust outcomes |
+| T5 | Recovery derived from definitions; identical modules collapsed | Snapshot capability enumerates one definition list and reuses its decoders | Typed streams, public getters, exported models | Yes | T11 | None |
+| T6 | Multi-area subscribe, readable desired set, typed invalidation failure | App stops issuing its own restoration requests, simplifying T12 | Intent-retention semantics | Yes | None | Coordinate with 5A.7 |
+| T7 | Governing documents match code | Records live/historical and readiness rules once, in their owning documents | Product and protocol rules | Yes | None | None |
+| T8 | Trackers keep the last accepted value, explicitly non-current with original identity, between teardown and the next baseline | Persistent Overview: "Reconnecting" row | Revision and identity rules; no fabricated status; explicit disconnect still resets | No: first feature slice; needs a public-semantics decision | T11 (snapshots read retained values at session end) | None |
+| T9 | Host readiness predicate and its protocol exposure | Gameplay readiness; pairing readiness predicate | Authentication not tied to a loaded save; six-digit pairing unchanged unless 11.7 option (a) is chosen | No | T10; 5A.3/5A.4 consume its predicate | Coordinate protocol versioning with 5A.7 |
+| T10 | Typed SDK readiness value | Gameplay readiness | Connection state and Host availability semantics | No | T13 | Typed "not ready" pairing outcome lands with 5A.7 |
+| T11 | Separate historical persistence port and read-only historical API | Persistent Overview | `IClientStorage`, credentials, live trackers | No | T12 | None |
+| T12 | Read-only historical shell mode and distinguishable Redux sources | Persistent Overview, offline navigation | Live route behavior for connected Hosts; Overview design | No | None | None |
+| T13 | Readiness presentation on cards and shell; Pair gated on readiness | Gameplay and pairing readiness | Host enforcement stays authoritative | No | None | Pairing parts alongside 5A.10 |
+| T14 | Owning documents state live/historical, readiness, and pairing-readiness ownership once | Both requirements | All code | Yes | T8-T13 (they implement against recorded rules) | None |
 
 ### T1. Resolve the reconnect state sequence
 
@@ -358,7 +409,7 @@ T2 and the app half of T1.
 
 - **Branch:** `refactor/sdk-root-and-facade-ownership`
 - **Scope:** Move discovery reconciliation and Known Host invalidation cleanup out of `DovahLinkClient` into contracted collaborators; give deliberate disconnect and rename a service owner; move subscription-restoration policy into one SDK-internal owner keyed on the session becoming trusted (trusted admission or a successful `markTrusted` on the current session), then remove the four `DovahLinkPairing` restore calls; delete the test-only observation hook; verify S-3 and S-4 with throwaway tests and fix only if confirmed.
-- **Dependencies:** none, but sequence after 5A.7/5A.8 if those restructure pairing.
+- **Dependencies:** none. Revised: do it before 5A.7/5A.8 begin, because it is a prerequisite for T10 and T11 and those SAS phases extend the pairing facade it simplifies; if 5A.7 is already in flight, finish that first and rebase this task onto it.
 - **Non-goals:** new public API, a second client engine, changes to the three documented callbacks.
 - **Benefit:** the root only wires; discovery logic becomes independently testable.
 - **Estimated files:** 20-30.
@@ -391,7 +442,7 @@ T2 and the app half of T1.
 
 - **Branch:** `feature/sdk-subscription-and-failure-api`
 - **Scope:** Add a multi-area subscribe, a readable desired set, and a typed administrative-invalidation failure; remove the app's `_requestedDesiredAreaStores`, its `_sessionTrusted` subscribe sequence (once T3's SDK restoration owner covers trust upgrades), and the connection-state probe.
-- **Dependencies:** maintainer approval of the public contract; coordinate with 5A.7.
+- **Dependencies:** maintainer approval of the public contract; coordinate with 5A.7. The `_sessionTrusted` removal needs T3.
 - **Non-goals:** protocol or Host changes; changing intent-retention semantics.
 - **Benefit:** another Dart consumer gets the same capability without copying app logic.
 - **Estimated files:** 15-25.
@@ -409,15 +460,128 @@ T2 and the app half of T1.
 - **Regression risks:** none to runtime.
 - **Acceptance criteria:** no governing document links to a missing path; each discrepancy is resolved or recorded as accepted.
 
+### T8. SDK live-value retention across recovery (C)
+
+- **Branch:** `feature/sdk-live-state-retention-across-recovery`
+- **Scope:** ARCH-001 concern 2. After the maintainer decides the semantics, an ordinary transport loss keeps each previously accepted domain's last value and original `stateAuthorityId`, `playContextId`, and revision, under an explicitly non-current status, until a new baseline is accepted or the identity changes. Explicit disconnect and administrative invalidation keep today's reset. Update `ai/context/sdk/api-design.md` and the Flutter live-state text once.
+- **Dependencies:** T1. **Public SDK change:** yes (stream semantics); maintainer decision first.
+- **Non-goals:** persistence, historical APIs, Flutter offline presentation, new status values unless the decision requires one.
+- **Benefit:** "Reconnecting: last-known information" works with no storage, and T11 can read retained values at session end.
+- **Estimated files:** 8-14.
+- **Regression risks:** the accepted-area gate and stale suppression; `_observeIdentity` resets on a new authority or play context.
+- **Acceptance criteria:** SDK tests show a value retained through ordinary loss with its original identity and a non-current status; a new baseline replaces it; a play-context or authority change clears it; explicit disconnect resets to `notSubscribed`; no revision is fabricated.
+
+### T9. Host gameplay and pairing readiness contract (C)
+
+- **Branch:** `feature/host-gameplay-readiness-contract`
+- **Scope:** Define the Host readiness predicate from Adapter availability, resynchronization, and play context (11.6); expose it through an approved protocol addition with schema, fixtures, and compatibility handling. The same predicate is what pairing readiness consumes, but enforcement in the six-digit flow is included only if the maintainer chooses 11.7 option (a) (Host answers `unavailable`); otherwise 5A.3/5A.4 enforce it for SAS. A typed "not ready" pairing reason is a 5A.7 contract item, not part of this task.
+- **Dependencies:** maintainer approval of the protocol change; coordinate versioning with 5A.7, and define readiness so 5A.3 consumes it.
+- **Non-goals:** SDK or Flutter changes; Adapter changes unless the predicate needs a new signal; SAS changes; tying authentication to a loaded save.
+- **Estimated files:** 20-35.
+- **Acceptance criteria:** Host tests cover no Adapter, main menu, loading, loaded, and Adapter loss; fixtures validate with `tooling/validate_protocol_fixtures.py`; if option (a) is chosen, a pairing request outside readiness never reports `available`. Stage 5A names 5A.7 as its only public-contract phase; that statement is scoped to Stage 5A, so this separately approved protocol change sequences its compatibility impact with 5A.7 rather than landing inside it.
+
+### T10. SDK gameplay-readiness capability (C)
+
+- **Branch:** `feature/sdk-gameplay-readiness`
+- **Scope:** A typed, replaying readiness value on an existing grouped view, separate from connection state and Host availability. The typed "not ready" pairing outcome follows the 5A.7 contract.
+- **Dependencies:** T9, T3. **Public SDK change:** yes; coordinate with 5A.7.
+- **Non-goals:** inferring readiness from missing domain values; a second session or engine.
+- **Estimated files:** 12-20.
+- **Acceptance criteria:** SDK tests map each Host readiness value; readiness never changes `DovahLinkConnectionState`; exports change only by the approved additions.
+
+### T11. SDK historical Overview snapshots (C)
+
+- **Branch:** `feature/sdk-historical-overview-snapshots`
+- **Scope:** One last-known Overview per Known Host behind a separate SDK persistence port with a Windows implementation; versioned format; coalesced writes; discard-and-report on corruption; deletion on Forget Host; a read-only historical API with provenance (11.4-11.5, 11.8). Record the persistence decisions in `ai/context/sdk/persistence.md`.
+- **Dependencies:** T5, T8, T3. **Public SDK change:** yes.
+- **Non-goals:** changes to `IClientStorage` or credential persistence; writing into trackers; multi-character history; Flutter UI.
+- **Estimated files:** 25-40.
+- **Acceptance criteria:** tests show restart survival, corruption recovery without affecting a live session, storage failure isolation, no cross-context mixing, deletion on Forget Host, and that historical values never appear as `synchronized`.
+
+### T12. Flutter offline Overview (C)
+
+- **Branch:** `feature/flutter-offline-overview`
+- **Scope:** A read-only historical Session Shell mode reachable for an offline Known Host without pretending an SDK session exists; live and historical Redux sources kept distinguishable; the existing Overview design with disconnected, reconnecting, and empty indications.
+- **Dependencies:** T11, T1; T6 simplifies it.
+- **Non-goals:** visual redesign; caching rules in Flutter; synchronization logic in reducers.
+- **Estimated files:** 20-35.
+- **Acceptance criteria:** widget, reducer, and middleware tests cover every row of the 11.2 required-states table; the live route behavior for connected Hosts is unchanged.
+
+### T13. Flutter gameplay and pairing readiness (C)
+
+- **Branch:** `feature/flutter-gameplay-readiness`
+- **Scope:** Present gameplay readiness separately from Host availability on cards and in the shell; present Pair as unavailable while not ready and map the typed "not ready" outcome.
+- **Dependencies:** T10, T2; pairing parts alongside 5A.10.
+- **Non-goals:** pairing administration; inferring readiness from domain values; SAS presentation beyond 5A.1/5A.10.
+- **Estimated files:** 15-25.
+- **Acceptance criteria:** tests show Online Host plus not-ready gameplay rendered distinctly, Pair not offered while not ready, and a Host refusal mapped to player-facing copy even if the UI offered Pair (typed reason once 5A.7 provides it).
+
+### T14. Record Section 11 ownership rules in their owning documents (B)
+
+- **Branch:** `docs/overview-readiness-ownership`
+- **Scope:** Move the ownership rules from Section 11.3-11.8 into their owning documents, once each, and replace them here with links: SDK historical-snapshot ownership and its separation from client-state persistence (`ai/context/sdk/persistence.md`); live versus historical rules (`ai/context/sdk/api-design.md`); readiness as a Host-owned fact separate from connection state (`ai/context/sdk/architecture.md`, `ai/context/host/architecture.md`); Flutter's no-inference and read-only historical presentation rules (`ai/context/flutter/architecture.md`).
+- **Dependencies:** maintainer approval of the wording; before T8.
+- **Non-goals:** code, protocol, or roadmap status changes; deciding the open questions in 11.5 and 11.7.
+- **Estimated files:** 3-5.
+- **Acceptance criteria:** each rule appears in exactly one governing document; this record links to it; no broken links.
+
+### Revised implementation sequence
+
+| Step | Task | Branch | Est. files | Gate |
+| --- | --- | --- | --- | --- |
+| 1 | T1 | `fix/reconnect-state-sequence` | 10-14 | Maintainer chooses option (a) or (b) |
+| 2 | T5 | `refactor/sdk-state-domain-definitions` | 15-25 | None |
+| 2b | T14 | `docs/overview-readiness-ownership` | 3-5 | Before the first category C PR (T8) |
+| 3 | T8 | `feature/sdk-live-state-retention-across-recovery` | 8-14 | Retention semantics decision |
+| 4 | T3 | `refactor/sdk-root-and-facade-ownership` | 20-30 | Before 5A.7/5A.8 begin |
+| 5 | T2 | `refactor/pairing-direct-sdk-boundary` | 28-38 | Before or inside 5A.1 |
+| 6 | T9 | `feature/host-gameplay-readiness-contract` | 20-35 | Protocol approval; 5A.3/5A.7 coordination |
+| 7 | T10 | `feature/sdk-gameplay-readiness` | 12-20 | Public SDK approval |
+| 8 | T11 | `feature/sdk-historical-overview-snapshots` | 25-40 | Persistence decisions (11.5) |
+| 9 | T12 | `feature/flutter-offline-overview` | 20-35 | None beyond T11 |
+| 10 | T13 | `feature/flutter-gameplay-readiness` | 15-25 | Pairing parts with 5A.10 |
+| — | T6 | `feature/sdk-subscription-and-failure-api` | 15-25 | With 5A.7; best before T12 |
+| — | T4 | `refactor/sdk-rejection-availability-policy` | 12-18 | After 5A.7 |
+| last | T7 | `docs/architecture-guardrails` | 10-14 | After T1 and T2 |
+
+This differs from the initial hypothesis in three ways. Domain consolidation (T5) and retention (T8)
+come before the composition work because they are independent and snapshots depend on them. T2
+moves after T3 because its timing is set by 5A.1, not by architecture dependencies. Readiness
+(T9-T10) and snapshots (T11) are independent of each other, so sequence steps 6-7 and step 8 may swap. T14 is docs only and lands before T8, the first category C task.
+
 ## 10. Single recommended next task
 
-**T1. Resolve the reconnect state sequence** (`fix/reconnect-state-sequence`).
+**T1. Resolve the reconnect state sequence** (`fix/reconnect-state-sequence`, 10-14 files).
 
 It is the only item where the documented behavior, the test fake, and the real SDK disagree, and it
 affects every transport drop for a connected player. It is independent of SAS, so it can land at any
-time, and its first step is a maintainer decision between two options rather than a speculative
-refactor. Everything else in the backlog is structural improvement with no demonstrated
-user-visible effect today.
+time. It is also the first prerequisite for the approved requirements: T8 (keeping last-known values
+while reconnecting) and T12 (offline Overview) both need a connection state that reliably separates
+a terminal disconnect from the start of recovery.
+
+Its first step is a maintainer decision between ARCH-001's options. This audit recommends option
+(a), suppressing the transient `disconnected` when recovery will follow. It makes `disconnected`
+mean "ended", which a future offline Overview can switch on directly, while option (b) makes every
+consumer special-case it.
+
+Acceptance criteria:
+
+1. An SDK test asserts the exact public `DovahLinkConnectionState` sequence emitted on ordinary
+   transport loss from `connected` through recovery back to `connected`, matching the chosen option.
+2. An app test drives `LiveStateMiddleware` with that same sequence, not a hand-built one, and shows
+   listeners stay attached and no `SessionLiveStateResetAction` is dispatched during ordinary
+   recovery.
+3. Explicit disconnect, administrative invalidation, and recovery give-up still end the observation
+   and reset the slice, each with a test.
+4. `ai/context/flutter/architecture.md` describes the sequence and value behavior as implemented; it
+   makes no claim of value retention until T8 lands.
+5. No change to `PendingOperation` retry behavior, reconnect timing, retry budgets, desired intent,
+   persistence, or security.
+6. `dart analyze`, `dart test`, `flutter analyze`, and `flutter test` pass, and the branch has fewer
+   than 80 changed files.
+
+Everything else in categories A and B is structural improvement or preparation; category C is
+feature work that each needs its own approval.
 
 The audit found no Critical issue and no ownership violation that lets Flutter implement reconnect,
 authentication, pairing sequencing, revision handling, or subscription recovery on its own. The
@@ -630,7 +794,7 @@ What should change, and where:
 - **SDK domain state (T5).** One registered definition list becomes the single source any snapshot
   capability enumerates, so history reuses the decoders and models without a second synchronization
   path.
-- **SDK in-memory retention (ARCH-001 concern 2).** Decide what a tracker exposes between teardown
+- **SDK in-memory retention (T8, ARCH-001 concern 2).** Decide what a tracker exposes between teardown
   and the next baseline. This is the only change needed for "Reconnecting keeps last-known values",
   and it needs no persistence.
 - **SDK persistence.** A separate historical port (11.5) belongs to the feature itself; no
@@ -654,18 +818,20 @@ requirements:
 
 1. Correct the reconnect lifecycle (T1).
 2. Consolidate state-domain definitions (T5).
-3. Decide and implement in-memory retention across recovery (ARCH-001 concern 2).
+3. Decide and implement in-memory retention across recovery (T8).
 4. Simplify SDK root and facade ownership, including the restoration owner (T3), so new capabilities
    do not grow the root.
 5. Remove the pairing forwarding chain (T2), timed with 5A.1.
-6. Establish Host-authoritative gameplay and pairing readiness: Host and protocol first, then SDK,
-   coordinated with 5A.3 and 5A.7.
-7. Implement the SDK historical snapshot capability.
-8. Implement the Flutter offline Overview.
-9. Integrate gameplay and pairing readiness into Flutter, with the pairing parts alongside 5A.10.
-10. Consolidate documentation and guardrails (T7); T4 and T6 follow their SAS coordination points.
+6. Establish Host-authoritative gameplay and pairing readiness: Host and protocol first (T9), then
+   SDK (T10), coordinated with 5A.3 and 5A.7.
+7. Implement the SDK historical snapshot capability (T11).
+8. Implement the Flutter offline Overview (T12).
+9. Integrate gameplay and pairing readiness into Flutter (T13), with the pairing parts alongside
+   5A.10.
+10. Consolidate documentation and guardrails (T7). T4 follows 5A.7; T6 is coordinated with 5A.7 and
+    is best landed before the offline Overview. T14 records the ownership rules before step 3.
 
-Steps 6 and 7 do not depend on each other; the maintainer may swap them. Roadmap placement of steps
+Readiness (T9-T10) and snapshots (T11) do not depend on each other; the maintainer may swap them. Roadmap placement of steps
 6-9 (a Stage 6 or 8 phase, or a deviation phase) is a maintainer decision; this record does not
 change any stage status.
 
