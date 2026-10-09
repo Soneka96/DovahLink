@@ -382,10 +382,10 @@ T2 and the app half of T1.
 | T5 | Recovery derived from definitions; identical modules collapsed | Snapshot capability enumerates one definition list and reuses its decoders | Typed streams, public getters, exported models | Yes | T11 | None |
 | T6 | SDK-owned multi-area declaration with SDK activation and restoration, readable desired set, typed invalidation failure | Overview's first declaration of required domains lives in the SDK contract; the app stops issuing its own subscribe and restoration requests, simplifying T12 | Intent-retention semantics; Flutter still decides which domains the Overview needs | Yes | None | Coordinate with 5A.7 |
 | T7 | Governing documents match code | Records live/historical and readiness rules once, in their owning documents | Product and protocol rules | Yes | None | None |
-| T8 | Trackers keep the last accepted value, explicitly non-current with original identity, between teardown and the next baseline | Persistent Overview: "Reconnecting" row | Revision and identity rules; no fabricated status; explicit disconnect still resets | No: first feature slice; needs a public-semantics decision | T11 (snapshots read retained values at session end) | None |
+| T8 | Trackers keep the last accepted value, explicitly non-current with original identity, between teardown and the next baseline | Persistent Overview: "Reconnecting" row | Revision and identity rules; no fabricated status; explicit disconnect still resets | No: first feature slice; needs a public-semantics decision | T11 (precedence rule only; T11 captures while connected, not from retained values) | None |
 | T9 | Host readiness predicate and a minimal session-scoped readiness message for restricted and trusted sessions | Gameplay readiness observable on an existing session; pairing readiness predicate | Authentication not tied to a loaded save; sessionless probe and six-digit pairing unchanged unless 11.7 option (a) is chosen | No | T10; 5A.3/5A.4 consume its predicate | Coordinate protocol versioning with 5A.7 |
 | T10 | Typed SDK readiness value with session validation and an *unknown* state | Gameplay readiness | Connection state, trust state, and Host availability semantics | No | T13 | Typed "not ready" pairing outcome lands with 5A.7 |
-| T11 | Separate historical persistence port and read-only historical API | Persistent Overview | `IClientStorage`, credentials, live trackers | No | T12 | None |
+| T11 | Separate historical persistence port, in-session coalesced atomic capture, explicit history-clear, and read-only historical API | Persistent Overview that survives unexpected termination | `IClientStorage`, credentials, trust and invalidation behavior, live trackers | No | T12; deletion on a later Known Host removal operation | None |
 | T12 | Read-only historical shell mode and distinguishable Redux sources | Persistent Overview, offline navigation | Live route behavior for connected Hosts; Overview design | No | None | None |
 | T13 | Readiness presentation on cards and shell; Pair gated on readiness | Gameplay and pairing readiness | Host enforcement stays authoritative | No | None | Pairing parts alongside 5A.10 |
 | T14 | Owning documents state live/historical, readiness, and pairing-readiness ownership once | Both requirements | All code | Yes | T8-T13 (they implement against recorded rules) | None |
@@ -488,7 +488,7 @@ T2 and the app half of T1.
 - **Scope:** ARCH-001 concern 2. After the maintainer decides the semantics, an ordinary transport loss keeps each previously accepted domain's last value and original `stateAuthorityId`, `playContextId`, and revision, under an explicitly non-current status, until a new baseline is accepted or the identity changes. Explicit disconnect and administrative invalidation keep today's reset. Update `ai/context/sdk/api-design.md` and the Flutter live-state text once.
 - **Dependencies:** T1. **Public SDK change:** yes (stream semantics); maintainer decision first.
 - **Non-goals:** persistence, historical APIs, Flutter offline presentation, new status values unless the decision requires one.
-- **Benefit:** "Reconnecting: last-known information" works with no storage, and T11 can read retained values at session end.
+- **Benefit:** "Reconnecting: last-known information" works with no storage. T11 does not read retained values at session end; it captures accepted observations while connected (11.5), so unexpected termination is covered. T8 still precedes T11 because the live-over-historical precedence rule (11.4, rule 4) assumes the retention semantics are decided.
 - **Estimated files:** 8-14.
 - **Regression risks:** the accepted-area gate and stale suppression; `_observeIdentity` resets on a new authority or play context.
 - **Acceptance criteria:** SDK tests show a value retained through ordinary loss with its original identity and a non-current status; a new baseline replaces it; a play-context or authority change clears it; explicit disconnect resets to `notSubscribed`; no revision is fabricated.
@@ -525,16 +525,30 @@ T2 and the app half of T1.
 ### T11. SDK historical Overview snapshots (C)
 
 - **Branch:** `feature/sdk-historical-overview-snapshots`
-- **Scope:** One last-known Overview per Known Host behind a separate SDK persistence port with a Windows implementation; versioned format; coalesced writes; discard-and-report on corruption; deletion on Forget Host; a read-only historical API with provenance (11.4-11.5, 11.8). Record the persistence decisions in `ai/context/sdk/persistence.md`.
-- **Dependencies:** T5, T8, T3. **Public SDK change:** yes.
-- **Non-goals:** changes to `IClientStorage` or credential persistence; writing into trackers; multi-character history; Flutter UI.
+- **Scope:** One last-known Overview per Known Host behind a separate SDK persistence port with a Windows implementation; versioned format; capture of accepted observations while the session is live with non-blocking coalesced, atomic writes and a bounded staleness (11.5; the numeric bounds need maintainer approval); discard-and-report on corruption; a typed non-fatal write-failure condition; an explicit per-Host history-clear operation; a read-only historical API with provenance (11.4-11.5, 11.8) readable without a live session. Record the persistence decisions in `ai/context/sdk/persistence.md`. Known Host removal is **not** part of T11 (11.5 gap): history is kept through credential removal and administrative invalidation, and deletion on Host removal is wired when such an operation is separately approved.
+- **Dependencies:** T5, T8, T3. **Public SDK change:** yes (read-only historical API, history-clear operation, non-fatal persistence condition).
+- **Non-goals:** changes to `IClientStorage`, `PersistedClientState`, or credential persistence; a Known Host removal or erase-all operation; deleting history on `forgetCredential` or administrative invalidation; writing into trackers or `StateRevisionTracker`; multi-character history; Flutter UI; a database.
 - **Estimated files:** 25-40.
-- **Acceptance criteria:** tests show restart survival, corruption recovery without affecting a live session, storage failure isolation, no cross-context mixing, deletion on Forget Host, and that historical values never appear as `synchronized`.
+- **Acceptance criteria:** tests cover:
+  1. Gameplay values synchronized through the real gate are captured.
+  2. A snapshot is persisted while the live session is still active (no disconnect or shutdown involved).
+  3. Termination without normal SDK shutdown: the next start restores the last committed snapshot.
+  4. Historical snapshot restored after restart with the Host offline and no live session.
+  5. A delayed or interrupted write leaves the previous valid record readable and never a partial one.
+  6. Corrupted or unknown-version historical storage is discarded and reported without affecting a live session.
+  7. A persistence write failure surfaces a non-fatal condition while live synchronization continues unchanged.
+  8. Partial domain availability: only baselined domains are present and the rest are absent, not defaulted.
+  9. A new play context replaces the snapshot as a whole, and 10. no domain from the old context survives, including a write queued for the old context.
+  11. `forgetCredential` leaves the snapshot intact.
+  12. Administrative invalidation (each reason) and terminal recovery rejection leave the snapshot intact.
+  13. The explicit history-clear operation deletes only the named Host's snapshot; Known Host removal deletion is asserted by the task that adds that operation.
+  14. Historical data never enters `StateRevisionTracker` or the state-message path.
+  15. Historical values never carry a fabricated `synchronized` status, revision, or authority identity, and credential persistence files and `IClientStorage` are unchanged.
 
 ### T12. Flutter offline Overview (C)
 
 - **Branch:** `feature/flutter-offline-overview`
-- **Scope:** A read-only historical Session Shell mode reachable for an offline Known Host without pretending an SDK session exists; live and historical Redux sources kept distinguishable; the existing Overview design with disconnected, reconnecting, and empty indications.
+- **Scope:** A read-only historical Session Shell mode reachable for an offline Known Host without pretending an SDK session exists, reading T11's SDK historical API with no live session and labelling the result offline/historical; live and historical Redux sources kept distinguishable; the existing Overview design with disconnected, reconnecting, and empty indications.
 - **Dependencies:** T11, T1; T6 simplifies it.
 - **Non-goals:** visual redesign; caching rules in Flutter; synchronization logic in reducers.
 - **Estimated files:** 20-35.
@@ -735,11 +749,60 @@ Rules for any implementation:
   (a) first because it adds no parallel serializer.
 - **Failure isolation.** Read or write failure never fails connection, synchronization, or the live
   Overview; it surfaces as a typed, non-fatal condition.
-- **Update frequency.** Writes are coalesced (for example on accepted baselines, session end, and
-  best-effort shutdown), not one per Event. The exact policy is part of the feature design.
-- **Retention and deletion.** One last-known Overview per Known Host, deleted when that Host is
-  forgotten. Whether trust reset, revocation, or block also delete it, and whether the player gets an
-  explicit "clear history" action, are decisions.
+- **Durability while connected.** Snapshots must survive an unexpected termination, so they cannot
+  depend on a disconnect, teardown, or shutdown hook, and cannot be read from the live trackers after
+  those have reset (teardown resets every accepted area, ARCH-001). The capability therefore records
+  while the session is live:
+  - *Eligible observations:* only values the SDK has already accepted through the existing gate, with
+    the real `(stateAuthorityId, playContextId)` and revision; never a value that failed validation,
+    a `notSubscribed`/`unavailable` null placeholder, or anything read back from history.
+  - *Coherent snapshot:* it keeps one pending record per Host. A domain value joins the record only
+    when its `(stateAuthorityId, playContextId)` equals the record's; when either changes the record
+    is replaced as a whole (11.8), and an in-flight or queued write for the old identity is dropped.
+    Domains not yet baselined in the new context stay absent.
+  - *Writes:* non-blocking, coalesced (latest value wins, at most one write in flight, trailing write
+    after a quiet period with a maximum staleness bound), never one per Event, and never on the
+    synchronization path. The quiet period and the maximum staleness bound are numeric values the
+    maintainer must approve; this record does not pick them. A best-effort flush on disconnect or
+    close may be added, but only as an addition to the in-session writes.
+  - *Termination between writes:* the player loses at most the data accepted since the last
+    committed write, bounded by the approved maximum staleness. Restart must always find the last
+    fully committed snapshot or none.
+  - *Atomicity:* each write commits a complete versioned record by writing a new file and replacing
+    the previous one atomically, so a crash leaves the old valid record or the new one, never a partial
+    mix; a record that fails validation on read is discarded and reported (see Versioning).
+  - *Write failure:* surfaced as a typed non-fatal condition and retried on the next change within a
+    bounded backoff; the live session, subscriptions, and Overview are unaffected.
+  - *After trackers reset:* the capability serves the last committed (or last pending) record from
+    its own state, with provenance, independent of tracker contents and of T8's in-memory retention.
+- **Credential and trust operations versus history.** Verified against source (no assumption that a
+  future action exists):
+
+  | Operation | Exists today | Effect on Known Host metadata | Effect on credential | Should it delete history |
+  | --- | --- | --- | --- | --- |
+  | `DovahLinkClient.forgetCredential(hostId)` | Yes (public) | Preserved | Cleared, with the Host's pending recovery | **No**: credential recovery or trust reset must not erase the Overview |
+  | Administrative invalidation (revoked, trust reset, factory reset, blocked) | Yes: `_handleKnownHostInvalidation` calls the same credential clearing, setting the `pairingRequired` hint except for `blocked` | Preserved | Cleared | **No**, unless the maintainer approves an explicit security-deletion policy |
+  | Terminal credential rejection during recovery | Yes: `ReconnectService` calls the same clearing | Preserved | Cleared | **No** |
+  | Disconnect, `close()` | Yes | Preserved | Preserved | **No** |
+  | Remove a Known Host relationship | **No.** `IDovahLinkHosts` exposes only `loadKnownHosts` and two projection streams, no `PersistedClientState` update removes a `knownHosts` entry, and the app never calls `forgetCredential` | n/a | n/a | n/a |
+  | Erase all local client data | **No public operation.** `IClientStorage.clear()` exists on the storage port and has no production caller in `lib/` | n/a | n/a | n/a |
+
+  `forgetCredential` is the only shared path that administrative invalidation and recovery
+  rejection use, so tying history deletion to it would delete the Overview on every revocation.
+  Deletion must be attached to an operation the player actually asked for.
+- **Retention and deletion.** One last-known Overview per Known Host, kept through credential
+  removal, administrative invalidation, disconnect, and restart. The gap is that no "forget Known
+  Host" operation exists, so the earlier phrase "deleted when that Host is forgotten" had no
+  operation to attach to. Recommended approach (option 3 of the review): T11 delivers an explicit,
+  per-Host history-clear operation owned by the historical capability (name and signature are
+  maintainer decisions), and stores history independent of whether credentials exist. If a
+  Known Host removal operation is later approved as its own SDK task, that operation must invoke
+  the history deletion in the same step; the removal operation is not created inside T11 because it
+  is a separate product operation touching pairing, presence, and the connected-Host case, and T11
+  is already large. Whether revocation or block should ever delete history is a security-deletion
+  policy decision, not a default. `ai/context/sdk/persistence.md` currently says the `pairingRequired`
+  hint is cleared on "forgetting the Host", while `forgetCredential` keeps or sets that hint; that
+  wording is a documentation ambiguity for T7/T14 to resolve, not something this record changes.
 - **Storage choice.** No database is assumed; the smallest durable store that meets these rules is
   preferred. Snapshots contain character names and locations, so they stay in per-user storage;
   whether they also need encryption is a decision.
@@ -877,6 +940,8 @@ These are separate facts and must not be conflated:
 - A snapshot is coherent: every domain value in it comes from one `(stateAuthorityId, playContextId)`
   pair. When the play context changes, the snapshot for that Host is replaced as a whole, and a
   domain not yet baselined in the new context is absent rather than carried over from the old one.
+  The same rule applies to persisted writes in flight (11.5): a write is committed only if its
+  identity still matches the record, so old and new context values are never mixed on disk.
 - The approved requirement keeps future multi-character or save-profile history possible without a
   redesign. The versioned format (11.5) is enough to meet it: a later format version can add a
   profile key beside `hostId` through an ordinary migration. No profile field, multi-character, or
@@ -949,6 +1014,8 @@ change any stage status.
 
 ### 11.12 Explicitly deferred capabilities
 
+- Known Host removal ("forget Host") and an erase-all-local-data operation; neither exists today
+  (11.5), and each needs its own approved SDK task that invokes history deletion.
 - Multi-character or save-profile history, and any save-file identity.
 - History timelines or more than one snapshot per Host.
 - Historical data for future domains (map, inventory, equipment); each feature decides when added.
