@@ -103,15 +103,17 @@ committing it.
 
 The formatter matrix is:
 
-| File types | Formatter |
-| --- | --- |
-| Dart (`.dart`) | `dart format` and `dart run tidy_imports` from the owning package root |
-| C/C++ (`.cc`, `.cpp`, `.h`, `.hpp`) | `clang-format` |
-| C# (`.cs`) | `dotnet format whitespace`, limited to the owning project and selected paths |
-| Python (`.py`) | `ruff format` |
-| PowerShell (`.ps1`) | PSScriptAnalyzer's `Invoke-Formatter` through `pwsh` |
+| File types | Formatter | Formatting workflow version |
+| --- | --- | --- |
+| Dart (`.dart`) | `dart format` and `dart run tidy_imports` from the owning package root | Flutter 3.47.5 / Dart 3.13.4 |
+| C/C++ (`.cc`, `.cpp`, `.h`, `.hpp`) | `clang-format` | 19.1.5 |
+| C# (`.cs`) | `dotnet format whitespace`, limited to the owning project and selected paths | .NET SDK 10.0.401 |
+| Python (`.py`) | `ruff format` | Ruff 0.16.8 |
+| PowerShell (`.ps1`) | PSScriptAnalyzer's `Invoke-Formatter` through `pwsh` | 1.25.0 |
 
 Other files remain outside this hook until the repository adopts a formatter for them.
+Install the workflow's pinned formatter versions locally when running the all-tracked check so its
+results match CI.
 
 On Windows, formatter paths that resolve to `.BAT` or `.CMD` wrappers are launched through Python's
 shell-quoting path so staged filenames are not parsed as command text. Ordinary formatter

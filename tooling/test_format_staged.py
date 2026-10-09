@@ -457,6 +457,18 @@ class FormatStagedTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "pwsh or powershell"):
                 format_staged.powershell_command(["tooling/check.ps1"], check=False)
 
+    def test_powershell_command_imports_the_pinned_analyzer_version(self) -> None:
+        """Load the configured PSScriptAnalyzer version in the formatter subprocess."""
+        with patch.object(format_staged.shutil, "which", return_value="pwsh.exe"):
+            command = format_staged.powershell_command(
+                ["tooling/check.ps1"], check=True
+            )
+
+        self.assertIn("Where-Object { $_.Version -eq [version]'1.25.0' }", command[-1])
+        self.assertIn(
+            "Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0", command[-1]
+        )
+
     def test_formatter_commands_use_check_modes(self) -> None:
         """Build fail-closed check commands for Dart, C++, Python, and PowerShell."""
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -812,7 +824,7 @@ class FormatStagedTests(unittest.TestCase):
                         "--no-restore",
                         "--verify-no-changes",
                         "--include",
-                        "Program.cs",
+                        str(Path("tooling") / "DovahLinkBuilder" / "Program.cs"),
                     ],
                 )
             ],

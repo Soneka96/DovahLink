@@ -1,0 +1,105 @@
+name: Formatting
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: formatting-ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  format:
+    name: Repository Formatting
+    runs-on: windows-2022
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+
+      - name: Set up .NET 9
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 9.0.318
+
+      - name: Set up .NET 10
+        uses: actions/setup-dotnet@26b0ec14cb23fa6904739307f278c14f94c95bf1 # v5
+        with:
+          dotnet-version: 10.0.401
+
+      - name: Set up Python
+        uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: 3.13.14
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2
+        with:
+          channel: stable
+          flutter-version: 3.47.5
+          cache: true
+
+      - name: Install pinned formatters
+        run: |
+          python -m pip install --disable-pip-version-check clang-format==19.1.5 ruff==0.16.8
+          if ($LASTEXITCODE -ne 0) {
+            throw "Installing the pinned Python formatters failed with exit code $LASTEXITCODE."
+          }
+
+          $clangFormatVersion = (clang-format.exe --version).Trim()
+          if ($clangFormatVersion -ne "clang-format version 19.1.5") {
+            throw "Expected clang-format 19.1.5, found '$clangFormatVersion'."
+          }
+
+          $ruffVersion = (python -m ruff --version).Trim()
+          if ($LASTEXITCODE -ne 0 -or $ruffVersion -ne "ruff 0.16.8") {
+            throw "Expected Ruff 0.16.8, found '$ruffVersion'."
+          }
+
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Scope CurrentUser -Force -Confirm:$false
+          $analyzer = Get-Module -ListAvailable PSScriptAnalyzer |
+            Where-Object { $_.Version -eq [version]"1.25.0" } |
+            Select-Object -First 1
+          if ($null -eq $analyzer) {
+            throw "PSScriptAnalyzer 1.25.0 is unavailable after installation."
+          }
+          Import-Module PSScriptAnalyzer -RequiredVersion 1.25.0 -Force -ErrorAction Stop
+          if (-not (Get-Command Invoke-Formatter -ErrorAction SilentlyContinue)) {
+            throw "PSScriptAnalyzer 1.25.0 did not provide Invoke-Formatter."
+          }
+
+          $flutterMetadata = (flutter --version --machine | ConvertFrom-Json)
+          if ($LASTEXITCODE -ne 0 -or $flutterMetadata.frameworkVersion -ne "3.47.5") {
+            throw "Expected Flutter 3.47.5, found '$($flutterMetadata.frameworkVersion)'."
+          }
+
+      - name: Acquire the pinned managed sas-pairing package
+        # Host project restoration maps SasPairing only to this verified local feed. Omit --native:
+        # whitespace formatting needs the managed package metadata and assemblies, not its native DLL.
+        run: python tooling/sas_pairing_dependency.py acquire
+
+      - name: Restore Builder projects
+        run: dotnet restore tooling/DovahLinkBuilder/DovahLinkBuilder.slnx -p:Configuration=Release
+
+      - name: Restore Host projects
+        run: dotnet restore host/DovahLink.Host.Tests/DovahLink.Host.Tests.csproj
+
+      - name: Restore SDK Dart dependencies
+        working-directory: sdk/dart/dovahlink_client
+        run: dart pub get
+
+      - name: Restore Flutter dependencies
+        working-directory: app
+        run: flutter pub get
+
+      - name: Check tracked source formatting
+        run: python tooling/format_staged.py --check --all-tracked

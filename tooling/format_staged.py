@@ -15,6 +15,7 @@ from pathlib import Path
 REPOSITORY_ROOT = Path(__file__).resolve().parent.parent
 # Keep Dart batch-wrapper arguments below cmd.exe's command-line limit.
 MAX_DART_COMMAND_LENGTH = 6000
+PSSCRIPTANALYZER_VERSION = "1.25.0"
 SUPPORTED_SUFFIXES = {
     ".cc": "cpp",
     ".cpp": "cpp",
@@ -175,6 +176,14 @@ $check = {check_literal}
 $paths = ConvertFrom-Json @'
 {paths_literal}
 '@
+$module = Get-Module -ListAvailable PSScriptAnalyzer |
+    Where-Object {{ $_.Version -eq [version]'{PSSCRIPTANALYZER_VERSION}' }} |
+    Select-Object -First 1
+if ($null -eq $module) {{
+    Write-Error 'PSScriptAnalyzer {PSSCRIPTANALYZER_VERSION} is required.'
+    exit 127
+}}
+Import-Module PSScriptAnalyzer -RequiredVersion {PSSCRIPTANALYZER_VERSION} -Force -ErrorAction Stop
 if (-not (Get-Command Invoke-Formatter -ErrorAction SilentlyContinue)) {{
     Write-Error 'PSScriptAnalyzer Invoke-Formatter is required.'
     exit 127
@@ -322,7 +331,7 @@ def formatter_commands(
                             str(
                                 (repository_root / item)
                                 .resolve()
-                                .relative_to(project.parent)
+                                .relative_to(repository_root.resolve())
                             )
                             for item in project_paths
                         ],
