@@ -383,8 +383,8 @@ T2 and the app half of T1.
 | T6 | SDK-owned multi-area declaration with SDK activation and restoration, readable desired set, typed invalidation failure | Overview's first declaration of required domains lives in the SDK contract; the app stops issuing its own subscribe and restoration requests, simplifying T12 | Intent-retention semantics; Flutter still decides which domains the Overview needs | Yes | None | Coordinate with 5A.7 |
 | T7 | Governing documents match code | Records live/historical and readiness rules once, in their owning documents | Product and protocol rules | Yes | None | None |
 | T8 | Trackers keep the last accepted value, explicitly non-current with original identity, between teardown and the next baseline | Persistent Overview: "Reconnecting" row | Revision and identity rules; no fabricated status; explicit disconnect still resets | No: first feature slice; needs a public-semantics decision | T11 (snapshots read retained values at session end) | None |
-| T9 | Host readiness predicate and its protocol exposure | Gameplay readiness; pairing readiness predicate | Authentication not tied to a loaded save; six-digit pairing unchanged unless 11.7 option (a) is chosen | No | T10; 5A.3/5A.4 consume its predicate | Coordinate protocol versioning with 5A.7 |
-| T10 | Typed SDK readiness value | Gameplay readiness | Connection state and Host availability semantics | No | T13 | Typed "not ready" pairing outcome lands with 5A.7 |
+| T9 | Host readiness predicate and a minimal session-scoped readiness message for restricted and trusted sessions | Gameplay readiness observable on an existing session; pairing readiness predicate | Authentication not tied to a loaded save; sessionless probe and six-digit pairing unchanged unless 11.7 option (a) is chosen | No | T10; 5A.3/5A.4 consume its predicate | Coordinate protocol versioning with 5A.7 |
+| T10 | Typed SDK readiness value with session validation and an *unknown* state | Gameplay readiness | Connection state, trust state, and Host availability semantics | No | T13 | Typed "not ready" pairing outcome lands with 5A.7 |
 | T11 | Separate historical persistence port and read-only historical API | Persistent Overview | `IClientStorage`, credentials, live trackers | No | T12 | None |
 | T12 | Read-only historical shell mode and distinguishable Redux sources | Persistent Overview, offline navigation | Live route behavior for connected Hosts; Overview design | No | None | None |
 | T13 | Readiness presentation on cards and shell; Pair gated on readiness | Gameplay and pairing readiness | Host enforcement stays authoritative | No | None | Pairing parts alongside 5A.10 |
@@ -496,20 +496,31 @@ T2 and the app half of T1.
 ### T9. Host gameplay and pairing readiness contract (C)
 
 - **Branch:** `feature/host-gameplay-readiness-contract`
-- **Scope:** Define the Host readiness predicate from Adapter availability, resynchronization, and play context (11.6); expose it through an approved protocol addition with schema, fixtures, and compatibility handling. The same predicate is what pairing readiness consumes, but enforcement in the six-digit flow is included only if the maintainer chooses 11.7 option (a) (Host answers `unavailable`); otherwise 5A.3/5A.4 enforce it for SAS. A typed "not ready" pairing reason is a 5A.7 contract item, not part of this task.
+- **Scope:** Define the Host readiness predicate from Adapter availability, resynchronization, and play context (11.6), derived from the whole predicate and never from the play context alone; expose it through an approved protocol addition (a minimal session-scoped readiness message with schema, fixtures, and compatibility handling) that is delivered to every admitted session, restricted or trusted: once after admission and again on every change, with a per-session sequence. The same predicate is what pairing readiness consumes; enforcement in the six-digit flow (the Host answers `unavailable` without a reservation, re-checked before display commit) is included only if the maintainer chooses 11.7 option (a); otherwise 5A.3/5A.4 enforce it for SAS. A typed "not ready" pairing reason is a 5A.7 contract item, not part of this task.
 - **Dependencies:** maintainer approval of the protocol change; coordinate versioning with 5A.7, and define readiness so 5A.3 consumes it.
-- **Non-goals:** SDK or Flutter changes; Adapter changes unless the predicate needs a new signal; SAS changes; tying authentication to a loaded save.
+- **Non-goals:** SDK or Flutter changes; Adapter changes unless the predicate needs a new signal; SAS changes; tying authentication to a loaded save; changing the sessionless probe or the six-digit confirmation flow; changing trust or security profiles.
 - **Estimated files:** 20-35.
-- **Acceptance criteria:** Host tests cover no Adapter, main menu, loading, loaded, and Adapter loss; fixtures validate with `tooling/validate_protocol_fixtures.py`; if option (a) is chosen, a pairing request outside readiness never reports `available`. Stage 5A names 5A.7 as its only public-contract phase; that statement is scoped to Stage 5A, so this separately approved protocol change sequences its compatibility impact with 5A.7 rather than landing inside it.
+- **Acceptance criteria:** fixtures validate with `tooling/validate_protocol_fixtures.py`, and no existing connection, authentication, or trust test changes. Host tests cover:
+  1. Host online at the main menu: not ready, initial value delivered on admission.
+  2. A client already connected while a save loads: ready is published on that session without reconnect.
+  3. Return to the main menu: not-ready is published without reconnect.
+  4. Play-context replacement: not ready until resynchronization completes, then ready.
+  5. Adapter disconnect: not ready immediately although the play context is still non-null.
+  6. Adapter reconnection before resynchronization: still not ready.
+  7. Adapter resynchronization completing: ready.
+  8. A newly admitted trusted client receives the current value.
+  9. A restricted (`unpaired`) client receives only the coarse value and no gameplay identifiers or diagnostics.
+  10. If option (a) is chosen, a pairing request while not ready answers `unavailable` without a reservation and one that loses readiness during display is rolled back.
+  Stage 5A names 5A.7 as its only public-contract phase; that statement is scoped to Stage 5A, so this separately approved protocol change sequences its compatibility impact with 5A.7 rather than landing inside it.
 
 ### T10. SDK gameplay-readiness capability (C)
 
 - **Branch:** `feature/sdk-gameplay-readiness`
-- **Scope:** A typed, replaying readiness value on an existing grouped view, separate from connection state and Host availability. The typed "not ready" pairing outcome follows the 5A.7 contract.
+- **Scope:** A typed, replaying readiness value on an existing grouped view, separate from connection state and Host availability, available on restricted and trusted sessions alike. The SDK validates each Host readiness message against the current session, discards a stale or non-newer one, and exposes *unknown* (never a wire value) on any connection loss, session replacement, or authority rotation until a fresh Host value arrives. It owns the initial value on admission and on reconnect, so a consumer needs no reconnect to observe a transition and runs no recovery of its own. The typed "not ready" pairing outcome follows the 5A.7 contract.
 - **Dependencies:** T9, T3. **Public SDK change:** yes; coordinate with 5A.7.
-- **Non-goals:** inferring readiness from missing domain values; a second session or engine.
+- **Non-goals:** inferring readiness from missing domain values or from `playContextId`; a second session or engine; a readiness field on `DovahLinkConnectionState`; new authentication attempts to refresh readiness.
 - **Estimated files:** 12-20.
-- **Acceptance criteria:** SDK tests map each Host readiness value; readiness never changes `DovahLinkConnectionState`; exports change only by the approved additions.
+- **Acceptance criteria:** SDK tests map each Host readiness value; exports change only by the approved additions; and the existing connection, authentication, and trust tests pass unchanged, showing readiness never changes `DovahLinkConnectionState`, trust state, or Host availability. Tests cover, on one session without reconnect: not ready to ready and back; play-context replacement; Adapter disconnect, reconnection before resynchronization, and resynchronization completing; Host disconnect giving *unknown*; a stale readiness message after session or authority replacement being discarded; a newly admitted trusted client receiving current readiness; a restricted client receiving the coarse value only; and readiness recovered after an ordinary connection interruption.
 
 ### T11. SDK historical Overview snapshots (C)
 
@@ -532,11 +543,11 @@ T2 and the app half of T1.
 ### T13. Flutter gameplay and pairing readiness (C)
 
 - **Branch:** `feature/flutter-gameplay-readiness`
-- **Scope:** Present gameplay readiness separately from Host availability on cards and in the shell; present Pair as unavailable while not ready and map the typed "not ready" outcome.
+- **Scope:** Present gameplay readiness separately from Host availability on cards and in the shell, mirroring the SDK's typed value unchanged and updating live as it changes on the connected session; present Pair as unavailable while not ready, including on the unpaired bootstrap session, and map the typed "not ready" outcome. Flutter adds no readiness engine, timer, retry, or inference.
 - **Dependencies:** T10, T2; pairing parts alongside 5A.10.
-- **Non-goals:** pairing administration; inferring readiness from domain values; SAS presentation beyond 5A.1/5A.10.
+- **Non-goals:** pairing administration; inferring readiness from domain values or from `playContextId`; a Flutter-side readiness cache or reconnect to refresh it; SAS presentation beyond 5A.1/5A.10.
 - **Estimated files:** 15-25.
-- **Acceptance criteria:** tests show Online Host plus not-ready gameplay rendered distinctly, Pair not offered while not ready, and a Host refusal mapped to player-facing copy even if the UI offered Pair (typed reason once 5A.7 provides it).
+- **Acceptance criteria:** tests show Online Host plus not-ready gameplay rendered distinctly; the Overview and Pair action updating when the SDK value changes without a reconnect (ready to not ready and back); *unknown* rendered after connection loss; Pair not offered to a restricted client while not ready; and a Host refusal mapped to player-facing copy even if the UI offered Pair (typed reason once 5A.7 provides it). No readiness value is derived from missing gameplay data.
 
 ### T14. Record Section 11 ownership rules in their owning documents (B)
 
@@ -650,6 +661,7 @@ legitimately exist at the main menu, and authentication is not redesigned to req
 | Host-internal readiness | `AdapterAvailabilityTracker` tracks availability and `NeedsResynchronization`, re-armed on every play-context transition (`RearmResynchronizationForPlayContextTransition`); ordinary sampling is gated on it (`LiveStateScheduler.cs:238`) | Host-internal only; no public readiness fact |
 | SDK readiness surface | `IDovahLinkCurrentHost` exposes `host`, `trustState`, `sessionId`, and domain streams; `playContextId` appears only inside each `StateSynchronization<T>` | No typed readiness capability |
 | Pairing availability | The Host reports `pairing_status` `unavailable` when the Adapter display is not acknowledged (`ClientMessageDispatcher.cs:283-287`); `AdapterPairingNotifier` returns `false` without an Adapter connection; the Adapter's `Display` shows a HUD message and always returns `true` (`adapter/ipc/commonlib_adapter_pairing_notification_sink.cpp:7-15`) | At the main menu or during loading, the Host can report a code as displayed that the player may not see (inferred from source; not runtime-verified) |
+| Readiness publication to clients | No Host message carries readiness, on any session tier; the sessionless probe returns only `hostId`, `hostName`, `hostVersion` (`PublicWebSocketHandshake.BuildHostProbeResponse`), `capabilities` is a static empty list, and `pairing_request` performs no readiness check (`ClientMessageDispatcher.cs:249-372`) | A connected client cannot learn that Skyrim loaded or returned to the main menu, and a restricted client cannot learn whether pairing can begin (inferred from source; not runtime-verified) |
 | Pairing outcome detail | `PairingAvailability.unavailable` carries no reason; the app maps it to generic copy (`pairing_remote.datasource.dart:116-121`) | No typed "not ready" outcome |
 
 **Required user-facing states**
@@ -755,24 +767,102 @@ These are separate facts and must not be conflated:
 | Gameplay loaded | Online | Ready once the Host's authoritative conditions hold | Offered per Host capability, trust state, and security policy | Live data takes precedence |
 | Connection interrupted | Recovering or offline | Unknown to the client | Not offered | Last-known data remains available |
 
-- The Host decides readiness from real Adapter and Host state (Adapter available, resynchronized,
-  play context current). The exact predicate, including whether particular areas must have
-  baselines, is a Host decision recorded in the protocol documentation.
-- Exposing it is a public protocol change (a new field or message), so it needs maintainer approval
-  and follows `ai/context/protocol/compatibility.md`. Until then no client may present readiness.
+- The Host decides readiness from real Adapter and Host state. The exact predicate, including
+  whether particular areas must have baselines, is a Host decision recorded in the protocol
+  documentation. The inputs that exist today are: `AdapterAvailabilityTracker.Current`,
+  `NeedsResynchronization` and connection generation; and `PlayContextTracker.Current`. The
+  starting candidate is "Adapter `Available`, not `NeedsResynchronization`, and a play context
+  current". A play-context transition re-arms resynchronization (so *loading* and *just loaded, not
+  yet resynchronized* both read not ready), and an Adapter disconnect sets `Current` to
+  `Unavailable` and re-arms resynchronization.
+- **A non-null play context is not evidence of readiness.** `ClearCurrent` has exactly one caller,
+  the Adapter's play-context-ended message (`AdapterIpcSession.cs:359`); `CommitDisconnected` does
+  not touch the play context. After Adapter loss the Host still reports the old context, so
+  readiness must be computed from the whole predicate and must be revoked by the availability
+  transition itself, never by the play context.
+- **Minimum semantic distinctions.** The Host-side lifecycle is: (1) no Adapter connected;
+  (2) Adapter connected, no play context; (3) loading or transitioning; (4) play context present but
+  not yet resynchronized; (5) ready; (6) Adapter continuity lost. Only a coarse **ready / not ready**
+  fact needs a wire representation. Whether the Host also sends a coarse not-ready reason is a
+  maintainer decision (it helps player-facing copy but is Host state that restricted clients would
+  also see). States (1)-(4) and (6) are all "not ready" to a client; (7) Host disconnected or
+  unreachable is **not** a Host fact: the SDK derives *unknown* locally from connection state, and
+  it is never put on the wire. No new `DovahLinkConnectionState` value is added.
+- **Publication on an established session (required).** Readiness transitions must reach a client
+  that stays connected, without any new authentication. Verified today: there is no such signal.
+  `PublicStateSubscription` reacts to play-context and authority changes only by sending
+  revision-zero unavailable snapshots for *subscribed, trusted* areas, which is evidence about
+  those areas, not a readiness fact, and clients must not infer readiness from it.
+  The recommended mechanism is a minimal Host-originated, session-scoped readiness message:
+  - The Host sends the current value once after admission (so a newly admitted or reconnecting
+    client has an initial value) and again on every change, driven by the existing
+    `AvailabilityChanged`, `Resynchronized`, and `PlayContextTracker.Transitioned` events, with
+    publication outside the tracker locks as those trackers already require.
+  - It carries a per-session monotonically increasing sequence beside the envelope's `sessionId`
+    and `stateAuthorityId`. The SDK discards any readiness message whose `sessionId` is not the
+    current session, whose sequence is not newer, or that arrives after the authority has rotated
+    and before a fresh value, and treats readiness as *unknown* on any connection loss or
+    authority rotation until a new value arrives.
+  - It is not a new gameplay state area. State areas are scoped to `(stateAuthorityId,
+    playContextId)` and are removed when the context changes, which is exactly when readiness must
+    stay observable, and the subscribe path is not authorized for restricted sessions.
+  - It is a public protocol addition (a new message type with schema, fixtures, and compatibility
+    handling), so it needs maintainer approval and follows `ai/context/protocol/compatibility.md`.
+    Until then no client may present readiness. The exact message name, field names, and whether the
+    capabilities mechanism advertises support are decided with that approval. The `capabilities`
+    exchange is a one-time, currently always-empty advertisement of registered state areas
+    (`CapabilitiesPayload`; non-empty lists are rejected), so it can advertise that a Host supports
+    readiness but cannot carry a changing value.
 - The SDK may keep a trusted transport session open at the main menu in order to observe readiness
-  changes; readiness never gates authentication.
+  changes; readiness never gates authentication, and the readiness capability must not alter
+  connection, authentication, or trust semantics.
 
 ### 11.7 Pairing availability
 
 - The Host is the enforcement point: a pairing start at the main menu or during loading must not
   report a code as available. Disabling Pair in the UI is presentation, not a security boundary.
+  Verified today: `HandlePairingRequestAsync` makes no readiness check; it reserves a challenge,
+  asks the Adapter notifier, and reports `unavailable` only when that notifier declines. The
+  Adapter's display always accepts once connected.
+- **How a restricted (unpaired) client learns pairing is possible.** Evaluated against the contract:
+  - *Sessionless probe* (`/.well-known/dovahlink`): returns only `hostId`, `hostName`, and
+    `hostVersion` in a bounded body, needs no session, and is not an authenticated statement of
+    Host identity (`ai/context/protocol/security.md`: only the connected Host's `hello_ack`
+    confirms identity). Adding readiness there would expose a gameplay-derived fact to any local
+    process without a session and would invite treating readiness as identity evidence.
+    Recommendation: leave the probe unchanged.
+  - *Restricted-session allowlist*: an `unpaired` session is a fully authenticated session that may
+    send only `ping`, `capabilities`, and the `pairing_*` messages and receives host-originated
+    messages. It cannot subscribe, so the gameplay state areas are not available to it, which is the
+    required privacy boundary.
+  - *Capabilities*: one-time and static; unsuitable for a changing value (11.6).
+  - *`pairing_status`*: answers a `pairing_request` and, today, would create a reservation as a side
+    effect of asking; it cannot be a passive "may I pair" query.
+  - **Recommendation:** deliver the same minimal readiness message of 11.6 to restricted sessions,
+    with a payload limited to the coarse ready / not-ready fact (and, if the maintainer approves
+    them, coarse reasons). It carries no character name, location, save or world identifiers,
+    resource values, credentials, pairing secrets, or Host diagnostics. Note that every Host-originated
+    envelope already carries the opaque `playContextId`, including to restricted sessions today.
+    Readiness is a gameplay-availability fact about an already-authenticated session, never proof
+    of Host identity.
+- **Host enforcement (what belongs where).**
+  - *Current Host, with T9 (option (a)):* evaluate the readiness predicate inside the same
+    session-guarded critical section that calls `BeginPairing`, and answer the existing
+    `pairing_status` `unavailable` without creating a reservation or notifying the Adapter when
+    readiness does not hold; re-check before `CommitInitialDisplay` so a transition during the
+    Adapter acknowledgement rolls the reservation back through the existing path. No six-digit flow,
+    message, or trust semantics change.
+  - *Stage 5A:* 5A.2 and 5A.3 consume the same predicate for Adapter-side prompt invalidation
+    on loading and main-menu transitions rather than adding a second detector; 5A.4 checks readiness
+    when it starts or resumes a pending attempt; 5A.7 owns the typed "not ready" outcome in the public
+    SDK contract; 5A.10 owns its presentation. None of these are changed here, and all existing SAS
+    and trust guarantees are preserved.
 - Options for the current six-digit flow: (a) the Host answers with the existing `unavailable`
   status when readiness does not hold (Host-only, no wire change); (b) the Adapter declines display
   outside gameplay (Adapter change); (c) leave the six-digit flow as is and deliver readiness-aware
-  pairing through Stage 5A, whose 5A.2 and 5A.3 already require prompt invalidation on loading and
-  main-menu transitions. The starting recommendation is (c), with (a) only if the maintainer wants an
-  interim fix before 5A lands.
+  pairing through Stage 5A. With the readiness message in place, the starting recommendation is now
+  (a): it is Host-only and makes the "Host must refuse" rows of 11.6 true before 5A lands, while
+  (c) remains the route for SAS-specific enforcement. Choosing (a) or (c) is a maintainer decision.
 - The SDK reports a typed outcome that distinguishes "not ready" from other unavailability; that
   needs a contract addition, coordinated with 5A.7.
 - All existing security and SAS invariants are preserved. This record changes no SAS implementation.
