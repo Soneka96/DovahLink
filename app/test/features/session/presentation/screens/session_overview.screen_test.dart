@@ -411,6 +411,57 @@ void main() {
   });
 
   group('SessionOverviewScreen lays out', () {
+    testWidgets(
+      'SessionOverviewScreen shares prototype grid stretch between Quest and Current Status',
+      (WidgetTester tester) async {
+        stubRepresentativeOverview();
+        setDovahTestWindow(tester, const Size(1280, 720));
+        await tester.pumpWidget(buildWidget());
+
+        final Rect characterRect = tester.getRect(
+          find.byKey(const Key('session-overview-character-panel')),
+        );
+        final Rect questRect = tester.getRect(
+          find.byKey(const Key('session-overview-quest-panel')),
+        );
+        final Rect statusRect = tester.getRect(
+          find.byKey(const Key('session-overview-vitals-panel')),
+        );
+        final RenderBox questRenderBox = tester.renderObject(
+          find.byKey(const Key('session-overview-quest-panel')),
+        );
+        final RenderBox statusRenderBox = tester.renderObject(
+          find.byKey(const Key('session-overview-vitals-panel')),
+        );
+        final double questContentHeight = questRenderBox.getMaxIntrinsicHeight(
+          questRect.width,
+        );
+        final double statusContentHeight = statusRenderBox
+            .getMaxIntrinsicHeight(statusRect.width);
+        final double gridGap = dovahThemeDataFor(
+          DovahThemePreset.dovah,
+        ).extension<DovahOverviewThemeMetrics>()!.gridGap;
+        final double extraHeight =
+            characterRect.height -
+            questContentHeight -
+            gridGap -
+            statusContentHeight;
+
+        final double extraPerRow = extraHeight > 0 ? extraHeight / 2 : 0;
+        expect(
+          questRect.height,
+          closeTo(questContentHeight + extraPerRow, 0.01),
+        );
+        expect(
+          statusRect.height,
+          closeTo(statusContentHeight + extraPerRow, 0.01),
+        );
+        expect(statusRect.top - questRect.bottom, closeTo(gridGap, 0.01));
+        expect(statusRect.bottom, closeTo(characterRect.bottom, 0.01));
+        expect(tester.takeException(), isNull);
+      },
+    );
+
     for (final DovahThemePreset preset in DovahThemePreset.values) {
       testWidgets(
         'SessionOverviewScreen aligns Current Status with Character under $preset',

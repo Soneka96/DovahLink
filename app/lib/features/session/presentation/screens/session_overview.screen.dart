@@ -6,6 +6,7 @@ import 'package:redux/redux.dart';
 import 'package:dovahlink_client/features/session/presentation/state/viewmodels/session_overview.viewmodel.dart';
 import 'package:dovahlink_client/features/session/presentation/widgets/session_overview_character.widget.dart';
 import 'package:dovahlink_client/features/session/presentation/widgets/session_overview_quest.widget.dart';
+import 'package:dovahlink_client/features/session/presentation/widgets/session_overview_side_stack.widget.dart';
 import 'package:dovahlink_client/features/session/presentation/widgets/session_overview_vitals.widget.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
@@ -131,19 +132,14 @@ class SessionOverviewScreen extends StatelessWidget {
                             SizedBox(width: overviewMetrics.gridGap),
                             Expanded(
                               flex: overviewMetrics.sideColumnFlex,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.stretch,
-                                children: [
-                                  SessionOverviewQuestPanel(
-                                    viewData: viewModel.questsViewData,
-                                  ),
-                                  SizedBox(height: overviewMetrics.gridGap),
-                                  Expanded(
-                                    child: SessionOverviewVitalsPanel(
-                                      viewData: viewModel.vitalsViewData,
-                                    ),
-                                  ),
-                                ],
+                              child: SessionOverviewSideStack(
+                                gap: overviewMetrics.gridGap,
+                                questPanel: SessionOverviewQuestPanel(
+                                  viewData: viewModel.questsViewData,
+                                ),
+                                statusPanel: SessionOverviewVitalsPanel(
+                                  viewData: viewModel.vitalsViewData,
+                                ),
                               ),
                             ),
                           ],
