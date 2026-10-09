@@ -35,7 +35,11 @@ public class DovahLinkHostRuntimeTests
         using var shutdown = new CancellationTokenSource();
 
         Task<int> runTask = runtime.RunAsync(shutdown);
-        await WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask);
+        await Task.WhenAll(
+            WaitUntilAsync(() => output.Snapshot().Contains("PUBLICPORT "), runTask),
+            adapterListener.RunStarted.WaitAsync(TimeSpan.FromSeconds(5)),
+            publicListener.RunStarted.WaitAsync(TimeSpan.FromSeconds(5)),
+            trackedQuestCaptureCoordinator.RunStarted.WaitAsync(TimeSpan.FromSeconds(5)));
 
         Assert.Equal([111], rendezvousPublisher.PublishedPorts);
         Assert.True(adapterListener.RunAsyncCalled);
@@ -72,19 +76,32 @@ public class DovahLinkHostRuntimeTests
     [Fact]
     public async Task RunAsync_NoPublicListener_NeverWritesPublicPortLine()
     {
+        var adapterCompletion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var output = new SynchronizedTextCapture();
-        var noPublicListenerAdapterListener = new FakeAdapterIpcListener { BoundPort = 111 };
+        var noPublicListenerAdapterListener = new FakeAdapterIpcListener { BoundPort = 111, RunAsyncCompletion = adapterCompletion.Task };
         var playContextTracker = new FakePlayContextTracker();
+        var trackedQuestCaptureCoordinator = new FakeTrackedQuestCaptureCoordinator();
         var runtime = new DovahLinkHostRuntime(
             noPublicListenerAdapterListener, new FakeHostShutdownSignal(), new HostProcessLifetime(),
             new FakeHostRendezvousPublisher(), output, new FakeAdapterPeerProofVerifier { ExpectedToken = [1], HostProofKey = [2] },
             new LiveStateScheduler(noPublicListenerAdapterListener, LiveStateCatalog.Default, new FakeLiveCaptureSink(), playContextTracker, new AdapterAvailabilityTracker()),
-            new FakeTrackedQuestCaptureCoordinator(),
+            trackedQuestCaptureCoordinator,
             new PlayContextResynchronizationTrigger(playContextTracker, new FakeAdapterAvailabilityTracker(), noPublicListenerAdapterListener, new FakeResynchronizationTransactionCoordinator()));
         using var shutdown = new CancellationTokenSource();
-        shutdown.Cancel();
 
-        await runtime.RunAsync(shutdown).WaitAsync(TimeSpan.FromSeconds(5));
+        Task<int> runTask = runtime.RunAsync(shutdown);
+        await Task.WhenAll(
+            WaitUntilAsync(() => output.Snapshot().Contains("PORT 111", StringComparison.Ordinal), runTask),
+            noPublicListenerAdapterListener.RunStarted.WaitAsync(TimeSpan.FromSeconds(5)),
+            trackedQuestCaptureCoordinator.RunStarted.WaitAsync(TimeSpan.FromSeconds(5)));
+
+        Assert.True(noPublicListenerAdapterListener.RunAsyncCalled);
+        Assert.True(trackedQuestCaptureCoordinator.RunAsyncCalled);
+        Assert.False(runTask.IsCompleted);
+
+        shutdown.Cancel();
+        adapterCompletion.SetResult();
+        await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
         Assert.DoesNotContain("PUBLICPORT", output.Snapshot());
     }
