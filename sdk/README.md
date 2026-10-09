@@ -34,9 +34,10 @@ the SDK's first production consumer, not a privileged one — see
 
 ## Status
 
-Partially implemented, pulled forward from `roadmap/05-dart-client-sdk-foundation.md`'s Phase 5 ("Dart Client SDK Foundation")
-ahead of that phase's formal start, because Phase 3 (Local Device Pairing and Reconnection), documented in `roadmap/03-local-device-pairing-and-reconnection.md`, needed
-the SDK's persistence boundary to avoid a larger later migration. The real package exists at:
+Stage 5 — Dart Client SDK Foundation is complete. The package and its persistence boundary were
+pulled forward before the phase's formal start because Phase 3 (Local Device Pairing and
+Reconnection), documented in `roadmap/03-local-device-pairing-and-reconnection.md`, needed them to
+avoid a larger later migration. The real package exists at:
 
 ```text
 sdk/
@@ -68,9 +69,12 @@ The app selects storage at its composition boundary. Windows uses DPAPI; other p
 use an explicit unsupported-storage boundary, and pairing stays unavailable until secure storage is
 implemented for that platform.
 
-The SDK supports Host releases in the `0.5.x` range and rejects older or newer Host versions during
-`hello`, before admitting a session. Released Host `0.4.0` used additive subscription updates and is
-incompatible with the Phase 5.3 complete-set subscription API. The repository release is `0.5.0`.
+Current SDK source declares Host `0.5.x` and rejects older or newer Host versions during `hello`,
+before admitting a session. Host `0.5.0` is an internal version; no supported Host/Client `0.5.0`
+package was publicly released. Earlier internal builds that pass the `0.5.x` version check are not
+compatibility targets under the repository's pre-release policy, and the current Host/SDK source pair
+implements the current public SDK surface. Released Host `0.4.0` remains incompatible with the
+Phase 5.3 complete-set subscription API.
 Subscribe and unsubscribe calls update local desired intent before Host synchronization, so a failed
 request does not necessarily roll back the change; retained intent may be synchronized on a later
 trusted session, while intentional disconnect clears it.
@@ -79,7 +83,7 @@ Vitals, XP, and Level domains, backed by the SDK's state models, revision tracki
 handling, and Level Event handling. Phase 5.3 is complete: callers have
 typed per-domain subscription intent, and the SDK restores the desired set after trusted recovery
 while keeping it dormant after administrative invalidation. Phase 5.4 wires SDK streams through
-Flutter middleware; Phase 5.5 audits version impact and closes Stage 5.
+Flutter middleware; Phase 5.5 completed the version-impact audit and closed Stage 5.
 
 The app's `features/connection/` area remains responsible for Host selection, navigation, and
 presentation. It mirrors Known Host and candidate state from the same persistent SDK client; the SDK

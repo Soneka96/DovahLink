@@ -4,22 +4,26 @@
 
 ## 5. Dart Client SDK Foundation
 
-**Status:** Active. The package scaffold, protocol/transport layer, and persistence boundary
+**Status:** Complete. The package scaffold, protocol/transport layer, and persistence boundary
 (`clientId`, credential, `CONFIRMING` pairing-recovery state, behind a Windows DPAPI-backed
 `IClientStorage`) were pulled forward to unblock Phase 3's client-side pairing recovery, per
 `ai/context/sdk/persistence.md`. Delivery is decomposed into the public typed protocol boundary,
 synchronization API, subscription/recovery lifecycle, Flutter middleware proof, and phase-end version
 auditing.
-Phases 5.1–5.4 are complete: the typed protocol/compatibility boundary, state synchronization API,
-subscription/reconnect/session lifecycle, and Flutter live-state proof. Phase 5.3 adds canonical complete-set
-subscription updates with Host reconciliation, SDK per-domain intent, ordinary reconnect
-restoration, administrative dormancy until explicit recovery, and intentional-disconnect cleanup.
-Its complete-set subscription meaning is incompatible with released Host `0.4.0`'s additive behavior;
-the SDK's supported Host line is `0.5.x`. The repository release is `0.5.0`.
+Phases 5.1–5.5 are complete: the typed protocol/compatibility boundary, state synchronization API,
+subscription/reconnect/session lifecycle, Flutter live-state proof, and full version-impact audit.
+Phase 5.3 adds canonical complete-set subscription updates with Host reconciliation, SDK per-domain
+intent, ordinary reconnect restoration, administrative dormancy until explicit recovery, and
+intentional-disconnect cleanup.
+Its complete-set subscription meaning is incompatible with released Host `0.4.0`'s additive behavior.
+The repository's `0.5.0` version and dated changelog sections are internal records; no supported
+Host/Client `0.5.0` package was publicly released. Earlier internal `0.5.0` builds are not
+compatibility targets under the pre-release policy, and current Host/SDK source is aligned at
+`0.5.0`/`0.5.x`. A `0.5.1` bump is not needed solely to distinguish an unpublished internal build.
 PR #120 delivered the SDK-to-Redux pipeline, and PR #122 delivered the state-backed Session
-Overview. This Phase 5.4 closeout finishes player-facing number formatting and visual parity,
-records the maintainer's runtime validation, and rebaselines the proof acceptance. Phase 5.5 —
-Version-Impact Audit and Stage 5 Closure is next and has not been performed.
+Overview. Phase 5.4 finished player-facing number formatting and visual parity, recorded the
+maintainer's runtime validation, and rebaselined the proof acceptance. Phase 5.5 completed the full
+Stage 5 version-impact audit and acceptance review; Stage 5 is complete.
 The app's current `features/connection/` area owns Host selection and navigation rather than a
 separate protocol client. Phase 3.3 (`roadmap/03`) similarly pulled forward the single inbound SDK
 receiver/router and initial per-operation retry-safety/session-requirement/timeout-class policy,
@@ -68,8 +72,9 @@ prevent raw JSON, transport types, and internal codecs from crossing the public 
 The SDK reads `hello_ack.hostVersion`, applies the repository's pre-1.0 same-major/same-minor and
 post-1.0 accepted-minor rules, and closes before capabilities or state traffic when the Host is
 incompatible. Phase 5.3's complete-set subscription semantics make released Host `0.4.0`
-incompatible with the public subscription API; the next supported Host line is `0.5.x`. The SDK owns
-the explanation; the Host only advertises its version and does not reject SDK versions.
+incompatible with the public subscription API; the current `0.5.0` source includes that change.
+Earlier internal builds are not compatibility targets under the pre-release policy. The SDK owns the
+explanation; the Host only advertises its version and does not reject SDK versions.
 
 #### 5.2 SDK State Synchronization API
 
@@ -183,7 +188,8 @@ typed ViewModel; Stage 8 remains open for its broader live-player-state acceptan
   general Overview live-state behavior. No unresolved runtime blocker remains in the supplied
   validation.
 
-Phase 5.4 is **Complete**. It does not complete Stage 5 or Stage 8; Phase 5.5 remains next.
+Phase 5.4 is **Complete**. It did not complete Stage 5 or Stage 8; Phase 5.5 has now completed
+the Stage 5 audit and closeout.
 
 #### 5.5 Version-Impact Audit and Stage 5 Closure
 
@@ -196,6 +202,69 @@ files and prepare a commit message, but it never commits.
 At Stage 5 completion it audits the complete stage rather than each ordinary PR. A later bugfix may
 invoke it independently; a contract-breaking bugfix must not be forced into a patch bump.
 
+**Status:** Complete
+
+##### Stage 5 version-impact audit record
+
+1. **Audited range:** `75b23938` (the `0.4.0` release merge and Stage 5.1's parent) through
+   `20b01f51` (current `main`, containing PR #127). The first Stage 5 implementation merge is
+   `b4172153` (PR #79, Phase 5.1). The audit includes merged Stage 5 SDK, Host/protocol, Flutter,
+   and pulled-forward client work; it excludes unmerged branches and keeps the separate Stage 5A
+   security track out of scope.
+2. **Comparison baseline:** `75b23938`, the last `main` snapshot before the first Stage 5
+   implementation merge. It contains the completed Stage 4 / Phase 4.5 baseline and the `0.4.0`
+   release. Phase 4.5's audit record identifies `0.3.2` as the earlier Stage 4 contract baseline;
+   that does not change the Stage 5 comparison point.
+3. **Affected components:** Host subscription behavior and later synchronized state; Adapter
+   capture for pulled-forward state-domain work; canonical protocol schema and fixtures; the Dart
+   SDK API, compatibility, persistence, synchronization, and tests; Flutter's SDK integration and
+   presentation; and repository consistency tooling. Supported Skyrim/SKSE/CommonLib minimums do
+   not change. The Stage 5A security profile is outside this audit.
+4. **Protocol impact:** **BREAKING CONTRACT CHANGE** across the complete Stage 5 range. Phase 5.3
+   changed `subscribe.stateAreas` to complete-set replacement, making Host `0.4.0` incompatible. The
+   repository's `0.5.0` version and dated changelog sections are internal records; no supported
+   Host/Client `0.5.0` package was publicly released. Later internal work added required Host
+   identity fields and new state domains, and consolidated Vitals. The canonical schema, fixtures,
+   Host, SDK, and app are aligned. Earlier unreleased builds are not compatibility targets under the
+   documented pre-release policy.
+5. **Persistence impact:** SDK-owned client state writes format v4. Its decoder migrates v3 while
+   preserving client identity, Known Hosts, credentials, and valid recovery state; formats v1/v2
+   are invalidated under the pre-release policy. Unknown future formats fail closed. No separate
+   reusable cache format exists or changed during Stage 5.
+6. **Security and runtime impact:** the SDK owns client authentication, pairing recovery, and
+   loopback-only local Host discovery; a discovered Host identity remains an unauthenticated claim
+   and does not grant trust. Host trust and authorization remain Host-owned. Stage 5 adds no LAN,
+   TLS/WSS, or hostile-network first-pairing guarantee, and does not change supported
+   Skyrim/SKSE/CommonLib minimums. Stage 5A remains separate and blocked by its existing security
+   gate.
+7. **Compatibility impact:** the SDK explicitly supports Host `0.5.x`, rejects older/newer or
+   malformed versions before session admission, and has tests for accepted patches, old/new Hosts,
+   and malformed versions. Host `0.5.0` is an internal version; no supported Host/Client `0.5.0`
+   package was publicly released. Earlier internal builds that pass the `0.5.x` check are not
+   compatibility targets under the documented pre-release policy. The current Host/SDK source pair
+   provides the full SDK surface at the declared range. Compatibility obligations begin with the
+   first supported public release.
+8. **Version ownership and recommendation:** root `VERSION` (`0.5.0`) owns the Host/Adapter
+   packaged version. The SDK package (`0.1.0`) and Flutter app (`0.1.0+2`) are repository-internal
+   and unpublished. No version literal changes on this phase branch. Do not bump to `0.5.1` solely
+   to distinguish the unpublished internal `0.5.0`; version synchronization remains part of the
+   dedicated release workflow.
+9. **Changelog impact:** the Host/Adapter, SDK, and app `[Unreleased]` sections already record
+   their distinct Stage 5 and pulled-forward outcomes. The internal Host `0.5.0` section records the
+   complete-set subscription change. No duplicate entry or additional Phase 5.5 consumer change
+   warrants a changelog edit. `CHANGELOG.md` remains the frozen archive through `0.4.0`.
+10. **Independent .NET validator:** **OBSOLETE / SUPERSEDED.** The former independent validator
+    and its native-plugin end-to-end scenarios were intentionally removed in Stage 3A.2 when the
+    retired Bridge was deleted. `integration/README.md` and the Phase 4.5 audit record document
+    that removal and the current Host/SDK/fixture/process-level validation path. No replacement
+    validator is introduced by Stage 5.
+11. **Unresolved blockers:** none for Stage 5 closure under the release workflow. Host `0.5.0` is
+    an internal version, not a supported public release, and earlier internal builds are not
+    compatibility targets. Version synchronization remains a dedicated release step after phase
+    work merges; an unreleased version may wait without blocking phase closure. The SDK remains
+    unpublished (`publish_to: none`); Stage 5A, secure LAN, production SAS pairing, Host pinning, and
+    WSS/TLS remain separate work.
+
 ### Dependencies and boundaries
 
 This phase depends on Phases 2, 3, and 4 and consumes their approved identity, pairing/reconnection,
@@ -204,36 +273,39 @@ development slice consumes the SDK's pulled-forward platform-port and transport 
 not close this phase. Stage 5 itself does not implement Phase 9 concurrent-client delivery, Phase 10
 multi-instance discovery, Phase 11 automatic connection/transport selection, or the generalized Stage
 22 secure LAN transport; when those phases are implemented, their Dart client behavior extends the
-SDK rather than being built privately into the app again. The independent .NET validation client
-remains a separate implementation of the canonical contract and does not consume, wrap, or generate
-from the Dart SDK.
+SDK rather than being built privately into the app again. The formerly planned independent .NET
+validation client was retired with the legacy Bridge in Stage 3A.2; see the Phase 5.5 audit record.
 
 ### Acceptance criteria
 
-- The `sdk/dart/dovahlink_client/` package exists with a curated public API; internal transport,
-  codec, persistence, compatibility, and state-machine types are not accidentally exported.
-- The SDK declares an explicit supported Host-version range rather than inferring compatibility
-  from generic SemVer rules, applies the repository's pre-1.0 and post-1.0 comparison policy, and
-  assesses canonical contract changes against that declared range per
-  `ai/context/protocol/compatibility.md`.
-- The official Flutter application consumes the SDK exclusively for normal DovahLink communication;
-  its parallel app-private protocol/client stack is retired in this phase, not left running
-  alongside the SDK.
-- One underlying client engine backs every exposed API view; there is no duplicate transport,
-  session, or cache stack behind a "simple" and an "advanced" surface.
-- SDK-owned persistence (client credential, pairing recovery state, cache metadata) is versioned and
-  migration-owned by the SDK; the app never needs to understand or migrate that private schema.
-- The independent .NET validator still passes the same canonical fixtures without depending on the
-  Dart SDK.
-- Middleware owns SDK state-stream subscriptions and translates typed values/statuses into Redux
-  actions; widgets and screens do not consume SDK streams directly.
-- Shared protocol fixtures and Host/SDK tests prove complete-set subscription transitions, including
-  adding and removing individual areas and clearing the set, and verify that removed areas stop
-  publishing.
-- The minimal live-state proof demonstrates the coherent `character_vitals` Snapshot, independent
-  `character_xp` Snapshot, and `character_level` Event state, revision-gap recovery,
-  ordinary reconnect restoration, administrative-invalidation dormancy, and incompatible-Host
-  handling.
-- The manually invoked version-audit skill completes the phase's version/changelog/compatibility
-  review without committing changes.
-- The SDK is not published outside the repository as part of this phase.
+1. **COMPLETE — Curated SDK package:** `sdk/dart/dovahlink_client/` exists with a curated public
+   API. Internal transport, codec, compatibility, persistence implementation, and state-machine
+   types are not exported; the public storage port and state value are deliberate injection types.
+2. **COMPLETE — Host compatibility implementation:** the SDK declares and tests its explicit
+   Host-version range and applies the documented pre-1.0 and post-1.0 policy without generic SemVer
+   inference. Current source literals are `0.5.0`/`0.5.x`; earlier internal builds are not
+   compatibility targets because no supported Host/Client `0.5.0` package was publicly released.
+3. **COMPLETE — Flutter boundary:** the official app uses the SDK for normal DovahLink communication
+   and has no parallel app-private protocol/client stack.
+4. **COMPLETE — One client engine:** all grouped API views share one underlying client composition;
+   no second transport, session, or cache stack exists.
+5. **COMPLETE — SDK persistence:** persisted client state is SDK-owned and versioned, v3 migration
+   is tested, and the app neither owns nor migrates the private persisted schema. No reusable cache
+   format exists to version.
+6. **OBSOLETE / SUPERSEDED — Independent .NET validator:** the validator was intentionally removed
+   in Stage 3A.2 with its sole legacy Bridge target. Current Host, Dart SDK, canonical fixture, and
+   Host/Adapter process tests provide the active contract evidence; Stage 5 does not recreate the
+   retired tool.
+7. **COMPLETE — Middleware boundary:** middleware owns SDK state-stream subscriptions and dispatches
+   typed values/statuses to Redux; screens and widgets read app state.
+8. **COMPLETE — Subscription transitions:** canonical fixtures plus Host and SDK tests cover adding,
+   removing, clearing, rejection, and stopping publication for removed areas.
+9. **COMPLETE — Minimal live-state and recovery proof:** tests cover coherent Vitals Snapshot,
+   independent XP Snapshot, Level Events, revision-gap recovery, reconnect restoration,
+   administrative-invalidation dormancy, and incompatible Host handling. The Phase 5.4 record also
+   captures the maintainer's live runtime validation.
+10. **COMPLETE — Version audit:** this Phase 5.5 record audits the complete Stage 5 range,
+    ownership, compatibility, persistence, protocol, changelogs, and release follow-up without
+    committing changes.
+11. **COMPLETE — Repository-internal SDK:** both SDK and app package manifests specify
+    `publish_to: none`; no SDK publication occurred.
