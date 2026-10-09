@@ -106,7 +106,7 @@ jobs:
       - name: Set up Python
         # Used only by AssembleRealAdapterHostPackage's CTest fixture, which shells out to
         # tooling/assemble_adapter_host_package_for_ctest.py to assemble the real Vortex package for
-        # the real-package-layout test below. Same pin as tooling-ci.yml.
+        # the real-package-layout test below.
         uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
         with:
           python-version: "3.13"

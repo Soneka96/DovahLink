@@ -142,11 +142,11 @@ function Invoke-LocalCommand {
     }
 }
 
-Write-Host "=== tooling-ci ==="
+Write-Host "=== tooling ==="
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList @(
     "-m", "unittest", "discover", "-s", "tooling", "-p", "test_*.py"
 )
-# Mirror tooling-ci's changed-file formatter check, including committed and local branch changes.
+# Local-only changed-file formatter check, including committed and local branch changes.
 Invoke-LocalCommand -WorkingDirectory $repoRoot -FilePath "python" -ArgumentList @(
     "tooling/format_staged.py", "--check", "--base-ref", "main"
 )
