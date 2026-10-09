@@ -33,24 +33,8 @@ internal sealed class TestPeerProcess : IDisposable
         }
 
         process = System.Diagnostics.Process.Start(startInfo)!;
-        process.OutputDataReceived += (_, line) =>
-        {
-            if (line.Data is null)
-            {
-                lines.CompleteAdding();
-            }
-            else
-            {
-                lines.Add(line.Data);
-            }
-        };
-        process.ErrorDataReceived += (_, line) =>
-        {
-            if (line.Data is not null && !lines.IsAddingCompleted)
-            {
-                lines.Add($"STDERR {line.Data}");
-            }
-        };
+        process.OutputDataReceived += (_, line) => HandleStandardOutputLine(lines, line.Data);
+        process.ErrorDataReceived += (_, line) => HandleStandardErrorLine(lines, line.Data);
         process.BeginOutputReadLine();
         process.BeginErrorReadLine();
     }
@@ -101,6 +85,48 @@ internal sealed class TestPeerProcess : IDisposable
     {
         Assert.True(process.WaitForExit(timeout), "The test peer did not exit within the timeout.");
         return process.ExitCode;
+    }
+
+    /// <summary>Queues one stdout line or marks the shared line collection complete at stdout EOF.</summary>
+    /// <param name="lines">The shared peer-output collection.</param>
+    /// <param name="line">The output line, or <see langword="null"/> at EOF.</param>
+    internal static void HandleStandardOutputLine(BlockingCollection<string> lines, string? line)
+    {
+        try
+        {
+            if (line is null)
+            {
+                lines.CompleteAdding();
+            }
+            else
+            {
+                lines.TryAdd(line);
+            }
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
+        {
+            // The other reader or Dispose can complete the collection before this async callback arrives.
+        }
+    }
+
+    /// <summary>Queues one stderr line with a diagnostic prefix, ignoring stderr EOF.</summary>
+    /// <param name="lines">The shared peer-output collection.</param>
+    /// <param name="line">The error line, or <see langword="null"/> at EOF.</param>
+    internal static void HandleStandardErrorLine(BlockingCollection<string> lines, string? line)
+    {
+        if (line is null)
+        {
+            return;
+        }
+
+        try
+        {
+            lines.TryAdd($"STDERR {line}");
+        }
+        catch (Exception exception) when (exception is InvalidOperationException or ObjectDisposedException)
+        {
+            // The output collection can close before the asynchronous error callback arrives.
+        }
     }
 
     /// <inheritdoc/>
