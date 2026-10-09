@@ -137,3 +137,119 @@ finding.
 | Presentation state, wording, navigation, themes | Flutter | None | Everything | None |
 | Device-name override | Flutter | Carries `displayName` in pairing and `renameDevice` | Persist and resolve label | None |
 | App shutdown | Flutter | `DovahLinkClient.close()` | Budgeted orchestration | Suspected S-4 |
+
+## 6. Confirmed findings
+
+Severity follows the task's scale. Line references are to `main@64e8d158`. "Confirmed" means the
+code on both sides of the claim was read; where runtime ordering matters, the supporting test is
+named. No finding below proposes a security, pairing-semantics, protocol, or persistence change.
+
+### ARCH-001: SDK publishes a transient `disconnected` on ordinary transport loss; the app and its docs assume it does not
+
+- **Severity:** High. **Evidence:** Confirmed (code and SDK test); not exercised end to end.
+- **Paths and symbols:** `sdk/.../internal/session/session_service.dart` `_beginRecoveryAfterOrdinaryTransportLoss` (434-454); `connection_teardown_coordinator.dart` `tearDown` (56-90); `session_state.dart` `resetAfterTeardown` (312-331) and `markReconnecting` (219); `app/lib/features/live_state/presentation/state/live_state.middleware.dart` `_connectionStateChanged` (136-157), `_endAdmittedSession` (317-330), `_ensureTrustedSession` (172-184).
+- **Evidence:** Ordinary loss from `connected` tears down with `preserveReconnecting: true`, but `resetAfterTeardown` only preserves `reconnecting` when the session was already recovering, so the state goes `connected → disconnected`, and only a later queued step calls `markReconnecting`. The SDK test `dovahlink_client_test.dart:5730` asserts the sequence `connected, disconnected, reconnecting, reauthenticating, connected` and comments that this is intended. The app middleware treats every `disconnected` as the end of the admitted session: it cancels all eight listeners, clears `_requestedDesiredAreaStores`, and dispatches `SessionLiveStateResetAction`. The app test `live_state.middleware_test.dart:738` ("ordinary reconnect keeps projection listeners") feeds `reconnecting → reauthenticating → connected` and so never produces the `disconnected` the real SDK emits. `ai/context/flutter/architecture.md` (Live gameplay state) states that ordinary reconnect keeps those listeners attached.
+- **Current behavior:** After a real transport drop the app tears down and re-attaches its listeners, clears the Overview slice, and re-issues eight sequential `subscribeStateArea` calls on top of the SDK's own `restoreDesiredStateAreas`.
+- **Why problematic:** A consumer cannot tell a final disconnect from the first step of recovery. Documented behavior, test fake, and real SDK disagree. The SDK itself also clears gameplay values at teardown (`onTeardown` closure in `dovahlink_client.dart:243-250` calls `SubscriptionService.onSessionEnded`, which resets every area to `notSubscribed`), so the documented "stale retained values across reconnect" is not what either side does for transport loss.
+- **Consequence if unchanged:** Redundant subscribe traffic and a visible Overview reset on every drop; any new consumer must rediscover the transient state; tests keep passing against a state sequence production never emits.
+- **Recommended correction:** A maintainer decision is needed first because the connection-state sequence is public SDK behavior: either (a) the SDK stops publishing `disconnected` between `connected` and `reconnecting` when recovery will follow, or (b) the documented contract is changed to say the transient is part of the API and the app handles it. Either way the app test must be driven by the real sequence (for example an SDK-level contract fixture).
+- **Risk of changing:** Medium. Touches `SessionState` transitions that `KnownHostSessionState`, pairing status, and presence evidence also read. Protected by `session_state_test.dart`, `session_service_test.dart`, and `dovahlink_client_test.dart`.
+- **Protecting tests:** SDK `dovahlink_client_test.dart:5730`; app `live_state.middleware_test.dart:738`, which currently does not cover the real path.
+- **SAS:** Independent of SAS. Safe before SAS.
+- **Follow-up PR:** T1 in Section 9.
+
+### ARCH-002: Pairing feature keeps a forwarding-only UseCase/Repository/Model chain over an SDK that already owns the operation
+
+- **Severity:** High (maintainability and rule conflict). **Evidence:** Confirmed.
+- **Paths and symbols:** `app/lib/features/pairing/domain/usecases/*.usecase.dart` (7), `data/repositories/pairing.repository.dart`, `domain/repositories/pairing_repository.dart`, `data/models/pairing_handshake.model.dart`, `domain/entities/pairing_handshake.entity.dart`, `pairing.injection_container.dart`.
+- **Evidence:** `PairingRepository` forwards each of its seven members to `IPairingRemoteDataSource` unchanged; each use case forwards one repository call (for example `AuthenticateUseCase.call` → `_repository.authenticate`). `PairingHandshakeModel` extends `PairingHandshake` and maps an already-decoded `DovahLinkPairingHandshake`; no external representation crosses a boundary. `ai/context/flutter/architecture.md` ("Feature call chain" and "Domain and presentation values") forbids a layer whose only job is forwarding an SDK operation or copying fields from a typed SDK result. `ai/context/sdk/api-design.md:76-78` acknowledges the layers and says to remove one only after its behavior has moved.
+- **Current behavior:** Middleware resolves a use case through `sl`, the use case calls the repository, which calls the data source, which calls `DovahLinkClient.pairing`. The data source does real work: exception to `Failure` mapping, credential-rejection wording, and the `connectionStatus` mapping.
+- **Why problematic:** Ten extra types (seven use cases, the repository and its interface, the Model) plus nine test files carry no decision. Each new pairing operation, including SAS 5A.1/5A.10 states, must be threaded through all of them.
+- **Consequence if unchanged:** Every SAS-era pairing change pays a multi-file tax and the repository's own rule stays violated.
+- **Recommended correction:** Keep the SDK-to-app mapping (failure mapper, handshake mapping, status mapping) in one app boundary and let `PairingMiddleware` call it directly, per the conventions. Do not delete failure mapping or the Redux flow.
+- **Risk of changing:** Low to medium. Behavior-preserving; the risk is in middleware tests that stub use cases.
+- **Protecting tests:** `pairing_remote.datasource_test.dart`, `pairing.middleware_test.dart`, `pairing.repository_test.dart` and seven `*.usecase_test.dart` (these would be removed with their types).
+- **SAS:** Overlaps 5A.1 and 5A.10 (Flutter pairing presentation). Coordinate: do it immediately before 5A.1, or fold into it.
+- **Follow-up PR:** T2.
+
+### ARCH-003: The composition root contains discovery and credential-cleanup behavior
+
+- **Severity:** Medium. **Evidence:** Confirmed.
+- **Paths and symbols:** `dovahlink_client.dart` `_discoverHosts` (369-417), `_candidateHostsChanges` (420-431), `_observeCandidateKnownHosts` (454-476), `_reconcileCandidateHosts` (480-506), `_handleKnownHostInvalidation` (435-451), fields at 57-83, 314, and the `candidateKnownHostsObservation` constructor parameter.
+- **Evidence:** About 150 lines and six mutable fields implement candidate reconciliation, generation guarding, and invalidation cleanup directly in `DovahLinkClient`. `ai/context/sdk/architecture.md` says exactly one place constructs the graph and gives every behavior-bearing class an interface. A test-only `List<bool>? candidateKnownHostsObservation` recorder is threaded through production constructors to observe this logic (`dovahlink_client_test.dart:1453`). The root also keeps `_sessionState` as a field, which the same document says it never does.
+- **Why problematic:** The only place to test this logic is the full client. It cannot be reused or mocked, and it hides a service-shaped owner (discovery reconciliation) outside the documented service list.
+- **Consequence if unchanged:** Discovery work for LAN/mDNS (Stages 10, 22) grows the root further.
+- **Recommended correction:** Extract a discovery-reconciliation collaborator with its own contract, move the invalidation handler to the owner of credential state, and delete the test hook. Public API unchanged.
+- **Risk of changing:** Medium (race suppression and storage-error behavior are subtle). Protected by the `discoverHosts` group in `dovahlink_client_test.dart` and `dovahlink_discovery_service_test.dart`.
+- **SAS:** Better after 5A.7/5A.8 only if those touch discovery; otherwise independent.
+- **Follow-up PR:** T3.
+
+### ARCH-004: Public facades carry protocol and lifecycle logic
+
+- **Severity:** Medium. **Evidence:** Confirmed.
+- **Paths and symbols:** `dovahlink_connections.dart` `renameDevice` (154-179) and `disconnect` (183-189); `dovahlink_client.dart` `close` (513-542); `dovahlink_pairing.dart` four `restoreDesiredStateAreas` calls (123, 137, 163, 173); `session_admission_service.dart:66-68`.
+- **Evidence:** `renameDevice` builds the request, applies `RequestPolicy`, decodes the reply, and reports protocol violations inside the facade. The four-step cancel sequence (`cancelPendingAuthentication`, `stopInitialConnectionRetry`, `stopRecovery`, `clearDesiredStateAreas`) is duplicated in `disconnect` and `close`, and `connectWithInitialRetry` repeats a subset. Trusted admission already restores desired areas, and the pairing facade restores them again after pairing recovery. `api-design.md` says these groups are views that do not own behavior.
+- **Why problematic:** Anything that ends a session must remember the sequence; a fifth caller will miss a step. Restoration being triggered from two layers makes ownership unclear.
+- **Recommended correction:** Give deliberate-disconnect and rename each a service owner; make admission the single trigger for restoration after pairing becomes trusted.
+- **Risk of changing:** Medium: ordering of cancellation matters. Protected by `dovahlink_connections_test.dart`, `dovahlink_pairing_test.dart`, `dovahlink_client_test.dart`.
+- **SAS:** Better after 5A.7/5A.8 (they extend pairing operations).
+- **Follow-up PR:** T3 (shared with ARCH-003).
+
+### ARCH-005: Rejection-to-`pairingRequired` and availability rules are written in several places
+
+- **Severity:** Medium. **Evidence:** Confirmed.
+- **Paths and symbols:** `dovahlink_client.dart:439-443` (administrative reason to flag), `authentication_service.dart:444` and `reconnect_service.dart:393` (`!= blocked`), `reconnect_service.dart:372-426` (offline versus unknown mapping), `known_host_presence_monitor.dart:281-307`, `authentication_service.dart:385, 477`, `pairing_service.dart:368, 496`.
+- **Evidence:** The rule "revoked/unrecognized/trustReset/factoryReset need pairing, blocked does not" is expressed three times in three vocabularies. `setAvailability` has four writers outside the owner, each deciding what evidence means (`offline` on connection failure, `unknown` on protocol failure, `online` after admission).
+- **Why problematic:** A new rejection reason or evidence source must be added in each location; divergence would show up only as a wrong card state.
+- **Recommended correction:** One policy object with its own contract maps rejection or invalidation evidence to `(pairingRequired, availability)`.
+- **Risk of changing:** Low to medium; no behavior change intended. Protected by the three services' unit tests and `known_host_presence_monitor_test.dart`.
+- **SAS:** Better after SAS (SAS adds new rejection and trust outcomes). Coordinate with 5A.7.
+- **Follow-up PR:** T4.
+
+### ARCH-006: Adding a gameplay domain touches too many places on both sides
+
+- **Severity:** Medium. **Evidence:** Confirmed.
+- **Paths and symbols (SDK):** `game_time_state_module.dart`, `player_location_state_module.dart`, `tracked_quests_state_module.dart` (identical 48-line shape), `character_state_module.dart`, `dovahlink_current_host.dart` (one constructor field, getter, and interface member per non-Character domain), `dovahlink_client.dart:158-172, 210-217, 292-299`, `shared/enums.dart` (`DovahLinkStateArea`), `lib/dovahlink_client.dart` exports.
+- **Paths and symbols (app):** `live_state.middleware.dart` (`_requiredAreas`, eight `_observe` calls), `live_state.actions.dart`, `session_live_state.state.dart`, `live_state.reducer.dart`, `live_state.selectors.dart`, `session_overview.viewmodel.dart`.
+- **Evidence:** `ai/context/sdk/architecture.md` ("State synchronization composition") says root facades must not gain one field or constructor dependency for every state area; Game Time, Location, and Tracked Quests each did. Recovery is hand-wired for Level only (`dovahlink_client.dart:210-216`, plus an `ICharacterStateModule.levelDomain` getter that exists only for that), so a future Event-mode domain can silently miss recovery.
+- **Why problematic:** Every new domain (map, inventory, equipment in the roadmap) repeats ~10 edits per side with no compile-time reminder to wire recovery.
+- **Recommended correction:** SDK only: a small domain registration abstraction so a module declares its area, decoder, availability rule, and event support once and recovery is derived from it, and `currentHost` exposes domains without a field each. Do not create one global stream or merge domain modules. App-side repetition is presentation-owned and should be handled when the next domain is actually added.
+- **Risk of changing:** Medium. Protected by the module tests and `state_*` tests.
+- **SAS:** Independent of SAS.
+- **Follow-up PR:** T5.
+
+### ARCH-007: SDK API gaps force app-side shadow state and failure classification
+
+- **Severity:** Medium. **Evidence:** Confirmed.
+- **Paths and symbols:** `live_state.middleware.dart` `_requestedDesiredAreaStores` (68), `_requestRequiredAreas` (288-313); `pairing_remote.datasource.dart:85-88`; `ISubscriptionService.desiredStateAreas` (not on `IDovahLinkCurrentHost`).
+- **Evidence:** The SDK has only per-area `subscribeStateArea`, each sending the complete desired set, so the app issues eight sequential round trips and keeps its own flag recording whether it already requested the set. `api-design.md` says the app must not maintain competing subscription truth. The data source reads `connections.state == administrativelyInvalidated` after catching a generic `DovahLinkConnectionException` to detect invalidation, instead of receiving a typed failure.
+- **Why problematic:** Another Dart consumer would have to copy both patterns, which fails the task's ownership test.
+- **Recommended correction:** SDK additions (a multi-area subscribe and a readable desired set, a typed invalidation failure) are public API changes and need maintainer approval before implementation.
+- **Risk of changing:** Low to medium. Additive.
+- **SAS:** Coordinate with 5A.7 (public SDK contract work).
+- **Follow-up PR:** T6.
+
+## 7. Suspected findings
+
+| ID | Concern | What remains to inspect or reproduce |
+| --- | --- | --- |
+| S-1 | The app maps SDK `connected` to `PairingConnectionStatus.restored`, and `pairingConnectionRestoredReducer` (`pairing.reducer.dart:295`) then sets `PairingPhase.trusted` without checking SDK trust state. Evidence: `pairing_remote.datasource.dart:265`. | Reproduce recovery of a Known Host whose credential was cleared while the session still reaches `connected` unpaired. `ReconnectService` accepts any `connected` result (`reconnect_service.dart:360-371`). Medium if real. |
+| S-2 | Reducers call `DateTime.now()` to turn `expiresInSeconds` and `retryAfterSeconds` into deadlines (`pairing.reducer.dart:130, 224, 240`), making them impure; Flutter docs assign challenge expiry to the SDK. | Decide whether the SDK result should carry an observation instant or deadline; check timer-based tests for flakiness. Low. |
+| S-3 | A first initial-retry attempt that is superseded (`connectWithInitialRetry` at the start of a second call) may complete after admitting a session and then throw `_initialRetryCancelled` without disconnecting (`reconnect_service.dart:160-165`). | Write a throwaway test with two overlapping calls; `cancelPendingAuthentication` at line 157 may already prevent it. Medium if real. |
+| S-4 | `StateRecoveryService.start()` subscription is never cancelled and tracker/`CurrentValueStream` controllers are never closed in `DovahLinkClient.close()`, so consumer state streams never complete (`dovahlink_client.dart:513-542`, `current_value_stream.dart`). | Check whether any leak or hang is observable in the app shutdown budget. Low. |
+| S-5 | `connectionKnownHostChangedReducer` and `connectionCandidatesChangedReducer` duplicate the candidate-to-known selection conversion (`connection.reducer.dart`). | Confirm the two copies cannot diverge for the same inputs; consider one shared helper. Low. |
+
+## 8. Documentation discrepancies
+
+Source documents were not edited. Each row proposes a correction for maintainer review.
+
+| ID | Class | Document and location | Discrepancy | Proposed correction |
+| --- | --- | --- | --- | --- |
+| D-1 | Dangling reference | `ARCHITECTURE.md:155,227`; `ai/context/host/architecture.md:315`; `ai/context/protocol/compatibility.md:10,117`; `roadmap/10-multi-instance-and-local-discovery-foundation.md:22`; `PLAN.md:15-16` | They link into `plans/documentation-and-composition-normalization/` and `plans/stage-*`, which are absent on `main`. | Re-home the normative content (public vocabulary and identity semantics) into a durable document and update the links. |
+| D-2 | Documentation says X, code does Y | `ai/context/sdk/architecture.md` "Internal composition" | States `ConnectionTeardownCoordinator` and `PendingOperationTransmitter` have their own contract; only `MessageRouter` does (`IMessageRouter`). `PendingOperationBookkeeping`, `LifecycleOperationQueue`, `ClientIdResolver`, `ClientIdCache` also have none. | Either add the contracts or record these as accepted pre-existing exceptions under the "phase-forward" rule. |
+| D-3 | Outdated description | Same section: "nine major Services" | `HostAvailabilityService`, `KnownHostPresenceMonitor`, and discovery are behavior-bearing and not in the list. | List them or define the category. |
+| D-4 | Documentation says X, code does Y | Same document, "Session-state ownership" | Says the root never keeps `SessionState` as a field; `dovahlink_client.dart:314` does. Also says Authentication's only caches are `clientId`/`hostVersion`; code also caches `_lastHelloResult`. | Fix the code (ARCH-003) or the text. |
+| D-5 | Contradiction with behavior | `ai/context/flutter/architecture.md` "Live gameplay state" | Says ordinary reconnect keeps listeners attached; real SDK emits a transient `disconnected` (ARCH-001). | Resolve with ARCH-001's decision. |
+| D-6 | Ambiguous ownership | `flutter/architecture.md` "Feature call chain" versus `sdk/api-design.md:76-78` | One forbids forwarding layers, the other keeps them with no exit criterion. | Record the removal condition and owner (ARCH-002). |
+| D-7 | Outdated description | `ARCHITECTURE.md:17` | Says the SDK "is added when the Dart Client SDK Foundation phase begins" and points at planned status; Stage 5 is complete. | Update to the current state. |
+| D-8 | Ambiguous ownership | `flutter/architecture.md` ownership table | Assigns pairing "expiry, attempts, cooldown" to the SDK, but the SDK returns relative seconds and Flutter computes deadlines (S-2). | Clarify which side owns the clock. |
