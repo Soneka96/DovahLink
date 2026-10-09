@@ -422,3 +422,259 @@ user-visible effect today.
 The audit found no Critical issue and no ownership violation that lets Flutter implement reconnect,
 authentication, pairing sequencing, revision handling, or subscription recovery on its own. The
 SDK/Flutter split is sound; the remaining work is targeted, not a rewrite.
+
+## 11. Future Product Requirements — Persistent Overview and Gameplay Readiness
+
+The maintainer approved these two requirements during the audit revision (Section 1). They are
+product requirements, not architecture defects: their absence is never-implemented scope, and no
+finding in Section 6 is raised because of them. No roadmap stage owns them yet; placing them is a
+maintainer decision (11.11). "Current" statements below come from source inspection at
+`main@64e8d158`, not from a runtime run.
+
+### 11.1 Approved product intent
+
+**Persistent Overview.** DovahLink stays useful when Skyrim is closed. After the client has received
+gameplay information, the SDK can keep a trustworthy last-known snapshot, so the player can:
+
+- view live information while connected;
+- lose the connection without immediately losing what is displayed, with an explicit disconnected or
+  reconnecting indication;
+- close Skyrim, or close and reopen DovahLink, and still view the last-known Overview;
+- open a Known Host's last-known Overview while that Host is offline;
+- reconnect and receive new authoritative information without confusing it with historical data.
+
+The existing Overview design is retained; this is not a visual redesign.
+
+**Gameplay readiness.** A running DovahLink Host is not necessarily a loaded Skyrim gameplay
+session. DovahLink must not show the player as gameplay-connected, or offer pairing as ready, when
+the Skyrim functionality those need is unavailable. An authenticated transport session may
+legitimately exist at the main menu, and authentication is not redesigned to require a loaded save.
+
+### 11.2 Current implementation gaps
+
+| Area | Current implementation (evidence) | Gap |
+| --- | --- | --- |
+| Values during reconnect | Teardown resets every accepted area to `notSubscribed` with `value: null` (ARCH-001) | Nothing to show while recovering |
+| Durable gameplay history | `PersistedClientState` holds only `clientId`, Known Hosts with credentials and the `pairingRequired` hint, and pending pairing recovery (`persistence/persisted_client_state.dart`) | No historical storage or API |
+| Session Shell without a session | The `/session/:hostId` route redirects home unless that Known Host's `sessionState` is `connected` (`app/lib/shared/navigation/app_router.dart:25-38`); `SessionShellMiddleware` enters only through `_enterWhenConnected` and `_connectionHostReentryRequested`, both gated on a connected Known Host | No read-only historical mode |
+| Host-scoped projection | `SessionLiveState` is one global Redux slice (`session_live_state.state.dart:16`), reset by `_endAdmittedSession` | No per-Host historical presentation source |
+| Host offline when Skyrim closes | The Adapter launches the Host and asks it to shut down when Skyrim closes (`ARCHITECTURE.md`, "Host and native adapter"); the SDK presence monitor projects `DovahLinkHostAvailability` (`unknown`, `online`, `offline`, `checking`) | Supported by design; not runtime-verified here |
+| Play-context signals | Adapter: `kPreLoadGame` sends play-context-ended (`adapter/plugin/dovahlink_adapter_plugin.cpp:435-436`), a main-menu open sends it too (`commonlib_adapter_main_menu_sink.cpp:17-25`), and `kNewGame`/`kPostLoadGame` send a fresh ID for every load (443-446). Host: `PlayContextTracker` records it (`AdapterIpcSession.cs:344-359`); every envelope carries `playContextId`, `null` outside an active play context (`protocol/schema/README.md:29`) | A wire signal of play context exists; not a readiness signal |
+| Play context on Adapter loss | The only `ClearCurrent` caller is the Adapter's play-context-ended message (`AdapterIpcSession.cs:359`); Adapter disconnect rotates `stateAuthorityId` but does not clear the play context | A non-null `playContextId` does not prove gameplay is available |
+| Host-internal readiness | `AdapterAvailabilityTracker` tracks availability and `NeedsResynchronization`, re-armed on every play-context transition (`RearmResynchronizationForPlayContextTransition`); ordinary sampling is gated on it (`LiveStateScheduler.cs:238`) | Host-internal only; no public readiness fact |
+| SDK readiness surface | `IDovahLinkCurrentHost` exposes `host`, `trustState`, `sessionId`, and domain streams; `playContextId` appears only inside each `StateSynchronization<T>` | No typed readiness capability |
+| Pairing availability | The Host reports `pairing_status` `unavailable` when the Adapter display is not acknowledged (`ClientMessageDispatcher.cs:283-287`); `AdapterPairingNotifier` returns `false` without an Adapter connection; the Adapter's `Display` shows a HUD message and always returns `true` (`adapter/ipc/commonlib_adapter_pairing_notification_sink.cpp:7-15`) | At the main menu or during loading, the Host can report a code as displayed that the player may not see (inferred from source; not runtime-verified) |
+| Pairing outcome detail | `PairingAvailability.unavailable` carries no reason; the app maps it to generic copy (`pairing_remote.datasource.dart:116-121`) | No typed "not ready" outcome |
+
+**Required user-facing states**
+
+| Situation | Expected presentation | Current support |
+| --- | --- | --- |
+| Connected | Live information | Supported: SDK streams pass unchanged through Redux to the Overview |
+| Reconnecting | Last-known information with recovery indication | Not supported: recovery is indicated (`Reconnecting` card, SDK states), but values are cleared (ARCH-001) |
+| Disconnected | Historical information with disconnected indication | Not supported: the Overview slice is reset, and the shell route requires a connected session |
+| Host offline | Saved Overview accessible | Not supported: no historical storage; route redirects home |
+| No saved information | Truthful empty state | Needs decision: live `notSubscribed`/`unavailable` states render truthfully, but no historical empty state exists and its wording is a presentation decision |
+| Reconnected | Newly validated authoritative information | Supported for live state (new baselines after `subscription_ack`); precedence over historical data needs design (11.4) |
+| Different play context | No mixing of unrelated values | Supported for live state: `StateMessageHandler._observeIdentity` resets trackers on any `(stateAuthorityId, playContextId)` change; historical data needs the rules in 11.8 |
+
+### 11.3 Ownership
+
+| Concern | Host | SDK | Flutter |
+| --- | --- | --- | --- |
+| Live gameplay values | Authoritative capture, revisions, play context | Synchronize, revision, recover; typed streams | Mirror and format |
+| Gameplay readiness | Determines it from Adapter availability, resynchronization, and play context | Exposes a typed capability; never derives it from missing values | Presents it; never infers it from missing health, names, quests, or location |
+| Pairing readiness | Decides and enforces whether a ceremony can start and be presented | Returns truthful typed outcomes | Presents availability; disabling Pair is advisory only |
+| Historical snapshots | None | Records, stores, versions, recovers, retains, and deletes them behind an SDK capability another Dart client can use | Chooses when to show them and how they look |
+| Offline navigation | None | None | Owns routes and the read-only shell mode |
+
+Historical gameplay data is an SDK capability, not a Flutter implementation of DovahLink caching
+rules (`ai/context/sdk/persistence.md`, "Ownership rule" and "Cache ownership").
+
+### 11.4 Live versus historical state
+
+- **Live state** is what the current admitted session synchronized: `StateSynchronization<T>` from
+  the existing trackers, with real authority, play context, and revision.
+- **Historical state** is a previously synchronized value read from local storage. It is not
+  authoritative and is never presented as synchronized.
+
+Rules for any implementation:
+
+1. Historical values never enter `StateRevisionTracker`, `StateMessageHandler`, or
+   `SubscriptionService`, and never receive a fabricated revision, authority, play context, or
+   `synchronized` status. A snapshot capability reads from the live trackers; it never writes into them.
+2. The SDK exposes historical data through a distinct read-only surface returning the existing typed
+   domain models plus provenance (Host ID, capture time, the recorded `stateAuthorityId` and
+   `playContextId`). Whether that surface reuses `StateSynchronization<T>` or a separate wrapper type
+   is a decision; a separate type makes misuse harder and is the starting recommendation.
+3. Keeping the last accepted value visible during recovery (ARCH-001 concern 2) is a *live-state*
+   decision with its original identity intact. It is not historical data and needs no storage.
+4. After reconnect, a domain's live value replaces its historical one only once a new baseline for
+   that domain is accepted. Until then the historical value stays labelled historical.
+5. Redux keeps live and historical sources distinguishable, with an explicit presentation state; it
+   mirrors both SDK sources and runs no second synchronization engine.
+
+### 11.5 Persistence considerations
+
+- **Separate port.** `IClientStorage` holds credentials and pairing recovery, writes the whole
+  `PersistedClientState` atomically, uses DPAPI on Windows, and fails closed: a store that cannot be
+  read throws rather than becoming empty (`persistence/client_storage.dart`;
+  `ai/context/sdk/persistence.md`). Historical snapshots need the opposite recovery policy (a
+  corrupt snapshot is discarded and live gameplay continues), a different write rate, and deletion
+  independent of trust. Extending `IClientStorage` or `PersistedClientState` would couple gameplay
+  history to credential writes. History therefore gets its own SDK persistence port behind the
+  platform-port rule (`ai/context/sdk/architecture.md`, "Platform ports"); credential and trust
+  persistence stay unchanged.
+- **Versioning.** The format is versioned independently of releases (`ai/context/common.md`,
+  "Persisted-format migrations"). That rule fails closed on unknown future formats and forbids
+  silently replacing a store with an empty one. For a non-authoritative cache, whether "fail closed"
+  means "show nothing and leave the file untouched" or "discard and rewrite" needs an explicit
+  decision.
+- **Encoding.** The domain models are decode-only (`@JsonSerializable(createToJson: false)` in all
+  current state models). Option (a): store each area's already validated protocol `data` object and
+  decode it on read with the existing `StateDomainDefinition` decoder. This reuses the decoders but
+  ties the stored format to each area's wire shape. Option (b): add encoders to the models. Evaluate
+  (a) first because it adds no parallel serializer.
+- **Failure isolation.** Read or write failure never fails connection, synchronization, or the live
+  Overview; it surfaces as a typed, non-fatal condition.
+- **Update frequency.** Writes are coalesced (for example on accepted baselines, session end, and
+  best-effort shutdown), not one per Event. The exact policy is part of the feature design.
+- **Retention and deletion.** One last-known Overview per Known Host, deleted when that Host is
+  forgotten. Whether trust reset, revocation, or block also delete it, and whether the player gets an
+  explicit "clear history" action, are decisions.
+- **Storage choice.** No database is assumed; the smallest durable store that meets these rules is
+  preferred. Snapshots contain character names and locations, so they stay in per-user storage;
+  whether they also need encryption is a decision.
+
+### 11.6 Gameplay-readiness semantics
+
+These are separate facts and must not be conflated:
+
+| Fact | Owner today | Public today |
+| --- | --- | --- |
+| Host discovery (candidate claim) | SDK discovery | Yes (`pairing.candidates`) |
+| Host availability (reachability) | SDK presence monitor | Yes (`DovahLinkHostAvailability`) |
+| Transport connectivity | SDK session | Yes (`DovahLinkConnectionState`) |
+| Authenticated session | Host, mirrored by SDK | Yes (`sessionId`) |
+| Trusted session | Host, mirrored by SDK | Yes (`trustState`) |
+| Active Skyrim play context | Adapter notification, Host `PlayContextTracker` | Only as the envelope `playContextId` |
+| Gameplay readiness | Host-internal facts only | No |
+| Pairing readiness | Not modelled | No |
+
+| Skyrim situation | Host status | Gameplay | Pairing | Saved Overview |
+| --- | --- | --- | --- | --- |
+| Closed | Offline (Host exits with Skyrim) | Unavailable | Not offered | Available (future) |
+| Main menu | Online if reachable | Not ready | Not offered; Host must refuse | Available (future) |
+| Loading | Online | Transitioning; gameplay operations wait for Host confirmation | Not offered; Host must refuse | Available (future) |
+| Gameplay loaded | Online | Ready once the Host's authoritative conditions hold | Offered per Host capability, trust state, and security policy | Live data takes precedence |
+| Connection interrupted | Recovering or offline | Unknown to the client | Not offered | Last-known data remains available |
+
+- The Host decides readiness from real Adapter and Host state (Adapter available, resynchronized,
+  play context current). The exact predicate, including whether particular areas must have
+  baselines, is a Host decision recorded in the protocol documentation.
+- Exposing it is a public protocol change (a new field or message), so it needs maintainer approval
+  and follows `ai/context/protocol/compatibility.md`. Until then no client may present readiness.
+- The SDK may keep a trusted transport session open at the main menu in order to observe readiness
+  changes; readiness never gates authentication.
+
+### 11.7 Pairing availability
+
+- The Host is the enforcement point: a pairing start at the main menu or during loading must not
+  report a code as available. Disabling Pair in the UI is presentation, not a security boundary.
+- Options for the current six-digit flow: (a) the Host answers with the existing `unavailable`
+  status when readiness does not hold (Host-only, no wire change); (b) the Adapter declines display
+  outside gameplay (Adapter change); (c) leave the six-digit flow as is and deliver readiness-aware
+  pairing through Stage 5A, whose 5A.2 and 5A.3 already require prompt invalidation on loading and
+  main-menu transitions. The starting recommendation is (c), with (a) only if the maintainer wants an
+  interim fix before 5A lands.
+- The SDK reports a typed outcome that distinguishes "not ready" from other unavailability; that
+  needs a contract addition, coordinated with 5A.7.
+- All existing security and SAS invariants are preserved. This record changes no SAS implementation.
+
+### 11.8 Identity and play-context safety
+
+- Snapshots are keyed by durable `hostId`, one per Known Host, and shown only for the matching Host.
+- `playContextId` is runtime identity: the Adapter mints a fresh one for every load, including a
+  reload of the same save (`dovahlink_adapter_plugin.cpp:438-446`). It cannot identify a character
+  or save across loads, and character name or race is not a save identity either. It is recorded as
+  provenance only.
+- A snapshot is coherent: every domain value in it comes from one `(stateAuthorityId, playContextId)`
+  pair. When the play context changes, the snapshot for that Host is replaced as a whole, and a
+  domain not yet baselined in the new context is absent rather than carried over from the old one.
+- The approved requirement keeps future multi-character or save-profile history possible without a
+  redesign. The versioned format (11.5) is enough to meet it: a later format version can add a
+  profile key beside `hostId` through an ordinary migration. No profile field, multi-character, or
+  save management is added now.
+
+### 11.9 SAS coordination
+
+| Stage 5A phase | Overlap | Coordination |
+| --- | --- | --- |
+| 5A.1, 5A.10 (Flutter pairing presentation) | Pairing readiness presentation; T2 forwarding removal | Do T2 before or inside 5A.1; add readiness presentation beside the SAS states, not as a separate pairing flow |
+| 5A.2, 5A.3 (Adapter prompt, typed IPC) | Both need the same loading and main-menu lifecycle signals | Define Host readiness so 5A.3 consumes it rather than building a second detector |
+| 5A.4 (pending approval) | Readiness at ceremony start and on transitions | The Host checks readiness when it starts or resumes an attempt |
+| 5A.7 (public contract) | Readiness exposure and a typed "not ready" pairing outcome are public changes | Sequence or combine their compatibility impact with 5A.7 |
+
+Persistent Overview has no SAS dependency.
+
+### 11.10 Refactoring implications
+
+What already supports the requirements: typed public domain models; `StateSynchronization<T>`
+carrying authority and play-context identity; durable `hostId`-keyed Known Hosts; SDK Host
+availability; the `ClientStateService` pattern of save-before-publish; platform ports; the existing
+`unavailable` pairing status; Host `PlayContextTracker` and `AdapterAvailabilityTracker`; and the
+live-state rule that Flutter mirrors SDK values unchanged.
+
+What should change, and where:
+
+- **SDK domain state (T5).** One registered definition list becomes the single source any snapshot
+  capability enumerates, so history reuses the decoders and models without a second synchronization
+  path.
+- **SDK in-memory retention (ARCH-001 concern 2).** Decide what a tracker exposes between teardown
+  and the next baseline. This is the only change needed for "Reconnecting keeps last-known values",
+  and it needs no persistence.
+- **SDK persistence.** A separate historical port (11.5) belongs to the feature itself; no
+  preparatory abstraction is added before it.
+- **SDK composition (T3).** New capabilities arrive as contracted services behind a grouped view,
+  not as more `DovahLinkClient` fields and logic, and without a second engine
+  (`ai/context/sdk/architecture.md`, "One engine, multiple API views").
+- **Connection (T1).** Lifecycle states stay transport facts; readiness is a separate fact and never
+  a new `DovahLinkConnectionState` value.
+- **Flutter session.** The route guard and shell entry must stop depending on a connected session
+  only when the offline Overview is built; changing them earlier has no product purpose.
+- **Flutter Redux.** Live and historical sources stay separate slices or explicitly tagged sources,
+  decided in the offline-Overview feature, with no synchronization logic in reducers.
+- **Pairing (T2).** Removing the forwarding chain keeps one app mapping boundary where a typed "not
+  ready" outcome can be added without threading it through use cases.
+
+### 11.11 Proposed implementation sequence
+
+The per-task detail lives in the Section 9 backlog. This is the ordering rationale for the two
+requirements:
+
+1. Correct the reconnect lifecycle (T1).
+2. Consolidate state-domain definitions (T5).
+3. Decide and implement in-memory retention across recovery (ARCH-001 concern 2).
+4. Simplify SDK root and facade ownership, including the restoration owner (T3), so new capabilities
+   do not grow the root.
+5. Remove the pairing forwarding chain (T2), timed with 5A.1.
+6. Establish Host-authoritative gameplay and pairing readiness: Host and protocol first, then SDK,
+   coordinated with 5A.3 and 5A.7.
+7. Implement the SDK historical snapshot capability.
+8. Implement the Flutter offline Overview.
+9. Integrate gameplay and pairing readiness into Flutter, with the pairing parts alongside 5A.10.
+10. Consolidate documentation and guardrails (T7); T4 and T6 follow their SAS coordination points.
+
+Steps 6 and 7 do not depend on each other; the maintainer may swap them. Roadmap placement of steps
+6-9 (a Stage 6 or 8 phase, or a deviation phase) is a maintainer decision; this record does not
+change any stage status.
+
+### 11.12 Explicitly deferred capabilities
+
+- Multi-character or save-profile history, and any save-file identity.
+- History timelines or more than one snapshot per Host.
+- Historical data for future domains (map, inventory, equipment); each feature decides when added.
+- Cloud, cross-device, or exported history (already deferred in `ROADMAP.md`).
+- Readiness-driven automatic connection (Stage 11).
+- Requiring a loaded save for authentication.
+- Any SAS implementation change, and any Overview visual redesign.
