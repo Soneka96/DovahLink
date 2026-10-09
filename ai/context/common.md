@@ -23,9 +23,7 @@ client, native Adapter, C# Host, protocol, and integration work. AI authority be
   matching the application version to that phase number.
 - Flipping a completed phase's `**Status:**` line to Complete in `ROADMAP.md`/`roadmap/*.md` is part
   of the pull request that completes that phase's work, in the same branch, since it's small and
-  tied directly to what that PR did. Fix any repository-consistency check
-  (`tooling/test_repository_consistency.py`) that a hardcoded expectation now needs updating for as
-  part of that same PR.
+  tied directly to what that PR did.
 - Any pull request with a notable developer- or user-visible change updates the owning component's
   changelog `[Unreleased]` section as part of that same PR: `app/CHANGELOG.md` for the Flutter app,
   `sdk/CHANGELOG.md` for client SDK behavior, and `host/CHANGELOG.md` for Host/Adapter behavior.
@@ -35,9 +33,8 @@ client, native Adapter, C# Host, protocol, and integration work. AI authority be
 - Repository-only documentation, CI, development-tooling, and governance changes do not require a
   component changelog entry unless they materially affect that component's consumers, packaging,
   compatibility, or runtime behavior.
-- The version bump and syncing every hand-maintained version literal (`VERSION`, the literals and
-  fixtures `tooling/test_repository_consistency.py`'s `test_version_literals_match_the_published_release`
-  enumerates, and that same file's Host/Adapter changelog version bookkeeping) are their own
+- The version bump and synchronizing the repository-owned version literals and Host/Adapter
+  changelog version bookkeeping are their own
   dedicated release branch and release-only pull request, never bundled into a feature/phase branch.
   That sync already touches over a dozen files across every language in the repo on its own, and folding it
   into an already-large feature PR makes that PR harder to review for no benefit. Cut the release
