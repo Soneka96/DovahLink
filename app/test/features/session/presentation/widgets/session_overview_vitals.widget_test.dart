@@ -42,12 +42,19 @@ void main() {
           final DovahPanel panel = tester.widget(
             find.byKey(const Key('session-overview-vitals-panel')),
           );
+          final ColoredBox leadingAccent = tester.widget(
+            find.byKey(const Key('dovah-surface-leading-accent')),
+          );
           expect(
             panel.overlayGradient,
             preset == DovahThemePreset.dovah ? isA<RadialGradient>() : isNull,
           );
           expect(
             panel.leadingAccent,
+            dovahThemeDataFor(preset).extension<DovahThemeTokens>()!.signal,
+          );
+          expect(
+            leadingAccent.color,
             dovahThemeDataFor(preset).extension<DovahThemeTokens>()!.signal,
           );
         },

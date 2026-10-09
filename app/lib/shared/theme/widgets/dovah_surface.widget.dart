@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import 'package:dovahlink_client/shared/constants/enums.dart';
-import 'package:dovahlink_client/shared/theme/dovah_overview_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_material.dart';
 import 'package:dovahlink_client/shared/theme/materials/dovah_theme_materials.dart';
@@ -13,6 +12,9 @@ import 'package:dovahlink_client/shared/theme/widgets/dovah_panel_clipper.dart';
 /// active theme. Every other shared DovahLink surface (panel, card, button, dialog) is built on
 /// this; a caller picks a role and never sees the texture behind it.
 class DovahSurface extends StatelessWidget {
+  /// Width of the shared surface's leading accent rail.
+  static const double leadingAccentWidth = 3;
+
   /// The content to render inside the surface, clipped to its corner treatment.
   final Widget child;
 
@@ -106,24 +108,7 @@ class DovahSurface extends StatelessWidget {
         : roleMaterial.withoutShadow();
     final Color? pinnedBorder = borderColor;
     final Color? accent = leadingAccent;
-    Widget content = accent == null
-        ? Padding(padding: padding ?? EdgeInsets.zero, child: child)
-        : Stack(
-            fit: StackFit.passthrough,
-            children: [
-              Positioned(
-                left: 0,
-                top: 0,
-                bottom: 0,
-                width: DovahOverviewMetrics.panelAccentWidth,
-                child: ColoredBox(
-                  key: const Key('dovah-surface-leading-accent'),
-                  color: accent,
-                ),
-              ),
-              Padding(padding: padding ?? EdgeInsets.zero, child: child),
-            ],
-          );
+    Widget content = Padding(padding: padding ?? EdgeInsets.zero, child: child);
     if (underlay != null || overlay != null) {
       content = CustomPaint(
         painter: underlay,
@@ -135,6 +120,24 @@ class DovahSurface extends StatelessWidget {
       content = DecoratedBox(
         decoration: BoxDecoration(gradient: gradient),
         child: content,
+      );
+    }
+    if (accent case final Color leadingAccent) {
+      content = Stack(
+        fit: StackFit.passthrough,
+        children: [
+          content,
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            width: leadingAccentWidth,
+            child: ColoredBox(
+              key: const Key('dovah-surface-leading-accent'),
+              color: leadingAccent,
+            ),
+          ),
+        ],
       );
     }
 

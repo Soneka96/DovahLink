@@ -208,7 +208,7 @@ void main() {
             tester
                 .getSize(find.byKey(const Key('dovah-surface-leading-accent')))
                 .width,
-            3,
+            DovahSurface.leadingAccentWidth,
           );
           expect(
             find.ancestor(
@@ -223,6 +223,70 @@ void main() {
         },
       );
     }
+
+    testWidgets(
+      'DovahSurface paints the accent above opaque content and overlay painters',
+      (WidgetTester tester) async {
+        const Color accent = Color(0xFFE2A55E);
+        await pumpDovahThemedWidget(
+          tester,
+          const DovahSurface(
+            leadingAccent: accent,
+            underlay: _MarkerPainter(),
+            overlay: _MarkerPainter(),
+            overlayGradient: LinearGradient(
+              colors: [Colors.transparent, Colors.black],
+            ),
+            child: SizedBox(
+              width: 180,
+              height: 100,
+              child: ColoredBox(
+                key: Key('dovah-surface-opaque-content'),
+                color: Colors.black,
+              ),
+            ),
+          ),
+          preset: DovahThemePreset.dovah,
+          size: dovahTestSizes.first,
+        );
+
+        final Finder accentFinder = find.byKey(
+          const Key('dovah-surface-leading-accent'),
+        );
+        final Stack surfaceLayers = tester.widget(
+          find.ancestor(of: accentFinder, matching: find.byType(Stack)).first,
+        );
+        final Widget contentLayer = surfaceLayers.children.first;
+        final Positioned accentLayer =
+            surfaceLayers.children.last as Positioned;
+        final DecoratedBox contentGradient = contentLayer as DecoratedBox;
+        final CustomPaint decorationPainters = tester.widget(
+          find
+              .descendant(
+                of: find.byWidget(contentLayer),
+                matching: find.byType(CustomPaint),
+              )
+              .first,
+        );
+
+        expect(
+          find.descendant(
+            of: find.byWidget(contentLayer),
+            matching: find.byKey(const Key('dovah-surface-opaque-content')),
+          ),
+          findsOneWidget,
+        );
+        expect(decorationPainters.painter, isA<_MarkerPainter>());
+        expect(decorationPainters.foregroundPainter, isA<_MarkerPainter>());
+        expect(
+          (contentGradient.decoration as BoxDecoration).gradient,
+          isA<LinearGradient>(),
+        );
+        expect(accentLayer.width, DovahSurface.leadingAccentWidth);
+        expect((accentLayer.child as ColoredBox).color, accent);
+        expect(tester.takeException(), isNull);
+      },
+    );
   });
 
   group('DovahSurface paints the material of its role', () {

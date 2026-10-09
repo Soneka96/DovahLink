@@ -60,12 +60,45 @@ void main() {
           final ColoredBox accent = tester.widget(
             find.byKey(const Key('dovah-surface-leading-accent')),
           );
+          final Stack surfaceLayers = tester.widget(
+            find
+                .ancestor(
+                  of: find.byKey(const Key('dovah-surface-leading-accent')),
+                  matching: find.byType(Stack),
+                )
+                .first,
+          );
           final Text kicker = tester.widget(
             find.byKey(const Key('session-overview-character-kicker')),
           );
 
           expect(panel.leadingAccent, tokens.signal);
           expect(accent.color, tokens.signal);
+          expect(surfaceLayers.children, hasLength(2));
+          expect(surfaceLayers.children.last, isA<Positioned>());
+          expect(
+            find.descendant(
+              of: find.byWidget(surfaceLayers.children.first),
+              matching: find.byKey(
+                const Key('session-overview-character-artwork'),
+              ),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.ancestor(
+              of: find.byKey(const Key('session-overview-character-artwork')),
+              matching: find.byType(ClipPath),
+            ),
+            findsOneWidget,
+          );
+          expect(
+            find.descendant(
+              of: find.byKey(const Key('session-overview-character-artwork')),
+              matching: find.byType(Image),
+            ),
+            findsOneWidget,
+          );
           expect(kicker.style?.color, tokens.eyebrow);
         },
       );

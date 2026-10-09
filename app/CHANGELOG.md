@@ -104,6 +104,7 @@ Repository releases share root `VERSION`. When an app change is included in a re
 
 ### Fixed
 
+- The Character panel's shared leading accent remains visible above its hero artwork.
 - Session Overview vital bars fill their tracks to the exact displayed ratios.
 - Session Overview Health, Magicka, and Stamina values display as whole numbers without changing synchronized precision.
 - An already connected trusted Host now starts live-state subscriptions when the app begins observing the session.
