@@ -28,6 +28,9 @@ ai/context/protocol/security.md owns reusable transport and security constraints
 - Decimal phases stay with their parent stage when they are a focused, independently reviewable
   delivery slice; they do not normally become separate files.
 - New phases require an explicit maintainer-approved scope and must not silently reorder dependencies.
+- The lettered pulled-forward stages 3A, 5A, and 5B each have their own file. Stage 5A's decimal
+  phases (5A.0–5A.11) were approved by the maintainer as part of the 5A.0 rebaseline; each still
+  needs an explicit instruction naming its scope before implementation.
 
 ## Planning and delivery rules
 
@@ -102,6 +105,16 @@ how progression resumes; they do not replace this roadmap or change its stage st
   and recommends `0.4.0` for the incompatible Host/client contract changes; that release shipped on
   2026-09-23. The current public grouping is `character_vitals` alongside independent Character XP
   and Level domains.
+- **Authorized separate workstream — Windows SAS integration (Stage 5A):** the maintainer has
+  prioritized validating `sas-pairing` as a real Windows DovahLink consumer before Android and
+  non-loopback networking. This is recorded as a separate authorized workstream, not a change to the
+  normal order: the Stage 6 acceptance audit above remains the next ordinary product-planning
+  action, and no completed stage is renumbered, reopened, or marked complete by it.
+  [Stage 5A — Windows SAS Integration Validation](roadmap/05a-windows-sas-integration-validation.md)
+  has phases 5A.0–5A.11; only 5A.0, the planning rebaseline, is documentation-complete, and its
+  next phase is 5A.1 (Flutter SAS-ready pairing presentation), subject to rechecking the repository.
+  [Stage 5B](roadmap/05b-android-secure-wifi-development-path.md) holds the Android and secure
+  Wi-Fi requirements; completing 5A does not approve or unblock it.
 - **Pulled-forward Stage 6–8 acceptance:** Stage 6 is **PARTIALLY DELIVERED**: the connected
   Windows workflow and technical recovery behaviors exist, while player comprehension has not had a
   dedicated validation. Stage 7 is **PARTIALLY DELIVERED**: shared themes, components, and responsive
@@ -120,7 +133,7 @@ how progression resumes; they do not replace this roadmap or change its stage st
   Completed Phase 5.5, later ordinary Flutter/Redux work, local or
   loopback development, Known Host UX, and DovahLink-owned trust and pairing-authorization design may
   proceed independently. The current six-digit flow is not production security for hostile-network
-  first contact, and unknown non-loopback peers must not be enabled on its basis. Stage 5A secure
+  first contact, and unknown non-loopback peers must not be enabled on its basis. Stage 5B secure
   Android/Wi-Fi development and production LAN exposure remain blocked. Generic SAS construction,
   protocol-profile, implementation, vectors, and security-review work continues in
   [`Soneka96/sas-pairing`](https://github.com/Soneka96/sas-pairing); DovahLink remains an intended
@@ -135,10 +148,11 @@ how progression resumes; they do not replace this roadmap or change its stage st
   authorization opens only the named work: the S3 persistent Host cryptographic identity and a
   dormant, test-exercised Host `sas-pairing` integration foundation that the running Host does not
   compose. DovahLink's production-security gate remains closed: no hostile-LAN or production
-  secure-pairing claim is made, S4–S11 remain incomplete, and Stage 5A and production LAN exposure
+  secure-pairing claim is made, S4–S11 remain incomplete, and Stage 5B and production LAN exposure
   remain gated. `sas-pairing` itself is experimental and pre-alpha, not professionally audited or
   formally verified. The six-digit flow and bearer reconnect remain the running product behavior;
-  [Stage 5A](roadmap/05a-android-wifi-development-path.md) owns activating `sas-pairing`. See the
+  [Stage 5A](roadmap/05a-windows-sas-integration-validation.md#sas-pairing-activation) owns
+  activating `sas-pairing`, limited to Windows loopback development. See the
   [initial-pairing security deviation](roadmap/deviations/initial-pairing-security/README.md).
 - The Bridge-authored Stage 4.2–4.4 implementation path was permanently superseded after Stage 3A;
   its specifications remain as historical engineering evidence in
@@ -166,7 +180,8 @@ Stage 4+ development continues only on Host + Adapter.
 | 3A | Complete. Host + Adapter are the current production implementation; the native Bridge (`bridge/`) has been deleted. | [Stage 3A — Host/Adapter Production Migration](roadmap/03a-host-adapter-production-migration.md) |
 | 4 | Complete. Host/Adapter live-state delivery, real Skyrim capture, automated process-level proof, runtime validation, and the Phase 4.5 version-impact audit are complete. Phase 4.5 recommended 0.4.0, released on 2026-09-23. | [Stage 4 — Live State Synchronization Foundation](roadmap/04-live-state-synchronization-foundation.md) |
 | 5 | Complete. Phases 5.1–5.5 are complete. Host `0.5.0` is an internal version, not a supported public release; prior internal builds are not compatibility targets. | [Stage 5 — Dart Client SDK Foundation](roadmap/05-dart-client-sdk-foundation.md) |
-| 5A | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. | [Stage 5A — Android and Secure Wi-Fi Development Path](roadmap/05a-android-wifi-development-path.md) |
+| 5A | Planned. Maintainer-prioritized separate workstream: Windows SAS pairing integration validation against a real `sas-pairing` consumer path, limited to Windows loopback. Phases 5A.0–5A.11; only the 5A.0 rebaseline is documentation-complete. Not production-security approval; does not approve Stage 5B. | [Stage 5A — Windows SAS Integration Validation](roadmap/05a-windows-sas-integration-validation.md) |
+| 5B | Planned. Early Android and secure same-LAN development slice pulled forward from Stages 22–23; does not close those stages. Blocked on S1–S11 security approvals; not unblocked by Stage 5A. | [Stage 5B — Android and Secure Wi-Fi Development Path](roadmap/05b-android-secure-wifi-development-path.md) |
 | 6 | Planned | [Stage 6 — PC / Second-Screen Baseline](roadmap/06-pc-second-screen-baseline.md) |
 | 7 | Planned | [Stage 7 — Core UI Theme System](roadmap/07-core-ui-theme-system.md) |
 | 8 | Planned | [Stage 8 — Live Player State](roadmap/08-live-player-state.md) |
@@ -219,18 +234,24 @@ Stage 4+ development continues only on Host + Adapter.
   to audit remaining Stage 6 acceptance against delivered implementation before adding new work.
   The Stage 5 scaffold and persistence work was pulled forward when required by earlier pairing/client
   work without closing the phase early.
-- Stage 5A deliberately pulls forward the smallest complete Android and secure same-LAN path needed
+- Stage 5A is a separate, maintainer-authorized workstream that validates the experimental
+  `sas-pairing` library as a real Windows consumer within the loopback development environment. It
+  depends on the delivered PR #121 dormant Host foundation and on Stages 3 and 5's identity, pairing,
+  and SDK port semantics. It is not ordered before Stage 6 by dependency, is not production-security
+  approval, and does not close Stage 5.
+- Stage 5B deliberately pulls forward the smallest complete Android and secure same-LAN path needed
   for real-device development. It consumes the already-approved identity/pairing semantics and
-  pulled-forward SDK ports, but does not close Stage 5 or replace the later generalized LAN/mobile
-  stages.
+  pulled-forward SDK ports, plus whatever initial-pairing approach has passed the security gate, but
+  does not close Stage 5 or replace the later generalized LAN/mobile stages. Completing Stage 5A
+  does not satisfy that gate.
 - Stage 6 remains the desktop connected-client proof; Stages 6–8 validate the connected second-screen
-  product while Stage 5A supplies early physical-device feedback before broader feature work.
+  product while Stage 5B supplies early physical-device feedback before broader feature work.
 - Stages 9–11 establish the generalized multi-client, local discovery, and automatic connection
   policy that the later LAN capability builds on. Stage 9 raises the Stage 4.2 session capacity and
-  adds fan-out without replacing the shared-authority/session-delivery boundary; Stage 5A remains a
+  adds fan-out without replacing the shared-authority/session-delivery boundary; Stage 5B remains a
   deliberately narrow LAN slice for early client development.
 - Stages 12–27 add read-only product capabilities and presentation adaptation in dependency order.
-- Stage 22 generalizes and hardens the secure LAN/discovery slice first proven by Stage 5A; Stage 23
+- Stage 22 generalizes and hardens the secure LAN/discovery slice first proven by Stage 5B; Stage 23
   completes the mobile/tablet client experience on top of that work.
 - Stage 28 follows read-only validation and adds only authorization machinery, not gameplay mutation.
 - Stages 29–30 are evidence-driven hardening and dependency maintenance.
