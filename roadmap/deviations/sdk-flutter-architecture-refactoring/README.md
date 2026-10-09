@@ -1,15 +1,34 @@
-# SDK and Flutter architecture audit
+# SDK and Flutter Architecture Refactoring
 
-**Status:** AUDIT REPORT. Documentation and investigation only. No production code, tests, protocol,
+**Status:** Active — planning. This record holds the SDK/Flutter architecture audit and the ordered
+refactoring backlog. Documentation and investigation only: no production code, tests, protocol,
 dependency, or governing document was changed by this audit.
 
-**Location note.** This file lives in `plans/` because the maintainer's task named that path. On
-`main` the `plans/` directory had no tracked files when this audit began, and
-`roadmap/03a-host-adapter-production-migration.md` describes `plans/stage-*` documents as temporary
-migration records that are deleted once their invariants are transferred. Several governing documents
-still link into `plans/documentation-and-composition-normalization/`, which no longer exists (see
-Section 8). If the maintainer wants this report kept permanently, the alternative home that fits an
-existing convention is `roadmap/deviations/<topic>/`, which would also require an index entry.
+**Why this left the normal roadmap.** Stage 5 is complete and the next ordinary planning action is
+the Stage 6 acceptance audit ([`ROADMAP.md`](../../../ROADMAP.md)). Before more SDK and Flutter
+feature work lands, the maintainer requested an architecture audit so that later features build on
+verified ownership boundaries rather than on accumulated structure.
+
+**Scope and authority.** The SDK (`sdk/dart/dovahlink_client/`) and Flutter app (`app/`) boundary,
+with Host, Adapter, and protocol read only where they bind that boundary. This record decides
+nothing on its own: architecture authority stays in [`ARCHITECTURE.md`](../../../ARCHITECTURE.md),
+[SDK architecture](../../../ai/context/sdk/architecture.md),
+[SDK API design](../../../ai/context/sdk/api-design.md),
+[SDK persistence](../../../ai/context/sdk/persistence.md), and
+[Flutter architecture](../../../ai/context/flutter/architecture.md); implementation authority stays
+in [`AGENTS.md`](../../../AGENTS.md).
+
+**Relationship to the roadmap.** This record does not renumber, reopen, or complete any stage. Each
+backlog task below needs its own explicit maintainer instruction naming its scope (`AGENTS.md`), and
+tasks that overlap [Stage 5A](../../05a-windows-sas-integration-validation.md) state how they are
+sequenced against it. Normal roadmap progression resumes at whatever point the maintainer chooses;
+the backlog is advisory ordering, not a gate on Stage 6.
+
+**Location.** The audit was first drafted at `plans/sdk-flutter-architecture-audit.md` and moved
+here, the repository's documented home for intentional work outside the ordered roadmap
+([deviations index](../README.md)). `plans/` holds only temporary migration records
+(`roadmap/03a-host-adapter-production-migration.md`), and several governing documents already carry
+dangling links into it (D-1 in Section 8).
 
 ## 1. Audit metadata
 
