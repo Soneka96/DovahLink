@@ -23,7 +23,7 @@ namespace dovahlink::adapter::runtime {
 ///  `marshaller` fails to enqueue it.
 ///  @param onDispatchFailed Invoked, on the calling thread, only if
 ///  `marshaller.RunOnGameThread` throws.
-void RunOnGameThreadOrReportFailure(IAdapterTaskMarshaller &marshaller,
+void RunOnGameThreadOrReportFailure(IAdapterTaskMarshaller& marshaller,
                                     std::function<void()> task,
                                     std::function<void()> onDispatchFailed);
 

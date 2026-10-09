@@ -13,25 +13,25 @@ namespace dovahlink::adapter::ipc {
 ///  the owner remains responsible for deciding whether a message authenticates
 ///  the peer.
 enum class AdapterIpcMessageDisposition {
-  ///  Keep serving, with authentication still pending when applicable.
-  kContinue,
-  ///  The current transport has completed the required authentication.
-  kAuthenticated,
-  ///  End the current transport generation.
-  kClose,
+    ///  Keep serving, with authentication still pending when applicable.
+    kContinue,
+    ///  The current transport has completed the required authentication.
+    kAuthenticated,
+    ///  End the current transport generation.
+    kClose,
 };
 
 ///  The terminal result reported for one coordinator-requested connection
 ///  attempt.
 enum class AdapterIpcAttemptOutcome {
-  ///  The socket could not establish a transport.
-  kConnectFailed,
-  ///  The transport ended before mutual authentication completed.
-  kAuthenticationFailed,
-  ///  An authenticated transport later ended.
-  kDisconnected,
-  ///  The attempt ended because the connection was stopped.
-  kStopped,
+    ///  The socket could not establish a transport.
+    kConnectFailed,
+    ///  The transport ended before mutual authentication completed.
+    kAuthenticationFailed,
+    ///  An authenticated transport later ended.
+    kDisconnected,
+    ///  The attempt ended because the connection was stopped.
+    kStopped,
 };
 
 ///  The connection lifecycle event hooks `AdapterIpcConnection` invokes on
@@ -40,35 +40,35 @@ enum class AdapterIpcAttemptOutcome {
 ///  decisions of its own. Every callback may be invoked from the
 ///  connection's own background thread.
 struct AdapterIpcConnectionCallbacks {
-  ///  Invoked once per successful connect with the exact target snapshot used
-  ///  by that connection attempt.
-  std::function<void(const AdapterIpcTarget &)> onTargetConnected;
-  ///  Invoked once per successful connect, before frames are served.
-  std::function<void()> onConnected;
-  ///  Invoked for each successfully decoded inbound message.
-  ///  @return The owner's disposition for the current transport generation.
-  ///  An unset callback defaults to `kContinue`.
-  std::function<AdapterIpcMessageDisposition(const IpcMessage &)>
-      onMessageReceived;
-  ///  Invoked when an inbound frame could not be decoded.
-  std::function<void()> onDecodeFailure;
-  ///  Invoked once a connected session ends, before the current attempt
-  ///  finishes.
-  std::function<void()> onDisconnected;
-  ///  Invoked when a connect attempt fails before a session is established.
-  ///  It may be invoked from the connection's background thread.
-  std::function<void()> onConnectionAttemptFailed;
-  ///  Invoked once when one connection attempt reaches a terminal outcome.
-  ///  The generation is zero when the attempt had no configured target.
-  std::function<void(std::uint64_t, AdapterIpcAttemptOutcome)>
-      onAttemptFinished;
-  ///  Invoked once serving has irreversibly ended for a connected session --
-  ///  before the outbound queue's final drain and the transport's physical
-  ///  close, and therefore strictly before `onDisconnected`. Lets the owner
-  ///  invalidate deferred work for this generation at the moment serving
-  ///  actually stops, rather than only once the socket later finishes
-  ///  closing.
-  std::function<void()> onClosing;
+    ///  Invoked once per successful connect with the exact target snapshot used
+    ///  by that connection attempt.
+    std::function<void(const AdapterIpcTarget&)> onTargetConnected;
+    ///  Invoked once per successful connect, before frames are served.
+    std::function<void()> onConnected;
+    ///  Invoked for each successfully decoded inbound message.
+    ///  @return The owner's disposition for the current transport generation.
+    ///  An unset callback defaults to `kContinue`.
+    std::function<AdapterIpcMessageDisposition(const IpcMessage&)>
+        onMessageReceived;
+    ///  Invoked when an inbound frame could not be decoded.
+    std::function<void()> onDecodeFailure;
+    ///  Invoked once a connected session ends, before the current attempt
+    ///  finishes.
+    std::function<void()> onDisconnected;
+    ///  Invoked when a connect attempt fails before a session is established.
+    ///  It may be invoked from the connection's background thread.
+    std::function<void()> onConnectionAttemptFailed;
+    ///  Invoked once when one connection attempt reaches a terminal outcome.
+    ///  The generation is zero when the attempt had no configured target.
+    std::function<void(std::uint64_t, AdapterIpcAttemptOutcome)>
+        onAttemptFinished;
+    ///  Invoked once serving has irreversibly ended for a connected session --
+    ///  before the outbound queue's final drain and the transport's physical
+    ///  close, and therefore strictly before `onDisconnected`. Lets the owner
+    ///  invalidate deferred work for this generation at the moment serving
+    ///  actually stops, rather than only once the socket later finishes
+    ///  closing.
+    std::function<void()> onClosing;
 };
 
 } //  namespace dovahlink::adapter::ipc

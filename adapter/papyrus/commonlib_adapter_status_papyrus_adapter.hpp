@@ -14,6 +14,6 @@ namespace dovahlink::adapter::papyrus {
 ///  script declares it.
 ///  @param session Session queried for host availability; must outlive the
 ///  Papyrus VM (in practice, the plugin's lifetime).
-void InstallAdapterStatusPapyrusAdapter(ipc::IAdapterIpcSession &session);
+void InstallAdapterStatusPapyrusAdapter(ipc::IAdapterIpcSession& session);
 
 } //  namespace dovahlink::adapter::papyrus

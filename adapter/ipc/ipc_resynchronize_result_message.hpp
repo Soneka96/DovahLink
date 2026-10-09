@@ -8,13 +8,13 @@ namespace dovahlink::adapter::ipc {
 ///  Reports only whether the adapter could service the request; the fresh
 ///  baseline data itself is a later concept's contract.
 struct IpcResynchronizeResultMessage {
-  ///  Matches the `IpcResynchronizeRequestMessage` this responds to.
-  std::uint64_t correlationId = 0;
-  ///  Whether the adapter could capture and will deliver a fresh baseline.
-  bool accepted = false;
+    ///  Matches the `IpcResynchronizeRequestMessage` this responds to.
+    std::uint64_t correlationId = 0;
+    ///  Whether the adapter could capture and will deliver a fresh baseline.
+    bool accepted = false;
 
-  ///  Structural equality over every field.
-  bool operator==(const IpcResynchronizeResultMessage &) const = default;
+    ///  Structural equality over every field.
+    bool operator==(const IpcResynchronizeResultMessage&) const = default;
 };
 
 } //  namespace dovahlink::adapter::ipc

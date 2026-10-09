@@ -44,7 +44,7 @@ namespace dovahlink::adapter::ipc {
 ///  @param onDispatchFailed Invoked, on the calling thread, only if
 ///  `marshaller.RunOnGameThread` throws.
 void DispatchTrustAdminCompletion(
-    runtime::IAdapterTaskMarshaller &marshaller,
+    runtime::IAdapterTaskMarshaller& marshaller,
     std::function<void(TrustAdminRequestResult)> onResult,
     TrustAdminRequestResult result, std::function<void()> onDispatchFailed);
 

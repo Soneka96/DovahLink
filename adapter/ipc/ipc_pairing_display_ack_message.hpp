@@ -10,13 +10,13 @@ namespace dovahlink::adapter::ipc {
 ///  acknowledgement; wrong-code automatic redisplay is best effort and its
 ///  caller may discard this result.
 struct IpcPairingDisplayAckMessage {
-  ///  Matches the `IpcPairingDisplayMessage` this responds to.
-  std::uint64_t correlationId = 0;
-  ///  Whether the adapter's display seam accepted and presented the code.
-  bool accepted = false;
+    ///  Matches the `IpcPairingDisplayMessage` this responds to.
+    std::uint64_t correlationId = 0;
+    ///  Whether the adapter's display seam accepted and presented the code.
+    bool accepted = false;
 
-  ///  Structural equality over every field.
-  bool operator==(const IpcPairingDisplayAckMessage &) const = default;
+    ///  Structural equality over every field.
+    bool operator==(const IpcPairingDisplayAckMessage&) const = default;
 };
 
 } //  namespace dovahlink::adapter::ipc

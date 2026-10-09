@@ -11,13 +11,13 @@ namespace dovahlink::adapter::ipc {
 ///  formatting of its own; the host's trust-administration service already
 ///  redacts credentials and persistence exceptions before this text is built.
 struct IpcTrustAdminResultMessage {
-  ///  Matches the `IpcTrustAdminRequestMessage` this responds to.
-  std::uint64_t correlationId = 0;
-  ///  The bounded, display-ready result text.
-  std::string resultText;
+    ///  Matches the `IpcTrustAdminRequestMessage` this responds to.
+    std::uint64_t correlationId = 0;
+    ///  The bounded, display-ready result text.
+    std::string resultText;
 
-  ///  Structural equality over every field.
-  bool operator==(const IpcTrustAdminResultMessage &) const = default;
+    ///  Structural equality over every field.
+    bool operator==(const IpcTrustAdminResultMessage&) const = default;
 };
 
 } //  namespace dovahlink::adapter::ipc

@@ -206,6 +206,20 @@ class FormatStagedTests(unittest.TestCase):
 
         self.assertEqual(selected, [source_path])
 
+    def test_supported_paths_excludes_generated_windows_resource_header(self) -> None:
+        """Keep the Visual C++ resource editor's generated header out of formatting."""
+        generated_path = "app/windows/runner/resource.h"
+
+        self.assertTrue(
+            format_staged.is_ignored(format_staged.REPOSITORY_ROOT, generated_path)
+        )
+        self.assertEqual(
+            format_staged.supported_paths(
+                format_staged.REPOSITORY_ROOT, [generated_path]
+            ),
+            [],
+        )
+
     def test_supported_paths_excludes_candidates_resolving_outside_repository(
         self,
     ) -> None:
