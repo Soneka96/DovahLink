@@ -101,7 +101,8 @@ class SessionOverviewSideStackRenderBox extends RenderBox
     return constraints.constrain(Size(width, height));
   }
 
-  /// Sizes both panels to their content heights plus an equal share of available space.
+  /// Fits both panels to the available height, sharing extra space equally and compressing them
+  /// proportionally when their intrinsic heights do not fit.
   @override
   void performLayout() {
     assert(childCount == 2);
@@ -115,11 +116,22 @@ class SessionOverviewSideStackRenderBox extends RenderBox
     final double statusMinimum = status.getMaxIntrinsicHeight(width);
     final double intrinsicHeight = questMinimum + gap + statusMinimum;
     final double height = constraints.hasBoundedHeight
-        ? math.max(intrinsicHeight, constraints.maxHeight)
+        ? constraints.maxHeight
         : constraints.constrainHeight(intrinsicHeight);
-    final double extraPerRow = math.max(0, height - intrinsicHeight) / 2;
-    final double questHeight = questMinimum + extraPerRow;
-    final double statusHeight = statusMinimum + extraPerRow;
+    final double layoutGap = math.min(gap, height);
+    final double availableRowsHeight = height - layoutGap;
+    final double intrinsicRowsHeight = questMinimum + statusMinimum;
+    final double questHeight;
+    final double statusHeight;
+    if (availableRowsHeight < intrinsicRowsHeight && intrinsicRowsHeight > 0) {
+      questHeight = availableRowsHeight * questMinimum / intrinsicRowsHeight;
+      statusHeight = availableRowsHeight - questHeight;
+    } else {
+      final double extraPerRow =
+          (availableRowsHeight - intrinsicRowsHeight) / 2;
+      questHeight = questMinimum + extraPerRow;
+      statusHeight = statusMinimum + extraPerRow;
+    }
 
     quest.layout(
       BoxConstraints.tightFor(width: width, height: questHeight),
@@ -136,7 +148,7 @@ class SessionOverviewSideStackRenderBox extends RenderBox
     final MultiChildLayoutParentData statusParentData =
         status.parentData! as MultiChildLayoutParentData;
     questParentData.offset = Offset.zero;
-    statusParentData.offset = Offset(0, questHeight + gap);
+    statusParentData.offset = Offset(0, questHeight + layoutGap);
   }
 
   /// Paints both side-stack rows at [offset].
