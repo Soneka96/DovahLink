@@ -165,7 +165,13 @@ void main() {
     when(
       () => session.connectionState,
     ).thenReturn(DovahLinkConnectionState.connected);
-    when(() => session.onUnhealthy(any())).thenAnswer((_) {});
+    when(() => session.connectionGeneration).thenReturn(3);
+    when(
+      () => session.onUnhealthy(
+        any(),
+        connectionGeneration: any(named: 'connectionGeneration'),
+      ),
+    ).thenAnswer((_) {});
     when(
       () => session.onProtocolViolation(
         any(),
@@ -406,7 +412,12 @@ void main() {
           ),
         );
         verifyNever(() => tracker.failRecovery());
-        verifyNever(() => session.onUnhealthy(any()));
+        verifyNever(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        );
         verify(() => tracker.beginRecovery()).called(1);
         expect(requests.requests, hasLength(1));
       },
@@ -426,7 +437,12 @@ void main() {
 
         expect(currentState.status, DovahLinkStateStatus.notSubscribed);
         verifyNever(() => tracker.failRecovery());
-        verifyNever(() => session.onUnhealthy(any()));
+        verifyNever(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        );
         verify(() => tracker.beginRecovery()).called(1);
         expect(requests.requests, hasLength(1));
       },
@@ -450,7 +466,12 @@ void main() {
 
         expect(currentState.status, DovahLinkStateStatus.notSubscribed);
         verifyNever(() => tracker.failRecovery());
-        verifyNever(() => session.onUnhealthy(any()));
+        verifyNever(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        );
         verify(() => tracker.beginRecovery()).called(1);
         expect(requests.requests, hasLength(1));
       },
@@ -481,7 +502,12 @@ void main() {
         expect(currentState.status, DovahLinkStateStatus.synchronized);
         expect(currentState.value, 50);
         verifyNever(() => tracker.failRecovery());
-        verifyNever(() => session.onUnhealthy(any()));
+        verifyNever(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        );
       },
     );
 
@@ -509,7 +535,12 @@ void main() {
         expect(requests.requests, hasLength(_shortRetryDelays.length));
         expect(currentState.status, DovahLinkStateStatus.failed);
         verify(() => tracker.failRecovery()).called(1);
-        verifyNever(() => session.onUnhealthy(any()));
+        verifyNever(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        );
 
         when(
           () => domain.decodeState(any()),
@@ -523,7 +554,12 @@ void main() {
         expect(currentState.status, DovahLinkStateStatus.synchronized);
         expect(currentState.value, 60);
         expect(requests.requests, hasLength(_shortRetryDelays.length + 1));
-        verifyNever(() => session.onUnhealthy(any()));
+        verifyNever(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        );
       },
     );
 
@@ -543,7 +579,12 @@ void main() {
         await service.recover();
 
         verify(() => tracker.failRecovery()).called(1);
-        verify(() => session.onUnhealthy(any())).called(1);
+        verify(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        ).called(1);
         expect(requests.requests, hasLength(1));
       },
     );
@@ -565,7 +606,12 @@ void main() {
 
         verify(() => tracker.failRecovery()).called(1);
         expect(requests.requests, hasLength(1));
-        verifyNever(() => session.onUnhealthy(any()));
+        verifyNever(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        );
         verifyNever(
           () => session.onProtocolViolation(
             any(),
@@ -585,7 +631,12 @@ void main() {
 
       expect(requests.requests, isEmpty);
       verify(() => tracker.failRecovery()).called(1);
-      verifyNever(() => session.onUnhealthy(any()));
+      verifyNever(
+        () => session.onUnhealthy(
+          any(),
+          connectionGeneration: any(named: 'connectionGeneration'),
+        ),
+      );
     });
 
     test(
@@ -600,7 +651,84 @@ void main() {
         await service.recover();
 
         verify(() => tracker.failRecovery()).called(1);
-        verify(() => session.onUnhealthy(any())).called(1);
+        verify(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method recover reports a transport failure against the connection its request began on',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        // The session is replaced while the request is in flight; the request's own failure
+        // still belongs to the connection it was sent on.
+        when(() => session.connectionGeneration).thenReturn(4);
+        requests.requests.single.reply.completeError(
+          const DovahLinkConnectionException('recovery transport failed'),
+        );
+        await service.recover();
+
+        verify(
+          () => session.onUnhealthy(any(), connectionGeneration: 3),
+        ).called(1);
+        verifyNever(() => session.onUnhealthy(any(), connectionGeneration: 4));
+      },
+    );
+
+    test(
+      'Method recover reports a retryable Host error against the connection its request began on',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        when(() => session.connectionGeneration).thenReturn(4);
+        requests.requests.single.reply.completeError(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.internalError,
+            message: 'The Host could not complete the operation.',
+            retryable: true,
+          ),
+        );
+        await service.recover();
+
+        verify(
+          () => session.onUnhealthy(any(), connectionGeneration: 3),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method recover reports a failure while applying a Snapshot against the connection its '
+      'request began on',
+      () async {
+        when(
+          () => tracker.applySnapshot(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+            revision: any(named: 'revision'),
+            value: any(named: 'value'),
+            isUnavailable: any(named: 'isUnavailable'),
+          ),
+        ).thenThrow(Exception('apply failed'));
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        when(() => session.connectionGeneration).thenReturn(4);
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(revision: 5, value: 50),
+        );
+        await service.recover();
+
+        verify(
+          () => session.onUnhealthy(any(), connectionGeneration: 3),
+        ).called(1);
+        verifyNever(() => session.onUnhealthy(any(), connectionGeneration: 4));
       },
     );
 
@@ -819,7 +947,12 @@ void main() {
               as DovahLinkProtocolException;
       expect(error.code, ProtocolErrorCode.malformedMessage);
       expect(error.retryable, isFalse);
-      verifyNever(() => session.onUnhealthy(any()));
+      verifyNever(
+        () => session.onUnhealthy(
+          any(),
+          connectionGeneration: any(named: 'connectionGeneration'),
+        ),
+      );
       verify(() => domain.decodeState(any())).called(1);
     });
   });

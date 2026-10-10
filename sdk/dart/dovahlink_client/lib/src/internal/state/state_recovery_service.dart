@@ -103,6 +103,9 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
     _recoveryTask = completion.future;
     _domain.tracker.beginRecovery();
     int retryIndex = 0;
+    // The connection the in-flight request belongs to. Its failure is reported against this
+    // identity, so a request that fails after its connection ended cannot tear down a newer one.
+    int? requestConnectionGeneration;
     try {
       while (true) {
         if (_domainIsNotSubscribed) {
@@ -116,6 +119,7 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
             'Cannot request state recovery without an admitted session.',
           );
         }
+        requestConnectionGeneration = _sessionService.connectionGeneration;
 
         final Envelope envelope;
         try {
@@ -163,7 +167,10 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           if (error.retryable &&
               _sessionService.connectionState ==
                   DovahLinkConnectionState.connected) {
-            _sessionService.onUnhealthy(error);
+            _sessionService.onUnhealthy(
+              error,
+              connectionGeneration: requestConnectionGeneration,
+            );
           }
           return;
         } on Exception catch (error) {
@@ -178,7 +185,10 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           _domain.tracker.failRecovery();
           if (_sessionService.connectionState ==
               DovahLinkConnectionState.connected) {
-            _sessionService.onUnhealthy(error);
+            _sessionService.onUnhealthy(
+              error,
+              connectionGeneration: requestConnectionGeneration,
+            );
           }
           return;
         }
@@ -263,7 +273,10 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
       _domain.tracker.failRecovery();
       if (_sessionService.connectionState ==
           DovahLinkConnectionState.connected) {
-        _sessionService.onUnhealthy(error);
+        _sessionService.onUnhealthy(
+          error,
+          connectionGeneration: requestConnectionGeneration,
+        );
       }
     } finally {
       _restartAfterSnapshot = false;
