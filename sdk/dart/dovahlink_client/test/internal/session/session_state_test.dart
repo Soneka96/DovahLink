@@ -15,6 +15,12 @@ DovahLinkHost _currentHost({String hostName = 'LOCAL-HOST'}) => DovahLinkHost(
   endpoint: Uri.parse('ws://127.0.0.1:58231/'),
 );
 
+/// Moves [state] into `reconnecting` the only way production does: an ordinary teardown that begins
+/// recovery. Leaves the connection generation untouched.
+void _enterRecovery(SessionState state) {
+  state.resetAfterTeardown(preserveReconnecting: true, beginRecovery: true);
+}
+
 /// Runs session-state behavior tests.
 void main() {
   late SessionState state;
@@ -57,7 +63,7 @@ void main() {
     test(
       'Method beginConnectAttempt stays reconnecting when already reconnecting',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
         final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
         state.beginConnectAttempt(uri);
 
@@ -115,7 +121,7 @@ void main() {
     test(
       'Method markConnected transitions from reconnecting to reauthenticating, not connected',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
         state.markConnected();
 
         expect(
@@ -128,7 +134,7 @@ void main() {
     test(
       'Method markConnected transitions from reauthenticating to connected when called again',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
         state.markConnected();
         state.markConnected();
 
@@ -160,21 +166,8 @@ void main() {
     test(
       'Method markConnectFailed leaves reconnecting untouched when already reconnecting',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
         state.markConnectFailed();
-
-        expect(state.connectionState, DovahLinkConnectionState.reconnecting);
-      },
-    );
-  });
-
-  group('Method markReconnecting behaves correctly', () {
-    test(
-      'Method markReconnecting transitions to reconnecting from any prior state',
-      () {
-        state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
-        state.markConnected();
-        state.markReconnecting();
 
         expect(state.connectionState, DovahLinkConnectionState.reconnecting);
       },
@@ -219,7 +212,7 @@ void main() {
     test(
       'Method admit promotes a reauthenticating recovery attempt to connected',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
         state.markConnected();
 
         state.admit(
@@ -260,7 +253,7 @@ void main() {
         );
         state.associateKnownHost(hostId);
 
-        state.markReconnecting();
+        _enterRecovery(state);
         state.beginConnectAttempt(_currentHost().endpoint);
         state.markConnected();
         state.resetAfterTeardown(preserveReconnecting: true);
@@ -384,7 +377,7 @@ void main() {
     );
 
     test('Method invalidate transitions from reconnecting', () {
-      state.markReconnecting();
+      _enterRecovery(state);
 
       state.invalidate(AdministrativeInvalidationReason.revoked);
 
@@ -428,7 +421,7 @@ void main() {
       'Method resetAfterTeardown resolves to disconnected after a previously admitted session '
       'even when preserveReconnecting is true, clearing its identity',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
         state.admit(
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
@@ -448,7 +441,7 @@ void main() {
       'Method resetAfterTeardown stays reconnecting for an in-flight re-authentication attempt '
       'that has not yet been admitted',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
         state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
         state.markConnected();
 
@@ -477,7 +470,7 @@ void main() {
       'Method resetAfterTeardown resolves to disconnected when preserveReconnecting is false '
       'even while reconnecting',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
 
         state.resetAfterTeardown(preserveReconnecting: false);
 
@@ -502,11 +495,106 @@ void main() {
       'Method resetAfterTeardown resolves to disconnected from reauthenticating when '
       'preserveReconnecting is false',
       () {
-        state.markReconnecting();
+        _enterRecovery(state);
         state.markConnected();
 
         state.resetAfterTeardown(preserveReconnecting: false);
 
+        expect(state.connectionState, DovahLinkConnectionState.disconnected);
+      },
+    );
+
+    test(
+      'Method resetAfterTeardown with beginRecovery resolves a connected session directly to '
+      'reconnecting, never publishing disconnected, and reports it entered recovery',
+      () async {
+        final DovahLinkHostId hostId = DovahLinkHostId(_currentHost().hostId);
+        state.beginConnectAttempt(_currentHost().endpoint);
+        state.markConnected();
+        state.admit(
+          sessionId: 'session-1',
+          trustState: DovahLinkTrustState.trusted,
+          currentHost: _currentHost(),
+        );
+        state.associateKnownHost(hostId);
+        final List<DovahLinkConnectionState> states =
+            <DovahLinkConnectionState>[];
+        final List<KnownHostSessionSnapshot> snapshots =
+            <KnownHostSessionSnapshot>[];
+        final StreamSubscription<DovahLinkConnectionState> stateSubscription =
+            state.connectionStateChanges.listen(states.add);
+        final StreamSubscription<KnownHostSessionSnapshot> hostSubscription =
+            state.knownHostSessionChanges.listen(snapshots.add);
+        addTearDown(stateSubscription.cancel);
+        addTearDown(hostSubscription.cancel);
+        await Future<void>.delayed(Duration.zero);
+        states.clear();
+        snapshots.clear();
+
+        final bool entered = state.resetAfterTeardown(
+          preserveReconnecting: true,
+          beginRecovery: true,
+        );
+        await Future<void>.delayed(Duration.zero);
+
+        expect(entered, isTrue);
+        expect(states, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+        ]);
+        expect(snapshots, <KnownHostSessionSnapshot>[
+          (hostId: hostId, state: DovahLinkKnownHostSessionState.reconnecting),
+        ]);
+        expect(state.knownHostId, hostId);
+        expect(state.sessionId, isNull);
+        expect(state.trustState, isNull);
+        expect(state.currentHost, isNull);
+      },
+    );
+
+    test(
+      'Method resetAfterTeardown with beginRecovery reports false and stays reconnecting for a '
+      'session that was already recovering',
+      () {
+        _enterRecovery(state);
+
+        final bool entered = state.resetAfterTeardown(
+          preserveReconnecting: true,
+          beginRecovery: true,
+        );
+
+        expect(entered, isFalse);
+        expect(state.connectionState, DovahLinkConnectionState.reconnecting);
+      },
+    );
+
+    test(
+      'Method resetAfterTeardown ignores beginRecovery when preserveReconnecting is false',
+      () {
+        state.beginConnectAttempt(_currentHost().endpoint);
+        state.markConnected();
+
+        final bool entered = state.resetAfterTeardown(
+          preserveReconnecting: false,
+          beginRecovery: true,
+        );
+
+        expect(entered, isFalse);
+        expect(state.connectionState, DovahLinkConnectionState.disconnected);
+      },
+    );
+
+    test(
+      'Method resetAfterTeardown without beginRecovery still resolves a connected session to '
+      'disconnected and reports false',
+      () {
+        state.beginConnectAttempt(_currentHost().endpoint);
+        state.markConnected();
+
+        final bool entered = state.resetAfterTeardown(
+          preserveReconnecting: true,
+        );
+
+        expect(entered, isFalse);
         expect(state.connectionState, DovahLinkConnectionState.disconnected);
       },
     );
@@ -643,7 +731,7 @@ void main() {
 
     test('Property connectionStateChanges does not emit when markConnectFailed leaves '
         'connectionState unchanged', () async {
-      state.markReconnecting();
+      _enterRecovery(state);
 
       // If the unchanged-value no-op were broken, the second element here would be a
       // duplicate reconnecting instead of the real transition to reauthenticating.
@@ -665,7 +753,7 @@ void main() {
       'Property connectionStateChanges does not emit when beginConnectAttempt leaves '
       'connectionState at reconnecting',
       () async {
-        state.markReconnecting();
+        _enterRecovery(state);
 
         final Future<void> expectation = expectLater(
           state.connectionStateChanges,
@@ -683,10 +771,10 @@ void main() {
     );
 
     test(
-      'Property connectionStateChanges does not emit when markReconnecting is called while '
+      'Property connectionStateChanges does not emit when recovery is entered while '
       'already reconnecting',
       () async {
-        state.markReconnecting();
+        _enterRecovery(state);
 
         final Future<void> expectation = expectLater(
           state.connectionStateChanges,
@@ -696,7 +784,7 @@ void main() {
           ]),
         );
 
-        state.markReconnecting();
+        _enterRecovery(state);
         state.markConnected();
 
         await expectation;
@@ -727,7 +815,7 @@ void main() {
     test(
       'Property connectionStateChanges does not emit when resetAfterTeardown stays reconnecting',
       () async {
-        state.markReconnecting();
+        _enterRecovery(state);
 
         final Future<void> expectation = expectLater(
           state.connectionStateChanges,
@@ -748,7 +836,7 @@ void main() {
       'Property connectionStateChanges emits connected when admit resolves a reauthenticating '
       'recovery attempt',
       () async {
-        state.markReconnecting();
+        _enterRecovery(state);
         state.markConnected();
 
         final Future<void> expectation = expectLater(
@@ -845,11 +933,11 @@ void main() {
           trustState: DovahLinkTrustState.trusted,
           currentHost: _currentHost(),
         );
-        state.markReconnecting();
+        _enterRecovery(state);
         state.beginConnectAttempt(Uri.parse('ws://127.0.0.1:58231/'));
         state.markConnected();
         state.resetAfterTeardown(preserveReconnecting: true);
-        state.markReconnecting();
+        _enterRecovery(state);
         state.markConnected();
         state.admit(
           sessionId: 'session-2',

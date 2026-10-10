@@ -20,7 +20,10 @@ enum DovahLinkConnectionState {
 
   /// Bounded automatic recovery is in progress after ordinary, unexpected transport loss (not a
   /// deliberate disconnect, and not an administrative invalidation -- neither of those ever enters
-  /// this state). Transitions to [DovahLinkConnectionState.reauthenticating] once the transport
+  /// this state). Entered directly from [DovahLinkConnectionState.connected] -- an eligible ordinary
+  /// loss never publishes a transient [DovahLinkConnectionState.disconnected] first, so
+  /// [DovahLinkConnectionState.disconnected] is always terminal for the session that preceded it.
+  /// Transitions to [DovahLinkConnectionState.reauthenticating] once the transport
   /// reconnects, or resolves directly to [DovahLinkConnectionState.disconnected] if recovery ends
   /// before the transport reconnects.
   reconnecting,

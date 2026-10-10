@@ -102,6 +102,12 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
     final Completer<void> completion = Completer<void>();
     _recoveryTask = completion.future;
     _domain.tracker.beginRecovery();
+    // Failures below are reported about whichever connection is current when they are processed,
+    // never about the one the request began on: a retry-safe snapshot request orphaned by a
+    // transport loss is retransmitted into the next session, so its reply or error belongs to
+    // that session. A failure left over from an ended connection never reaches those reports --
+    // teardown has already reset the domain to `notSubscribed`, which every path below checks
+    // first, and the transmitter reports its own send and timeout failures per wire attempt.
     int retryIndex = 0;
     try {
       while (true) {

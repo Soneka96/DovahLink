@@ -26,14 +26,6 @@ class MockDovahLinkTransport extends Mock implements IDovahLinkTransport {}
 /// [SessionService] calls the right transition method with the right arguments.
 class MockSessionState extends Mock implements SessionState {}
 
-/// Mock lifecycle queue used per `ai/context/sdk/testing.md`'s "Service test boundaries". Stubbed
-/// to delegate to a real, test-local [LifecycleOperationQueue] instance purely so this file's
-/// racing/ordering tests exercise [SessionService]'s own queueing usage under genuine
-/// concurrent-call scheduling, without [SessionService] itself ever depending on anything but
-/// the mock.
-class MockLifecycleOperationQueue extends Mock
-    implements LifecycleOperationQueue {}
-
 /// Mock teardown coordinator used per `ai/context/sdk/testing.md`'s "Service test boundaries" --
 /// its own generation-check dedup logic is `connection_teardown_coordinator_test.dart`'s
 /// responsibility; this file only proves [SessionService] calls it with the right arguments
@@ -56,7 +48,7 @@ class FakeStreamSubscription extends Fake
 void main() {
   late MockDovahLinkTransport transport;
   late MockSessionState state;
-  late MockLifecycleOperationQueue lifecycleQueue;
+  late LifecycleOperationQueue lifecycleQueue;
   late MockConnectionTeardownCoordinator teardownCoordinator;
   late SessionService service;
   late StreamController<String> messages;
@@ -72,6 +64,9 @@ void main() {
   late DovahLinkTrustState? trustStateValue;
   late bool isAdministrativelyInvalidatedValue;
   late Uri? lastConnectedUriValue;
+  late Future<void>? pendingTeardownGate;
+  late void Function()? afterTeardown;
+  late List<DovahLinkConnectionState> observedTeardownStates;
 
   setUpAll(() {
     registerFallbackValue(
@@ -88,20 +83,53 @@ void main() {
   setUp(() {
     transport = MockDovahLinkTransport();
     state = MockSessionState();
-    final LifecycleOperationQueue realScheduling = LifecycleOperationQueue();
-    lifecycleQueue = MockLifecycleOperationQueue();
-    when(() => lifecycleQueue.run(any())).thenAnswer(
-      (Invocation invocation) => realScheduling.run(
-        invocation.positionalArguments[0] as Future<void> Function(),
-      ),
-    );
+    // The real queue is used: scheduling is deterministic, and the coordinator's and service's
+    // own ordering behavior under it is exactly what these tests exercise.
+    lifecycleQueue = LifecycleOperationQueue();
     teardownCoordinator = MockConnectionTeardownCoordinator();
     when(
       () => teardownCoordinator.tearDown(
         any(),
         orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+        canRecover: any(named: 'canRecover'),
       ),
-    ).thenAnswer((_) async {});
+    ).thenAnswer((Invocation invocation) async {
+      final Future<void>? gate = pendingTeardownGate;
+      if (gate != null) {
+        await gate;
+      }
+      // Mirrors the real coordinator's reset point: recovery is entered directly, from a
+      // non-recovering state, only for an eligible ordinary loss.
+      final bool Function()? canRecover =
+          invocation.namedArguments[#canRecover] as bool Function()?;
+      final bool orphan =
+          invocation.namedArguments[#orphanRetrySafeOperations] as bool? ??
+          true;
+      if (isAdministrativelyInvalidatedValue) {
+        return false;
+      }
+      final bool wasRecovering =
+          connectionStateValue == DovahLinkConnectionState.reauthenticating ||
+          connectionStateValue == DovahLinkConnectionState.reconnecting;
+      if (orphan && wasRecovering) {
+        if (connectionStateValue != DovahLinkConnectionState.reconnecting) {
+          connectionStateValue = DovahLinkConnectionState.reconnecting;
+          observedTeardownStates.add(connectionStateValue);
+        }
+        return false;
+      }
+      if (orphan && (canRecover?.call() ?? false)) {
+        connectionStateValue = DovahLinkConnectionState.reconnecting;
+        observedTeardownStates.add(connectionStateValue);
+        afterTeardown?.call();
+        return true;
+      }
+      if (connectionStateValue != DovahLinkConnectionState.disconnected) {
+        connectionStateValue = DovahLinkConnectionState.disconnected;
+        observedTeardownStates.add(connectionStateValue);
+      }
+      return false;
+    });
     when(
       () => teardownCoordinator.closeAfterInvalidation(any()),
     ).thenAnswer((_) async {});
@@ -118,6 +146,9 @@ void main() {
     trustStateValue = null;
     isAdministrativelyInvalidatedValue = false;
     lastConnectedUriValue = null;
+    pendingTeardownGate = null;
+    afterTeardown = null;
+    observedTeardownStates = <DovahLinkConnectionState>[];
     when(() => transport.messages).thenAnswer((_) => messages.stream);
     when(() => transport.connect(any())).thenAnswer((_) async {});
     when(() => transport.close()).thenAnswer((_) async {});
@@ -151,9 +182,6 @@ void main() {
     });
     when(() => state.markConnectFailed()).thenAnswer((_) {
       connectionStateValue = DovahLinkConnectionState.disconnected;
-    });
-    when(() => state.markReconnecting()).thenAnswer((_) {
-      connectionStateValue = DovahLinkConnectionState.reconnecting;
     });
     when(() => state.attachMessageSubscription(any())).thenAnswer((_) {});
     when(() => state.associateKnownHost(any())).thenAnswer((_) {});
@@ -447,21 +475,21 @@ void main() {
         verify(
           () => teardownCoordinator.tearDown(
             const DovahLinkConnectionException('timed out'),
-            orphanRetrySafeOperations: true,
+            canRecover: any(named: 'canRecover'),
           ),
         ).called(1);
       },
     );
 
     test(
-      'Method onUnhealthy transitions to reconnecting and notifies onOrdinaryTransportLoss when the '
-      'coordinator resolves to disconnected with a known endpoint',
+      'Method onUnhealthy resolves directly to reconnecting and notifies onOrdinaryTransportLoss '
+      'for an eligible loss, never passing through disconnected',
       () async {
         final DovahLinkHostId knownHostId = DovahLinkHostId(
           '81869993-955c-4ba3-a7d0-d35ca86078ea',
         );
         lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
-        connectionStateValue = DovahLinkConnectionState.disconnected;
+        connectionStateValue = DovahLinkConnectionState.connected;
         when(() => state.knownHostId).thenReturn(knownHostId);
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
@@ -469,113 +497,287 @@ void main() {
 
         expect(reconnectUris, <Uri>[Uri.parse('ws://127.0.0.1:58231/')]);
         expect(reconnectHostIds, <DovahLinkHostId?>[knownHostId]);
-        verify(() => state.markReconnecting()).called(1);
+        expect(connectionStateValue, DovahLinkConnectionState.reconnecting);
+        expect(observedTeardownStates, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+        ]);
       },
     );
 
     test(
-      'Method onUnhealthy does not transition to reconnecting or notify onOrdinaryTransportLoss '
-      'without a known last-connected endpoint',
+      'Method onUnhealthy does not enter recovery or notify onOrdinaryTransportLoss without a '
+      'known last-connected endpoint',
       () async {
         lastConnectedUriValue = null;
-        connectionStateValue = DovahLinkConnectionState.disconnected;
+        connectionStateValue = DovahLinkConnectionState.connected;
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
 
         expect(reconnectUris, isEmpty);
-        verifyNever(() => state.markReconnecting());
+        expect(connectionStateValue, DovahLinkConnectionState.disconnected);
       },
     );
 
     test(
-      'Method onUnhealthy does not transition to reconnecting when onOrdinaryTransportLoss is not '
-      'assigned',
+      'Method onUnhealthy does not enter recovery when onOrdinaryTransportLoss is not assigned',
       () async {
         service.onOrdinaryTransportLoss = null;
         lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
-        connectionStateValue = DovahLinkConnectionState.disconnected;
+        connectionStateValue = DovahLinkConnectionState.connected;
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
 
-        verifyNever(() => state.markReconnecting());
+        expect(reconnectUris, isEmpty);
+        expect(connectionStateValue, DovahLinkConnectionState.disconnected);
       },
     );
 
     test(
-      'Method onUnhealthy does not transition to reconnecting when the coordinator resolves to a '
-      'state other than disconnected (a racing administrative invalidation owns its own terminal '
-      'state)',
+      'Method onUnhealthy does not enter recovery when the coordinator reports a racing '
+      'administrative invalidation (which owns its own terminal state)',
       () async {
         lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
         connectionStateValue =
             DovahLinkConnectionState.administrativelyInvalidated;
+        isAdministrativelyInvalidatedValue = true;
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
 
         expect(reconnectUris, isEmpty);
-        verifyNever(() => state.markReconnecting());
+        expect(
+          connectionStateValue,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
       },
     );
 
-    test('Method onUnhealthy serializes its recovery-transition decision against a racing connect() '
-        'call instead of racing it outside the queue', () async {
-      final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
-      final Completer<void> teardownCompleter = Completer<void>();
-      when(
-        () => teardownCoordinator.tearDown(
-          any(),
-          orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-        ),
-      ).thenAnswer((_) => teardownCompleter.future);
-      lastConnectedUriValue = uri;
+    test(
+      'Method onUnhealthy leaves an already-recovering session to its existing cycle instead of '
+      'starting a second one',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        for (final DovahLinkConnectionState state in <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.reconnecting,
+        ]) {
+          connectionStateValue = state;
 
-      service.onUnhealthy(const DovahLinkConnectionException('timed out'));
-      await pumpEventQueue();
-      // A manual reconnect races in right as teardown is still resolving, queued immediately
-      // behind it -- before the recovery-transition decision has run.
-      connectionStateValue = DovahLinkConnectionState.connected;
-      final Future<void> manualReconnect = service.connect(uri);
-      teardownCompleter.complete();
-      await manualReconnect;
+          service.onUnhealthy(const DovahLinkConnectionException('timed out'));
+          await pumpEventQueue();
 
-      // Bounded recovery's own transition, queued behind the manual connect(), correctly saw the
-      // connection already recovered (not disconnected) and did not start a redundant recovery
-      // cycle.
-      expect(reconnectUris, isEmpty);
-      verifyNever(() => state.markReconnecting());
-    });
+          expect(reconnectUris, isEmpty);
+          expect(connectionStateValue, DovahLinkConnectionState.reconnecting);
+        }
+        expect(observedTeardownStates, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+        ]);
+      },
+    );
+
+    test(
+      'Method onUnhealthy acts on a report whose connection generation is still current',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
+        connectionGenerationValue = 4;
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('send failed'),
+          connectionGeneration: 4,
+        );
+        await pumpEventQueue();
+
+        expect(reconnectUris, hasLength(1));
+        verify(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method onUnhealthy ignores a report from an ended connection generation without teardown',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
+        connectionGenerationValue = 5;
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('late send failure'),
+          connectionGeneration: 4,
+        );
+        await pumpEventQueue();
+
+        expect(reconnectUris, isEmpty);
+        verifyNever(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        );
+        expect(connectionStateValue, DovahLinkConnectionState.connected);
+      },
+    );
+
+    test(
+      'Method onUnhealthy ignores a stale-generation report after administrative invalidation',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue =
+            DovahLinkConnectionState.administrativelyInvalidated;
+        isAdministrativelyInvalidatedValue = true;
+        connectionGenerationValue = 6;
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('late send failure'),
+          connectionGeneration: 5,
+        );
+        await pumpEventQueue();
+
+        expect(reconnectUris, isEmpty);
+        verifyNever(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method onUnhealthy ignores an old connection\'s report while the new one is '
+      'reauthenticating, and still acts on the new one\'s own',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.reauthenticating;
+        connectionGenerationValue = 8;
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('old connection'),
+          connectionGeneration: 7,
+        );
+        await pumpEventQueue();
+        verifyNever(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        );
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('new connection'),
+          connectionGeneration: 8,
+        );
+        await pumpEventQueue();
+        verify(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method onUnhealthy without a generation still reports about the current connection',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
+        connectionGenerationValue = 9;
+
+        service.onUnhealthy(const DovahLinkConnectionException('lost'));
+        await pumpEventQueue();
+
+        expect(reconnectUris, hasLength(1));
+      },
+    );
 
     test(
       'Method onUnhealthy skips recovery when explicit disconnect begins during teardown',
       () async {
         final Completer<void> ordinaryTeardown = Completer<void>();
-        int teardownCount = 0;
-        when(
-          () => teardownCoordinator.tearDown(
-            any(),
-            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
-          ),
-        ).thenAnswer((_) {
-          teardownCount++;
-          return teardownCount == 1
-              ? ordinaryTeardown.future
-              : Future<void>.value();
-        });
+        pendingTeardownGate = ordinaryTeardown.future;
         lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
 
         service.onUnhealthy(const DovahLinkConnectionException('timed out'));
         await pumpEventQueue();
+        pendingTeardownGate = null;
         await service.disconnect();
         ordinaryTeardown.complete();
         await pumpEventQueue();
 
         expect(reconnectUris, isEmpty);
-        verifyNever(() => state.markReconnecting());
+        expect(connectionStateValue, DovahLinkConnectionState.disconnected);
       },
     );
+
+    test(
+      'Method onUnhealthy skips the handoff when administrative invalidation lands after '
+      'teardown entered recovery but before the queued recovery step',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
+        afterTeardown = () {
+          connectionStateValue =
+              DovahLinkConnectionState.administrativelyInvalidated;
+          isAdministrativelyInvalidatedValue = true;
+        };
+
+        service.onUnhealthy(const DovahLinkConnectionException('timed out'));
+        await pumpEventQueue();
+
+        expect(reconnectUris, isEmpty);
+        expect(
+          connectionStateValue,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+      },
+    );
+
+    test(
+      'Method onUnhealthy skips recovery when the client closes during teardown',
+      () async {
+        final Completer<void> ordinaryTeardown = Completer<void>();
+        pendingTeardownGate = ordinaryTeardown.future;
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
+
+        service.onUnhealthy(const DovahLinkConnectionException('timed out'));
+        await pumpEventQueue();
+        pendingTeardownGate = null;
+        await service.close();
+        ordinaryTeardown.complete();
+        await pumpEventQueue();
+
+        expect(reconnectUris, isEmpty);
+        expect(service.isTerminallyClosed, isTrue);
+        expect(connectionStateValue, DovahLinkConnectionState.disconnected);
+      },
+    );
+
+    test('Method onUnhealthy ignores a stale handoff when disconnect lands between teardown and '
+        'the recovery step', () async {
+      lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+      connectionStateValue = DovahLinkConnectionState.connected;
+      final Completer<void> hold = Completer<void>();
+      // Teardown has already entered recovery; hold the queue so the handoff step and a
+      // disconnect() are both queued behind it, with disconnect() bumping the handoff first.
+      service.onUnhealthy(const DovahLinkConnectionException('timed out'));
+      unawaited(lifecycleQueue.run<void>(() => hold.future));
+      await pumpEventQueue();
+      connectionStateValue = DovahLinkConnectionState.reconnecting;
+      await service.disconnect();
+      hold.complete();
+      await pumpEventQueue();
+
+      expect(reconnectUris, isEmpty);
+    });
   });
 
   group('Method onProtocolViolation behaves correctly', () {

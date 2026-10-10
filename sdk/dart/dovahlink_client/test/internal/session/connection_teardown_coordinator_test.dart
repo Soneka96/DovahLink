@@ -17,15 +17,6 @@ class MockDovahLinkTransport extends Mock implements IDovahLinkTransport {}
 /// file's own local variables to simulate the same statefulness a real implementation would have.
 class MockSessionState extends Mock implements SessionState {}
 
-/// Mock lifecycle queue used per `ai/context/sdk/testing.md`'s "Service test boundaries" -- the
-/// queue's own scheduling behavior stays owned by `lifecycle_operation_queue_test.dart`. Stubbed to
-/// delegate to a real, test-local [LifecycleOperationQueue] instance purely so this file's
-/// queued-call tests exercise [ConnectionTeardownCoordinator]'s own generation-check logic under
-/// genuine concurrent-call scheduling, without the coordinator itself ever depending on anything
-/// but the mock.
-class MockLifecycleOperationQueue extends Mock
-    implements LifecycleOperationQueue {}
-
 /// Builds a coordinator from the supplied test doubles and state.
 ConnectionTeardownCoordinator buildCoordinator({
   required IDovahLinkTransport transport,
@@ -46,7 +37,7 @@ ConnectionTeardownCoordinator buildCoordinator({
 /// Runs connection-teardown coordinator behavior tests.
 void main() {
   late MockDovahLinkTransport transport;
-  late MockLifecycleOperationQueue lifecycleQueue;
+  late LifecycleOperationQueue lifecycleQueue;
   late List<Exception> failedReasons;
   late List<bool> failedOrphanFlags;
   late void Function(
@@ -60,16 +51,13 @@ void main() {
   late StreamSubscription<String>? subscription;
   late bool resetCalled;
   late bool? lastPreserveReconnecting;
+  late bool? lastBeginRecovery;
 
   setUp(() {
     transport = MockDovahLinkTransport();
-    final LifecycleOperationQueue realScheduling = LifecycleOperationQueue();
-    lifecycleQueue = MockLifecycleOperationQueue();
-    when(() => lifecycleQueue.run(any())).thenAnswer(
-      (Invocation invocation) => realScheduling.run(
-        invocation.positionalArguments[0] as Future<void> Function(),
-      ),
-    );
+    // The real queue is used: scheduling is deterministic, and the coordinator's and service's
+    // own ordering behavior under it is exactly what these tests exercise.
+    lifecycleQueue = LifecycleOperationQueue();
     failedReasons = <Exception>[];
     failedOrphanFlags = <bool>[];
     pendingOperationFailureHandler =
@@ -82,6 +70,7 @@ void main() {
     subscription = null;
     resetCalled = false;
     lastPreserveReconnecting = null;
+    lastBeginRecovery = null;
     state = MockSessionState();
     when(
       () => state.isAdministrativelyInvalidated,
@@ -96,11 +85,14 @@ void main() {
     when(
       () => state.resetAfterTeardown(
         preserveReconnecting: any(named: 'preserveReconnecting'),
+        beginRecovery: any(named: 'beginRecovery'),
       ),
     ).thenAnswer((Invocation invocation) {
       resetCalled = true;
       lastPreserveReconnecting =
           invocation.namedArguments[#preserveReconnecting] as bool;
+      lastBeginRecovery = invocation.namedArguments[#beginRecovery] as bool;
+      return lastPreserveReconnecting! && lastBeginRecovery!;
     });
     when(() => transport.close()).thenAnswer((_) async {});
   });
@@ -160,6 +152,151 @@ void main() {
 
         expect(failedOrphanFlags, <bool>[false]);
         expect(lastPreserveReconnecting, isFalse);
+      },
+    );
+
+    test(
+      'Method tearDown asks canRecover at the reset point and reports recovery entered',
+      () async {
+        final List<String> order = <String>[];
+        when(() => transport.close()).thenAnswer((_) async {
+          order.add('close');
+        });
+        final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+          transport: transport,
+          lifecycleQueue: lifecycleQueue,
+          pendingOperationFailureHandler: pendingOperationFailureHandler,
+          state: state,
+        );
+
+        final bool entered = await coordinator.tearDown(
+          const DovahLinkConnectionException('connection lost'),
+          canRecover: () {
+            order.add('canRecover');
+            return true;
+          },
+        );
+
+        expect(entered, isTrue);
+        expect(order, <String>['close', 'canRecover']);
+        expect(lastBeginRecovery, isTrue);
+      },
+    );
+
+    test('Method tearDown without canRecover never begins recovery', () async {
+      final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+        transport: transport,
+        lifecycleQueue: lifecycleQueue,
+        pendingOperationFailureHandler: pendingOperationFailureHandler,
+        state: state,
+      );
+
+      final bool entered = await coordinator.tearDown(
+        const DovahLinkConnectionException('connection lost'),
+      );
+
+      expect(entered, isFalse);
+      expect(lastBeginRecovery, isFalse);
+    });
+
+    test(
+      'Method tearDown does not begin recovery when canRecover declines',
+      () async {
+        final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+          transport: transport,
+          lifecycleQueue: lifecycleQueue,
+          pendingOperationFailureHandler: pendingOperationFailureHandler,
+          state: state,
+        );
+
+        final bool entered = await coordinator.tearDown(
+          const DovahLinkConnectionException('connection lost'),
+          canRecover: () => false,
+        );
+
+        expect(entered, isFalse);
+        expect(lastBeginRecovery, isFalse);
+        expect(resetCalled, isTrue);
+      },
+    );
+
+    test(
+      'Method tearDown never consults canRecover for a deliberate disconnect',
+      () async {
+        bool consulted = false;
+        final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+          transport: transport,
+          lifecycleQueue: lifecycleQueue,
+          pendingOperationFailureHandler: pendingOperationFailureHandler,
+          state: state,
+        );
+
+        final bool entered = await coordinator.tearDown(
+          const DovahLinkConnectionException('deliberate disconnect'),
+          orphanRetrySafeOperations: false,
+          canRecover: () {
+            consulted = true;
+            return true;
+          },
+        );
+
+        expect(entered, isFalse);
+        expect(consulted, isFalse);
+        expect(lastBeginRecovery, isFalse);
+      },
+    );
+
+    test(
+      'Method tearDown never consults canRecover after administrative invalidation',
+      () async {
+        bool consulted = false;
+        administrativelyInvalidated = true;
+        final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+          transport: transport,
+          lifecycleQueue: lifecycleQueue,
+          pendingOperationFailureHandler: pendingOperationFailureHandler,
+          state: state,
+        );
+
+        final bool entered = await coordinator.tearDown(
+          const DovahLinkConnectionException('connection lost'),
+          canRecover: () {
+            consulted = true;
+            return true;
+          },
+        );
+
+        expect(entered, isFalse);
+        expect(consulted, isFalse);
+        expect(resetCalled, isFalse);
+      },
+    );
+
+    test(
+      'Method tearDown does not consult canRecover when the generation moves on mid-teardown',
+      () async {
+        bool consulted = false;
+        when(() => transport.close()).thenAnswer((_) async {
+          generation++;
+        });
+        final ConnectionTeardownCoordinator coordinator = buildCoordinator(
+          transport: transport,
+          lifecycleQueue: lifecycleQueue,
+          pendingOperationFailureHandler: pendingOperationFailureHandler,
+          state: state,
+        );
+
+        final bool entered = await coordinator.tearDown(
+          const DovahLinkConnectionException('connection lost'),
+          canRecover: () {
+            consulted = true;
+            return true;
+          },
+        );
+
+        expect(entered, isFalse);
+        expect(consulted, isFalse);
+        expect(resetCalled, isFalse);
       },
     );
 

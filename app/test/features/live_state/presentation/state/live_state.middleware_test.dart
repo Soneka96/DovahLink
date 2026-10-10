@@ -734,62 +734,186 @@ void main() {
       },
     );
 
+    test('ordinary recovery keeps listeners and tracking, projects the SDK reset and fresh baseline, '
+        'and issues no second subscription round', () async {
+      sdk.connectionState = DovahLinkConnectionState.connected;
+      middleware.initialize(store);
+      await pumpEventQueue();
+      await _trustCurrentSession(sdk, middleware, store);
+      sdk.vitals.add(
+        StateSynchronization<CharacterVitalsState>(
+          status: DovahLinkStateStatus.synchronized,
+          value: Fixtures.buildCharacterVitals(
+            health: Fixtures.buildCharacterVital(current: 88, max: 100),
+            magicka: Fixtures.buildCharacterVital(current: 55, max: 80),
+            stamina: Fixtures.buildCharacterVital(current: 48, max: 90),
+          ),
+          stateAuthorityId: 'authority-a',
+          playContextId: 'context-a',
+          revision: 4,
+        ),
+      );
+
+      // The real SDK sequence for ordinary transport loss: no transient disconnected. Its
+      // teardown still resets every accepted domain to notSubscribed with no value (T8 will
+      // retain values), and each domain then receives a fresh baseline once admitted again.
+      for (final DovahLinkConnectionState state in _sdkOrdinaryRecovery) {
+        sdk.emitConnectionState(state);
+        if (state == DovahLinkConnectionState.reconnecting) {
+          sdk.vitals.add(
+            const StateSynchronization<CharacterVitalsState>.notSubscribed(),
+          );
+        }
+      }
+      sdk.vitals.add(
+        StateSynchronization<CharacterVitalsState>(
+          status: DovahLinkStateStatus.synchronized,
+          value: Fixtures.buildCharacterVitals(
+            health: Fixtures.buildCharacterVital(current: 89, max: 100),
+            magicka: Fixtures.buildCharacterVital(current: 54, max: 80),
+            stamina: Fixtures.buildCharacterVital(current: 49, max: 90),
+          ),
+          stateAuthorityId: 'authority-a',
+          playContextId: 'context-a',
+          revision: 5,
+        ),
+      );
+      await pumpEventQueue();
+
+      final List<CharacterVitalsSynchronizationChangedAction> projections =
+          actions
+              .whereType<CharacterVitalsSynchronizationChangedAction>()
+              .toList();
+      expect(projections, hasLength(3));
+      expect(
+        projections.first.synchronization.status,
+        DovahLinkStateStatus.synchronized,
+      );
+      expect(projections.first.synchronization.value?.health?.current, 88);
+      expect(
+        projections[1].synchronization.status,
+        DovahLinkStateStatus.notSubscribed,
+      );
+      expect(projections[1].synchronization.value, isNull);
+      expect(
+        projections.last.synchronization.status,
+        DovahLinkStateStatus.synchronized,
+      );
+      expect(projections.last.synchronization.revision, 5);
+      expect(actions.whereType<SessionLiveStateResetAction>(), isEmpty);
+      expect(sdk.vitals.hasListener, isTrue);
+      expect(sdk.vitalsStreamReads, 1);
+      expect(sdk.requestedAreas, _expectedAreas);
+    });
+
     test(
-      'ordinary reconnect keeps projection listeners through fresh baselines',
+      'a failed recovery attempt followed by success keeps listeners and requests nothing new',
       () async {
         sdk.connectionState = DovahLinkConnectionState.connected;
         middleware.initialize(store);
         await pumpEventQueue();
         await _trustCurrentSession(sdk, middleware, store);
-        sdk.vitals.add(
-          StateSynchronization<CharacterVitalsState>(
-            status: DovahLinkStateStatus.stale,
-            value: Fixtures.buildCharacterVitals(
-              health: Fixtures.buildCharacterVital(current: 88, max: 100),
-              magicka: Fixtures.buildCharacterVital(current: 55, max: 80),
-              stamina: Fixtures.buildCharacterVital(current: 48, max: 90),
-            ),
-            stateAuthorityId: 'authority-a',
-            playContextId: 'context-a',
-            revision: 4,
-          ),
-        );
+
+        for (final DovahLinkConnectionState state in <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.connected,
+        ]) {
+          sdk.emitConnectionState(state);
+        }
+        await pumpEventQueue();
+
+        expect(actions.whereType<SessionLiveStateResetAction>(), isEmpty);
+        expect(sdk.vitals.hasListener, isTrue);
+        expect(sdk.xp.hasListener, isTrue);
+        expect(sdk.vitalsStreamReads, 1);
+        expect(sdk.requestedAreas, _expectedAreas);
+      },
+    );
+
+    test(
+      'recovery give-up ends in disconnected, which performs terminal cleanup and allows a '
+      'later session to request its areas again',
+      () async {
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        sdk.emitConnectionState(DovahLinkConnectionState.reconnecting);
+        sdk.emitConnectionState(DovahLinkConnectionState.disconnected);
+        await pumpEventQueue();
+
+        expect(actions.whereType<SessionLiveStateResetAction>(), hasLength(1));
+        expect(sdk.vitals.hasListener, isFalse);
+        expect(sdk.xp.hasListener, isFalse);
+
+        sdk.emitConnectionState(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        expect(sdk.vitals.hasListener, isTrue);
+        expect(sdk.requestedAreas, <DovahLinkStateArea>[
+          ..._expectedAreas,
+          ..._expectedAreas,
+        ]);
+      },
+    );
+
+    test(
+      'a disconnect reached from reauthenticating performs the same terminal cleanup',
+      () async {
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
         sdk.emitConnectionState(DovahLinkConnectionState.reconnecting);
         sdk.emitConnectionState(DovahLinkConnectionState.reauthenticating);
-        sdk.emitConnectionState(DovahLinkConnectionState.connected);
-        sdk.vitals.add(
-          StateSynchronization<CharacterVitalsState>(
-            status: DovahLinkStateStatus.synchronized,
-            value: Fixtures.buildCharacterVitals(
-              health: Fixtures.buildCharacterVital(current: 89, max: 100),
-              magicka: Fixtures.buildCharacterVital(current: 54, max: 80),
-              stamina: Fixtures.buildCharacterVital(current: 49, max: 90),
-            ),
-            stateAuthorityId: 'authority-a',
-            playContextId: 'context-a',
-            revision: 5,
-          ),
+        sdk.emitConnectionState(DovahLinkConnectionState.disconnected);
+        await pumpEventQueue();
+
+        expect(actions.whereType<SessionLiveStateResetAction>(), hasLength(1));
+        expect(sdk.vitals.hasListener, isFalse);
+      },
+    );
+
+    test(
+      'shutdown during recovery cancels listeners without dispatching a reset',
+      () async {
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+        sdk.emitConnectionState(DovahLinkConnectionState.reconnecting);
+
+        await middleware.shutdown();
+        sdk.emitConnectionState(DovahLinkConnectionState.disconnected);
+        await pumpEventQueue();
+
+        expect(actions.whereType<SessionLiveStateResetAction>(), isEmpty);
+        expect(sdk.vitals.hasListener, isFalse);
+      },
+    );
+
+    test(
+      'administrative invalidation during recovery is terminal and resets the projection',
+      () async {
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+
+        sdk.emitConnectionState(DovahLinkConnectionState.reconnecting);
+        sdk.emitConnectionState(
+          DovahLinkConnectionState.administrativelyInvalidated,
         );
         await pumpEventQueue();
 
-        final List<CharacterVitalsSynchronizationChangedAction> projections =
-            actions
-                .whereType<CharacterVitalsSynchronizationChangedAction>()
-                .toList();
-        expect(projections, hasLength(2));
-        expect(
-          projections.first.synchronization.status,
-          DovahLinkStateStatus.stale,
-        );
-        expect(projections.first.synchronization.value?.health?.current, 88);
-        expect(
-          projections.last.synchronization.status,
-          DovahLinkStateStatus.synchronized,
-        );
-        expect(projections.last.synchronization.revision, 5);
-        expect(actions.whereType<SessionLiveStateResetAction>(), isEmpty);
-        expect(sdk.vitalsStreamReads, 1);
-        expect(sdk.requestedAreas, _expectedAreas);
+        expect(actions.whereType<SessionLiveStateResetAction>(), hasLength(1));
+        expect(sdk.vitals.hasListener, isFalse);
       },
     );
 
@@ -1309,6 +1433,17 @@ const List<DovahLinkStateArea> _expectedAreas = <DovahLinkStateArea>[
   DovahLinkStateArea.gameTime,
   DovahLinkStateArea.trackedQuests,
 ];
+
+/// The public connection-state sequence the real SDK publishes for an eligible ordinary transport
+/// loss, with no transient `disconnected`. Mirrors the SDK composition test 'Behavior automatic
+/// reconnect passes through reauthenticating before resolving to connected' in
+/// `sdk/dart/dovahlink_client/test/dovahlink_client_test.dart`.
+const List<DovahLinkConnectionState> _sdkOrdinaryRecovery =
+    <DovahLinkConnectionState>[
+      DovahLinkConnectionState.reconnecting,
+      DovahLinkConnectionState.reauthenticating,
+      DovahLinkConnectionState.connected,
+    ];
 
 /// Dispatches SDK trust admission after lifecycle observation is attached.
 /// @param sdk The SDK fake reporting the connected session.

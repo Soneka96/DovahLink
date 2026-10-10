@@ -52,6 +52,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Fixed
 
+- Ordinary transport loss moves a connected session directly to `reconnecting` instead of publishing a transient `disconnected` first.
 - Subscription gate rollback preserves the last Host-confirmed areas when an overlapping update fails.
 - A new authority or play context clears all subscribed state trackers before new-identity state is routed.
 - Same-identity unavailable state retains its last usable value while advancing the accepted revision.

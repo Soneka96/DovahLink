@@ -6,14 +6,15 @@ class LifecycleOperationQueue {
   Future<void> _tail = Future<void>.value();
 
   /// Runs [operation] after all earlier operations finish.
-  Future<void> run(Future<void> Function() operation) {
+  /// @return The operation's own result, or its error.
+  Future<T> run<T>(Future<T> Function() operation) {
     final Future<void> previous = _tail;
     final Completer<void> completion = Completer<void>();
     _tail = completion.future;
     return () async {
       try {
         await previous;
-        await operation();
+        return await operation();
       } finally {
         completion.complete();
       }

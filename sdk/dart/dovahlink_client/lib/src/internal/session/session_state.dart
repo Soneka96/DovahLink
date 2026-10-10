@@ -214,17 +214,6 @@ class SessionState {
     ));
   }
 
-  /// Transitions to [DovahLinkConnectionState.reconnecting], entered only after ordinary transport
-  /// loss tears down cleanly with a known endpoint and eligible bounded recovery.
-  void markReconnecting() {
-    _connectionState = DovahLinkConnectionState.reconnecting;
-    _connectionStateStream.update(_connectionState);
-    _knownHostSessionChanges.update((
-      hostId: _knownHostId,
-      state: knownHostSessionState,
-    ));
-  }
-
   /// Admits a newly authenticated session, recording [sessionId] and [trustState] and promoting
   /// [connectionState] to [DovahLinkConnectionState.connected] -- the point at which a
   /// bounded-recovery attempt's [DovahLinkConnectionState.reauthenticating] phase resolves to a
@@ -305,16 +294,27 @@ class SessionState {
   /// [DovahLinkConnectionState.reconnecting] instead of [DovahLinkConnectionState.disconnected] when
   /// [preserveReconnecting] is `true` and the session was already `reconnecting` or
   /// [DovahLinkConnectionState.reauthenticating] -- an intermediate teardown mid-recovery (including
-  /// a failed re-authentication attempt), not recovery's own final give-up. Always clears
-  /// [sessionId], [trustState], and [currentHost]. Retains [knownHostId] when
-  /// [preserveReconnecting] is `true` so the recovery handoff can capture the relationship before
-  /// the next explicit connection attempt resets it.
-  void resetAfterTeardown({required bool preserveReconnecting}) {
+  /// a failed re-authentication attempt), not recovery's own final give-up. Also resolves directly
+  /// to `reconnecting` when [preserveReconnecting] and [beginRecovery] are both `true` for a
+  /// session that was not yet recovering, so ordinary transport loss never publishes a transient
+  /// `disconnected` between `connected` and `reconnecting`. Always clears [sessionId],
+  /// [trustState], and [currentHost]. Retains [knownHostId] when [preserveReconnecting] is `true`
+  /// so the recovery handoff can capture the relationship before the next explicit connection
+  /// attempt resets it.
+  /// @param preserveReconnecting Whether this teardown may leave the session in recovery.
+  /// @param beginRecovery Whether a session that was not recovering should enter recovery now.
+  /// @return Whether this call moved a not-yet-recovering session into `reconnecting`.
+  bool resetAfterTeardown({
+    required bool preserveReconnecting,
+    bool beginRecovery = false,
+  }) {
     final DovahLinkHostId? disconnectedHostId = _knownHostId;
     final bool wasRecovering =
         _connectionState == DovahLinkConnectionState.reconnecting ||
         _connectionState == DovahLinkConnectionState.reauthenticating;
-    _connectionState = preserveReconnecting && wasRecovering
+    final bool beginsRecovery =
+        preserveReconnecting && beginRecovery && !wasRecovering;
+    _connectionState = preserveReconnecting && (wasRecovering || beginsRecovery)
         ? DovahLinkConnectionState.reconnecting
         : DovahLinkConnectionState.disconnected;
     _trustState = null;
@@ -328,6 +328,7 @@ class SessionState {
       hostId: preserveReconnecting ? _knownHostId : disconnectedHostId,
       state: knownHostSessionState,
     ));
+    return beginsRecovery;
   }
 
   /// Records [subscription] as the one currently reading the transport's inbound message stream.
