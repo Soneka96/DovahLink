@@ -12,6 +12,12 @@ abstract interface class IStateDomainDefinition<T> {
   /// The canonical state-area name this definition handles.
   String get stateArea;
 
+  /// Whether this state area accepts revisioned Events.
+  ///
+  /// An Event-capable area can fall behind through a revision gap, so it requires Snapshot recovery;
+  /// the SDK derives that recovery from this capability. A Snapshot-only area rejects Events.
+  bool get supportsEvents;
+
   /// Applies revisions to the synchronization tracker owned by this domain.
   IStateRevisionTracker<T> get tracker;
 
@@ -56,7 +62,8 @@ class StateDomainDefinition<T> implements IStateDomainDefinition<T> {
   final bool Function(T value) _isUnavailable;
 
   /// Whether this state area accepts revisioned Events.
-  final bool _supportsEvents;
+  @override
+  final bool supportsEvents;
 
   /// Creates one typed registration for a state area and tracker.
   /// @param stateArea The canonical area name carried by the protocol payload.
@@ -69,11 +76,10 @@ class StateDomainDefinition<T> implements IStateDomainDefinition<T> {
     required T Function(JsonMap data) decode,
     required IStateRevisionTracker<T> tracker,
     required bool Function(T value) isUnavailable,
-    bool supportsEvents = false,
+    this.supportsEvents = false,
   }) : _decode = decode,
        _tracker = tracker,
-       _isUnavailable = isUnavailable,
-       _supportsEvents = supportsEvents;
+       _isUnavailable = isUnavailable;
 
   /// The revision tracker that owns this domain's accepted state.
   @override
@@ -108,7 +114,7 @@ class StateDomainDefinition<T> implements IStateDomainDefinition<T> {
     required Envelope envelope,
     required StateEventPayload payload,
   }) {
-    if (!_supportsEvents) {
+    if (!supportsEvents) {
       throw const DovahLinkProtocolException(
         code: ProtocolErrorCode.malformedMessage,
         message: 'Received an Event for a non-Event state area.',

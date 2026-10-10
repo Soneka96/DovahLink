@@ -103,6 +103,43 @@ void main() {
     );
   });
 
+  group('Property supportsEvents behaves correctly', () {
+    test('Property supportsEvents reports a configured Event-capable area', () {
+      expect(definition.supportsEvents, isTrue);
+    });
+
+    test('Property supportsEvents defaults to a Snapshot-only area', () {
+      final StateDomainDefinition<num?> snapshotOnly =
+          StateDomainDefinition<num?>(
+            stateArea: 'synthetic_area',
+            decode: _decodeTestValue,
+            tracker: tracker,
+            isUnavailable: (num? value) => value == null,
+          );
+
+      expect(snapshotOnly.supportsEvents, isFalse);
+    });
+
+    test('Property supportsEvents does not gate Snapshot application', () {
+      final StateDomainDefinition<num?> snapshotOnly =
+          StateDomainDefinition<num?>(
+            stateArea: 'synthetic_area',
+            decode: _decodeTestValue,
+            tracker: tracker,
+            isUnavailable: (num? value) => value == null,
+            supportsEvents: false,
+          );
+
+      final bool accepted = snapshotOnly.applySnapshot(
+        envelope: buildStateEnvelope(ProtocolMessageType.stateSnapshot),
+        payload: buildSnapshotPayload(87.5),
+      );
+
+      expect(snapshotOnly.supportsEvents, isFalse);
+      expect(accepted, isTrue);
+    });
+  });
+
   group('Method decodeState behaves correctly', () {
     test('Method decodeState returns the typed available value and status', () {
       final ({num? value, bool isUnavailable}) decoded = definition.decodeState(

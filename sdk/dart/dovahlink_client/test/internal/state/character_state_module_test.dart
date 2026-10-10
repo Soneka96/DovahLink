@@ -35,13 +35,21 @@ void main() {
       );
     });
 
-    test(
-      'Property domains shares the recovery registration with Level dispatch',
-      () {
-        expect(module.levelDomain, same(module.domains.last));
-        expect(module.levelDomain.stateArea, 'character_level');
-      },
-    );
+    test('Property domains declares Event support only for Level', () {
+      expect(
+        <String, bool>{
+          for (final IStateDomainDefinition<Object?> domain in module.domains)
+            domain.stateArea: domain.supportsEvents,
+        },
+        <String, bool>{
+          'character_vitals': false,
+          'character_xp': false,
+          'character_identity': false,
+          'character_supernatural_traits': false,
+          'character_level': true,
+        },
+      );
+    });
 
     test(
       'Property domains keeps Vitals and XP Snapshot-only and Level Event-capable',
@@ -74,11 +82,13 @@ void main() {
             throwsA(isA<DovahLinkProtocolException>()),
           );
         }
+        final IStateDomainDefinition<Object?> levelDomain = module.domains
+            .singleWhere(
+              (IStateDomainDefinition<Object?> domain) =>
+                  domain.stateArea == 'character_level',
+            );
         expect(
-          () => module.levelDomain.applyEvent(
-            envelope: envelope,
-            payload: payload,
-          ),
+          () => levelDomain.applyEvent(envelope: envelope, payload: payload),
           returnsNormally,
         );
       },
