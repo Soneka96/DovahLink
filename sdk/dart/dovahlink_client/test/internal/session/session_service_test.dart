@@ -65,7 +65,6 @@ void main() {
   late bool isAdministrativelyInvalidatedValue;
   late Uri? lastConnectedUriValue;
   late Future<void>? pendingTeardownGate;
-  late bool enterRecoveryFromTeardown;
   late void Function()? afterTeardown;
   late List<DovahLinkConnectionState> observedTeardownStates;
 
@@ -109,16 +108,23 @@ void main() {
       if (isAdministrativelyInvalidatedValue) {
         return false;
       }
-      if (orphan &&
-          enterRecoveryFromTeardown &&
-          (canRecover?.call() ?? false)) {
+      final bool wasRecovering =
+          connectionStateValue == DovahLinkConnectionState.reauthenticating ||
+          connectionStateValue == DovahLinkConnectionState.reconnecting;
+      if (orphan && wasRecovering) {
+        if (connectionStateValue != DovahLinkConnectionState.reconnecting) {
+          connectionStateValue = DovahLinkConnectionState.reconnecting;
+          observedTeardownStates.add(connectionStateValue);
+        }
+        return false;
+      }
+      if (orphan && (canRecover?.call() ?? false)) {
         connectionStateValue = DovahLinkConnectionState.reconnecting;
         observedTeardownStates.add(connectionStateValue);
         afterTeardown?.call();
         return true;
       }
-      if (connectionStateValue != DovahLinkConnectionState.reauthenticating &&
-          connectionStateValue != DovahLinkConnectionState.reconnecting) {
+      if (connectionStateValue != DovahLinkConnectionState.disconnected) {
         connectionStateValue = DovahLinkConnectionState.disconnected;
         observedTeardownStates.add(connectionStateValue);
       }
@@ -141,7 +147,6 @@ void main() {
     isAdministrativelyInvalidatedValue = false;
     lastConnectedUriValue = null;
     pendingTeardownGate = null;
-    enterRecoveryFromTeardown = true;
     afterTeardown = null;
     observedTeardownStates = <DovahLinkConnectionState>[];
     when(() => transport.messages).thenAnswer((_) => messages.stream);
@@ -554,14 +559,21 @@ void main() {
       'starting a second one',
       () async {
         lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
-        connectionStateValue = DovahLinkConnectionState.reauthenticating;
-        enterRecoveryFromTeardown = false;
+        for (final DovahLinkConnectionState state in <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.reconnecting,
+        ]) {
+          connectionStateValue = state;
 
-        service.onUnhealthy(const DovahLinkConnectionException('timed out'));
-        await pumpEventQueue();
+          service.onUnhealthy(const DovahLinkConnectionException('timed out'));
+          await pumpEventQueue();
 
-        expect(reconnectUris, isEmpty);
-        expect(connectionStateValue, DovahLinkConnectionState.reauthenticating);
+          expect(reconnectUris, isEmpty);
+          expect(connectionStateValue, DovahLinkConnectionState.reconnecting);
+        }
+        expect(observedTeardownStates, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+        ]);
       },
     );
 
