@@ -182,6 +182,43 @@ void main() {
     );
 
     test(
+      'Method failAll leaves no active timer on a retrySafe operation it orphans, so an ended '
+      'connection cannot later report a timeout',
+      () {
+        final PendingOperation operation = Fixtures.buildPendingOperation();
+        operation.timer = Timer(const Duration(hours: 1), () {});
+        bookkeeping.register('id-1', operation);
+
+        bookkeeping.failAll(
+          const DovahLinkConnectionException('lost'),
+          orphanRetrySafeOperations: true,
+        );
+
+        expect(operation.timer?.isActive ?? false, isFalse);
+        expect(operation.completer.isCompleted, isFalse);
+      },
+    );
+
+    test(
+      'Method failAll leaves no active timer on an operation it fails immediately',
+      () {
+        final PendingOperation operation = Fixtures.buildPendingOperation(
+          policy: _nonRetrySafePolicy,
+        );
+        operation.timer = Timer(const Duration(hours: 1), () {});
+        bookkeeping.register('id-1', operation);
+
+        bookkeeping.failAll(
+          const DovahLinkConnectionException('lost'),
+          orphanRetrySafeOperations: false,
+        );
+        operation.completer.future.ignore();
+
+        expect(operation.timer?.isActive ?? false, isFalse);
+      },
+    );
+
+    test(
       'Method failAll fails an already-orphaned operation too when a later call does not orphan',
       () {
         final PendingOperation operation = Fixtures.buildPendingOperation();

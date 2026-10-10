@@ -44,6 +44,12 @@ abstract interface class ISessionService {
   /// The current trust standing, or `null` before one is admitted.
   DovahLinkTrustState? get currentTrustState;
 
+  /// An opaque identity of the connection currently owning this session, advanced whenever a
+  /// connection is established, torn down, or invalidated. A caller starting asynchronous work
+  /// captures it so a later failure report can say which connection the work belonged to -- see
+  /// [onUnhealthy]. It carries no meaning beyond equality.
+  int get connectionGeneration;
+
   /// The Host context for the admitted session, or `null` before admission or after teardown.
   /// @return The current session's Host identity and metadata, or `null` when no session is admitted.
   DovahLinkHost? get currentHost;
@@ -90,7 +96,15 @@ abstract interface class ISessionService {
 
   /// Reports that the connection is no longer healthy (a send failure, a timeout, or a transport
   /// error/close) and must be torn down.
-  void onUnhealthy(Exception reason);
+  ///
+  /// [connectionGeneration], when supplied, is the [ISessionService.connectionGeneration] captured
+  /// when the failing work began. A report whose connection has since ended or been superseded is
+  /// ignored: an asynchronous failure belonging to an old connection must never start recovery for
+  /// it after a deliberate disconnect or recovery give-up, nor tear down a newer connection.
+  /// @param reason Why the connection is considered unhealthy.
+  /// @param connectionGeneration The connection the failing work belonged to, or `null` for a
+  /// report about whichever connection is current.
+  void onUnhealthy(Exception reason, {int? connectionGeneration});
 
   /// Reports a protocol-level anomaly on an otherwise-live connection (malformed JSON, an
   /// unmatched correlation ID, or an unrecognized DTO-boundary value) that must be torn down
@@ -215,6 +229,10 @@ class SessionService implements ISessionService {
   @override
   DovahLinkTrustState? get currentTrustState => _state.trustState;
 
+  /// Implements [ISessionService.connectionGeneration].
+  @override
+  int get connectionGeneration => _state.connectionGeneration;
+
   /// Implements [ISessionService.currentHost].
   @override
   DovahLinkHost? get currentHost => _state.currentHost;
@@ -314,9 +332,16 @@ class SessionService implements ISessionService {
   /// Implements [ISessionService.onUnhealthy]. Ordinary transport loss: tears down, and -- only if
   /// that teardown was not raced by a concurrent administrative invalidation or explicit
   /// disconnect, and both a last-connected URI and [onOrdinaryTransportLoss] are available --
-  /// resolves directly to `reconnecting` and hands off to attempt bounded automatic recovery.
+  /// resolves directly to `reconnecting` and hands off to attempt bounded automatic recovery. A
+  /// report carrying a [connectionGeneration] that is no longer current belongs to an ended
+  /// connection and is dropped without any state change, so it can neither restart recovery after a
+  /// deliberate disconnect or give-up nor tear down a newer connection.
   @override
-  void onUnhealthy(Exception reason) {
+  void onUnhealthy(Exception reason, {int? connectionGeneration}) {
+    if (connectionGeneration != null &&
+        connectionGeneration != _state.connectionGeneration) {
+      return;
+    }
     unawaited(_beginRecoveryAfterOrdinaryTransportLoss(reason));
   }
 

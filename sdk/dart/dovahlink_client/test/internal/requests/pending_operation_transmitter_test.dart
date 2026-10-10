@@ -72,6 +72,13 @@ void main() {
     bookkeeping = MockPendingOperationBookkeeping();
     clientIdCache = MockClientIdCache();
     when(() => sessionService.currentSessionId).thenReturn('session-1');
+    when(() => sessionService.connectionGeneration).thenReturn(7);
+    when(
+      () => sessionService.onUnhealthy(
+        any(),
+        connectionGeneration: any(named: 'connectionGeneration'),
+      ),
+    ).thenAnswer((_) {});
     when(() => transport.send(any())).thenAnswer((_) async {});
     when(() => clientIdCache.clientId).thenReturn('client-1');
   });
@@ -182,13 +189,65 @@ void main() {
         await Future<void>.delayed(const Duration(milliseconds: 40));
 
         final List<Object?> reported = verify(
-          () => sessionService.onUnhealthy(captureAny()),
+          () =>
+              sessionService.onUnhealthy(captureAny(), connectionGeneration: 7),
         ).captured;
         expect(reported.single, isA<DovahLinkConnectionException>());
         expect(
           (reported.single! as DovahLinkConnectionException).message,
           contains('Timed out awaiting a reply'),
         );
+        operation.timer?.cancel();
+      },
+    );
+
+    test(
+      'Method transmit reports against the generation captured when it began, not the one '
+      'current when the timeout fires',
+      () async {
+        final PendingOperation operation = Fixtures.buildPendingOperation();
+        final PendingOperationTransmitter transmitter = buildTransmitter(
+          transport: transport,
+          sessionService: sessionService,
+          bookkeeping: bookkeeping,
+          clientIdCache: clientIdCache,
+        );
+
+        transmitter.transmit(operation);
+        when(() => sessionService.connectionGeneration).thenReturn(8);
+        await Future<void>.delayed(const Duration(milliseconds: 40));
+
+        verify(
+          () => sessionService.onUnhealthy(any(), connectionGeneration: 7),
+        ).called(1);
+        verifyNever(
+          () => sessionService.onUnhealthy(any(), connectionGeneration: 8),
+        );
+      },
+    );
+
+    test(
+      'Method transmit reports a late send failure against the generation captured when the '
+      'send began',
+      () async {
+        final Completer<void> send = Completer<void>();
+        when(() => transport.send(any())).thenAnswer((_) => send.future);
+        final PendingOperation operation = Fixtures.buildPendingOperation();
+        final PendingOperationTransmitter transmitter = buildTransmitter(
+          transport: transport,
+          sessionService: sessionService,
+          bookkeeping: bookkeeping,
+          clientIdCache: clientIdCache,
+        );
+
+        transmitter.transmit(operation);
+        when(() => sessionService.connectionGeneration).thenReturn(8);
+        send.completeError(StateError('late'));
+        await pumpEventQueue();
+
+        verify(
+          () => sessionService.onUnhealthy(any(), connectionGeneration: 7),
+        ).called(1);
         operation.timer?.cancel();
       },
     );
@@ -211,7 +270,8 @@ void main() {
         await pumpEventQueue();
 
         final List<Object?> reported = verify(
-          () => sessionService.onUnhealthy(captureAny()),
+          () =>
+              sessionService.onUnhealthy(captureAny(), connectionGeneration: 7),
         ).captured;
         expect(reported.single, isA<DovahLinkConnectionException>());
         expect(

@@ -122,6 +122,11 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
   /// Makes every [IDovahLinkTransport.send] call throw [error] instead of succeeding.
   Object? failSendWith;
 
+  /// Holds successive [IDovahLinkTransport.send] calls open: each send takes the first entry and
+  /// stays pending until the test completes it (successfully, or with an error to simulate a late
+  /// transport send failure).
+  final List<Completer<void>> heldSends = <Completer<void>>[];
+
   /// Makes the next [IDovahLinkTransport.close] call throw [error] instead of succeeding.
   Object? failCloseWith;
 
@@ -192,6 +197,9 @@ class FakeDovahLinkTransport implements IDovahLinkTransport {
       throw failure;
     }
     sent.add(text);
+    if (heldSends.isNotEmpty) {
+      await heldSends.removeAt(0).future;
+    }
     final String messageId =
         (jsonDecode(text) as JsonMap)['messageId'] as String;
     _pendingReplies.releaseFor(messageId, _requireIncoming());
@@ -6175,6 +6183,305 @@ void main() {
             DovahLinkKnownHostSessionState.connected,
           ],
         );
+      },
+    );
+  });
+
+  group('Behavior late transport failures from an ended connection behave correctly', () {
+    /// Establishes a trusted Known Host session on a fresh fast-reconnect client.
+    Future<
+      ({
+        FakeDovahLinkTransport transport,
+        InMemoryClientStorage storage,
+        DovahLinkClient client,
+        List<DovahLinkConnectionState> observed,
+      })
+    >
+    establish({Map<TimeoutClass, Duration>? timeoutDurations}) async {
+      final FakeDovahLinkTransport transport = FakeDovahLinkTransport();
+      final InMemoryClientStorage storage = InMemoryClientStorage();
+      final DovahLinkClient client = timeoutDurations == null
+          ? _buildFastReconnectClient(transport, storage)
+          : buildDovahLinkClientForTesting(
+              transport: transport,
+              storage: storage,
+              timeoutDurations: timeoutDurations,
+              reconnectAttemptDelays: const <Duration>[
+                Duration.zero,
+                Duration.zero,
+              ],
+              reconnectDeadline: const Duration(seconds: 30),
+            );
+      final List<DovahLinkConnectionState> observed =
+          <DovahLinkConnectionState>[];
+      final StreamSubscription<DovahLinkConnectionState> subscription = client
+          .connections
+          .stateChanges
+          .listen(observed.add);
+      addTearDown(subscription.cancel);
+      addTearDown(client.connections.disconnect);
+      await _connectAndTrustedHello(transport, client, storage);
+      return (
+        transport: transport,
+        storage: storage,
+        client: client,
+        observed: observed,
+      );
+    }
+
+    /// Starts a rename whose transport send stays open until [hold] is completed, returning the
+    /// request's own eventual outcome (the error, if it fails) without ever throwing.
+    Future<Object?> startHeldRename(
+      FakeDovahLinkTransport transport,
+      DovahLinkClient client,
+      Completer<void> hold,
+    ) {
+      transport.heldSends.add(hold);
+      return client.connections
+          .renameDevice('Late')
+          .then<Object?>((_) => null, onError: (Object error) => error);
+    }
+
+    Future<void> pump([int turns = 30]) async {
+      for (int i = 0; i < turns; i++) {
+        await pumpEventQueue();
+      }
+    }
+
+    test(
+      'Behavior a send failing after explicit disconnect does not restart recovery',
+      () async {
+        final s = await establish();
+        final Completer<void> hold = Completer<void>();
+        final Future<Object?> rename = startHeldRename(
+          s.transport,
+          s.client,
+          hold,
+        );
+        await pump(5);
+        await s.client.connections.disconnect();
+        await pump(5);
+        final int observedBefore = s.observed.length;
+        final int closesBefore = s.transport.closeCallCount;
+        final int connectsBefore = s.transport.connectCalls.length;
+
+        hold.completeError(const SocketException('late send failure'));
+        await pump();
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(s.observed, hasLength(observedBefore));
+        expect(s.transport.closeCallCount, closesBefore);
+        expect(s.transport.connectCalls, hasLength(connectsBefore));
+        expect(await rename, isA<DovahLinkConnectionException>());
+      },
+    );
+
+    test(
+      'Behavior a send failing after recovery gave up does not begin a second cycle',
+      () async {
+        final s = await establish();
+        final Completer<void> hold = Completer<void>();
+        final Future<Object?> rename = startHeldRename(
+          s.transport,
+          s.client,
+          hold,
+        );
+        await pump(5);
+        s.transport.failConnectWith = const SocketException('unreachable');
+        s.transport.failMessagesWith(const SocketException('dropped'));
+        await pump(40);
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+        final int observedBefore = s.observed.length;
+        final int closesBefore = s.transport.closeCallCount;
+
+        hold.completeError(const SocketException('late send failure'));
+        await pump();
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(s.observed, hasLength(observedBefore));
+        expect(s.transport.closeCallCount, closesBefore);
+        expect(await rename, isA<DovahLinkConnectionException>());
+      },
+    );
+
+    test(
+      'Behavior session A\'s late send failure does not tear down session B',
+      () async {
+        final s = await establish();
+        final Completer<void> hold = Completer<void>();
+        final Future<Object?> rename = startHeldRename(
+          s.transport,
+          s.client,
+          hold,
+        );
+        await pump(5);
+        await s.client.connections.disconnect();
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await s.client.connections.connectKnownHost(
+          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+        );
+        await pump(5);
+        expect(s.client.connections.state, DovahLinkConnectionState.connected);
+        final int observedBefore = s.observed.length;
+        final int closesBefore = s.transport.closeCallCount;
+
+        hold.completeError(const SocketException('session A send failure'));
+        await pump();
+
+        expect(s.client.connections.state, DovahLinkConnectionState.connected);
+        expect(s.observed, hasLength(observedBefore));
+        expect(s.transport.closeCallCount, closesBefore);
+        expect(await rename, isA<DovahLinkConnectionException>());
+      },
+    );
+
+    test(
+      'Behavior several obsolete failures cause no duplicate teardown or recovery',
+      () async {
+        final s = await establish();
+        final Completer<void> firstHold = Completer<void>();
+        final Completer<void> secondHold = Completer<void>();
+        final Future<Object?> first = startHeldRename(
+          s.transport,
+          s.client,
+          firstHold,
+        );
+        final Future<Object?> second = startHeldRename(
+          s.transport,
+          s.client,
+          secondHold,
+        );
+        await pump(5);
+        await s.client.connections.disconnect();
+        await pump(5);
+        final int observedBefore = s.observed.length;
+        final int closesBefore = s.transport.closeCallCount;
+
+        firstHold.completeError(const SocketException('late one'));
+        secondHold.completeError(const SocketException('late two'));
+        await pump();
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(s.observed, hasLength(observedBefore));
+        expect(s.transport.closeCallCount, closesBefore);
+        expect(await first, isA<DovahLinkConnectionException>());
+        expect(await second, isA<DovahLinkConnectionException>());
+      },
+    );
+
+    test(
+      'Behavior administrative invalidation stays terminal when an earlier send then fails',
+      () async {
+        final s = await establish();
+        final Completer<void> hold = Completer<void>();
+        final Future<Object?> rename = startHeldRename(
+          s.transport,
+          s.client,
+          hold,
+        );
+        await pump(5);
+        s.transport.queueResponse(_rawSessionInvalidated('revoked'));
+        await pump();
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        final int observedBefore = s.observed.length;
+        final int closesBefore = s.transport.closeCallCount;
+
+        hold.completeError(const SocketException('late send failure'));
+        await pump();
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(s.observed, hasLength(observedBefore));
+        expect(s.transport.closeCallCount, closesBefore);
+        expect(await rename, isA<DovahLinkConnectionException>());
+      },
+    );
+
+    test(
+      'Behavior a send failure from the active session still starts ordinary recovery',
+      () async {
+        final s = await establish();
+        final Completer<void> hold = Completer<void>();
+        final Future<Object?> rename = startHeldRename(
+          s.transport,
+          s.client,
+          hold,
+        );
+        await pump(5);
+        s.observed.clear();
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+
+        hold.completeError(const SocketException('active send failure'));
+        await pump(40);
+
+        expect(s.observed, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.connected,
+        ]);
+        expect(await rename, isA<DovahLinkConnectionException>());
+      },
+    );
+
+    test(
+      'Behavior a timeout from the active session still follows the recovery policy',
+      () async {
+        final s = await establish(
+          timeoutDurations: const <TimeoutClass, Duration>{
+            TimeoutClass.short: Duration(milliseconds: 20),
+            TimeoutClass.normal: Duration(milliseconds: 20),
+            TimeoutClass.heavy: Duration(milliseconds: 20),
+          },
+        );
+        s.observed.clear();
+        s.transport.failConnectWith = const SocketException('unreachable');
+
+        // No reply is queued, so the rename's own timeout is the failure under test.
+        final Future<Object?> rename = s.client.connections
+            .renameDevice('Late')
+            .then<Object?>((_) => null, onError: (Object error) => error);
+        for (
+          int i = 0;
+          i < 400 &&
+              s.client.connections.state !=
+                  DovahLinkConnectionState.disconnected;
+          i++
+        ) {
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+        }
+
+        expect(s.observed, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.disconnected,
+        ]);
+        expect(await rename, isA<DovahLinkConnectionException>());
       },
     );
   });

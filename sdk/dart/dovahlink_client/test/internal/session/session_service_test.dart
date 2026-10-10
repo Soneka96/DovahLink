@@ -566,6 +566,126 @@ void main() {
     );
 
     test(
+      'Method onUnhealthy acts on a report whose connection generation is still current',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
+        connectionGenerationValue = 4;
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('send failed'),
+          connectionGeneration: 4,
+        );
+        await pumpEventQueue();
+
+        expect(reconnectUris, hasLength(1));
+        verify(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method onUnhealthy ignores a report from an ended connection generation without teardown',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
+        connectionGenerationValue = 5;
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('late send failure'),
+          connectionGeneration: 4,
+        );
+        await pumpEventQueue();
+
+        expect(reconnectUris, isEmpty);
+        verifyNever(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        );
+        expect(connectionStateValue, DovahLinkConnectionState.connected);
+      },
+    );
+
+    test(
+      'Method onUnhealthy ignores a stale-generation report after administrative invalidation',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue =
+            DovahLinkConnectionState.administrativelyInvalidated;
+        isAdministrativelyInvalidatedValue = true;
+        connectionGenerationValue = 6;
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('late send failure'),
+          connectionGeneration: 5,
+        );
+        await pumpEventQueue();
+
+        expect(reconnectUris, isEmpty);
+        verifyNever(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method onUnhealthy ignores an old connection\'s report while the new one is '
+      'reauthenticating, and still acts on the new one\'s own',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.reauthenticating;
+        connectionGenerationValue = 8;
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('old connection'),
+          connectionGeneration: 7,
+        );
+        await pumpEventQueue();
+        verifyNever(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        );
+
+        service.onUnhealthy(
+          const DovahLinkConnectionException('new connection'),
+          connectionGeneration: 8,
+        );
+        await pumpEventQueue();
+        verify(
+          () => teardownCoordinator.tearDown(
+            any(),
+            canRecover: any(named: 'canRecover'),
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method onUnhealthy without a generation still reports about the current connection',
+      () async {
+        lastConnectedUriValue = Uri.parse('ws://127.0.0.1:58231/');
+        connectionStateValue = DovahLinkConnectionState.connected;
+        connectionGenerationValue = 9;
+
+        service.onUnhealthy(const DovahLinkConnectionException('lost'));
+        await pumpEventQueue();
+
+        expect(reconnectUris, hasLength(1));
+      },
+    );
+
+    test(
       'Method onUnhealthy skips recovery when explicit disconnect begins during teardown',
       () async {
         final Completer<void> ordinaryTeardown = Completer<void>();

@@ -76,6 +76,9 @@ class PendingOperationTransmitter {
     }
 
     final String messageId = _randomIdGenerator.generateMessageId();
+    // The connection this attempt belongs to: its send and timeout can complete long after that
+    // connection ended, and must then not be reported against whichever connection is current.
+    final int connectionGeneration = _sessionService.connectionGeneration;
     _bookkeeping.register(messageId, operation);
     operation.timer = Timer(
       _timeoutDurations[operation.policy.timeoutClass]!,
@@ -83,6 +86,7 @@ class PendingOperationTransmitter {
         DovahLinkConnectionException(
           'Timed out awaiting a reply to ${operation.messageType}.',
         ),
+        connectionGeneration: connectionGeneration,
       ),
     );
 
@@ -102,6 +106,7 @@ class PendingOperationTransmitter {
           DovahLinkConnectionException(
             'Failed to send ${operation.messageType}: $error',
           ),
+          connectionGeneration: connectionGeneration,
         );
       }),
     );
