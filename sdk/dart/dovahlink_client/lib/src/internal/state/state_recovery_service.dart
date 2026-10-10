@@ -102,10 +102,13 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
     final Completer<void> completion = Completer<void>();
     _recoveryTask = completion.future;
     _domain.tracker.beginRecovery();
+    // Failures below are reported about whichever connection is current when they are processed,
+    // never about the one the request began on: a retry-safe snapshot request orphaned by a
+    // transport loss is retransmitted into the next session, so its reply or error belongs to
+    // that session. A failure left over from an ended connection never reaches those reports --
+    // teardown has already reset the domain to `notSubscribed`, which every path below checks
+    // first, and the transmitter reports its own send and timeout failures per wire attempt.
     int retryIndex = 0;
-    // The connection the in-flight request belongs to. Its failure is reported against this
-    // identity, so a request that fails after its connection ended cannot tear down a newer one.
-    int? requestConnectionGeneration;
     try {
       while (true) {
         if (_domainIsNotSubscribed) {
@@ -119,7 +122,6 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
             'Cannot request state recovery without an admitted session.',
           );
         }
-        requestConnectionGeneration = _sessionService.connectionGeneration;
 
         final Envelope envelope;
         try {
@@ -167,10 +169,7 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           if (error.retryable &&
               _sessionService.connectionState ==
                   DovahLinkConnectionState.connected) {
-            _sessionService.onUnhealthy(
-              error,
-              connectionGeneration: requestConnectionGeneration,
-            );
+            _sessionService.onUnhealthy(error);
           }
           return;
         } on Exception catch (error) {
@@ -185,10 +184,7 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
           _domain.tracker.failRecovery();
           if (_sessionService.connectionState ==
               DovahLinkConnectionState.connected) {
-            _sessionService.onUnhealthy(
-              error,
-              connectionGeneration: requestConnectionGeneration,
-            );
+            _sessionService.onUnhealthy(error);
           }
           return;
         }
@@ -273,10 +269,7 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
       _domain.tracker.failRecovery();
       if (_sessionService.connectionState ==
           DovahLinkConnectionState.connected) {
-        _sessionService.onUnhealthy(
-          error,
-          connectionGeneration: requestConnectionGeneration,
-        );
+        _sessionService.onUnhealthy(error);
       }
     } finally {
       _restartAfterSnapshot = false;

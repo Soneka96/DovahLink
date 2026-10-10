@@ -6486,6 +6486,349 @@ void main() {
     );
   });
 
+  group('Behavior retry-safe snapshot recovery across reconnect behaves correctly', () {
+    /// Message IDs of every client-sent [messageType] on [transport], in send order.
+    List<String> sentIds(
+      FakeDovahLinkTransport transport,
+      String messageType,
+    ) => transport.sent
+        .map((String raw) => jsonDecode(raw) as JsonMap)
+        .where((JsonMap envelope) => envelope['messageType'] == messageType)
+        .map((JsonMap envelope) => envelope['messageId'] as String)
+        .toList();
+
+    Future<void> pump([int turns = 30]) async {
+      for (int i = 0; i < turns; i++) {
+        await pumpEventQueue();
+      }
+    }
+
+    /// Connects a trusted client with Character Level subscribed and synchronized at revision 1,
+    /// then delivers a revision gap so it sends one `snapshot_request` that stays unanswered.
+    Future<
+      ({
+        FakeDovahLinkTransport transport,
+        DovahLinkClient client,
+        List<DovahLinkConnectionState> states,
+        List<StateSynchronization<CharacterLevelState>> levels,
+        String requestId,
+      })
+    >
+    startRecovering() async {
+      final FakeDovahLinkTransport transport = FakeDovahLinkTransport();
+      final InMemoryClientStorage storage = InMemoryClientStorage();
+      final DovahLinkClient client = _buildFastReconnectClient(
+        transport,
+        storage,
+      );
+      final List<DovahLinkConnectionState> states =
+          <DovahLinkConnectionState>[];
+      final List<StateSynchronization<CharacterLevelState>> levels =
+          <StateSynchronization<CharacterLevelState>>[];
+      final StreamSubscription<DovahLinkConnectionState> stateSubscription =
+          client.connections.stateChanges.listen(states.add);
+      addTearDown(stateSubscription.cancel);
+      addTearDown(client.connections.disconnect);
+      await _connectAndTrustedHello(transport, client, storage);
+      final StreamSubscription<StateSynchronization<CharacterLevelState>>
+      levelSubscription = client.currentHost.character.levelChanges.listen(
+        levels.add,
+      );
+      addTearDown(levelSubscription.cancel);
+      await _subscribeStateAreas(transport, client, <DovahLinkStateArea>[
+        DovahLinkStateArea.characterLevel,
+      ]);
+      transport.queueRawResponse(
+        _rawStateSnapshot(stateArea: 'character_level', revision: 1, value: 10),
+      );
+      await pump(5);
+      transport.queueRawResponse(
+        _rawStateEvent(
+          stateArea: 'character_level',
+          baseRevision: 5,
+          revision: 6,
+          value: 12,
+        ),
+      );
+      await pump(5);
+      final List<String> requests = sentIds(transport, 'snapshot_request');
+      expect(requests, hasLength(1));
+      return (
+        transport: transport,
+        client: client,
+        states: states,
+        levels: levels,
+        requestId: requests.single,
+      );
+    }
+
+    /// Drops the transport so recovery reconnects, re-authenticates, retransmits the orphaned
+    /// snapshot request, and restores the desired subscription. Acknowledges that restoration so
+    /// the domain is subscribed again. Returns the retransmitted request's message ID.
+    Future<String> reconnectAndRestore(FakeDovahLinkTransport transport) async {
+      transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+      transport.queueResponse(
+        _rawFixture('capabilities/capabilities-host.json'),
+      );
+      transport.failMessagesWith(const SocketException('dropped'));
+      await pump(40);
+      final List<String> requests = sentIds(transport, 'snapshot_request');
+      expect(requests, hasLength(2));
+      final JsonMap ack =
+          jsonDecode(_rawSubscriptionAck(accepted: <String>['character_level']))
+              as JsonMap;
+      ack['correlationId'] = sentIds(transport, 'subscribe').last;
+      transport.queueRawResponse(jsonEncode(ack));
+      await pump(10);
+      return requests.last;
+    }
+
+    String rawHostError({
+      required String correlationId,
+      required String code,
+      required bool retryable,
+    }) => jsonEncode(<String, dynamic>{
+      'messageType': 'error',
+      'messageId': 'message-error-$code',
+      'sessionId': 'session-paired-1',
+      'correlationId': correlationId,
+      'payload': <String, dynamic>{
+        'code': code,
+        'message': 'Snapshot could not be produced.',
+        'retryable': retryable,
+      },
+      'playContextId': null,
+      'clientId': null,
+    });
+
+    test(
+      'a retransmitted snapshot request receives and applies its valid response',
+      () async {
+        final s = await startRecovering();
+        final String retransmitted = await reconnectAndRestore(s.transport);
+
+        s.transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_level',
+            revision: 6,
+            value: 12,
+            correlationId: retransmitted,
+          ),
+        );
+        await pump(10);
+
+        expect(s.levels.last.status, DovahLinkStateStatus.synchronized);
+        expect(s.levels.last.revision, 6);
+        expect(s.levels.last.value?.value, 12);
+        expect(s.client.connections.state, DovahLinkConnectionState.connected);
+      },
+    );
+
+    test(
+      'a retryable Host error on the retransmitted request is a current-connection '
+      'failure and follows the recovery policy',
+      () async {
+        final s = await startRecovering();
+        final String retransmitted = await reconnectAndRestore(s.transport);
+        final int statesBefore = s.states.length;
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+
+        s.transport.queueRawResponse(
+          rawHostError(
+            correlationId: retransmitted,
+            code: 'internal_error',
+            retryable: true,
+          ),
+        );
+        await pump(40);
+
+        expect(
+          s.states.skip(statesBefore),
+          containsAllInOrder(<DovahLinkConnectionState>[
+            DovahLinkConnectionState.reconnecting,
+            DovahLinkConnectionState.reauthenticating,
+            DovahLinkConnectionState.connected,
+          ]),
+        );
+      },
+    );
+
+    test(
+      'a non-retryable Host error on the retransmitted request fails recovery without '
+      'tearing the connection down',
+      () async {
+        final s = await startRecovering();
+        final String retransmitted = await reconnectAndRestore(s.transport);
+        final int closesBefore = s.transport.closeCallCount;
+        final int statesBefore = s.states.length;
+
+        s.transport.queueRawResponse(
+          rawHostError(
+            correlationId: retransmitted,
+            code: 'internal_error',
+            retryable: false,
+          ),
+        );
+        await pump(20);
+
+        expect(s.client.connections.state, DovahLinkConnectionState.connected);
+        expect(s.transport.closeCallCount, closesBefore);
+        expect(s.states, hasLength(statesBefore));
+      },
+    );
+
+    test(
+      'a transport failure on the retransmitted wire attempt starts recovery again',
+      () async {
+        final s = await startRecovering();
+        await reconnectAndRestore(s.transport);
+        final int statesBefore = s.states.length;
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+
+        s.transport.failMessagesWith(const SocketException('dropped again'));
+        await pump(40);
+
+        expect(
+          s.states.skip(statesBefore),
+          containsAllInOrder(<DovahLinkConnectionState>[
+            DovahLinkConnectionState.reconnecting,
+            DovahLinkConnectionState.reauthenticating,
+            DovahLinkConnectionState.connected,
+          ]),
+        );
+      },
+    );
+
+    test(
+      'a request failed by explicit disconnect cannot mark or tear down the next session',
+      () async {
+        final s = await startRecovering();
+        await s.client.connections.disconnect();
+        await pump(10);
+
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await s.client.connections.connectKnownHost(
+          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+        );
+        await pump(10);
+        final int closesBefore = s.transport.closeCallCount;
+        final int levelsBefore = s.levels.length;
+        await pump(20);
+
+        expect(s.client.connections.state, DovahLinkConnectionState.connected);
+        expect(s.transport.closeCallCount, closesBefore);
+        expect(s.levels, hasLength(levelsBefore));
+        expect(
+          s.levels.any(
+            (StateSynchronization<CharacterLevelState> level) =>
+                level.status == DovahLinkStateStatus.failed,
+          ),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'removing the subscription during recovery makes the late response inert',
+      () async {
+        final s = await startRecovering();
+        s.transport.queueResponse(
+          _rawSubscriptionAck(accepted: const <String>[]),
+        );
+        await s.client.currentHost.unsubscribeStateArea(
+          DovahLinkStateArea.characterLevel,
+        );
+        await pump(5);
+        final int closesBefore = s.transport.closeCallCount;
+
+        s.transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_level',
+            revision: 6,
+            value: 12,
+            correlationId: s.requestId,
+          ),
+        );
+        await pump(10);
+
+        expect(s.levels.last.status, DovahLinkStateStatus.notSubscribed);
+        expect(s.client.connections.state, DovahLinkConnectionState.connected);
+        expect(s.transport.closeCallCount, closesBefore);
+      },
+    );
+
+    test(
+      'a newer play context is not overwritten by an older recovery result',
+      () async {
+        final s = await startRecovering();
+        s.transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_level',
+            revision: 1,
+            value: 30,
+            stateAuthorityId: 'authority-2',
+            playContextId: 'context-2',
+          ),
+        );
+        await pump(5);
+
+        s.transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_level',
+            revision: 6,
+            value: 12,
+            correlationId: s.requestId,
+          ),
+        );
+        await pump(10);
+
+        expect(s.levels.last.playContextId, 'context-2');
+        expect(s.levels.last.stateAuthorityId, 'authority-2');
+        expect(s.levels.last.value?.value, 30);
+        expect(s.client.connections.state, DovahLinkConnectionState.connected);
+      },
+    );
+
+    test(
+      'administrative invalidation stays terminal with a recovery request pending',
+      () async {
+        final s = await startRecovering();
+        final int closesBefore = s.transport.closeCallCount;
+
+        s.transport.queueRawResponse(_rawSessionInvalidated('revoked'));
+        await pump(20);
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(s.transport.closeCallCount, closesBefore + 1);
+        expect(
+          s.states.where(
+            (DovahLinkConnectionState state) =>
+                state == DovahLinkConnectionState.reconnecting,
+          ),
+          isEmpty,
+        );
+      },
+    );
+  });
+
   group('Behavior credential cleanup during automatic reconnect behaves correctly', () {
     test(
       'Behavior automatic reconnect discards a credential the host rejects as blocked while '

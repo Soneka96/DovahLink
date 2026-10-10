@@ -661,7 +661,7 @@ void main() {
     );
 
     test(
-      'Method recover reports a transport failure against the connection its request began on',
+      'Method recover reports a transport failure about the current connection even when the request began on an earlier one',
       () async {
         emitStaleState();
         await Future<void>.delayed(Duration.zero);
@@ -675,14 +675,14 @@ void main() {
         await service.recover();
 
         verify(
-          () => session.onUnhealthy(any(), connectionGeneration: 3),
+          () => session.onUnhealthy(any(), connectionGeneration: null),
         ).called(1);
-        verifyNever(() => session.onUnhealthy(any(), connectionGeneration: 4));
+        verifyNever(() => session.onUnhealthy(any(), connectionGeneration: 3));
       },
     );
 
     test(
-      'Method recover reports a retryable Host error against the connection its request began on',
+      'Method recover reports a retryable Host error about the current connection even when the request began on an earlier one',
       () async {
         emitStaleState();
         await Future<void>.delayed(Duration.zero);
@@ -698,14 +698,14 @@ void main() {
         await service.recover();
 
         verify(
-          () => session.onUnhealthy(any(), connectionGeneration: 3),
+          () => session.onUnhealthy(any(), connectionGeneration: null),
         ).called(1);
       },
     );
 
     test(
-      'Method recover reports a failure while applying a Snapshot against the connection its '
-      'request began on',
+      'Method recover reports a failure while applying a Snapshot about the current connection even when the '
+      'request began on an earlier one',
       () async {
         when(
           () => tracker.applySnapshot(
@@ -726,9 +726,9 @@ void main() {
         await service.recover();
 
         verify(
-          () => session.onUnhealthy(any(), connectionGeneration: 3),
+          () => session.onUnhealthy(any(), connectionGeneration: null),
         ).called(1);
-        verifyNever(() => session.onUnhealthy(any(), connectionGeneration: 4));
+        verifyNever(() => session.onUnhealthy(any(), connectionGeneration: 3));
       },
     );
 
