@@ -1,7 +1,7 @@
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/player_location_state_module.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/single_domain_state_module.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_event_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
@@ -40,10 +40,14 @@ Map<String, Object?> _locationData({
 
 /// Tests the player-location tracker registration and Snapshot synchronization path.
 void main() {
-  late IPlayerLocationStateModule module;
+  late SingleDomainStateModule<PlayerLocationState?> module;
 
   setUp(() {
-    module = PlayerLocationStateModule();
+    module = SingleDomainStateModule<PlayerLocationState?>(
+      stateArea: DovahLinkStateArea.playerLocation.protocolValue,
+      decode: decodePlayerLocationState,
+      isUnavailable: (PlayerLocationState? state) => state == null,
+    );
   });
 
   group('Property domain behaves correctly', () {
