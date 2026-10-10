@@ -32,19 +32,19 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_trust_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/character_state_module.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/game_time_state_module.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/player_location_state_module.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/single_domain_state_module.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_composition.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/tracked_quests_state_module.dart';
 import 'package:dovahlink_client_sdk/src/persistence/client_storage.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/shared/constants.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
-import 'package:dovahlink_client_sdk/src/state/character_level_state.dart';
+import 'package:dovahlink_client_sdk/src/state/game_time_state.dart';
+import 'package:dovahlink_client_sdk/src/state/player_location_state.dart';
+import 'package:dovahlink_client_sdk/src/state/tracked_quests_state.dart';
 import 'package:dovahlink_client_sdk/src/transport/websocket_transport.dart';
 
 /// A single Flutter/Redux-independent DovahLink client engine, exposed through grouped Host,
@@ -156,19 +156,35 @@ class DovahLinkClient {
         });
 
     final ICharacterStateModule characterState = CharacterStateModule();
-    final IGameTimeStateModule gameTimeState = GameTimeStateModule();
-    final IPlayerLocationStateModule playerLocationState =
-        PlayerLocationStateModule();
-    final ITrackedQuestsStateModule trackedQuestsState =
-        TrackedQuestsStateModule();
+    final SingleDomainStateModule<GameTimeState?> gameTimeState =
+        SingleDomainStateModule<GameTimeState?>(
+          stateArea: DovahLinkStateArea.gameTime.protocolValue,
+          decode: decodeGameTimeState,
+          isUnavailable: (GameTimeState? state) => state == null,
+        );
+    final SingleDomainStateModule<PlayerLocationState?> playerLocationState =
+        SingleDomainStateModule<PlayerLocationState?>(
+          stateArea: DovahLinkStateArea.playerLocation.protocolValue,
+          decode: decodePlayerLocationState,
+          isUnavailable: (PlayerLocationState? state) => state == null,
+        );
+    final SingleDomainStateModule<TrackedQuestsState?> trackedQuestsState =
+        SingleDomainStateModule<TrackedQuestsState?>(
+          stateArea: DovahLinkStateArea.trackedQuests.protocolValue,
+          decode: decodeTrackedQuestsState,
+          isUnavailable: (TrackedQuestsState? state) => state == null,
+        );
+    // The one registered definition list: message dispatch and Event recovery both derive from it.
+    final List<IStateDomainDefinition<Object?>> stateDomains =
+        <IStateDomainDefinition<Object?>>[
+          ...characterState.domains,
+          playerLocationState.domain,
+          gameTimeState.domain,
+          trackedQuestsState.domain,
+        ];
     final IStateMessageHandler stateMessageHandler = StateMessageHandler(
       sessionService: _sessionService,
-      domains: <IStateDomainDefinition<Object?>>[
-        ...characterState.domains,
-        playerLocationState.domain,
-        gameTimeState.domain,
-        trackedQuestsState.domain,
-      ],
+      domains: stateDomains,
     );
     final IUnsolicitedMessageHandler unsolicitedMessageHandler =
         UnsolicitedMessageHandler(
@@ -207,13 +223,11 @@ class DovahLinkClient {
       stateMessageHandler: stateMessageHandler,
     );
 
-    final StateRecoveryService<CharacterLevelState> levelRecoveryService =
-        StateRecoveryService<CharacterLevelState>(
-          domain: characterState.levelDomain,
-          requestService: _requestService,
-          sessionService: _sessionService,
-        );
-    levelRecoveryService.start();
+    startStateRecovery(
+      domains: stateDomains,
+      requestService: _requestService,
+      sessionService: _sessionService,
+    );
 
     final SessionAdmissionService sessionAdmissionService =
         SessionAdmissionService(

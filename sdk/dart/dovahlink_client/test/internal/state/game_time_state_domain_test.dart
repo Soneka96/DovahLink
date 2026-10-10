@@ -1,7 +1,7 @@
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/game_time_state_module.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/single_domain_state_module.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_event_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
@@ -37,10 +37,14 @@ Map<String, Object?> _gameTimeData({
 
 /// Tests the independent game-time registration and Snapshot synchronization path.
 void main() {
-  late IGameTimeStateModule module;
+  late SingleDomainStateModule<GameTimeState?> module;
 
   setUp(() {
-    module = GameTimeStateModule();
+    module = SingleDomainStateModule<GameTimeState?>(
+      stateArea: DovahLinkStateArea.gameTime.protocolValue,
+      decode: decodeGameTimeState,
+      isUnavailable: (GameTimeState? state) => state == null,
+    );
   });
 
   group('Property domain behaves correctly', () {
