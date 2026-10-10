@@ -490,6 +490,14 @@ called by `PairingService` after a successful pairing acknowledgement). No other
 `connect`/`disconnect` commands via `ISessionService` and the same `hello` operations via
 `IAuthenticationService`. `SessionService` remains the sole connection-state owner. Established
 recovery alone enters `reconnecting` after ordinary transport loss and `reauthenticating` while its
-reconnected transport awaits `hello`. Initial retries remain a separate intent, report their
+reconnected transport awaits `hello`. An eligible ordinary loss resolves directly from `connected`
+to `reconnecting`: `ConnectionTeardownCoordinator.tearDown` asks `SessionService` (through a
+`canRecover` callback evaluated at the reset point, after every generation and invalidation guard)
+whether recovery will follow, and `SessionState.resetAfterTeardown` then never publishes a
+transient `disconnected`. Ineligibility (no endpoint or callback, stale handoff, explicit
+disconnect, shutdown, administrative invalidation) ends in `disconnected` or
+`administrativelyInvalidated` as before, so `disconnected` is always terminal for its session.
+Teardown still resets every accepted gameplay domain to `notSubscribed` with no value; retaining
+values across recovery is a separate, future decision. Initial retries remain a separate intent, report their
 `inactive`/`retrying` status through the grouped connection API, and do not present themselves as
 established-session recovery.

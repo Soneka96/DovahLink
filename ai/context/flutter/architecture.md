@@ -156,12 +156,16 @@ areas after SDK trust is established. It forwards each SDK synchronization value
 the app does not reproduce SDK domain models or synchronization semantics.
 
 Gameplay observation follows the admitted session, not the Session Shell route. Returning to
-Connections leaves the session and its listeners active. Ordinary reconnect keeps those listeners
-attached under the same observation token so the SDK can publish stale/recovering states and restore
-desired intent. Each admitted observation has an app-local token captured by its stream callbacks
+Connections leaves the session and its listeners active. Ordinary reconnect (`connected →
+reconnecting → reauthenticating → connected`, with no transient `disconnected`) keeps those
+listeners attached under the same observation token, keeps the requested-area tracking, and issues
+no second subscription round, because the SDK restores desired intent itself. The SDK still resets
+every accepted domain to `notSubscribed` with no value during teardown, so the projection shows no
+gameplay values while recovering and receives new baselines once the session is admitted again;
+Flutter neither fabricates nor retains values. Each admitted observation has an app-local token captured by its stream callbacks
 and required-area request sequence; work may dispatch, report, or continue only while that token is
-still current for its Redux store. A disconnected or administratively invalidated session invalidates
-its token before cancellation and resets the projected slice; the middleware does not send
+still current for its Redux store. A `disconnected` (explicit disconnect or recovery give-up) or administratively invalidated session
+invalidates its token before cancellation and resets the projected slice; the middleware does not send
 unsubscribe requests after session teardown. The SDK owns whether desired intent is cleared or
 dormant. A later trusted session receives a new token and observes the SDK's current streams without
 comparing Host IDs or play-context IDs in Flutter.
@@ -170,8 +174,10 @@ Keep the domain distinctions in Redux: Vitals remain one coherent group with raw
 values; XP stays numeric without a percentage; Identity remains complete; the three supernatural
 predicates remain independent; Location retains cell, selected location, and worldspace; Game Time
 remains Skyrim calendar data; and Tracked Quests remains the complete plural collection with every
-objective instance. An empty tracked-quest list, unavailable nullable values, all-false traits, and
-stale retained values remain distinguishable through synchronization status.
+objective instance. An empty tracked-quest list, unavailable nullable values, and all-false traits
+remain distinguishable through synchronization status. Values the SDK reports as retained while
+unavailable within one session stay distinguishable the same way; values do not survive SDK
+teardown or recovery today.
 
 `SessionOverviewViewModel` exposes these selector results to the Session Overview. Widgets must
 not subscribe directly to SDK streams, call SDK live-state subscription APIs, or bypass the approved
