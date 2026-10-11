@@ -5,6 +5,7 @@ using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Readiness;
 using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
@@ -2265,6 +2266,114 @@ public class PublicHelloAdmissionTests
         Assert.Equal(PublicProtocolErrorCode.MalformedMessage, error.Code);
     }
 
+    // ---- gameplay_readiness publication ----
+
+    /// <summary>
+    /// Verifies on the actual connection that a restricted (unpaired) admission sends hello_ack, then
+    /// capabilities, then the first readiness message, with only the coarse payload and its own session.
+    /// </summary>
+    [Fact]
+    public void HandleMessageAsync_UnpairedAdmission_PublishesReadinessAfterHelloAckAndCapabilities()
+    {
+        var evaluator = new FakeGameplayReadinessEvaluator { IsReady = true };
+        var publisher = new PublicGameplayReadinessPublisher(
+            evaluator, new PublicEnvelopeCodec(), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
+        var context = new TestContext(readinessPublisher: publisher);
+
+        AdmitViaUnpairedHello(context, out string sessionId, out _);
+
+        Assert.Equal(
+            [PublicMessageType.HelloAck, PublicMessageType.Capabilities, PublicMessageType.GameplayReadiness],
+            SentMessageTypes(context));
+        (PublicEnvelope readinessEnvelope, GameplayReadinessPayload readiness) =
+            DecodeSent<GameplayReadinessPayload>(context.Codec, context.FakeConnection.SentPayloads[2]);
+        Assert.Equal(sessionId, readinessEnvelope.SessionId);
+        Assert.Null(readinessEnvelope.CorrelationId);
+        Assert.True(readiness.Ready);
+        Assert.Equal(1, readiness.Sequence);
+    }
+
+    /// <summary>Verifies that a trusted (paired) admission receives the same coarse readiness value in the same position.</summary>
+    [Fact]
+    public void HandleMessageAsync_TrustedAdmission_PublishesTheSameReadinessAfterHelloAckAndCapabilities()
+    {
+        var evaluator = new FakeGameplayReadinessEvaluator { IsReady = true };
+        var publisher = new PublicGameplayReadinessPublisher(
+            evaluator, new PublicEnvelopeCodec(), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
+        var context = new TestContext(readinessPublisher: publisher);
+
+        AdmitViaTrustedDeviceCredentialHello(context, out _, out _);
+
+        Assert.Equal(
+            [PublicMessageType.HelloAck, PublicMessageType.Capabilities, PublicMessageType.GameplayReadiness],
+            SentMessageTypes(context));
+        (_, GameplayReadinessPayload readiness) = DecodeSent<GameplayReadinessPayload>(context.Codec, context.FakeConnection.SentPayloads[2]);
+        Assert.True(readiness.Ready);
+        Assert.Equal(1, readiness.Sequence);
+    }
+
+    /// <summary>Verifies that readiness changes reach an admitted session without reconnect, and stop once the connection ends.</summary>
+    [Fact]
+    public void HandleMessageAsync_ReadinessChangeAfterAdmission_IsDeliveredUntilConnectionEnds()
+    {
+        var evaluator = new FakeGameplayReadinessEvaluator();
+        var publisher = new PublicGameplayReadinessPublisher(
+            evaluator, new PublicEnvelopeCodec(), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
+        var context = new TestContext(readinessPublisher: publisher);
+        AdmitViaUnpairedHello(context, out _, out _);
+
+        evaluator.SetReady(true);
+        (_, GameplayReadinessPayload changed) = DecodeSent<GameplayReadinessPayload>(context.Codec, context.FakeConnection.SentPayloads[^1]);
+        Assert.True(changed.Ready);
+        Assert.Equal(2, changed.Sequence);
+
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+        int sentAtEnd = context.FakeConnection.SentPayloads.Count;
+        evaluator.SetReady(false);
+
+        Assert.Equal(sentAtEnd, context.FakeConnection.SentPayloads.Count);
+        Assert.False(evaluator.HasSubscribers);
+    }
+
+    /// <summary>Verifies that a rejected hello never binds the readiness publisher: nothing is published to an unauthenticated connection.</summary>
+    [Fact]
+    public void HandleMessageAsync_RejectedHello_NeverPublishesReadiness()
+    {
+        var evaluator = new FakeGameplayReadinessEvaluator { IsReady = true };
+        var publisher = new PublicGameplayReadinessPublisher(
+            evaluator, new PublicEnvelopeCodec(), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
+        var context = new TestContext(readinessPublisher: publisher);
+        string clientId = Guid.NewGuid().ToString();
+        byte[] hello = BuildHello(
+            context.Codec, clientId, "hello-1",
+            new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+
+        Assert.DoesNotContain(PublicMessageType.GameplayReadiness, SentMessageTypes(context));
+        Assert.DoesNotContain(PublicMessageType.HelloAck, SentMessageTypes(context));
+        Assert.False(evaluator.HasSubscribers);
+    }
+
+    /// <summary>Verifies that without a publisher admission sends exactly hello_ack and capabilities, as before: the existing contract is unchanged.</summary>
+    [Fact]
+    public void HandleMessageAsync_NoReadinessPublisher_SendsOnlyHelloAckAndCapabilities()
+    {
+        var context = new TestContext();
+
+        AdmitViaUnpairedHello(context, out _, out _);
+
+        Assert.Equal([PublicMessageType.HelloAck, PublicMessageType.Capabilities], SentMessageTypes(context));
+    }
+
+    /// <summary>Lists the message type of every payload the connection received, in wire order.</summary>
+    private static PublicMessageType[] SentMessageTypes(TestContext context) =>
+        context.FakeConnection.SentPayloads.Select(payload =>
+        {
+            Assert.True(context.Codec.TryDecode(payload, out PublicEnvelope? envelope));
+            return envelope!.MessageType;
+        }).ToArray();
+
     // ---- Dispatch result wiring: violation count and trust-tier upgrade ----
 
     /// <summary>
@@ -2928,11 +3037,13 @@ public class PublicHelloAdmissionTests
         /// <param name="admissionDeadline">The handler's own pre-authentication admission deadline.</param>
         /// <param name="subscription">The handler's own state-area subscription capability. Defaults to <see langword="null"/>, under which subscribe and snapshot_request reject every request.</param>
         /// <param name="playContextTracker">The Host play-context identity source.</param>
+        /// <param name="readinessPublisher">The handler's own gameplay-readiness publisher. Defaults to <see langword="null"/>, under which no readiness message is sent.</param>
         public TestContext(
             int maxActiveSessions = int.MaxValue,
             TimeSpan? admissionDeadline = null,
             IPublicStateSubscription? subscription = null,
-            FakePlayContextTracker? playContextTracker = null)
+            FakePlayContextTracker? playContextTracker = null,
+            IPublicGameplayReadinessPublisher? readinessPublisher = null)
         {
             PlayContextTracker = playContextTracker ?? new FakePlayContextTracker();
             SessionRegistry = new FakeSessionRegistry(maxActiveSessions);
@@ -2941,7 +3052,8 @@ public class PublicHelloAdmissionTests
             Connection = new PublicConnectionContext(FakeConnection);
             Handler = new PublicHelloAdmissionHandler(
                 Codec, SessionRegistry, TrustStore, TokenAuthenticator, CredentialThrottle, PlayContextTracker, Clock,
-                Dispatcher, PairingCoordinator, new PublicSessionConnectionRegistry(), HostIdentity, admissionDeadline, subscription);
+                Dispatcher, PairingCoordinator, new PublicSessionConnectionRegistry(), HostIdentity, admissionDeadline, subscription,
+                readinessPublisher);
         }
     }
 

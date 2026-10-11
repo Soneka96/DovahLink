@@ -241,6 +241,47 @@ public class PublicClientServiceExtensionsTests
         await questRunTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
+    /// <summary>
+    /// Guards the staged activation boundary: the composed Host must not publish
+    /// <c>gameplay_readiness</c> to any session, because the current SDK treats an unrecognized message
+    /// type as a protocol violation. After <c>hello_ack</c> and <c>capabilities</c> the next frame a
+    /// real admitted client receives is the reply to its own ping.
+    /// </summary>
+    [Fact]
+    public async Task AddPublicClientServices_AdmittedSession_ReceivesNoReadinessMessage()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+        IPublicWebSocketListener listener = provider.GetRequiredService<IPublicWebSocketListener>();
+        Task publicRunTask = listener.RunAsync(shutdown.Token);
+        var codec = new PublicEnvelopeCodec();
+        using var clientWebSocket = new ClientWebSocket();
+        await clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{listener.BoundPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        var clientId = Guid.NewGuid().ToString();
+        byte[] hello = codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, null, null,
+            new HelloPayload { Endpoint = "client", ClientId = clientId, Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+        await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
+        var buffer = new byte[4096];
+
+        WebSocketReceiveResult helloAckResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, helloAckResult.Count), out PublicEnvelope? helloAck));
+        Assert.Equal(PublicMessageType.HelloAck, helloAck!.MessageType);
+        WebSocketReceiveResult capabilitiesResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, capabilitiesResult.Count), out PublicEnvelope? capabilities));
+        Assert.Equal(PublicMessageType.Capabilities, capabilities!.MessageType);
+
+        byte[] ping = codec.Encode(PublicMessageType.Ping, "ping-1", helloAck.SessionId, null, null, clientId, new EmptyPayload());
+        await clientWebSocket.SendAsync(ping, WebSocketMessageType.Text, true, CancellationToken.None);
+        WebSocketReceiveResult next = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, next.Count), out PublicEnvelope? nextEnvelope));
+        Assert.Equal(PublicMessageType.Pong, nextEnvelope!.MessageType);
+
+        shutdown.Cancel();
+        await publicRunTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
     /// <summary>Builds a real Core/Trust/AdapterIpc/PublicClient container -- the same registrations production composes it with.</summary>
     private static async Task<ServiceProvider> BuildProviderAsync(
         CancellationTokenSource shutdown,
