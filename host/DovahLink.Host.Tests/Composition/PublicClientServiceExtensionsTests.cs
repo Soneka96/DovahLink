@@ -189,6 +189,10 @@ public class PublicClientServiceExtensionsTests
 
         IAdapterIpcListener adapterListener = provider.GetRequiredService<IAdapterIpcListener>();
         Task adapterRunTask = adapterListener.RunAsync(shutdown.Token);
+        // Pairing is refused outside gameplay, so this test completes a real resynchronization; that
+        // needs the sampling scheduler and the tracked-quest coordinator the host runtime would run.
+        Task schedulerRunTask = provider.GetRequiredService<ILiveStateScheduler>().RunAsync(shutdown.Token);
+        Task questRunTask = provider.GetRequiredService<ITrackedQuestCaptureCoordinator>().RunAsync(shutdown.Token);
         var ipcCodec = new IpcFrameCodec();
         using Socket adapterSocket = await ConnectClientAsync(adapterListener.BoundPort);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
@@ -198,7 +202,9 @@ public class PublicClientServiceExtensionsTests
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPlayContextChangedMessage(
             0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
         var resynchronizeRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec));
-        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcResynchronizeResultMessage(resynchronizeRequest.CorrelationId, Accepted: true)));
+        var adapterDriver = new FakeAdapterResynchronizationDriver(
+            adapterStream, ipcCodec, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")));
+        await adapterDriver.CompleteResynchronizationAsync(resynchronizeRequest);
 
         IPublicWebSocketListener listener = provider.GetRequiredService<IPublicWebSocketListener>();
         Task publicRunTask = listener.RunAsync(shutdown.Token);
@@ -224,13 +230,15 @@ public class PublicClientServiceExtensionsTests
         byte[] pairingRequest = codec.Encode(PublicMessageType.PairingRequest, "pairing-1", sessionId, null, null, clientId, new EmptyPayload());
         await clientWebSocket.SendAsync(pairingRequest, WebSocketMessageType.Text, true, CancellationToken.None);
 
-        var display = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec));
+        IpcPairingDisplayMessage display = await adapterDriver.ReadPairingDisplayAsync();
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPairingDisplayAckMessage(display.CorrelationId, Accepted: true)));
         await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
         shutdown.Cancel();
         await adapterRunTask.WaitAsync(TimeSpan.FromSeconds(5));
         await publicRunTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await schedulerRunTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await questRunTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 
     /// <summary>Builds a real Core/Trust/AdapterIpc/PublicClient container -- the same registrations production composes it with.</summary>

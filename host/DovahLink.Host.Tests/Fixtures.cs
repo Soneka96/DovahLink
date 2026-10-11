@@ -5,6 +5,7 @@ using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PairingCeremony;
 using DovahLink.Host.PlayContext;
+using DovahLink.Host.Readiness;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.State;
 using DovahLink.Host.Tests.TestDoubles;
@@ -183,7 +184,8 @@ public static class Fixtures
         IPairingAdapterNotifier? adapterNotifier = null,
         IPlayContextTracker? playContextTracker = null,
         IClock? clock = null,
-        ISessionRegistry? sessionRegistry = null) =>
+        ISessionRegistry? sessionRegistry = null,
+        IGameplayReadinessEvaluator? gameplayReadiness = null) =>
         new(
             codec ?? new PublicEnvelopeCodec(),
             trustAdminService ?? new FakeTrustAdminService(),
@@ -191,7 +193,8 @@ public static class Fixtures
             adapterNotifier ?? new FakePairingAdapterNotifier(),
             playContextTracker ?? new FakePlayContextTracker(),
             clock ?? new FakeClock(),
-            sessionRegistry ?? new FakeSessionRegistry());
+            sessionRegistry ?? new FakeSessionRegistry(),
+            gameplayReadiness ?? new FakeGameplayReadinessEvaluator { IsReady = true });
 
     /// <summary>
     /// Builds a <see cref="ClientMessageDispatcher"/> the same way as <see cref="BuildClientMessageDispatcher"/>,
@@ -211,6 +214,7 @@ public static class Fixtures
     /// <param name="adapterNotifier">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
     /// <param name="playContextTracker">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
     /// <param name="clock">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
+    /// <param name="gameplayReadiness">Forwarded to <see cref="BuildClientMessageDispatcher"/>.</param>
     public static (ClientMessageDispatcher Dispatcher, SessionId SessionId, ConnectionId ConnectionId) BuildClientMessageDispatcherWithActiveSession(
         ClientId clientId,
         IPublicEnvelopeCodec? codec = null,
@@ -218,13 +222,14 @@ public static class Fixtures
         IPairingCoordinator? pairingCoordinator = null,
         IPairingAdapterNotifier? adapterNotifier = null,
         IPlayContextTracker? playContextTracker = null,
-        IClock? clock = null)
+        IClock? clock = null,
+        IGameplayReadinessEvaluator? gameplayReadiness = null)
     {
         var sessionRegistry = new FakeSessionRegistry();
         ConnectionId connectionId = ConnectionId.NewId();
         SessionId sessionId = sessionRegistry.Create(clientId, connectionId);
         ClientMessageDispatcher dispatcher = BuildClientMessageDispatcher(
-            codec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry);
+            codec, trustAdminService, pairingCoordinator, adapterNotifier, playContextTracker, clock, sessionRegistry, gameplayReadiness);
         return (dispatcher, sessionId, connectionId);
     }
 

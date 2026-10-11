@@ -3,6 +3,7 @@ using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
+using DovahLink.Host.Readiness;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.Time;
 using DovahLink.Host.Trust;
@@ -77,6 +78,12 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// </summary>
     private readonly ISessionRegistry sessionRegistry;
 
+    /// <summary>
+    /// The Host's single gameplay-readiness authority. The six-digit pairing flow is offered only
+    /// while gameplay is ready; this is the enforcement point, not client-side presentation.
+    /// </summary>
+    private readonly IGameplayReadinessEvaluator gameplayReadiness;
+
     /// <summary>Creates a client message dispatcher.</summary>
     /// <param name="codec">Decodes and encodes every message this dispatcher sends or receives.</param>
     /// <param name="trustAdminService">Applies rename mutations to the durable trust store.</param>
@@ -85,6 +92,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
     /// <param name="playContextTracker">Supplies the <c>playContextId</c> stamped onto every host-originated envelope.</param>
     /// <param name="clock">The time source used to compute a challenge's remaining code validity.</param>
     /// <param name="sessionRegistry">Establishes the authorization linearization point for a client-bound pairing-state mutation.</param>
+    /// <param name="gameplayReadiness">The Host's gameplay-readiness authority consulted before a pairing challenge is reserved and again before its display is committed.</param>
     public ClientMessageDispatcher(
         IPublicEnvelopeCodec codec,
         ITrustAdminService trustAdminService,
@@ -92,7 +100,8 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         IPairingAdapterNotifier adapterNotifier,
         IPlayContextTracker playContextTracker,
         IClock clock,
-        ISessionRegistry sessionRegistry)
+        ISessionRegistry sessionRegistry,
+        IGameplayReadinessEvaluator gameplayReadiness)
     {
         this.codec = codec;
         this.trustAdminService = trustAdminService;
@@ -101,6 +110,7 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
         this.playContextTracker = playContextTracker;
         this.clock = clock;
         this.sessionRegistry = sessionRegistry;
+        this.gameplayReadiness = gameplayReadiness;
     }
 
     /// <inheritdoc/>
@@ -260,19 +270,33 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
             connectionId,
             () =>
             {
+                // Checked inside the same session-guarded critical section as BeginPairing, before
+                // any reservation exists: outside gameplay nothing is reserved, displayed, or
+                // notified to the Adapter.
+                if (!gameplayReadiness.IsReady)
+                {
+                    return (Start: (PairingStartResult?)null, ResumedSnapshot: (PairingStatusSnapshot?)null);
+                }
+
                 PairingStartResult beginResult = pairingCoordinator.BeginPairing(clientId);
                 PairingStatusSnapshot? resumedSnapshot = beginResult.Outcome == PairingStartOutcome.Resumed
                     ? pairingCoordinator.GetStatusSnapshot(clientId)
                     : null;
-                return (Start: beginResult, ResumedSnapshot: resumedSnapshot);
+                return (Start: (PairingStartResult?)beginResult, ResumedSnapshot: resumedSnapshot);
             },
-            out (PairingStartResult Start, PairingStatusSnapshot? ResumedSnapshot) begin))
+            out (PairingStartResult? Start, PairingStatusSnapshot? ResumedSnapshot) begin))
         {
             SendStaleSessionError(connection, sessionId, envelope.MessageId);
             return new ClientDispatchResult(IsProtocolViolation: true);
         }
 
-        PairingStartResult start = begin.Start;
+        if (begin.Start is not PairingStartResult start)
+        {
+            // Gameplay is not ready: the existing unavailable outcome, with no reservation made.
+            SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
+            return new ClientDispatchResult();
+        }
+
         switch (start.Outcome)
         {
             case PairingStartOutcome.Started:
@@ -283,6 +307,15 @@ public sealed class ClientMessageDispatcher : IClientMessageDispatcher
                     bool accepted = await adapterNotifier.TryNotifyCodeAvailableAsync(challenge.Code, cancellationToken);
                     if (!accepted)
                     {
+                        SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
+                        return new ClientDispatchResult();
+                    }
+
+                    if (!gameplayReadiness.IsReady)
+                    {
+                        // Readiness was lost while the Adapter acknowledgement was in flight. The
+                        // challenge is never committed; the finally below releases the reservation
+                        // through the ordinary rollback, so no active, unusable challenge remains.
                         SendPairingStatus(connection, sessionId, envelope.MessageId, PairingStatusWireState.Unavailable, null);
                         return new ClientDispatchResult();
                     }
