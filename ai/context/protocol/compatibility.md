@@ -14,10 +14,10 @@ The canonical schema is `protocol/schema/README.md`. This file defines how that 
 - Skyrim runtime, SKSE, and CommonLib compatibility belong to the Adapter alone (`ai/context/adapter/architecture.md`'s "Ownership"), not to the Host's public compatibility boundary. A Skyrim/SKSE update that leaves the Host/client wire contract unchanged requires no client compatibility change.
 - SDK version, official app version, Host version, and roadmap phase are independent numbers. None is derived from another.
 - Once the Dart SDK exists, every SDK release declares an explicit supported Host-version range (for example a minimum and a maximum). Until then, the app-side Dart client documented in `ai/context/flutter/` follows this same policy.
-- Root `VERSION` and current SDK source declare Host `0.5.0`/`0.5.x`. Host `0.5.0` was an internal
+- Root `VERSION` and current SDK source declare Host `0.6.0`/`0.6.x`. Host `0.5.0` was an internal
   version only; no supported Host/Client `0.5.0` package was publicly released, so it is not a
-  compatibility target under `ai/context/common.md`'s pre-release policy. Current Host and SDK
-  source are aligned at this internal version. Released Host `0.4.0` used additive
+  compatibility target under `ai/context/common.md`'s pre-release policy, and the SDK rejects every
+  Host before `0.6.0` as too old. Current Host and SDK source are aligned at `0.6.0`. Released Host `0.4.0` used additive
   `subscribe.stateAreas` updates, while the Phase 5.3 contract replaces the complete active set; the
   public SDK subscription API therefore does not support released Host `0.4.0`. Before `1.0.0`, the
   major and minor must match and the patch is ignored; after `1.0.0`, the major must match, a Host
@@ -95,19 +95,20 @@ Both the Host and that SDK declare the same Host-version range, so a Host that e
 within that range would break a client the range declares supported. The existing supported range
 therefore does **not** remain valid for a Host that emits it.
 
-**Resolution.** No runtime capability negotiation and no fallback is used to hide this, per the
-rules above. Until activation:
+**Resolution (activated, T10).** No runtime capability negotiation and no fallback is used to hide
+this, per the rules above. One coordinated change did all of the following:
 
-1. The Host defines and tests the message and its per-session publisher but does not publish it:
-   `PublicConnectionFactory` gives no admission handler a publisher, and a composition test fails if
-   a session ever receives one.
-2. Activation is one deliberate step that lands with, and is gated on, all of the following in one
-   coordinated change: the SDK gaining the typed readiness capability (T10), a new Host release
-   version, the SDK's declared minimum Host version being raised to that release (so an old SDK
-   rejects the new Host cleanly at `hello_ack` instead of failing mid-session), the readiness
-   publisher being supplied in the connection factory, and the compatibility review above being
-   repeated for that release.
-3. An SDK that predates the message must never be connected to a Host that publishes it.
+1. The SDK gained the typed readiness capability (`IDovahLinkCurrentHost.gameplayReadiness`).
+2. The release version moved to `0.6.0`, and the SDK's declared range moved to `0.6.x`. An SDK that
+   predates the message supports only `0.5.x`, so it rejects the new Host as too new at `hello_ack`,
+   before any readiness message is processed. This was replayed against the pre-T10 SDK with the new
+   Host's frames (`hello_ack` `0.6.0`, `capabilities`, readiness) in both ordinary and synchronous
+   delivery: it fails with `DovahLinkCompatibilityException` (`hostTooNew`), not a malformed-message
+   violation.
+3. A new SDK rejects a `0.5.x` Host as too old, so it never exposes an API the Host cannot satisfy.
+4. `PublicConnectionFactory` supplies a readiness publisher for every connection.
+
+No dual wire protocol or compatibility fallback exists for internal `0.5` builds.
 
 Pairing enforcement for the six-digit flow does not depend on this message and is active now: it
 changes no wire message, field, or status value.

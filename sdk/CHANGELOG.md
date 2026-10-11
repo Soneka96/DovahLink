@@ -13,6 +13,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Added
 
+- `currentHost.gameplayReadiness` and a replaying `gameplayReadinessChanges` expose whether the connected Host reports gameplay as ready, or `unknown`.
 - `currentHost.trackedQuestsChanges` exposes all tracked quests and objective states as a
   synchronization-aware typed stream.
 - `client.connections.renameDevice(displayName)` exposes the active Host's typed trusted-device rename outcome.
@@ -31,6 +32,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Changed
 
+- The SDK supports Host `0.6.x` only and rejects every `0.5.x` Host as too old.
 - The Character API exposes synchronization-aware Identity and Supernatural Traits streams alongside Vitals, XP, and Level.
 - Character gameplay streams now live under `client.currentHost.character`; coherent Vitals, XP,
   and Level remain independent domains.

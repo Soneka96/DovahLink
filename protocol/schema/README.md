@@ -670,7 +670,7 @@ are negotiated. Every request is authoritative for that connection: accepted are
 later request stop receiving new Snapshots and Events. `stateAreas: []` removes every active
 subscription for the connection. Repeating the same set is idempotent. This complete-set meaning is
 incompatible with released Host `0.4.0`'s additive behavior; the Phase 5.3 contract requires the
-next compatible Host minor line, `0.5.x`, as specified in
+next compatible Host minor line (`0.5.x` and later), as specified in
 `ai/context/protocol/compatibility.md`.
 
 ```json
@@ -854,10 +854,9 @@ save, location, resource, Adapter, pairing, or diagnostic data.
   client message, and is not part of the sessionless discovery probe.
 - **Direction.** Server-originated only. A client that sends it is rejected as `malformed_message`
   in either trust tier.
-- **Activation.** The type is part of the canonical vocabulary, but a client that does not recognize
-  it treats it as malformed protocol input (see "Message types"), and the current Dart SDK does. The
-  Host therefore does not emit `gameplay_readiness` until a Host release whose supported-range
-  compatibility is coordinated with an SDK that understands it; see
+- **Activation.** A client that does not recognize the type treats it as malformed protocol input
+  (see "Message types"). The Host therefore emits `gameplay_readiness` only from release `0.6.0`, whose
+  supported range is coordinated with an SDK that understands it and rejects older Hosts; see
   [`ai/context/protocol/compatibility.md`](../../ai/context/protocol/compatibility.md).
 
 ### `ping` and `pong`

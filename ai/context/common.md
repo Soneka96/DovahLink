@@ -320,9 +320,10 @@ Skyrim component required the DovahLink Companion App, which had no public way t
 
 The repository's `0.5.0` version and dated `0.5.0` changelog sections describe internal snapshots;
 no supported Host/Client `0.5.0` package was publicly released. Those snapshots will never be
-compatibility targets. The current Host and SDK source may evolve together while retaining the
-internal `0.5.0` version; compatibility obligations begin with the first supported public release.
-Do not bump to `0.5.1` solely to distinguish the unpublished snapshots.
+compatibility targets. Host and SDK source may evolve together without a version change;
+compatibility obligations begin with the first supported public release. Do not bump to `0.5.1`
+solely to distinguish unpublished snapshots. The maintainer-approved exception is `0.6.0`, taken in
+the `gameplay_readiness` activation so an SDK that predates the message rejects the Host cleanly.
 
 - Until a usable Companion App is publicly downloadable, do not publish or re-publish DovahLink on
   Nexus as a public, usable release. Private and development testing is unaffected.

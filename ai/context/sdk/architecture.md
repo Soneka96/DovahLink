@@ -573,14 +573,11 @@ and one request router described above.
 
 ## Gameplay readiness
 
-**Status: approved ownership rule; not implemented.** The SDK has no readiness capability today, and
-its closed message vocabulary rejects `gameplay_readiness` as malformed.
-This section fixes responsibilities for the future capability (T10 in
-[`roadmap/deviations/sdk-flutter-architecture-refactoring`](../../../roadmap/deviations/sdk-flutter-architecture-refactoring/README.md));
-it must not be read as a description of the current API. The Host-side fact and its security
-boundary are owned by [Host architecture, "Gameplay readiness"](../host/architecture.md#gameplay-readiness),
-and its wire contract is the `gameplay_readiness` message in `protocol/schema/README.md`, which the
-Host does not emit until this capability and a coordinated compatibility step exist.
+**Status: implemented (T10).** `IDovahLinkCurrentHost` exposes `gameplayReadiness` and a replaying
+`gameplayReadinessChanges` stream of `DovahLinkGameplayReadiness` (`unknown`, `notReady`, `ready`).
+The Host-side fact and its security boundary are owned by
+[Host architecture, "Gameplay readiness"](../host/architecture.md#gameplay-readiness), and the wire
+contract is the `gameplay_readiness` message in `protocol/schema/README.md`. Presentation is T13.
 
 Gameplay readiness is not:
 
@@ -590,25 +587,42 @@ Gameplay readiness is not:
 - whether a gameplay stream currently holds a value, or
 - whether `playContextId` is non-null.
 
-When its contract exists, the SDK exposes readiness as a separate typed capability, never as a new
-connection state and never by changing the meaning of connection, trust, or availability. The Host
-provides the readiness fact; the SDK validates it against the current session and projects it. The
-SDK must not derive readiness from missing or incomplete gameplay values or from `playContextId`.
+It is a separate typed capability, never a connection state and never a state-domain definition.
+The Host provides the fact; the SDK only decides whether a Host report is valid for the current
+session. The SDK never derives readiness from missing or incomplete gameplay values or from
+`playContextId`.
 
-Lifecycle principles:
+**One owner.** `GameplayReadinessService` (`internal/readiness/`) owns the accepted value, the
+admitted session, the last accepted sequence, the newest state authority, and one pre-admission
+slot. `DovahLinkClient` only wires it. `UnsolicitedMessageHandler` routes `gameplay_readiness` to it
+through the one `MessageRouter`; it does not use `StateMessageHandler` or `SubscriptionService`, so
+restricted sessions receive readiness without any subscription. A malformed payload is a protocol
+violation like any other unsolicited message; a message carrying a `correlationId` fails envelope
+validation and can never resolve a pending request.
 
-- Readiness reflects the current admitted Host session.
-- It changes when the Host reports a transition, and a consumer must not need to reconnect to
-  observe one.
-- On connection loss or invalidation, readiness is *unknown* until fresh authoritative evidence
-  arrives. *Unknown* is derived locally and is never a wire value.
-- A stale readiness message, from a replaced session or a superseded authority, never updates a
-  newer session.
+**Validity rules.** A report is applied only when it belongs to the admitted session, its `sequence`
+is greater than the last applied one, and its `stateAuthorityId` is not an authority this session
+has already moved past. Authority identifiers are opaque: ordering comes from the session's own
+observations (`hello_ack`, applied readiness, and the authority of each routed state message), never
+from comparing identifier values. A newly revealed authority makes readiness `unknown` until a
+report under it is applied. At most 32 superseded authorities are remembered per session.
+
+**Early messages.** The Host sends the first report right after `hello_ack`, so it can reach the
+handler before `SessionAdmissionService.admitSession` runs (a trusted admission awaits storage; a
+synchronous transport burst delivers frames with no turn between them). The service therefore keeps
+only the newest pre-admission report and decides it in `admitSession`, which runs after Host version
+and identity validation and receives the `hello_ack` session and authority. A report for another
+session, or one left by a failed authentication, is discarded; nothing is published before admission.
+
+**Lifecycle.** Readiness is `unknown` on construction, while connecting, and until the first report
+of a newly admitted session. Every teardown (transport loss, bounded reconnect and reauthentication,
+explicit disconnect, administrative invalidation, protocol violation) resets it to `unknown`
+immediately, even when T8 retains gameplay values as non-current. `close()` ends it for good.
+*Unknown* is derived locally and is never a wire value.
 
 The SDK reports the Host's typed pairing outcome; it does not decide pairing authorization. Flutter's
 role is in [Flutter architecture](../flutter/architecture.md#gameplay-readiness-and-historical-state).
-Where readiness is enforced for pairing is an open decision recorded in the audit (Section 11.7) and
-Stage 5A.7.
+Where readiness is enforced for pairing is recorded in the audit (Section 11.7) and Stage 5A.7.
 
 ## Session-state ownership
 

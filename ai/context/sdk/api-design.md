@@ -303,6 +303,17 @@ Truthfulness and precedence rules:
 6. Redux or any other consumer projection mirrors both sources without a second synchronization
    engine; see [Flutter architecture](../flutter/architecture.md#gameplay-readiness-and-historical-state).
 
+## Gameplay readiness API
+
+`IDovahLinkCurrentHost.gameplayReadiness` is the current `DovahLinkGameplayReadiness`, and
+`gameplayReadinessChanges` replays it to every new subscriber, then emits each real transition (see
+"New-subscriber state replay"). A consumer needs no subscription, refresh request, or reconnect, and
+holds no cache of its own. `unknown` means the SDK holds no valid Host report for the current
+session; `notReady` and `ready` are only ever the current admitted Host's explicit answer. The
+value is available to restricted and trusted sessions alike and never changes connection state,
+trust state, or Host availability. Ownership and validity rules are in
+[SDK architecture, "Gameplay readiness"](architecture.md#gameplay-readiness).
+
 ## SDK domain types and app presentation values
 
 Reusable typed DovahLink client/domain concepts belong to the SDK. The Flutter app maps SDK outputs

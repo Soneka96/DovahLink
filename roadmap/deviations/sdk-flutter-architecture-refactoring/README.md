@@ -541,23 +541,23 @@ T2 and the app half of T1.
   10. If option (a) is chosen, a pairing request while not ready answers `unavailable` without a reservation and one that loses readiness during display is rolled back.
   Stage 5A names 5A.7 as its only public-contract phase; that statement is scoped to Stage 5A, so this separately approved protocol change sequences its compatibility impact with 5A.7 rather than landing inside it.
 
-- **Outcome:** partially delivered on `feature/host-gameplay-readiness-contract`; live publication is
-  deliberately not active. Delivered and tested: one Host readiness owner, `GameplayReadinessEvaluator`
+- **Outcome:** partially delivered on `feature/host-gameplay-readiness-contract`; live publication was
+  deliberately inactive until T10 activated it. Delivered and tested: one Host readiness owner, `GameplayReadinessEvaluator`
   (Adapter available, not awaiting resynchronization, resynchronization armed for the current
   play-context transition, and a context current), including the commit-before-re-arm coherence rule;
   the canonical `gameplay_readiness` message (schema section, fixtures, validator, Host codec and
   payload, server-originated only, `stateAuthorityId` required); a per-session publisher that sends
   the initial value after `hello_ack` and every change with a per-session sequence on the bounded
   control lane; and 11.7 option (a), refusing six-digit pairing with the existing `unavailable`
-  status while not ready and again before display commit. **Not delivered:** emitting the message.
+  status while not ready and again before display commit. **Not delivered at T9 (done by T10):** emitting the message.
   The current SDK rejects an unknown `messageType` as a `malformed_message` protocol violation and
   declares the same Host range, so activation needs T10, a new Host release version, and the SDK's
   declared Host minimum raised in one coordinated change (see
   `ai/context/protocol/compatibility.md`, "Gameplay readiness activation"). The Host-side acceptance
   tests 1 to 9 hold at the evaluator and publisher level; the "published on an existing session
   without reconnect" criteria hold for the publisher bound to an admitted session in tests, not yet
-  in the composed Host. T10, T13, and Stage 5A (prompt invalidation, pending approval, typed not-ready
-  outcome) are not implemented.
+  in the composed Host. T13 and Stage 5A (prompt invalidation, pending approval, typed not-ready
+  outcome) were not implemented at T9.
 
 ### T10. SDK gameplay-readiness capability (C)
 
@@ -567,6 +567,20 @@ T2 and the app half of T1.
 - **Non-goals:** inferring readiness from missing domain values or from `playContextId`; a second session or engine; a readiness field on `DovahLinkConnectionState`; new authentication attempts to refresh readiness.
 - **Estimated files:** 12-20.
 - **Acceptance criteria:** SDK tests map each Host readiness value; exports change only by the approved additions; and the existing connection, authentication, and trust tests pass unchanged, showing readiness never changes `DovahLinkConnectionState`, trust state, or Host availability. Tests cover, on one session without reconnect: not ready to ready and back; play-context replacement; Adapter disconnect, reconnection before resynchronization, and resynchronization completing; Host disconnect giving *unknown*; a stale readiness message after session or authority replacement being discarded; a newly admitted trusted client receiving current readiness; a restricted client receiving the coarse value only; and readiness recovered after an ordinary connection interruption.
+
+- **Outcome:** delivered on `feature/sdk-gameplay-readiness`, coordinated with the activation of T9's
+  Host publisher. The SDK exposes `IDovahLinkCurrentHost.gameplayReadiness` and a replaying
+  `gameplayReadinessChanges` (`DovahLinkGameplayReadiness`: `unknown`, `notReady`, `ready`).
+  `GameplayReadinessService` is the one owner: it validates session, sequence, and state authority,
+  keeps only the newest pre-admission report and decides it at admission (the `hello_ack` race is
+  reachable for trusted admission and synchronous delivery and is covered by composition and
+  real-socket tests), and resets to `unknown` on every teardown, including recoverable ones.
+  `PublicConnectionFactory` now supplies a publisher per connection. The release moved to `0.6.0` and
+  the SDK range to `0.6.x`; a pre-T10 SDK rejects the new Host as `hostTooNew` before readiness is
+  processed, and a new SDK rejects `0.5.x` as too old. Not done: Flutter presentation (T13), the
+  typed not-ready pairing outcome (5A.7), and T11/T12/T14. No cross-language Host-process harness
+  exists; the Host's real frames and the SDK's real-socket behaviour are proven in their own suites
+  against the same canonical fixtures.
 
 ### T11. SDK historical Overview snapshots (C)
 

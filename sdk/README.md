@@ -69,11 +69,11 @@ The app selects storage at its composition boundary. Windows uses DPAPI; other p
 use an explicit unsupported-storage boundary, and pairing stays unavailable until secure storage is
 implemented for that platform.
 
-Current SDK source declares Host `0.5.x` and rejects older or newer Host versions during `hello`,
-before admitting a session. Host `0.5.0` is an internal version; no supported Host/Client `0.5.0`
-package was publicly released. Earlier internal builds that pass the `0.5.x` version check are not
-compatibility targets under the repository's pre-release policy, and the current Host/SDK source pair
-implements the current public SDK surface. Released Host `0.4.0` remains incompatible with the
+Current SDK source declares Host `0.6.x` and rejects older or newer Host versions during `hello`,
+before admitting a session; this includes every `0.5.x` Host, which cannot report gameplay readiness.
+Host `0.5.0` was an internal version; no supported Host/Client `0.5.0` package was publicly released,
+so earlier internal builds are not compatibility targets under the repository's pre-release policy,
+and the current Host/SDK source pair implements the current public SDK surface. Released Host `0.4.0` remains incompatible with the
 Phase 5.3 complete-set subscription API.
 Subscribe and unsubscribe calls update local desired intent before Host synchronization, so a failed
 request does not necessarily roll back the change; retained intent may be synchronized on a later
