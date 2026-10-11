@@ -21,14 +21,6 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/viewmodels/connections_screen.viewmodel.dart';
 import 'package:dovahlink_client/features/live_state/presentation/state/live_state.middleware.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
-import 'package:dovahlink_client/features/pairing/domain/repositories/pairing_repository.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.state.dart';
@@ -251,23 +243,25 @@ void main() {
       expect(sl.isRegistered<IPairingRemoteDataSource>(), isTrue);
     });
 
-    test('initDependencies registers the pairing repository', () async {
-      await initDependencies();
+    test(
+      'initDependencies resolves the pairing boundary and middleware as singletons',
+      () async {
+        await initDependencies();
 
-      expect(sl.isRegistered<IPairingRepository>(), isTrue);
-    });
-
-    test('initDependencies registers the pairing use cases', () async {
-      await initDependencies();
-
-      expect(sl.isRegistered<AuthenticateUseCase>(), isTrue);
-      expect(sl.isRegistered<RequestPairingUseCase>(), isTrue);
-      expect(sl.isRegistered<ConfirmPairingCodeUseCase>(), isTrue);
-      expect(sl.isRegistered<DisconnectUseCase>(), isTrue);
-      expect(sl.isRegistered<RequestPairingRenotifyUseCase>(), isTrue);
-      expect(sl.isRegistered<CancelPairingUseCase>(), isTrue);
-      expect(sl.isRegistered<ObserveConnectionStatusUseCase>(), isTrue);
-    });
+        expect(sl<IPairingRemoteDataSource>(), isA<PairingRemoteDataSource>());
+        expect(
+          identical(
+            sl<IPairingRemoteDataSource>(),
+            sl<IPairingRemoteDataSource>(),
+          ),
+          isTrue,
+        );
+        expect(
+          identical(sl<IPairingMiddleware>(), sl<IPairingMiddleware>()),
+          isTrue,
+        );
+      },
+    );
 
     test(
       'initDependencies registers and resolves the pairing dialog ViewModel factory',
@@ -407,44 +401,6 @@ void main() {
         expect(viewModel.onPressed, isNull);
       },
     );
-
-    test('RequestPairingRenotifyUseCase is a singleton', () async {
-      await initDependencies();
-
-      expect(
-        identical(
-          sl<RequestPairingRenotifyUseCase>(),
-          sl<RequestPairingRenotifyUseCase>(),
-        ),
-        isTrue,
-      );
-    });
-
-    test('CancelPairingUseCase is a singleton', () async {
-      await initDependencies();
-
-      expect(
-        identical(sl<CancelPairingUseCase>(), sl<CancelPairingUseCase>()),
-        isTrue,
-      );
-    });
-
-    test('RequestPairingRenotifyUseCase can be instantiated', () async {
-      await initDependencies();
-
-      expect(sl<RequestPairingRenotifyUseCase>(), isNotNull);
-      expect(
-        sl<RequestPairingRenotifyUseCase>(),
-        isA<RequestPairingRenotifyUseCase>(),
-      );
-    });
-
-    test('CancelPairingUseCase can be instantiated', () async {
-      await initDependencies();
-
-      expect(sl<CancelPairingUseCase>(), isNotNull);
-      expect(sl<CancelPairingUseCase>(), isA<CancelPairingUseCase>());
-    });
   });
 
   group('injection_container — appearance registrations', () {

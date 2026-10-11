@@ -1,14 +1,12 @@
 import 'package:flutter/material.dart';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:fpdart/fpdart.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
 import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
@@ -135,34 +133,6 @@ void main() {
       expect(first, second);
       expect(first.hashCode, second.hashCode);
       expect(identical(first, second), isFalse);
-    });
-  });
-
-  group('Method buildAuthenticateParams behaves correctly', () {
-    test('Method buildAuthenticateParams targets the representative Host', () {
-      final AuthenticateParams params = Fixtures.buildAuthenticateParams();
-
-      expect(params.target, Left(defaultHostUri));
-    });
-
-    test('Method buildAuthenticateParams preserves the named override', () {
-      final Uri uri = Uri.parse('ws://127.0.0.1:2/');
-
-      final AuthenticateParams params = Fixtures.buildAuthenticateParams(
-        hostUri: uri,
-      );
-
-      expect(params.target, Left(uri));
-    });
-
-    test('Method buildAuthenticateParams can target a Known Host ID', () {
-      const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
-
-      final AuthenticateParams params = Fixtures.buildAuthenticateParams(
-        hostId: hostId,
-      );
-
-      expect(params.target, const Right(hostId));
     });
   });
 

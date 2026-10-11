@@ -6,7 +6,6 @@ import 'package:dovahlink_client/features/connection/presentation/viewdata/host_
 import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
 import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
 import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
 import 'package:dovahlink_client/shared/constants/constants.dart';
@@ -185,17 +184,6 @@ abstract final class Fixtures {
   );
 
   // ---- Pairing ----
-
-  /// Builds authentication parameters targeting the representative local Host.
-  static AuthenticateParams buildAuthenticateParams({
-    /// The Host endpoint to authenticate with, or the representative local endpoint when omitted.
-    Uri? hostUri,
-
-    /// The stable Known Host ID to authenticate with instead of the endpoint.
-    String? hostId,
-  }) => hostId == null
-      ? AuthenticateParams(hostUri: hostUri ?? defaultHostUri)
-      : AuthenticateParams.knownHost(hostId: hostId);
 
   /// Builds the SDK handshake value consumed by pairing tests.
   /// @param hostId The stable Host installation identity.
