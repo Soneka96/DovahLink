@@ -4306,6 +4306,199 @@ void main() {
     );
   });
 
+  group(
+    'Behavior gameplay readiness over the default WebSocket transport behaves correctly',
+    () {
+      test(
+        'Behavior readiness sent right after hello_ack follows Host reports and then transport loss',
+        () async {
+          const Duration timeout = Duration(seconds: 5);
+          final FakeWebSocketServer server = await FakeWebSocketServer.start()
+              .timeout(timeout);
+          addTearDown(server.close);
+          // Reconnection is disabled so the closed socket ends the test's connection for good
+          // instead of starting a retry loop against this server.
+          final DovahLinkClient realClient = buildDovahLinkClientForTesting(
+            transport: WebSocketTransport(),
+            storage: InMemoryClientStorage(),
+            reconnectEnabled: false,
+          );
+          addTearDown(realClient.close);
+          addTearDown(realClient.connections.disconnect);
+          final List<DovahLinkGameplayReadiness> seen = _recordReadiness(
+            realClient,
+          );
+          final Future<WebSocket> acceptedSocket = server.connections.first
+              .timeout(timeout);
+
+          final Future<HelloResult> hello = realClient.connections
+              .connectCandidate(server.uri)
+              .timeout(timeout);
+          final WebSocket socket = await acceptedSocket;
+          addTearDown(socket.close);
+          final Completer<String> requestFrame = Completer<String>();
+          socket.listen((Object? message) {
+            if (message is String && !requestFrame.isCompleted) {
+              requestFrame.complete(message);
+            }
+          });
+          final JsonMap request =
+              jsonDecode(await requestFrame.future.timeout(timeout)) as JsonMap;
+          final JsonMap helloAck =
+              jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+          helloAck['correlationId'] = request['messageId'];
+
+          // The Host writes all three frames back to back, as it does on every admission.
+          socket.add(jsonEncode(helloAck));
+          socket.add(_rawFixture('capabilities/capabilities-host.json'));
+          socket.add(_rawReadiness(ready: false, sequence: 1));
+          await hello;
+
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.notReady,
+              )
+              .timeout(timeout);
+          expect(
+            realClient.connections.state,
+            DovahLinkConnectionState.connected,
+          );
+          expect(
+            realClient.currentHost.trustState,
+            DovahLinkTrustState.unpaired,
+          );
+
+          socket.add(_rawReadiness(ready: true, sequence: 2));
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.ready,
+              )
+              .timeout(timeout);
+          socket.add(_rawReadiness(ready: false, sequence: 3));
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.notReady,
+              )
+              .timeout(timeout);
+          expect(
+            realClient.connections.state,
+            DovahLinkConnectionState.connected,
+          );
+
+          await socket.close();
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.unknown,
+              )
+              .timeout(timeout);
+          expect(
+            realClient.currentHost.gameplayReadiness,
+            DovahLinkGameplayReadiness.unknown,
+          );
+          expect(seen, <DovahLinkGameplayReadiness>[
+            DovahLinkGameplayReadiness.unknown,
+            DovahLinkGameplayReadiness.notReady,
+            DovahLinkGameplayReadiness.ready,
+            DovahLinkGameplayReadiness.notReady,
+            DovahLinkGameplayReadiness.unknown,
+          ]);
+        },
+      );
+
+      test(
+        'Behavior readiness that arrives while trusted admission awaits storage is kept and published once admitted',
+        () async {
+          const Duration timeout = Duration(seconds: 5);
+          final FakeWebSocketServer server = await FakeWebSocketServer.start()
+              .timeout(timeout);
+          addTearDown(server.close);
+          final HoldableClientStorage holdable = HoldableClientStorage();
+          await holdable.save(
+            Fixtures.buildPersistedClientState(
+              clientId: 'client-1',
+              host: Fixtures.buildDovahLinkHost(
+                hostName: 'Renamed-Desktop',
+                endpoint: server.uri.toString(),
+              ),
+              credential: 'trusted-credential',
+            ),
+          );
+          final DovahLinkClient realClient = buildDovahLinkClientForTesting(
+            transport: WebSocketTransport(),
+            storage: holdable,
+          );
+          addTearDown(realClient.close);
+          addTearDown(realClient.connections.disconnect);
+          final Future<WebSocket> acceptedSocket = server.connections.first
+              .timeout(timeout);
+          holdable.saveGate = Completer<void>();
+          addTearDown(() {
+            if (!holdable.saveGate!.isCompleted) {
+              holdable.saveGate!.complete();
+            }
+          });
+
+          final Future<HelloResult> hello = realClient.connections
+              .connectKnownHost(
+                DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+              )
+              .timeout(timeout);
+          final WebSocket socket = await acceptedSocket;
+          addTearDown(socket.close);
+          final Completer<String> requestFrame = Completer<String>();
+          socket.listen((Object? message) {
+            if (message is String && !requestFrame.isCompleted) {
+              requestFrame.complete(message);
+            }
+          });
+          final JsonMap request =
+              jsonDecode(await requestFrame.future.timeout(timeout)) as JsonMap;
+          final JsonMap helloAck =
+              jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                  as JsonMap;
+          helloAck['correlationId'] = request['messageId'];
+
+          socket.add(jsonEncode(helloAck));
+          socket.add(_rawFixture('capabilities/capabilities-host.json'));
+          socket.add(
+            _rawReadiness(
+              ready: true,
+              sequence: 1,
+              sessionId: 'session-paired-1',
+            ),
+          );
+          for (int turn = 0; turn < 40; turn++) {
+            await pumpEventQueue();
+          }
+
+          expect(realClient.currentHost.sessionId, isNull);
+          expect(
+            realClient.currentHost.gameplayReadiness,
+            DovahLinkGameplayReadiness.unknown,
+          );
+
+          holdable.saveGate!.complete();
+          await hello;
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.ready,
+              )
+              .timeout(timeout);
+          expect(realClient.currentHost.sessionId, 'session-paired-1');
+          expect(
+            realClient.currentHost.trustState,
+            DovahLinkTrustState.trusted,
+          );
+        },
+      );
+    },
+  );
+
   group('Method enqueue behaves correctly', () {
     test('Method enqueue releases an uncorrelated reply immediately', () async {
       final StreamController<String> incoming = StreamController<String>();
