@@ -2,10 +2,12 @@ using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Authentication;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Readiness;
 using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Identity;
 using DovahLink.Host.Pairing;
 using DovahLink.Host.PlayContext;
+using DovahLink.Host.Readiness;
 using DovahLink.Host.Sessions;
 using DovahLink.Host.State;
 using DovahLink.Host.Time;
@@ -18,7 +20,8 @@ public interface IPublicConnectionFactory
 {
     /// <summary>
     /// Builds a fresh <see cref="PublicWebSocketConnection"/>/<see cref="PublicHelloAdmissionHandler"/>/
-    /// <see cref="PublicStateSubscription"/>/<see cref="IDataLaneOutboundQueue"/> graph for
+    /// <see cref="PublicStateSubscription"/>/<see cref="PublicGameplayReadinessPublisher"/>/
+    /// <see cref="IDataLaneOutboundQueue"/> graph for
     /// <paramref name="stream"/>. Every collaborator this method constructs is connection-owned and
     /// never shared across two accepted connections; every collaborator this factory itself was
     /// constructed with is a Host-lifetime singleton shared by every connection.
@@ -70,6 +73,9 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
     /// <summary>Owns the state-authority continuity-epoch rotation.</summary>
     private readonly IStateAuthorityLifecycle stateAuthorityLifecycle;
 
+    /// <summary>The single Host-owned gameplay-readiness authority every connection's publisher reads.</summary>
+    private readonly IGameplayReadinessEvaluator readinessEvaluator;
+
     /// <summary>The Host identity exposed in each connection handshake.</summary>
     private readonly HostIdentity hostIdentity;
 
@@ -90,6 +96,7 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
     /// <param name="registeredStateAreaPolicy">Reports which state areas are currently registered.</param>
     /// <param name="statePublicationFeed">The domain feed each connection's subscription reads from.</param>
     /// <param name="stateAuthorityLifecycle">Owns the state-authority continuity-epoch rotation.</param>
+    /// <param name="readinessEvaluator">The single Host-owned gameplay-readiness authority every connection's publisher reads.</param>
     /// <param name="hostIdentity">The stable Host ID and current OS computer name exposed in each hello acknowledgement.</param>
     /// <param name="diagnostics">Reports abnormal per-connection transport endings.</param>
     public PublicConnectionFactory(
@@ -106,6 +113,7 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
         IRegisteredStateAreaPolicy registeredStateAreaPolicy,
         IStatePublicationFeed statePublicationFeed,
         IStateAuthorityLifecycle stateAuthorityLifecycle,
+        IGameplayReadinessEvaluator readinessEvaluator,
         HostIdentity hostIdentity,
         IPublicWebSocketTransportDiagnostics diagnostics)
     {
@@ -122,6 +130,7 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
         this.registeredStateAreaPolicy = registeredStateAreaPolicy;
         this.statePublicationFeed = statePublicationFeed;
         this.stateAuthorityLifecycle = stateAuthorityLifecycle;
+        this.readinessEvaluator = readinessEvaluator;
         this.hostIdentity = hostIdentity;
         this.diagnostics = diagnostics;
     }
@@ -134,6 +143,7 @@ public sealed class PublicConnectionFactory : IPublicConnectionFactory
                 codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle,
                 playContextTracker, clock, dispatcher, pairingCoordinator, connectionRegistry,
                 hostIdentity,
+                new PublicGameplayReadinessPublisher(readinessEvaluator, codec, stateAuthorityLifecycle),
                 subscription: new PublicStateSubscription(registeredStateAreaPolicy, statePublicationFeed, codec, playContextTracker, stateAuthorityLifecycle)),
             clock,
             new PublicWebSocketTransportOptions(),

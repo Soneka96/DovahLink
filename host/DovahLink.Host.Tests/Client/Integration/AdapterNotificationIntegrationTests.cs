@@ -61,11 +61,13 @@ public class AdapterNotificationIntegrationTests
         var codec = new PublicEnvelopeCodec();
         var ipcCodec = new IpcFrameCodec();
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
-        (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
-        using ClientWebSocket ownedClient = client;
+        // The Adapter is gameplay-ready before the client is admitted, so the client's initial
+        // readiness is final and no further readiness message interleaves with the pairing reply.
         (Socket adapterSocket, FakeAdapterResynchronizationDriver adapter) = await ConnectGameplayReadyAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using Socket ownedAdapterSocket = adapterSocket;
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec, awaitGameplayReady: true);
+        using ClientWebSocket ownedClient = client;
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
         IpcPairingDisplayMessage displayRequest = await adapter.ReadPairingDisplayAsync();
@@ -88,11 +90,13 @@ public class AdapterNotificationIntegrationTests
         var codec = new PublicEnvelopeCodec();
         var ipcCodec = new IpcFrameCodec();
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
-        (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
-        using ClientWebSocket ownedClient = client;
+        // The Adapter is gameplay-ready before the client is admitted, so the client's initial
+        // readiness is final and no further readiness message interleaves with the pairing reply.
         (Socket adapterSocket, FakeAdapterResynchronizationDriver adapter) = await ConnectGameplayReadyAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using Socket ownedAdapterSocket = adapterSocket;
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec, awaitGameplayReady: true);
+        using ClientWebSocket ownedClient = client;
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
         IpcPairingDisplayMessage displayRequest = await adapter.ReadPairingDisplayAsync();
@@ -177,11 +181,13 @@ public class AdapterNotificationIntegrationTests
         var codec = new PublicEnvelopeCodec();
         var ipcCodec = new IpcFrameCodec();
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
-        (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
-        using ClientWebSocket ownedClient = client;
+        // The Adapter is gameplay-ready before the client is admitted, so the client's initial
+        // readiness is final and no further readiness message interleaves with the pairing reply.
         (Socket adapterSocket, FakeAdapterResynchronizationDriver adapter) = await ConnectGameplayReadyAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
         using Socket ownedAdapterSocket = adapterSocket;
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
+        (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec, awaitGameplayReady: true);
+        using ClientWebSocket ownedClient = client;
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
         IpcPairingDisplayMessage displayRequest = await adapter.ReadPairingDisplayAsync();
@@ -243,6 +249,11 @@ public class AdapterNotificationIntegrationTests
         WebSocketReceiveResult reconnectCapabilitiesResult = await reconnectedClient.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(codec.TryDecode(buffer.AsMemory(0, reconnectCapabilitiesResult.Count), out PublicEnvelope? reconnectCapabilitiesEnvelope));
         Assert.Equal(PublicMessageType.Capabilities, reconnectCapabilitiesEnvelope!.MessageType);
+
+        // The first gameplay_readiness message follows capabilities on every admission.
+        WebSocketReceiveResult reconnectReadinessResult = await reconnectedClient.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, reconnectReadinessResult.Count), out PublicEnvelope? reconnectReadinessEnvelope));
+        Assert.Equal(PublicMessageType.GameplayReadiness, reconnectReadinessEnvelope!.MessageType);
 
         shutdown.Cancel();
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -391,10 +402,13 @@ public class AdapterNotificationIntegrationTests
 
     /// <summary>
     /// Connects a real public WebSocket client, completes admission, and consumes the unsolicited
-    /// <c>capabilities</c> message the host sends immediately after <c>hello_ack</c>.
+    /// <c>capabilities</c> and initial <c>gameplay_readiness</c> messages the host sends right after
+    /// <c>hello_ack</c>. With <paramref name="awaitGameplayReady"/>, it keeps consuming readiness
+    /// messages until the host reports ready, so a test that made the host ready just before admission
+    /// does not depend on whether the host had processed that change by the time of admission.
     /// </summary>
     private static async Task<(ClientWebSocket Socket, string SessionId, string ClientId)> ConnectAndAdmitPublicClientAsync(
-        int publicPort, PublicEnvelopeCodec codec, string? clientId = null, HelloAuthPayload? auth = null)
+        int publicPort, PublicEnvelopeCodec codec, string? clientId = null, HelloAuthPayload? auth = null, bool awaitGameplayReady = false)
     {
         string effectiveClientId = clientId ?? Guid.NewGuid().ToString();
         var socket = new ClientWebSocket();
@@ -417,6 +431,19 @@ public class AdapterNotificationIntegrationTests
         WebSocketReceiveResult capabilitiesResult = await socket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
         Assert.True(codec.TryDecode(buffer.AsMemory(0, capabilitiesResult.Count), out PublicEnvelope? capabilities));
         Assert.Equal(PublicMessageType.Capabilities, capabilities!.MessageType);
+
+        // The first gameplay_readiness message follows capabilities on every admission.
+        WebSocketReceiveResult readinessResult = await socket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, readinessResult.Count), out PublicEnvelope? readiness));
+        Assert.Equal(PublicMessageType.GameplayReadiness, readiness!.MessageType);
+        Assert.True(codec.TryDecodePayload(readiness, out GameplayReadinessPayload? readinessPayload));
+        while (awaitGameplayReady && !readinessPayload!.Ready)
+        {
+            readinessResult = await socket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.True(codec.TryDecode(buffer.AsMemory(0, readinessResult.Count), out readiness));
+            Assert.Equal(PublicMessageType.GameplayReadiness, readiness!.MessageType);
+            Assert.True(codec.TryDecodePayload(readiness, out readinessPayload));
+        }
 
         return (socket, helloAck.SessionId!, effectiveClientId);
     }

@@ -9,7 +9,7 @@ public class HostVersionTests
     [Fact]
     public void PublicProtocolHostVersion_MatchesRepositoryVersion()
     {
-        Assert.Equal(ReadRepositoryVersion(), Constants.PublicProtocolHostVersion);
+        Assert.Equal(Constants.PublicProtocolHostVersion, ReadRepositoryVersion());
     }
 
     /// <summary>Verifies the adapter package manifest declares the repository release version.</summary>
@@ -18,7 +18,7 @@ public class HostVersionTests
     {
         using JsonDocument manifest = JsonDocument.Parse(File.ReadAllText(RepositoryPath("adapter", "vcpkg.json")));
 
-        Assert.Equal(ReadRepositoryVersion(), manifest.RootElement.GetProperty("version-string").GetString());
+        Assert.Equal(manifest.RootElement.GetProperty("version-string").GetString(), ReadRepositoryVersion());
     }
 
     /// <summary>Verifies every canonical <c>hello_ack</c> fixture carries the repository release version.</summary>
