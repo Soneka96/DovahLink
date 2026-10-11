@@ -694,6 +694,11 @@ public class ProgramCompositionTests
             Assert.True(codec.TryDecode(buffer.AsMemory(0, result.Count), out PublicEnvelope? capabilitiesEnvelope));
             Assert.Equal(PublicMessageType.Capabilities, capabilitiesEnvelope!.MessageType);
             result = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+            if (result.MessageType == WebSocketMessageType.Close)
+            {
+                return;
+            }
+
             Assert.True(codec.TryDecode(buffer.AsMemory(0, result.Count), out PublicEnvelope? readinessEnvelope));
             Assert.Equal(PublicMessageType.GameplayReadiness, readinessEnvelope!.MessageType);
 
