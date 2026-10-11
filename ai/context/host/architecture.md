@@ -355,7 +355,14 @@ presentation only. For the existing six-digit flow (audit Section 11.7, option (
 `unavailable` is returned with no reservation, no Adapter display request, no credential, and no
 trust change. It is evaluated again after the Adapter display acknowledgement and before
 `CommitInitialDisplay`; if readiness was lost in between, the challenge is never committed and the
-reservation is released through the ordinary rollback. A request that would have resumed a displayed
+reservation is released through the ordinary rollback. That second evaluation is not readiness alone:
+the request captures the evaluator's `GameplayReadinessSnapshot` when it begins, and the commit
+requires a ready snapshot with the same play context, play-context transition generation, Adapter
+instance, and connection generation. A context that ended and was replaced by a newly ready one
+while the acknowledgement was pending therefore reads as ready again but does not commit the old
+context's code. The check immediately precedes the commit and is not atomic with it, because the
+evaluator exposes no lock across the commit; a transition landing in that remaining instant is
+the one window this narrows rather than closes. A request that would have resumed a displayed
 challenge also answers `unavailable` while not ready, and leaves that challenge untouched.
 `pairing_confirm`, `pairing_ack`, `pairing_renotify`, and `pairing_cancel` are unchanged: a challenge
 already displayed and committed remains valid until its normal expiry, and invalidating a displayed
