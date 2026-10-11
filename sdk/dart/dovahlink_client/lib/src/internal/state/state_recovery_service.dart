@@ -105,9 +105,11 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
     // Failures below are reported about whichever connection is current when they are processed,
     // never about the one the request began on: a retry-safe snapshot request orphaned by a
     // transport loss is retransmitted into the next session, so its reply or error belongs to
-    // that session. A failure left over from an ended connection never reaches those reports --
-    // teardown has already reset the domain to `notSubscribed`, which every path below checks
-    // first, and the transmitter reports its own send and timeout failures per wire attempt.
+    // that session. A failure left over from a connection that ended for good never reaches those
+    // reports -- teardown has already reset the domain to `notSubscribed`, which every path below
+    // checks first, and the transmitter reports its own send and timeout failures per wire attempt.
+    // Across eligible automatic recovery the domain instead stays `recovering` with its retained
+    // observation, so this task survives it and its orphaned request completes in the next session.
     int retryIndex = 0;
     try {
       while (true) {
