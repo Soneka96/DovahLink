@@ -17,9 +17,6 @@ abstract interface class ICharacterStateModule {
 
   /// The registrations passed to the shared state-message handler.
   List<IStateDomainDefinition<Object?>> get domains;
-
-  /// The Level registration shared by message dispatch and Snapshot recovery.
-  IStateDomainDefinition<CharacterLevelState> get levelDomain;
 }
 
 /// Composes the independently synchronized Character state domains over the shared generic state machinery.
@@ -45,9 +42,6 @@ class CharacterStateModule implements ICharacterStateModule {
 
   /// The domain registrations in dispatch order.
   late final List<IStateDomainDefinition<Object?>> _domains;
-
-  /// The Level registration used by both dispatch and baseline recovery.
-  late final IStateDomainDefinition<CharacterLevelState> _levelDomain;
 
   /// Creates the replayable trackers, typed decoders, and state-area definitions.
   CharacterStateModule()
@@ -116,20 +110,21 @@ class CharacterStateModule implements ICharacterStateModule {
           isUnavailable: (CharacterSupernaturalTraitsState? state) =>
               state == null,
         );
-    _levelDomain = StateDomainDefinition<CharacterLevelState>(
-      stateArea: DovahLinkStateArea.characterLevel.protocolValue,
-      decode: CharacterLevelState.fromJson,
-      tracker: _levelTracker,
-      isUnavailable: (CharacterLevelState state) => state.value == null,
-      supportsEvents: true,
-    );
+    final StateDomainDefinition<CharacterLevelState> levelDomain =
+        StateDomainDefinition<CharacterLevelState>(
+          stateArea: DovahLinkStateArea.characterLevel.protocolValue,
+          decode: CharacterLevelState.fromJson,
+          tracker: _levelTracker,
+          isUnavailable: (CharacterLevelState state) => state.value == null,
+          supportsEvents: true,
+        );
     _domains = List<IStateDomainDefinition<Object?>>.unmodifiable(
       <IStateDomainDefinition<Object?>>[
         vitalsDomain,
         xpDomain,
         identityDomain,
         supernaturalTraitsDomain,
-        _levelDomain,
+        levelDomain,
       ],
     );
     _character = DovahLinkCharacter(
@@ -148,8 +143,4 @@ class CharacterStateModule implements ICharacterStateModule {
   /// Implements [ICharacterStateModule.domains].
   @override
   List<IStateDomainDefinition<Object?>> get domains => _domains;
-
-  /// Implements [ICharacterStateModule.levelDomain].
-  @override
-  IStateDomainDefinition<CharacterLevelState> get levelDomain => _levelDomain;
 }

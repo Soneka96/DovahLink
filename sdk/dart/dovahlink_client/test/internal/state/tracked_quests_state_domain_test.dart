@@ -1,7 +1,7 @@
 import 'package:test/test.dart';
 
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/tracked_quests_state_module.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/single_domain_state_module.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_event_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
@@ -65,10 +65,14 @@ StateSnapshotPayload _buildSnapshot({
 
 /// Tests tracked-quests registration and Snapshot synchronization behavior.
 void main() {
-  late ITrackedQuestsStateModule module;
+  late SingleDomainStateModule<TrackedQuestsState?> module;
 
   setUp(() {
-    module = TrackedQuestsStateModule();
+    module = SingleDomainStateModule<TrackedQuestsState?>(
+      stateArea: DovahLinkStateArea.trackedQuests.protocolValue,
+      decode: decodeTrackedQuestsState,
+      isUnavailable: (TrackedQuestsState? state) => state == null,
+    );
   });
 
   group('Property domain behaves correctly', () {

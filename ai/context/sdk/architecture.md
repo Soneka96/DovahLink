@@ -432,26 +432,61 @@ is ever given either interface.
 
 `DovahLinkClient` remains the SDK composition root for state synchronization, while domain modules
 own composition of their own typed trackers, decoders, availability rules, and
-`StateDomainDefinition<T>` registrations. The root registers each module's definitions with the
-shared `StateMessageHandler` and exposes consumer views grouped by domain (for example,
-`currentHost.character`). Root facades must not gain one field or constructor dependency for every
-state area indefinitely. Domain modules use the existing generic state machinery; they do not add a
-parallel message handler or transport/session policy.
+`StateDomainDefinition<T>` registrations. The root builds the registered definition list once and
+hands that same list to the shared `StateMessageHandler` and to Event-recovery composition, and it
+exposes consumer views grouped by domain (for example, `currentHost.character`). Root facades must
+not gain one field or constructor dependency for every state area indefinitely. Domain modules use
+the existing generic state machinery; they do not add a parallel message handler or transport/session
+policy.
 
-The handler selects a definition by the payload's `stateArea`; it does not branch on individual area
+### Definitions are the single source of domain capabilities
+
+A `StateDomainDefinition<T>` is the one place a domain declares what it is: its state-area name, its
+typed decoder, its unavailable-value rule, its revision tracker, and whether it supports Events
+(`supportsEvents`). Nothing else in the SDK keeps separate knowledge of a specific domain. The
+handler selects a definition by the payload's `stateArea`; it does not branch on individual area
 names. It applies state messages only for areas accepted by the current session's subscription
 acknowledgement; removed areas reset to `notSubscribed`, and late messages for them are ignored.
-Each definition applies typed Snapshots and applies Events only when that area is registered for
-Event updates. Unknown areas remain protocol violations.
+Each definition applies typed Snapshots and applies Events only when it declares Event support.
+Unknown areas remain protocol violations. There is no second registry, registration type, or
+Event-only hierarchy.
 
-`StateMessageHandler` is composed before `RequestService` because the inbound router depends on the
-unsolicited state handler. `SubscriptionService` is composed after `RequestService`, using the
-already-created state handler to update its accepted-area gate when a correlated
-`subscription_ack` arrives. The current level `StateRecoveryService<T>` is composed after
-`RequestService`, because recovery sends its correlated `snapshot_request` through
-`IRequestService`. It receives the same typed level definition used by normal message handling, so
-the recovery request area, tracker, decoder, and unavailable-value rule come from that registration.
-`DovahLinkClient` constructs the handler first and recovery after requests are available.
+### Event recovery follows the definition
+
+An Event-capable area can fall behind through a revision gap, so it needs Snapshot recovery. The
+SDK derives that from the registered definitions: `startStateRecovery` creates and starts exactly one
+`StateRecoveryService<T>` for each definition whose `supportsEvents` is true, and none for a
+Snapshot-only definition. Adding an Event-capable domain therefore requires no recovery code in the
+composition root. Recovery sends its correlated `snapshot_request` through the existing
+`IRequestService` and reports failure through the existing `ISessionService`; it adds no transport
+receiver or revision tracker. The tracker, decoder, and unavailable-value rule come from the same
+definition normal message handling uses.
+
+Composition order is unchanged: `StateMessageHandler` is composed before `RequestService` because
+the inbound router depends on the unsolicited state handler. `SubscriptionService` is composed after
+`RequestService`, using the already-created state handler to update its accepted-area gate when a
+correlated `subscription_ack` arrives. Event recovery is composed after `RequestService` as well,
+because it sends through `IRequestService`.
+
+### Module shapes
+
+- A domain that stands alone uses the generic internal `SingleDomainStateModule<T>`: it owns the one
+  definition and its tracker and exposes the typed synchronization stream. It is a data holder, not
+  a Service, and has no interface of its own. Do not add a per-domain module class that only wraps
+  one definition.
+- Related domains that share a public view keep a grouping module. `CharacterStateModule` groups
+  vitals, XP, level, identity, and supernatural traits behind the one `currentHost.character` view;
+  that grouping is real organization, so such a module is not flattened into single-domain modules.
+
+### Where future domains go
+
+A future gameplay domain is a typed model plus a definition. Group it under the `currentHost` view
+whose subject it belongs to, or under a new grouped view when no existing view fits; do not add it as
+another mutable field on `DovahLinkClient`. The root holds no gameplay values: the typed domain
+stream remains the sole owner of a domain's current value, so a root field per domain would be a
+second copy of state and would grow the root with every area. The existing grouped `currentHost`
+API is preserved as it is, and each domain keeps its own typed stream under the one session engine
+and one request router described above.
 
 ## Session-state ownership
 
