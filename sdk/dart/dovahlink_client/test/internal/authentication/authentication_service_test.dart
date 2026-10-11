@@ -55,7 +55,7 @@ class MockClientIdCache extends Mock implements ClientIdCache {}
 /// Builds a decoded `hello_ack` reply [Envelope] from the shared envelope fixture.
 Envelope buildHelloAckEnvelope({
   String? sessionId = 'session-1',
-  String hostVersion = '0.5.0',
+  String hostVersion = '0.6.0',
   String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
   String hostName = 'Soneka-Desktop',
   ClientIdentityKind kind = ClientIdentityKind.unpaired,
@@ -63,6 +63,7 @@ Envelope buildHelloAckEnvelope({
 }) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.helloAck,
   sessionId: sessionId,
+  stateAuthorityId: 'state-authority-1',
   clientId: clientId,
   payload: <String, dynamic>{
     'hostVersion': hostVersion,
@@ -159,6 +160,7 @@ void main() {
         sessionId: any(named: 'sessionId'),
         trustState: any(named: 'trustState'),
         currentHost: any(named: 'currentHost'),
+        stateAuthorityId: any(named: 'stateAuthorityId'),
       ),
     ).thenAnswer((_) {});
     when(() => storage.load()).thenAnswer(
@@ -184,6 +186,60 @@ void main() {
       hostAvailabilityService: hostAvailabilityService,
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
+    );
+  });
+
+  group('Method hello for stateAuthorityId behaves correctly', () {
+    test(
+      'Method hello admits the session with the hello_ack state authority',
+      () async {
+        stubSendAndAwait(requestService, buildHelloAckEnvelope());
+
+        await service.hello();
+
+        verify(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+            stateAuthorityId: 'state-authority-1',
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method hello rejects a hello_ack without a state authority before admission',
+      () async {
+        stubSendAndAwait(
+          requestService,
+          Fixtures.buildEnvelope(
+            messageType: ProtocolMessageType.helloAck,
+            sessionId: 'session-1',
+            clientId: 'client-1',
+            payload: const <String, dynamic>{
+              'hostVersion': '0.6.0',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'Soneka-Desktop',
+              'clientIdentityKind': 'unpaired',
+            },
+          ),
+        );
+
+        await expectLater(
+          service.hello(),
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+          ),
+        );
+      },
     );
   });
 
@@ -258,6 +314,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
       },
@@ -296,6 +353,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -382,6 +440,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
       },
@@ -418,6 +477,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -474,7 +534,7 @@ void main() {
         requestService,
         buildHelloAckEnvelope(
           sessionId: 'session-1',
-          hostVersion: '0.5.0',
+          hostVersion: '0.6.0',
           hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
           hostName: 'LIVINGROOM-PC',
           kind: ClientIdentityKind.unpaired,
@@ -498,6 +558,7 @@ void main() {
             hostName: 'LIVINGROOM-PC',
             endpoint: Uri.parse('ws://127.0.0.1:58231/'),
           ),
+          stateAuthorityId: 'state-authority-1',
         ),
       ]);
       verifyNever(
@@ -507,7 +568,7 @@ void main() {
       );
       expect(result.hostId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
       expect(result.hostName, 'LIVINGROOM-PC');
-      expect(result.hostVersion, '0.5.0');
+      expect(result.hostVersion, '0.6.0');
       expect(result.trustState, DovahLinkTrustState.unpaired);
     });
 
@@ -627,6 +688,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -691,6 +753,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -748,6 +811,7 @@ void main() {
             sessionId: 'session-1',
             trustState: DovahLinkTrustState.unpaired,
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         ).called(1);
         verifyNever(() => storage.updateState(any()));
@@ -804,6 +868,7 @@ void main() {
               hostName: 'Soneka-Desktop',
               endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),
+            stateAuthorityId: 'state-authority-1',
           ),
         ).called(1);
       },
@@ -850,6 +915,7 @@ void main() {
               hostName: 'Soneka-Desktop',
               endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),
+            stateAuthorityId: 'state-authority-1',
           ),
         ).called(1);
         verifyNever(() => storage.updateState(any()));
@@ -892,6 +958,7 @@ void main() {
             hostName: 'UNPAIRED-CANDIDATE',
             endpoint: Uri.parse('ws://127.0.0.1:58231/'),
           ),
+          stateAuthorityId: 'state-authority-1',
         ),
       ).called(1);
     });
@@ -926,6 +993,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -943,7 +1011,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.6.0',
+            hostVersion: '0.7.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -964,6 +1032,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -996,7 +1065,7 @@ void main() {
                   (DovahLinkCompatibilityException error) =>
                       error.supportedHostVersionRange,
                   'supportedHostVersionRange',
-                  '0.5.x',
+                  '0.6.x',
                 )
                 .having(
                   (DovahLinkCompatibilityException error) => error.failure,
@@ -1011,6 +1080,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1026,7 +1096,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -1061,7 +1131,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -1086,7 +1156,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -1126,7 +1196,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
             kind: ClientIdentityKind.unpaired,
           ),
@@ -1154,6 +1224,7 @@ void main() {
               hostName: 'Soneka-Desktop',
               endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),
+            stateAuthorityId: 'state-authority-1',
           ),
         ).called(1);
         verifyNever(
@@ -1173,8 +1244,9 @@ void main() {
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             sessionId: null,
+            stateAuthorityId: 'state-authority-1',
             payload: <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'unpaired',
@@ -1198,6 +1270,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1232,6 +1305,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1271,6 +1345,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1287,7 +1362,7 @@ void main() {
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'not-a-real-kind',
@@ -1310,6 +1385,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1339,6 +1415,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1614,7 +1691,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             hostId: hostId,
             kind: ClientIdentityKind.paired,
           ),
@@ -1632,7 +1709,7 @@ void main() {
           DovahLinkHostId(hostId),
         );
 
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
         expect(result.hostName, 'Soneka-Desktop');
         expect(result.trustState, DovahLinkTrustState.trusted);
@@ -1665,7 +1742,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -1689,7 +1766,7 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(1);
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
@@ -1713,7 +1790,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -1737,7 +1814,7 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(1);
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.trustState, DovahLinkTrustState.trusted);
       },
     );
@@ -1749,7 +1826,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -1769,7 +1846,7 @@ void main() {
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         verifyNever(
           () => hostAvailabilityService.setAvailability(any(), any()),
         );
@@ -1927,7 +2004,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             hostId: hostId,
-            hostVersion: '0.6.0',
+            hostVersion: '0.7.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -2157,7 +2234,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           );
         });
@@ -2238,7 +2315,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           );
         });
@@ -2294,7 +2371,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           );
         });

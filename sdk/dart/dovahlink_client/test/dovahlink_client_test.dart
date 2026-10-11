@@ -925,6 +925,65 @@ void _expectEmpty(
   expect(state.playContextId, isNull);
 }
 
+/// Builds one unsolicited Host `gameplay_readiness` envelope for fake-host delivery.
+/// @param ready Whether the Host reports gameplay as ready.
+/// @param sequence The per-session publication sequence.
+/// @param sessionId The session the Host publishes on.
+/// @param stateAuthorityId The authority epoch the value is published under.
+/// @return The raw protocol envelope.
+String _rawReadiness({
+  required bool ready,
+  required int sequence,
+  String sessionId = 'session-1',
+  String stateAuthorityId = 'state-authority-1',
+  String? playContextId,
+}) => jsonEncode(<String, dynamic>{
+  'messageType': 'gameplay_readiness',
+  'messageId': 'readiness-$sessionId-$sequence',
+  'sessionId': sessionId,
+  'correlationId': null,
+  'payload': <String, dynamic>{'ready': ready, 'sequence': sequence},
+  'stateAuthorityId': stateAuthorityId,
+  'playContextId': playContextId,
+  'clientId': null,
+});
+
+/// Reads the canonical unpaired `hello_ack` fixture, replaced with [sessionId] and [hostVersion].
+String _rawHelloAck({String sessionId = 'session-1', String? hostVersion}) {
+  final JsonMap ack =
+      jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+  ack['sessionId'] = sessionId;
+  if (hostVersion != null) {
+    (ack['payload'] as JsonMap)['hostVersion'] = hostVersion;
+  }
+  return jsonEncode(ack);
+}
+
+/// Records every value [client] replays or emits for its gameplay readiness.
+List<DovahLinkGameplayReadiness> _recordReadiness(DovahLinkClient client) {
+  final List<DovahLinkGameplayReadiness> seen = <DovahLinkGameplayReadiness>[];
+  final StreamSubscription<DovahLinkGameplayReadiness> subscription = client
+      .currentHost
+      .gameplayReadinessChanges
+      .listen(seen.add);
+  addTearDown(subscription.cancel);
+  return seen;
+}
+
+/// An in-memory storage whose saves can be held open, to keep trusted admission pending after
+/// `hello_ack` the way real storage I/O does.
+class HoldableClientStorage extends InMemoryClientStorage {
+  /// While set, [save] waits for it before writing.
+  Completer<void>? saveGate;
+
+  /// Writes [state] once any [saveGate] is released.
+  @override
+  Future<void> save(PersistedClientState state) async {
+    await saveGate?.future;
+    await super.save(state);
+  }
+}
+
 /// Runs public-client behavior tests.
 void main() {
   late FakeDovahLinkTransport transport;
@@ -4239,13 +4298,206 @@ void main() {
           defaultClient.connections.state,
           DovahLinkConnectionState.connected,
         );
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
         expect(result.hostName, 'Soneka-Desktop');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
   });
+
+  group(
+    'Behavior gameplay readiness over the default WebSocket transport behaves correctly',
+    () {
+      test(
+        'Behavior readiness sent right after hello_ack follows Host reports and then transport loss',
+        () async {
+          const Duration timeout = Duration(seconds: 5);
+          final FakeWebSocketServer server = await FakeWebSocketServer.start()
+              .timeout(timeout);
+          addTearDown(server.close);
+          // Reconnection is disabled so the closed socket ends the test's connection for good
+          // instead of starting a retry loop against this server.
+          final DovahLinkClient realClient = buildDovahLinkClientForTesting(
+            transport: WebSocketTransport(),
+            storage: InMemoryClientStorage(),
+            reconnectEnabled: false,
+          );
+          addTearDown(realClient.close);
+          addTearDown(realClient.connections.disconnect);
+          final List<DovahLinkGameplayReadiness> seen = _recordReadiness(
+            realClient,
+          );
+          final Future<WebSocket> acceptedSocket = server.connections.first
+              .timeout(timeout);
+
+          final Future<HelloResult> hello = realClient.connections
+              .connectCandidate(server.uri)
+              .timeout(timeout);
+          final WebSocket socket = await acceptedSocket;
+          addTearDown(socket.close);
+          final Completer<String> requestFrame = Completer<String>();
+          socket.listen((Object? message) {
+            if (message is String && !requestFrame.isCompleted) {
+              requestFrame.complete(message);
+            }
+          });
+          final JsonMap request =
+              jsonDecode(await requestFrame.future.timeout(timeout)) as JsonMap;
+          final JsonMap helloAck =
+              jsonDecode(_rawFixture('connection/hello-ack.json')) as JsonMap;
+          helloAck['correlationId'] = request['messageId'];
+
+          // The Host writes all three frames back to back, as it does on every admission.
+          socket.add(jsonEncode(helloAck));
+          socket.add(_rawFixture('capabilities/capabilities-host.json'));
+          socket.add(_rawReadiness(ready: false, sequence: 1));
+          await hello;
+
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.notReady,
+              )
+              .timeout(timeout);
+          expect(
+            realClient.connections.state,
+            DovahLinkConnectionState.connected,
+          );
+          expect(
+            realClient.currentHost.trustState,
+            DovahLinkTrustState.unpaired,
+          );
+
+          socket.add(_rawReadiness(ready: true, sequence: 2));
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.ready,
+              )
+              .timeout(timeout);
+          socket.add(_rawReadiness(ready: false, sequence: 3));
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.notReady,
+              )
+              .timeout(timeout);
+          expect(
+            realClient.connections.state,
+            DovahLinkConnectionState.connected,
+          );
+
+          await socket.close();
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.unknown,
+              )
+              .timeout(timeout);
+          expect(
+            realClient.currentHost.gameplayReadiness,
+            DovahLinkGameplayReadiness.unknown,
+          );
+          expect(seen, <DovahLinkGameplayReadiness>[
+            DovahLinkGameplayReadiness.unknown,
+            DovahLinkGameplayReadiness.notReady,
+            DovahLinkGameplayReadiness.ready,
+            DovahLinkGameplayReadiness.notReady,
+            DovahLinkGameplayReadiness.unknown,
+          ]);
+        },
+      );
+
+      test(
+        'Behavior readiness that arrives while trusted admission awaits storage is kept and published once admitted',
+        () async {
+          const Duration timeout = Duration(seconds: 5);
+          final FakeWebSocketServer server = await FakeWebSocketServer.start()
+              .timeout(timeout);
+          addTearDown(server.close);
+          final HoldableClientStorage holdable = HoldableClientStorage();
+          await holdable.save(
+            Fixtures.buildPersistedClientState(
+              clientId: 'client-1',
+              host: Fixtures.buildDovahLinkHost(
+                hostName: 'Renamed-Desktop',
+                endpoint: server.uri.toString(),
+              ),
+              credential: 'trusted-credential',
+            ),
+          );
+          final DovahLinkClient realClient = buildDovahLinkClientForTesting(
+            transport: WebSocketTransport(),
+            storage: holdable,
+          );
+          addTearDown(realClient.close);
+          addTearDown(realClient.connections.disconnect);
+          final Future<WebSocket> acceptedSocket = server.connections.first
+              .timeout(timeout);
+          holdable.saveGate = Completer<void>();
+          addTearDown(() {
+            if (!holdable.saveGate!.isCompleted) {
+              holdable.saveGate!.complete();
+            }
+          });
+
+          final Future<HelloResult> hello = realClient.connections
+              .connectKnownHost(
+                DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+              )
+              .timeout(timeout);
+          final WebSocket socket = await acceptedSocket;
+          addTearDown(socket.close);
+          final Completer<String> requestFrame = Completer<String>();
+          socket.listen((Object? message) {
+            if (message is String && !requestFrame.isCompleted) {
+              requestFrame.complete(message);
+            }
+          });
+          final JsonMap request =
+              jsonDecode(await requestFrame.future.timeout(timeout)) as JsonMap;
+          final JsonMap helloAck =
+              jsonDecode(_rawFixture('connection/hello-ack-paired.json'))
+                  as JsonMap;
+          helloAck['correlationId'] = request['messageId'];
+
+          socket.add(jsonEncode(helloAck));
+          socket.add(_rawFixture('capabilities/capabilities-host.json'));
+          socket.add(
+            _rawReadiness(
+              ready: true,
+              sequence: 1,
+              sessionId: 'session-paired-1',
+            ),
+          );
+          for (int turn = 0; turn < 40; turn++) {
+            await pumpEventQueue();
+          }
+
+          expect(realClient.currentHost.sessionId, isNull);
+          expect(
+            realClient.currentHost.gameplayReadiness,
+            DovahLinkGameplayReadiness.unknown,
+          );
+
+          holdable.saveGate!.complete();
+          await hello;
+          await realClient.currentHost.gameplayReadinessChanges
+              .firstWhere(
+                (DovahLinkGameplayReadiness value) =>
+                    value == DovahLinkGameplayReadiness.ready,
+              )
+              .timeout(timeout);
+          expect(realClient.currentHost.sessionId, 'session-paired-1');
+          expect(
+            realClient.currentHost.trustState,
+            DovahLinkTrustState.trusted,
+          );
+        },
+      );
+    },
+  );
 
   group('Method enqueue behaves correctly', () {
     test('Method enqueue releases an uncorrelated reply immediately', () async {
@@ -4735,7 +4987,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'paired',
@@ -4761,7 +5013,7 @@ void main() {
             'sessionId': 'session-2',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'paired',
@@ -5876,7 +6128,7 @@ void main() {
           'sessionId': 'session-2',
           'correlationId': 'irrelevant',
           'payload': <String, dynamic>{
-            'hostVersion': '0.5.0',
+            'hostVersion': '0.6.0',
             'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
             'hostName': 'Soneka-Desktop',
             'clientIdentityKind': 'paired',
@@ -9449,5 +9701,462 @@ void main() {
         );
       },
     );
+  });
+  group('Behavior gameplay readiness composition behaves correctly', () {
+    const DovahLinkGameplayReadiness unknown =
+        DovahLinkGameplayReadiness.unknown;
+    const DovahLinkGameplayReadiness notReady =
+        DovahLinkGameplayReadiness.notReady;
+    const DovahLinkGameplayReadiness ready = DovahLinkGameplayReadiness.ready;
+
+    test('Behavior readiness is unknown before any connection', () async {
+      expect(client.currentHost.gameplayReadiness, unknown);
+      expect(await client.currentHost.gameplayReadinessChanges.first, unknown);
+    });
+
+    test(
+      'Behavior a restricted session receives the initial value without subscribing and without changing its state',
+      () async {
+        final List<DovahLinkGameplayReadiness> seen = _recordReadiness(client);
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(_rawReadiness(ready: false, sequence: 1));
+
+        await client.connections.connectCandidate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await _settle();
+
+        expect(client.currentHost.gameplayReadiness, notReady);
+        expect(seen, <DovahLinkGameplayReadiness>[unknown, notReady]);
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+        expect(client.currentHost.trustState, DovahLinkTrustState.unpaired);
+        expect(_sentIdsOfType(transport, 'subscribe'), isEmpty);
+      },
+    );
+
+    test(
+      'Behavior one session follows notReady, ready, notReady without reconnecting or changing connection or trust state',
+      () async {
+        final List<DovahLinkGameplayReadiness> seen = _recordReadiness(client);
+        final List<DovahLinkConnectionState> states =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> stateSubscription =
+            client.connections.stateChanges.listen(states.add);
+        addTearDown(stateSubscription.cancel);
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(_rawReadiness(ready: false, sequence: 1));
+        await client.connections.connectCandidate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await _settle();
+        final List<DovahLinkConnectionState> statesBefore =
+            List<DovahLinkConnectionState>.of(states);
+
+        transport.queueRawResponse(_rawReadiness(ready: true, sequence: 2));
+        await _settle();
+        expect(client.currentHost.gameplayReadiness, ready);
+        transport.queueRawResponse(_rawReadiness(ready: false, sequence: 3));
+        await _settle();
+
+        expect(client.currentHost.gameplayReadiness, notReady);
+        expect(seen, <DovahLinkGameplayReadiness>[
+          unknown,
+          notReady,
+          ready,
+          notReady,
+        ]);
+        expect(states, statesBefore);
+        expect(transport.connectCalls, hasLength(1));
+        expect(client.currentHost.trustState, DovahLinkTrustState.unpaired);
+      },
+    );
+
+    test(
+      'Behavior a duplicate, lower, and wrong-session readiness message changes nothing',
+      () async {
+        await _connectAndHello(transport, client);
+        transport.queueRawResponse(_rawReadiness(ready: true, sequence: 5));
+        await _settle();
+
+        transport.queueRawResponse(_rawReadiness(ready: false, sequence: 5));
+        transport.queueRawResponse(_rawReadiness(ready: false, sequence: 4));
+        transport.queueRawResponse(
+          _rawReadiness(ready: false, sequence: 9, sessionId: 'session-other'),
+        );
+        await _settle();
+
+        expect(client.currentHost.gameplayReadiness, ready);
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+      },
+    );
+
+    test(
+      'Behavior the first readiness message is kept when the transport delivers it with no turn after hello_ack',
+      () async {
+        transport.synchronousDelivery = true;
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(_rawReadiness(ready: true, sequence: 1));
+
+        await client.connections.connectCandidate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        await _settle();
+
+        expect(client.currentHost.gameplayReadiness, ready);
+      },
+    );
+
+    test(
+      'Behavior a trusted session holds the first readiness message unpublished until admission completes',
+      () async {
+        final HoldableClientStorage holdable = HoldableClientStorage();
+        final FakeDovahLinkTransport heldTransport = FakeDovahLinkTransport()
+          ..synchronousDelivery = true;
+        final DovahLinkClient heldClient = buildDovahLinkClientForTesting(
+          transport: heldTransport,
+          storage: holdable,
+        );
+        addTearDown(heldClient.close);
+        await holdable.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            // A stale name makes trusted admission write the refreshed Host name.
+            hostName: 'Renamed-Desktop',
+            credential: 'trusted-credential',
+          ),
+        );
+        holdable.saveGate = Completer<void>();
+        heldTransport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        heldTransport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        heldTransport.queueResponse(
+          _rawReadiness(
+            ready: true,
+            sequence: 1,
+            sessionId: 'session-paired-1',
+          ),
+        );
+
+        final Future<void> connecting = heldClient.connections.connectKnownHost(
+          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+        );
+        await _settle();
+
+        expect(heldClient.currentHost.sessionId, isNull);
+        expect(heldClient.currentHost.gameplayReadiness, unknown);
+
+        holdable.saveGate!.complete();
+        await connecting;
+        await _settle();
+
+        expect(heldClient.currentHost.sessionId, 'session-paired-1');
+        expect(heldClient.currentHost.trustState, DovahLinkTrustState.trusted);
+        expect(heldClient.currentHost.gameplayReadiness, ready);
+      },
+    );
+
+    test(
+      'Behavior a 0.5.x Host is rejected as too old before admission even when its readiness arrives with no turn after hello_ack',
+      () async {
+        transport.synchronousDelivery = true;
+        transport.queueResponse(_rawHelloAck(hostVersion: '0.5.0'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(_rawReadiness(ready: true, sequence: 1));
+
+        await expectLater(
+          client.connections.connectCandidate(
+            Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+          throwsA(
+            isA<DovahLinkCompatibilityException>()
+                .having(
+                  (DovahLinkCompatibilityException error) => error.failure,
+                  'failure',
+                  HostVersionCompatibilityFailure.hostTooOld,
+                )
+                .having(
+                  (DovahLinkCompatibilityException error) =>
+                      error.supportedHostVersionRange,
+                  'supportedHostVersionRange',
+                  '0.6.x',
+                ),
+          ),
+        );
+        await _settle();
+
+        expect(client.currentHost.sessionId, isNull);
+        expect(client.currentHost.gameplayReadiness, unknown);
+      },
+    );
+
+    test(
+      'Behavior a failed authentication leaves no readiness staged for the next session',
+      () async {
+        transport.queueResponse(_rawHelloAck(hostVersion: '9.0.0'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(_rawReadiness(ready: true, sequence: 1));
+
+        await expectLater(
+          client.connections.connectCandidate(
+            Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+          throwsA(isA<DovahLinkCompatibilityException>()),
+        );
+        await _settle();
+        expect(client.currentHost.gameplayReadiness, unknown);
+
+        await _connectAndHello(transport, client);
+        await _settle();
+
+        expect(client.currentHost.gameplayReadiness, unknown);
+      },
+    );
+
+    test(
+      'Behavior transport loss makes readiness unknown through reconnection while gameplay values stay retained',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        final List<DovahLinkGameplayReadiness> seen = _recordReadiness(
+          s.client,
+        );
+        s.transport.queueRawResponse(
+          _rawReadiness(
+            ready: true,
+            sequence: 1,
+            sessionId: 'session-paired-1',
+            stateAuthorityId: 'authority-1',
+          ),
+        );
+        await _settle();
+        expect(s.client.currentHost.gameplayReadiness, ready);
+
+        _dropTransport(
+          s.transport,
+          accepted: <DovahLinkStateArea>[DovahLinkStateArea.characterXp],
+        );
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        await _settle();
+
+        expect(s.client.currentHost.gameplayReadiness, unknown);
+        expect(seen, <DovahLinkGameplayReadiness>[unknown, ready, unknown]);
+        _expectRetained(
+          (await _readDomains(s.client))[DovahLinkStateArea.characterXp]!,
+          revision: _baselineRevision(DovahLinkStateArea.characterXp),
+        );
+
+        s.transport.queueRawResponse(
+          _rawReadiness(
+            ready: false,
+            sequence: 1,
+            sessionId: 'session-paired-1',
+            stateAuthorityId: 'authority-1',
+          ),
+        );
+        await _settle();
+
+        expect(s.client.currentHost.gameplayReadiness, notReady);
+        expect(seen.last, notReady);
+      },
+    );
+
+    test(
+      'Behavior a state authority rotation invalidates readiness, ignores the superseded authority, and accepts the new epoch',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        s.transport.queueRawResponse(
+          _rawReadiness(
+            ready: true,
+            sequence: 1,
+            sessionId: 'session-paired-1',
+            stateAuthorityId: 'authority-1',
+          ),
+        );
+        await _settle();
+        expect(s.client.currentHost.gameplayReadiness, ready);
+
+        s.transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+            stateAuthorityId: 'authority-2',
+          ),
+        );
+        await _settle();
+        expect(s.client.currentHost.gameplayReadiness, unknown);
+
+        s.transport.queueRawResponse(
+          _rawReadiness(
+            ready: true,
+            sequence: 2,
+            sessionId: 'session-paired-1',
+            stateAuthorityId: 'authority-1',
+          ),
+        );
+        await _settle();
+        expect(s.client.currentHost.gameplayReadiness, unknown);
+
+        s.transport.queueRawResponse(
+          _rawReadiness(
+            ready: false,
+            sequence: 3,
+            sessionId: 'session-paired-1',
+            stateAuthorityId: 'authority-2',
+          ),
+        );
+        await _settle();
+        expect(s.client.currentHost.gameplayReadiness, notReady);
+      },
+    );
+
+    test(
+      'Behavior a delayed Snapshot from a superseded authority cannot invalidate readiness a newer authority established',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        s.transport.queueRawResponse(
+          _rawReadiness(
+            ready: true,
+            sequence: 1,
+            sessionId: 'session-paired-1',
+            stateAuthorityId: 'authority-2',
+          ),
+        );
+        await _settle();
+        expect(s.client.currentHost.gameplayReadiness, ready);
+
+        s.transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+            stateAuthorityId: 'authority-1',
+          ),
+        );
+        await _settle();
+
+        expect(s.client.currentHost.gameplayReadiness, ready);
+      },
+    );
+
+    test(
+      'Behavior explicit disconnect makes readiness unknown and a delayed message from the ended session cannot restore it',
+      () async {
+        await _connectAndHello(transport, client);
+        transport.queueRawResponse(_rawReadiness(ready: true, sequence: 1));
+        await _settle();
+        expect(client.currentHost.gameplayReadiness, ready);
+
+        await client.connections.disconnect();
+        expect(client.currentHost.gameplayReadiness, unknown);
+
+        transport.queueResponse(_rawHelloAck(sessionId: 'session-2'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        await client.connections.connectCandidate(
+          Uri.parse('ws://127.0.0.1:58231/'),
+        );
+        transport.queueRawResponse(_rawReadiness(ready: true, sequence: 50));
+        await _settle();
+        expect(client.currentHost.gameplayReadiness, unknown);
+
+        transport.queueRawResponse(
+          _rawReadiness(ready: false, sequence: 1, sessionId: 'session-2'),
+        );
+        await _settle();
+        expect(client.currentHost.gameplayReadiness, notReady);
+      },
+    );
+
+    test(
+      'Behavior administrative invalidation makes readiness unknown',
+      () async {
+        await _connectAndHello(transport, client);
+        transport.queueRawResponse(_rawReadiness(ready: true, sequence: 1));
+        await _settle();
+        expect(client.currentHost.gameplayReadiness, ready);
+
+        transport.queueRawResponse(_rawSessionInvalidated('revoked'));
+        await _settle();
+
+        expect(
+          client.connections.state,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(client.currentHost.gameplayReadiness, unknown);
+      },
+    );
+
+    test(
+      'Behavior a malformed readiness message fails the session and leaves readiness unknown',
+      () async {
+        await _connectAndHello(transport, client);
+        transport.queueRawResponse(_rawReadiness(ready: true, sequence: 1));
+        await _settle();
+        expect(client.currentHost.gameplayReadiness, ready);
+
+        transport.queueRawResponse(_rawReadiness(ready: true, sequence: 0));
+        await _settle();
+
+        expect(client.currentHost.gameplayReadiness, unknown);
+        expect(
+          client.connections.state,
+          isNot(DovahLinkConnectionState.connected),
+        );
+      },
+    );
+
+    test('Behavior closing the client leaves readiness unknown', () async {
+      await _connectAndHello(transport, client);
+      transport.queueRawResponse(_rawReadiness(ready: true, sequence: 1));
+      await _settle();
+      expect(client.currentHost.gameplayReadiness, ready);
+
+      await client.close();
+
+      expect(client.currentHost.gameplayReadiness, unknown);
+    });
+
+    test('Behavior two clients keep independent readiness', () async {
+      final FakeDovahLinkTransport otherTransport = FakeDovahLinkTransport();
+      final DovahLinkClient other = buildDovahLinkClientForTesting(
+        transport: otherTransport,
+        storage: InMemoryClientStorage(),
+      );
+      addTearDown(other.close);
+
+      await _connectAndHello(transport, client);
+      transport.queueRawResponse(_rawReadiness(ready: true, sequence: 1));
+      await _settle();
+
+      expect(client.currentHost.gameplayReadiness, ready);
+      expect(other.currentHost.gameplayReadiness, unknown);
+    });
   });
 }

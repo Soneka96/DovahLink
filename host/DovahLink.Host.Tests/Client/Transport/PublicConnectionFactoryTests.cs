@@ -89,7 +89,9 @@ public class PublicConnectionFactoryTests
 
         await runTask.WaitAsync(TimeSpan.FromSeconds(5));
 
-        Assert.StartsWith("HTTP/1.1 200 OK\r\n", Encoding.UTF8.GetString(response.ToArray()));
+        string probeResponse = Encoding.UTF8.GetString(response.ToArray());
+        Assert.StartsWith("HTTP/1.1 200 OK\r\n", probeResponse);
+        Assert.DoesNotContain("gameplay_readiness", probeResponse);
         Assert.Equal(1, sessionRegistry.ActiveCount);
     }
 

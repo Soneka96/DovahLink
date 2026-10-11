@@ -435,6 +435,88 @@ void main() {
     });
   });
 
+  group('Behavior gameplay_readiness envelope behaves correctly', () {
+    test('Behavior fromJson decodes both canonical readiness fixtures', () {
+      for (final String name in <String>['ready', 'not-ready']) {
+        final Envelope envelope = Envelope.fromJson(
+          _readFixture('readiness/gameplay-readiness-$name.json'),
+        );
+
+        expect(envelope.messageType, ProtocolMessageType.gameplayReadiness);
+        expect(envelope.correlationId, isNull);
+        expect(envelope.clientId, isNull);
+        expect(envelope.stateAuthorityId, 'state-authority-1');
+      }
+    });
+
+    test(
+      'Behavior fromJson rejects a readiness envelope with a correlationId',
+      () {
+        final JsonMap json = _readFixture(
+          'readiness/gameplay-readiness-ready.json',
+        )..['correlationId'] = 'message-1';
+
+        expect(
+          () => Envelope.fromJson(json),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test('Behavior fromJson rejects a readiness envelope with a clientId', () {
+      final JsonMap json = _readFixture(
+        'readiness/gameplay-readiness-ready.json',
+      )..['clientId'] = 'client-1';
+
+      expect(
+        () => Envelope.fromJson(json),
+        throwsA(isA<ProtocolFormatException>()),
+      );
+    });
+
+    test(
+      'Behavior fromJson rejects a readiness envelope without a stateAuthorityId',
+      () {
+        final JsonMap json = _readFixture(
+          'readiness/gameplay-readiness-ready.json',
+        )..remove('stateAuthorityId');
+
+        expect(
+          () => Envelope.fromJson(json),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Behavior fromJson rejects a readiness envelope with a null stateAuthorityId',
+      () {
+        final JsonMap json = _readFixture(
+          'readiness/gameplay-readiness-ready.json',
+        )..['stateAuthorityId'] = null;
+
+        expect(
+          () => Envelope.fromJson(json),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+
+    test(
+      'Behavior fromJson rejects a readiness envelope without a sessionId',
+      () {
+        final JsonMap json = _readFixture(
+          'readiness/gameplay-readiness-ready.json',
+        )..['sessionId'] = null;
+
+        expect(
+          () => Envelope.fromJson(json),
+          throwsA(isA<ProtocolFormatException>()),
+        );
+      },
+    );
+  });
+
   group('Behavior ProtocolMessageType wire mapping behaves correctly', () {
     test('Behavior wire mapping preserves every canonical message type', () {
       const Map<ProtocolMessageType, String> wireValues =
@@ -456,6 +538,7 @@ void main() {
             ProtocolMessageType.snapshotRequest: 'snapshot_request',
             ProtocolMessageType.stateSnapshot: 'state_snapshot',
             ProtocolMessageType.stateEvent: 'state_event',
+            ProtocolMessageType.gameplayReadiness: 'gameplay_readiness',
             ProtocolMessageType.error: 'error',
             ProtocolMessageType.sessionInvalidated: 'session_invalidated',
             ProtocolMessageType.ping: 'ping',
@@ -489,6 +572,7 @@ void main() {
             ProtocolMessageType.helloAck,
             ProtocolMessageType.stateSnapshot,
             ProtocolMessageType.stateEvent,
+            ProtocolMessageType.gameplayReadiness,
           };
       for (final MapEntry<ProtocolMessageType, String> entry
           in wireValues.entries) {

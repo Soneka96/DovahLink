@@ -293,7 +293,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -337,7 +337,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         var enteredSave = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -379,7 +379,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
 
@@ -410,7 +410,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
 
@@ -577,7 +577,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -794,7 +794,7 @@ public class PublicHelloAdmissionTests
             fakeConnections[i] = fakeConnection;
             var connection = new PublicConnectionContext(fakeConnection);
             var handler = new PublicHelloAdmissionHandler(
-                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
             byte[] hello = BuildHello(
                 codec, Guid.NewGuid().ToString(), $"hello-{i}", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
 
@@ -840,7 +840,7 @@ public class PublicHelloAdmissionTests
             var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
             var connection = new PublicConnectionContext(fakeConnection);
             var handler = new PublicHelloAdmissionHandler(
-                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+                codec, sessionRegistry, trustStore, tokenAuthenticator, credentialThrottle, playContextTracker, clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
             byte[] hello = BuildHello(
                 codec, clientId, $"hello-{i}", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = WrongButValidCredential });
 
@@ -873,7 +873,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -906,7 +906,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -939,7 +939,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] firstHello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -965,7 +965,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -992,7 +992,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] firstHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = firstToken });
@@ -1027,7 +1027,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var firstHandler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var firstFakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var firstConnection = new PublicConnectionContext(firstFakeConnection);
         byte[] losingHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -1035,7 +1035,7 @@ public class PublicHelloAdmissionTests
 
         var secondHandler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var secondFakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var secondConnection = new PublicConnectionContext(secondFakeConnection);
         byte[] retryHello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -1065,7 +1065,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry, Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry, Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1090,7 +1090,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry, Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry, Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -1118,7 +1118,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry, Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry, Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1147,7 +1147,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry, Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), connectionRegistry, Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -1180,7 +1180,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1211,7 +1211,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1244,7 +1244,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, raceTrustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1285,7 +1285,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -1324,7 +1324,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientId, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1368,7 +1368,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, trustStore, new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, clientIdText, "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
@@ -1403,7 +1403,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), new LocalConnectionTokenAuthenticator(clock),
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.Unpaired });
@@ -1443,7 +1443,7 @@ public class PublicHelloAdmissionTests
         var clock = new FakeClock();
         var handler = new PublicHelloAdmissionHandler(
             codec, sessionRegistry, new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
         var connection = new PublicConnectionContext(fakeConnection);
         byte[] hello = BuildHello(codec, Guid.NewGuid().ToString(), "hello-1", new HelloAuthPayload { Method = HelloAuthMethod.OneTimeLocalToken, Token = token });
@@ -2355,15 +2355,53 @@ public class PublicHelloAdmissionTests
         Assert.False(evaluator.HasSubscribers);
     }
 
-    /// <summary>Verifies that without a publisher admission sends exactly hello_ack and capabilities, as before: the existing contract is unchanged.</summary>
+    /// <summary>Verifies the handler binds the connection's publisher exactly once, to the admitted session, after hello_ack and capabilities, and unbinds it when the connection ends.</summary>
     [Fact]
-    public void HandleMessageAsync_NoReadinessPublisher_SendsOnlyHelloAckAndCapabilities()
+    public void HandleMessageAsync_Admission_BindsThePublisherToTheAdmittedSessionAndUnbindsAtEnd()
     {
-        var context = new TestContext();
+        var publisher = new FakeGameplayReadinessPublisher();
+        var context = new TestContext(readinessPublisher: publisher);
 
-        AdmitViaUnpairedHello(context, out _, out _);
+        AdmitViaUnpairedHello(context, out string sessionId, out _);
 
         Assert.Equal([PublicMessageType.HelloAck, PublicMessageType.Capabilities], SentMessageTypes(context));
+        Assert.Equal([sessionId], publisher.BoundSessions.Select(session => session.ToString()));
+        Assert.Equal(0, publisher.UnbindCount);
+
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+
+        Assert.Equal(1, publisher.UnbindCount);
+    }
+
+    /// <summary>Verifies the readiness publisher is a mandatory collaborator: a handler cannot be built without one.</summary>
+    [Fact]
+    public void Constructor_NullReadinessPublisher_Throws()
+    {
+        var clock = new FakeClock();
+
+        Assert.Throws<ArgumentNullException>(() => new PublicHelloAdmissionHandler(
+            new PublicEnvelopeCodec(Fixtures.BuildStateAuthorityLifecycle()), new FakeSessionRegistry(), new FakeTrustStore(),
+            new LocalConnectionTokenAuthenticator(clock), new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock,
+            new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(),
+            Fixtures.BuildHostIdentity(), null!));
+    }
+
+    /// <summary>Verifies a rejected hello never binds the publisher, but its connection end still unbinds it harmlessly.</summary>
+    [Fact]
+    public void HandleMessageAsync_RejectedHello_DoesNotBindThePublisher()
+    {
+        var publisher = new FakeGameplayReadinessPublisher();
+        var context = new TestContext(readinessPublisher: publisher);
+        string clientId = Guid.NewGuid().ToString();
+        byte[] hello = BuildHello(
+            context.Codec, clientId, "hello-1",
+            new HelloAuthPayload { Method = HelloAuthMethod.TrustedDeviceCredential, Token = ValidCredential });
+
+        context.Handler.HandleMessageAsync(context.Connection, hello, CancellationToken.None);
+        context.Handler.HandleConnectionEnded(PublicConnectionTerminationKind.ConnectivityLoss);
+
+        Assert.Empty(publisher.BoundSessions);
+        Assert.Equal(1, publisher.UnbindCount);
     }
 
     /// <summary>Lists the message type of every payload the connection received, in wire order.</summary>
@@ -3037,7 +3075,7 @@ public class PublicHelloAdmissionTests
         /// <param name="admissionDeadline">The handler's own pre-authentication admission deadline.</param>
         /// <param name="subscription">The handler's own state-area subscription capability. Defaults to <see langword="null"/>, under which subscribe and snapshot_request reject every request.</param>
         /// <param name="playContextTracker">The Host play-context identity source.</param>
-        /// <param name="readinessPublisher">The handler's own gameplay-readiness publisher. Defaults to <see langword="null"/>, under which no readiness message is sent.</param>
+        /// <param name="readinessPublisher">The handler's own gameplay-readiness publisher. Defaults to a fake that publishes nothing.</param>
         public TestContext(
             int maxActiveSessions = int.MaxValue,
             TimeSpan? admissionDeadline = null,
@@ -3052,8 +3090,8 @@ public class PublicHelloAdmissionTests
             Connection = new PublicConnectionContext(FakeConnection);
             Handler = new PublicHelloAdmissionHandler(
                 Codec, SessionRegistry, TrustStore, TokenAuthenticator, CredentialThrottle, PlayContextTracker, Clock,
-                Dispatcher, PairingCoordinator, new PublicSessionConnectionRegistry(), HostIdentity, admissionDeadline, subscription,
-                readinessPublisher);
+                Dispatcher, PairingCoordinator, new PublicSessionConnectionRegistry(), HostIdentity,
+                readinessPublisher ?? new FakeGameplayReadinessPublisher(), admissionDeadline, subscription);
         }
     }
 

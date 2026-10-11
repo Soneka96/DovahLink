@@ -237,10 +237,10 @@ current state, so investigate the subscription, the SDK, or the app.
 
 ## Gameplay readiness
 
-**Status: Host evaluation, the wire definition, the per-session publisher, and six-digit pairing
-enforcement are implemented (T9). Publication is staged and inactive: the Host does not emit the
-readiness message yet** (see "Activation" below). The SDK and Flutter consuming sides are future work
-(T10, T13); the SDK's side is in [SDK architecture, "Gameplay readiness"](../sdk/architecture.md#gameplay-readiness).
+**Status: implemented and active. Host evaluation, the wire definition, the per-session publisher,
+and six-digit pairing enforcement are T9; T10 activated publication together with the SDK capability
+and Host release `0.6.0`.** Flutter presentation is future work (T13); the SDK's side is in
+[SDK architecture, "Gameplay readiness"](../sdk/architecture.md#gameplay-readiness).
 The wire contract is `protocol/schema/README.md`'s `gameplay_readiness` section.
 
 A running Host is not necessarily a loaded Skyrim gameplay session. The Host is authoritative for
@@ -329,13 +329,12 @@ same coarse value.
 
 ### Activation
 
-The message is part of the canonical vocabulary, but a client that does not recognize a message type
-treats it as malformed protocol input, and the current Dart SDK does (verified by a characterization
-test in `sdk/dart/dovahlink_client/test/internal/requests/message_router_test.dart`). The Host
-therefore does **not** emit it: `PublicConnectionFactory` does not give its admission handler a
-publisher, and a composition test guards that. Activation is a single, deliberate step, taken only
-with the SDK capability (T10) and the compatibility step in
-`ai/context/protocol/compatibility.md` ("Gameplay readiness activation").
+`PublicConnectionFactory` receives the one shared `IGameplayReadinessEvaluator` and builds a
+`PublicGameplayReadinessPublisher` for each accepted connection, over the shared codec and state
+authority lifecycle; `PublicHelloAdmissionHandler` requires it and has no inactive path. The first
+message follows `hello_ack` and `capabilities` on both trust tiers. Activation was taken together with
+the SDK capability and the compatibility step in `ai/context/protocol/compatibility.md` ("Gameplay
+readiness activation"): an SDK that predates the message rejects Host `0.6.0` at `hello_ack`.
 
 Readiness never gates authentication and never alters connection, authentication, or trust
 semantics. An authenticated session may exist at the main menu, and "Host unreachable" is not a Host

@@ -183,31 +183,44 @@ public sealed class ProcessCommandRunnerTests
         string markerDirectory = Path.Combine(temporaryDirectory.Path, "child-markers-λ");
         Directory.CreateDirectory(markerDirectory);
         string pidPath = Path.Combine(markerDirectory, "child-pid.txt");
+        string childReadyPath = Path.Combine(markerDirectory, "child-ready.txt");
         string startedPath = Path.Combine(temporaryDirectory.Path, "child-started.txt");
-        string sentinelPath = Path.Combine(markerDirectory, "child-sentinel.txt");
         string goPath = Path.Combine(temporaryDirectory.Path, "child-go.txt");
-        string batchPath = Path.Combine(temporaryDirectory.Path, "child-tree.bat");
         string childScriptPath = Path.Combine(temporaryDirectory.Path, "child-tree.ps1");
+        string parentScriptPath = Path.Combine(temporaryDirectory.Path, "parent-tree.ps1");
         string powershellPath = Path.Combine(Environment.SystemDirectory, "WindowsPowerShell", "v1.0", "powershell.exe");
         File.WriteAllText(
             childScriptPath,
-            $"Set-Content -LiteralPath '{pidPath.Replace("'", "''")}' -Value $PID\n" +
-            "Start-Sleep -Milliseconds 500\n" +
-            $"Set-Content -LiteralPath '{sentinelPath.Replace("'", "''")}' -Value orphan\n",
+            "Set-Content -LiteralPath $env:DOVAHLINK_TEST_CHILD_READY_PATH -Value ready\n" +
+            "while ($true) {\n" +
+            "    Start-Sleep -Milliseconds 10\n" +
+            "}\n",
             new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         File.WriteAllText(
-            batchPath,
-            "@echo off\n" +
-            $"echo started > \"{startedPath}\"\n" +
-            ":wait\n" +
-            $"if not exist \"{goPath}\" goto wait\n" +
-            $"start \"\" /b \"{powershellPath}\" -NoProfile -ExecutionPolicy Bypass -File \"{childScriptPath}\"\n" +
-            "ping -n 30 127.0.0.1 >nul\n");
+            parentScriptPath,
+            "while (-not (Test-Path -LiteralPath $env:DOVAHLINK_TEST_GO_PATH)) {\n" +
+            "    Start-Sleep -Milliseconds 10\n" +
+            "}\n" +
+            "$child = Start-Process -FilePath $env:DOVAHLINK_TEST_POWERSHELL_PATH `\n" +
+            "    -ArgumentList @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', `\n" +
+            "        ('\"{0}\"' -f $env:DOVAHLINK_TEST_CHILD_SCRIPT_PATH)) -PassThru\n" +
+            "Set-Content -LiteralPath $env:DOVAHLINK_TEST_PID_PATH -Value $child.Id\n" +
+            "Set-Content -LiteralPath $env:DOVAHLINK_TEST_STARTED_PATH -Value started\n" +
+            "Start-Sleep -Seconds 30\n",
+            new System.Text.UTF8Encoding(encoderShouldEmitUTF8Identifier: true));
         var command = new BuildCommand(
-            Path.Combine(Environment.SystemDirectory, "cmd.exe"),
-            ["/d", "/c", $".\\{Path.GetFileName(batchPath)}"],
+            powershellPath,
+            ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", parentScriptPath],
             temporaryDirectory.Path,
-            new Dictionary<string, string> { ["NoDefaultCurrentDirectoryInExePath"] = "1" });
+            new Dictionary<string, string>
+            {
+                ["DOVAHLINK_TEST_GO_PATH"] = goPath,
+                ["DOVAHLINK_TEST_PID_PATH"] = pidPath,
+                ["DOVAHLINK_TEST_STARTED_PATH"] = startedPath,
+                ["DOVAHLINK_TEST_CHILD_READY_PATH"] = childReadyPath,
+                ["DOVAHLINK_TEST_POWERSHELL_PATH"] = powershellPath,
+                ["DOVAHLINK_TEST_CHILD_SCRIPT_PATH"] = childScriptPath,
+            });
         var jobAssigned = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
         var runner = new ProcessCommandRunner(
             process => process.Kill(entireProcessTree: true),
@@ -230,6 +243,17 @@ public sealed class ProcessCommandRunnerTests
             }
             Assert.True(File.Exists(startedPath));
             int descendantProcessId = await ReadDescendantProcessIdAsync(pidPath);
+            DateTime childReadyDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(5);
+            while (!File.Exists(childReadyPath) && DateTime.UtcNow < childReadyDeadline)
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(10));
+            }
+            Assert.True(File.Exists(childReadyPath), "The descendant did not enter its child script.");
+            using (Process descendant = Process.GetProcessById(descendantProcessId))
+            {
+                Assert.False(descendant.HasExited, "The descendant exited before cancellation began.");
+            }
+
             var elapsed = Stopwatch.StartNew();
             cancellation.Cancel();
 
@@ -238,17 +262,6 @@ public sealed class ProcessCommandRunnerTests
 
             Assert.True(elapsed.Elapsed < TimeSpan.FromSeconds(5));
             await AssertDescendantProcessExitedAsync(descendantProcessId);
-
-            // Captured and logged before asserting, rather than passed directly to Assert.False: if this
-            // is false (the real proof the process tree was actually killed) but the temporary directory
-            // then fails to delete on a loaded CI runner, .NET discards this method's own exception in
-            // favor of the one TemporaryDirectory.Dispose() throws during the using statement's unwind --
-            // silently replacing "the assertion failed" with an unrelated-looking IOException. Logging the
-            // captured value first means a future failure's CI output still shows which one actually
-            // happened, even when the exception itself gets masked.
-            bool sentinelExists = File.Exists(sentinelPath);
-            output.WriteLine($"Sentinel file exists after cancellation: {sentinelExists}");
-            Assert.False(sentinelExists);
         }
         catch (Exception exception)
         {

@@ -254,6 +254,31 @@ void main() {
     },
   );
 
+  group('Property values in DovahLinkGameplayReadiness behaves correctly', () {
+    test(
+      'Property values in DovahLinkGameplayReadiness has exactly the three SDK states',
+      () {
+        expect(DovahLinkGameplayReadiness.values, <DovahLinkGameplayReadiness>[
+          DovahLinkGameplayReadiness.unknown,
+          DovahLinkGameplayReadiness.notReady,
+          DovahLinkGameplayReadiness.ready,
+        ]);
+      },
+    );
+  });
+
+  group('Property values in ProtocolMessageType behaves correctly', () {
+    test(
+      'Property values in ProtocolMessageType contains the readiness message type',
+      () {
+        expect(
+          ProtocolMessageType.values,
+          contains(ProtocolMessageType.gameplayReadiness),
+        );
+      },
+    );
+  });
+
   group('Property values in DovahLinkStateStatus behaves correctly', () {
     test('Property values in DovahLinkStateStatus includes every standing', () {
       expect(DovahLinkStateStatus.values, <DovahLinkStateStatus>[

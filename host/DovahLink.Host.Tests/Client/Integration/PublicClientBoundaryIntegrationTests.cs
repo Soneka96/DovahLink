@@ -200,6 +200,7 @@ public class PublicClientBoundaryIntegrationTests
         Assert.Equal(Fixtures.BuildHostIdentity().HostName, payload.HostName);
 
         await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)); // unsolicited capabilities
+        await client.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5)); // initial gameplay_readiness
 
         return helloAck.SessionId!;
     }

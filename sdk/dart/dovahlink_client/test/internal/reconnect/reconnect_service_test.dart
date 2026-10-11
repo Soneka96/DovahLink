@@ -835,8 +835,8 @@ void main() {
         );
         when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkCompatibilityException(
-            hostVersion: '0.6.0',
-            supportedHostVersionRange: '0.5.x',
+            hostVersion: '0.7.0',
+            supportedHostVersionRange: '0.6.x',
             failure: HostVersionCompatibilityFailure.hostTooNew,
           ),
         );
@@ -916,7 +916,7 @@ void main() {
         when(() => authenticationService.helloLastKnownHost()).thenThrow(
           const DovahLinkCompatibilityException(
             hostVersion: '0.3.9',
-            supportedHostVersionRange: '0.5.x',
+            supportedHostVersionRange: '0.6.x',
             failure: HostVersionCompatibilityFailure.hostTooOld,
           ),
         );

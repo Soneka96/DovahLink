@@ -25,7 +25,7 @@ typedef JsonMap = Map<String, Object?>;
 JsonMap buildHostProbeMetadata({
   String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
   String hostName = 'Soneka-Desktop',
-  String hostVersion = '0.5.0',
+  String hostVersion = '0.6.0',
 }) => <String, Object?>{
   'hostId': hostId,
   'hostName': hostName,

@@ -2914,7 +2914,7 @@ public class PublicWebSocketConnectionTests
         string token = tokenAuthenticator.IssueToken();
         var handler = new PublicHelloAdmissionHandler(
             codec, new FakeSessionRegistry(), new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();
@@ -3004,7 +3004,7 @@ public class PublicWebSocketConnectionTests
         string token = tokenAuthenticator.IssueToken();
         var handler = new PublicHelloAdmissionHandler(
             codec, new FakeSessionRegistry(), new FakeTrustStore(), tokenAuthenticator,
-            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity());
+            new TrustedCredentialFailureThrottle(clock), new FakePlayContextTracker(), clock, new FakeClientMessageDispatcher(), new FakePairingCoordinator(), new PublicSessionConnectionRegistry(), Fixtures.BuildHostIdentity(), new FakeGameplayReadinessPublisher());
         (TcpListener listener, int port) = StartLoopbackListener();
         Task<TcpClient> acceptTask = listener.AcceptTcpClientAsync();
         using var clientWebSocket = new ClientWebSocket();

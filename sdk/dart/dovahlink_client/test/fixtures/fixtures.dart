@@ -6,6 +6,7 @@ import 'package:dovahlink_client_sdk/src/persistence/pending_pairing_recovery.da
 import 'package:dovahlink_client_sdk/src/persistence/persisted_client_state.dart';
 import 'package:dovahlink_client_sdk/src/persistence/persisted_known_host.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
+import 'package:dovahlink_client_sdk/src/protocol/gameplay_readiness_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/pairing_status_payload.dart';
 import 'package:dovahlink_client_sdk/src/request_policy.dart';
@@ -99,13 +100,21 @@ abstract final class Fixtures {
     clientId: clientId,
   );
 
+  /// Builds a decoded gameplay-readiness payload.
+  /// @param ready Whether the Host reports gameplay as ready.
+  /// @param sequence The per-session publication sequence.
+  static GameplayReadinessPayload buildGameplayReadinessPayload({
+    bool ready = true,
+    int sequence = 1,
+  }) => GameplayReadinessPayload(ready: ready, sequence: sequence);
+
   // ---- Authentication ----
 
   /// Builds a successful Host handshake result with stable identity defaults.
   static HelloResult buildHelloResult({
     String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
     String hostName = 'Soneka-Desktop',
-    String hostVersion = '0.5.0',
+    String hostVersion = '0.6.0',
     DovahLinkTrustState trustState = DovahLinkTrustState.trusted,
     CredentialRejectionReason? recoveredFromRejectedCredential,
   }) => HelloResult(

@@ -29,27 +29,40 @@ client, native Adapter, C# Host, protocol, and integration work. AI authority be
   `sdk/CHANGELOG.md` for client SDK behavior, and `host/CHANGELOG.md` for Host/Adapter behavior.
   For a change that affects more than one component, record each component's distinct outcome in
   its own file. Follow each file's bullet-writing rules. This is ongoing bookkeeping done by feature
-  work itself, not deferred to release time.
+  work itself, not deferred to release time. A changelog records what a release changed from the previous release, not the history of the work: a thing added, then changed or fixed before the same release, is one `Added` entry; a thing added then removed is omitted. Keep each entry short.
 - Repository-only documentation, CI, development-tooling, and governance changes do not require a
   component changelog entry unless they materially affect that component's consumers, packaging,
   compatibility, or runtime behavior.
-- The version bump and synchronizing the repository-owned version literals and Host/Adapter
-  changelog version bookkeeping are their own
-  dedicated release branch and release-only pull request, never bundled into a feature/phase branch.
-  That sync already touches over a dozen files across every language in the repo on its own, and folding it
-  into an already-large feature PR makes that PR harder to review for no benefit. Cut the release
-  branch from `main` once the phase(s) it covers are merged; it can cover one phase's completion or
-  several unreleased ones at once. This release PR promotes each affected component changelog's
-  accumulated `[Unreleased]` entries into a new dated `## [x.y.z] - YYYY-MM-DD` section and leaves a
-  fresh empty `[Unreleased]` section there. App and SDK histories add a versioned section only when
-  that release includes changes for them. The Host/Adapter changelog records every packaged release
-  and its newest version must match root `VERSION`; use it to prepare the player-facing Nexus summary.
-  `CHANGELOG.md` is a frozen archive through `0.4.0`, not an active changelog.
-- Cutting a release is a distinct, later, manual step performed after a version-bumped release
-  branch has merged into `main`: building the versioned package with `tooling/DovahLinkBuilder` and
-  uploading it to Nexus Mods (see that tool's own README). A merged, version-bumped change can sit
-  unreleased for an arbitrary time -- for example while `main` is blocked from publishing at all, per
-  "Pre-release compatibility" below -- without that blocking further phase or version-bump merges.
+- A version bump is not a release. Any relevant implementation pull request (feature, fix,
+  refactor, protocol, security, compatibility, or release) may change a version when the change
+  justifies it, and no version-only pull request is required. The bump must be intentional,
+  internally consistent, and free of unrelated cleanup: every repository-owned literal that
+  identifies the same current Host implementation (root `VERSION`, the Host runtime constant, the
+  Adapter package manifest, and the canonical `hello_ack` fixtures) changes together. Components with
+  independent package versions do not change merely because the Host version does. Source may
+  declare a version long before it is publicly available, so `VERSION` may be newer than the newest
+  dated section in `host/CHANGELOG.md` and than the latest public release; development builds use
+  it, and further changes may merge afterward.
+- Normal implementation pull requests add to the component changelogs' `[Unreleased]` sections and
+  never create a dated section, invent a date, or claim a version has shipped, even when they bump a
+  version.
+- Release preparation is a dedicated branch and pull request named `release/<version>`, cut from
+  `main`, separate from any feature branch. It verifies the intended version and that every
+  required version literal and package metadata value is consistent, reviews the accumulated
+  `[Unreleased]` entries, and promotes those included in the release into a new dated
+  `## [x.y.z] - YYYY-MM-DD` section above the previous one, leaving a fresh empty `[Unreleased]`
+  section. App and SDK histories add a versioned section only when the release includes changes for
+  them. It also prepares release-specific documentation and packaging configuration and performs
+  release validation. It does not repeat a version change an earlier pull request already made, but
+  may make a final one when genuinely needed. The Host/Adapter changelog records every packaged
+  release; use it to prepare the player-facing Nexus summary. `CHANGELOG.md` is a frozen archive
+  through `0.4.0`, not an active changelog.
+- Publishing is a separate, explicit, maintainer-authorized operation after release preparation has
+  merged: building the versioned package with `tooling/DovahLinkBuilder` and uploading it to Nexus
+  Mods (see that tool's own README), plus any tag, GitHub release, or package publication. Merging to
+  `main` or changing `VERSION` never publishes or tags anything, and no automation may do so. A
+  merged version bump can stay unpublished for an arbitrary time -- for example while publishing is
+  blocked per "Pre-release compatibility" below -- without blocking further merges.
 - Do not add other changelogs, release artifacts, or release automation beyond the three component
   changelogs documented above without a maintainer decision.
 
@@ -320,9 +333,10 @@ Skyrim component required the DovahLink Companion App, which had no public way t
 
 The repository's `0.5.0` version and dated `0.5.0` changelog sections describe internal snapshots;
 no supported Host/Client `0.5.0` package was publicly released. Those snapshots will never be
-compatibility targets. The current Host and SDK source may evolve together while retaining the
-internal `0.5.0` version; compatibility obligations begin with the first supported public release.
-Do not bump to `0.5.1` solely to distinguish the unpublished snapshots.
+compatibility targets. Host and SDK source may evolve together without a version change;
+compatibility obligations begin with the first supported public release. Do not bump to `0.5.1`
+solely to distinguish unpublished snapshots. The maintainer-approved exception is `0.6.0`, taken in
+the `gameplay_readiness` activation so an SDK that predates the message rejects the Host cleanly.
 
 - Until a usable Companion App is publicly downloadable, do not publish or re-publish DovahLink on
   Nexus as a public, usable release. Private and development testing is unaffected.

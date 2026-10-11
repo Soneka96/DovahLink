@@ -1115,15 +1115,17 @@ std::string ReceiveUntil(MinimalPublicWebSocketClient& client,
 }
 
 ///  Sends `pairing_request` until the real Host answers with something other
-///  than its gameplay-readiness refusal, returning that reply.
+///  than its gameplay-readiness refusal, returning that reply. Ignores
+///  unsolicited `gameplay_readiness` reports while waiting for the pairing
+///  response.
 ///
 ///  The Host refuses a pairing request with `pairing_status` `unavailable` --
 ///  before any reservation, Adapter display request, or credential -- until
 ///  gameplay is ready, which a real Adapter resynchronization baseline
-///  establishes asynchronously. The Adapter side has no direct readiness
-///  signal (the Host does not publish one yet), so this observes the refusal
-///  itself: an `unavailable` reply for which the sink has recorded no new
-///  display request can only be that refusal, since a rejected display is
+///  establishes asynchronously. The Host may publish readiness reports before
+///  the pairing response; these do not answer the request and are skipped.
+///  An `unavailable` pairing reply for which the sink has recorded no new
+///  display request is the readiness refusal, since a rejected display is
 ///  recorded by the sink before the Host replies. Each refused attempt leaves
 ///  no Host state behind, so retrying is safe. Bounded, never unbounded: it
 ///  throws once `timeout` elapses without a non-refusal reply.
@@ -1151,7 +1153,17 @@ std::string RequestPairingOnceGameplayReady(
                         R"(","correlationId":null,"payload":{},)"
                         R"("playContextId":null,"clientId":")" +
                         clientId + R"("})");
-        std::string reply = client.ReceiveText();
+        std::string reply;
+        do {
+            if (std::chrono::steady_clock::now() >= deadline) {
+                throw std::runtime_error(
+                    "Timed out waiting for a pairing_status response from the "
+                    "real Host's public listener.");
+            }
+            reply = client.ReceiveText();
+        } while (ExtractJsonStringField(reply, "messageType") ==
+                 "gameplay_readiness");
+
         const bool readinessRefusal =
             reply.find(R"("state":"unavailable")") != std::string::npos &&
             pairingSink.Displayed().size() == displayedBefore;

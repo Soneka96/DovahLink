@@ -9,6 +9,7 @@ import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_event_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../readiness/mock_gameplay_readiness_service.dart';
 import 'mock_session_service.dart';
 import 'mock_state_revision_tracker.dart';
 
@@ -81,14 +82,17 @@ Envelope buildEventEnvelope({
 /// Builds a handler over explicit domain registrations.
 /// @param session The session lifecycle dependency.
 /// @param domains The registered state-area definitions.
+/// @param readiness The readiness owner told each revealed authority.
 /// @return The state-message handler under test.
 IStateMessageHandler buildStateMessageHandler({
   required MockSessionService session,
   required List<IStateDomainDefinition<Object?>> domains,
+  required MockGameplayReadinessService readiness,
 }) {
   final StateMessageHandler handler = StateMessageHandler(
     sessionService: session,
     domains: domains,
+    gameplayReadinessService: readiness,
   );
   handler.setSubscribedStateAreas(<String>{
     for (final IStateDomainDefinition<Object?> domain in domains)
@@ -100,6 +104,7 @@ IStateMessageHandler buildStateMessageHandler({
 /// Runs state-message-handler behavior tests.
 void main() {
   late MockSessionService session;
+  late MockGameplayReadinessService readiness;
   late MockStateDomainDefinition domainA;
   late MockStateDomainDefinition domainB;
   late MockStateDomainDefinition domainC;
@@ -207,8 +212,11 @@ void main() {
         orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
       ),
     ).thenAnswer((_) {});
+    readiness = MockGameplayReadinessService();
+    when(() => readiness.onStateAuthorityObserved(any())).thenAnswer((_) {});
     handler = buildStateMessageHandler(
       session: session,
+      readiness: readiness,
       domains: <IStateDomainDefinition<Object?>>[
         domainA,
         domainB,
@@ -345,6 +353,7 @@ void main() {
         final IStateMessageHandler customHandler = StateMessageHandler(
           sessionService: session,
           domains: <IStateDomainDefinition<Object?>>[customDomain],
+          gameplayReadinessService: readiness,
         );
         customHandler.setSubscribedStateAreas(<String>{'custom_area'});
 
@@ -954,6 +963,90 @@ void main() {
     );
   });
 
+  group('Property gameplay readiness authority reporting behaves correctly', () {
+    test(
+      'Property gameplay readiness authority reporting tells the owner the authority of an accepted Snapshot',
+      () {
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_a',
+            revision: 1,
+            data: const <String, dynamic>{'value': 1},
+            stateAuthorityId: 'authority-7',
+          ),
+        );
+
+        verify(
+          () => readiness.onStateAuthorityObserved('authority-7'),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Property gameplay readiness authority reporting tells the owner the authority of an admitted recovery Snapshot only',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+        }, baselineCorrelationId: 'subscribe-1');
+        Envelope recovery(String area) => buildSnapshotEnvelope(
+          area: area,
+          revision: 9,
+          data: const <String, dynamic>{'value': 1},
+          correlationId: 'snapshot-request-1',
+          stateAuthorityId: 'authority-8',
+        );
+
+        expect(
+          handler.admitRecoverySnapshot('area_b', recovery('area_b')),
+          isFalse,
+        );
+        verifyNever(() => readiness.onStateAuthorityObserved(any()));
+
+        expect(
+          handler.admitRecoverySnapshot('area_a', recovery('area_a')),
+          isTrue,
+        );
+        verify(
+          () => readiness.onStateAuthorityObserved('authority-8'),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Property gameplay readiness authority reporting ignores a Snapshot for an area that is not accepted',
+      () {
+        handler.setSubscribedStateAreas(<String>{});
+
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_a',
+            revision: 1,
+            data: const <String, dynamic>{'value': 1},
+            stateAuthorityId: 'authority-9',
+          ),
+        );
+
+        verifyNever(() => readiness.onStateAuthorityObserved(any()));
+      },
+    );
+
+    test(
+      'Property gameplay readiness authority reporting ignores a Snapshot without an authority',
+      () {
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_a',
+            revision: 1,
+            data: const <String, dynamic>{'value': 1},
+            stateAuthorityId: null,
+          ),
+        );
+
+        verifyNever(() => readiness.onStateAuthorityObserved(any()));
+      },
+    );
+  });
+
   group('Method admitRecoverySnapshot behaves correctly', () {
     Envelope recoverySnapshot({
       String? stateAuthorityId = 'authority-1',
@@ -1308,6 +1401,7 @@ void main() {
         final StateMessageHandler fresh = StateMessageHandler(
           sessionService: session,
           domains: <IStateDomainDefinition<Object?>>[domainA],
+          gameplayReadinessService: readiness,
         );
         clearInteractions(trackerA);
 

@@ -99,11 +99,10 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     private readonly IPublicStateSubscription? subscription;
 
     /// <summary>
-    /// This connection's own gameplay-readiness publisher, or <see langword="null"/> when readiness is
-    /// not published. It is bound after <c>hello_ack</c> and <c>capabilities</c> so its first message
-    /// follows them, and unbound when the connection ends.
+    /// This connection's own gameplay-readiness publisher. It is bound after <c>hello_ack</c> and
+    /// <c>capabilities</c> so its first message follows them, and unbound when the connection ends.
     /// </summary>
-    private readonly IPublicGameplayReadinessPublisher? readinessPublisher;
+    private readonly IPublicGameplayReadinessPublisher readinessPublisher;
 
     /// <summary>How long this connection may remain unadmitted before it is closed.</summary>
     private readonly TimeSpan admissionDeadline;
@@ -172,9 +171,9 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <param name="pairingCoordinator">Records this connection's disconnect and reconnect for pairing reconnect-grace tracking.</param>
     /// <param name="connectionRegistry">Registers this connection's exact live context under its admitted session identity.</param>
     /// <param name="hostIdentity">The validated persistent Host ID and current computer name reported during admission.</param>
+    /// <param name="readinessPublisher">This connection's own gameplay-readiness publisher, bound on admission and unbound when the connection ends.</param>
     /// <param name="admissionDeadline">How long this connection may remain unadmitted before it is closed. Defaults to <see cref="Constants.PublicHelloAdmissionDeadline"/>.</param>
     /// <param name="subscription">This connection's own state-area subscription and event-forwarding gate. Defaults to <see langword="null"/>, under which <c>subscribe</c> and <c>snapshot_request</c> reject every request.</param>
-    /// <param name="readinessPublisher">This connection's own gameplay-readiness publisher. Defaults to <see langword="null"/>, under which no readiness message is ever sent.</param>
     public PublicHelloAdmissionHandler(
         IPublicEnvelopeCodec codec,
         ISessionRegistry sessionRegistry,
@@ -187,10 +186,12 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         IPairingCoordinator pairingCoordinator,
         IPublicSessionConnectionRegistry connectionRegistry,
         HostIdentity hostIdentity,
+        IPublicGameplayReadinessPublisher readinessPublisher,
         TimeSpan? admissionDeadline = null,
-        IPublicStateSubscription? subscription = null,
-        IPublicGameplayReadinessPublisher? readinessPublisher = null)
+        IPublicStateSubscription? subscription = null)
     {
+        ArgumentNullException.ThrowIfNull(readinessPublisher);
+
         this.codec = codec;
         this.sessionRegistry = sessionRegistry;
         this.trustStore = trustStore;
@@ -948,7 +949,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             capabilitiesPayload);
         connectionContext.TrySend(capabilitiesBytes, PublicOutboundLane.ControlOrRecovery);
 
-        readinessPublisher?.Bind(connectionContext, newSessionId);
+        readinessPublisher.Bind(connectionContext, newSessionId);
     }
 
     /// <inheritdoc/>
@@ -971,7 +972,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         deadlineCts?.Cancel();
         connectionRegistry.Unregister(connectionId);
         subscription?.Unsubscribe();
-        readinessPublisher?.Unbind();
+        readinessPublisher.Unbind();
 
         if (wasAdmitted)
         {

@@ -3,16 +3,17 @@
 Notable changes to supported client SDKs are recorded here, most recent first. Add entries to
 `[Unreleased]` in the pull request that makes them, grouped under `Added`/`Changed`/`Fixed`/
 `Removed`/`Security` (omit unused subsections). State the consumer-visible outcome in one concise
-sentence; split unrelated outcomes into separate bullets.
+sentence; split unrelated outcomes into separate bullets. A changelog records what a release changed from the previous release, not the history of the work: a thing added, then changed or fixed before the same release, is one `Added` entry; a thing added then removed is omitted. Keep each entry short.
 
-Repository releases share root `VERSION`. When an SDK change is included in a release, its
-`[Unreleased]` entries are promoted into a dated version section in that release PR. See
+Repository releases share root `VERSION`, which may be bumped before a release. Only a dedicated
+release PR promotes an included SDK change's `[Unreleased]` entries into a dated version section. See
 [`ai/context/common.md`](../ai/context/common.md)'s "Versioning" for the release workflow.
 
 ## [Unreleased]
 
 ### Added
 
+- `currentHost.gameplayReadiness` and a replaying `gameplayReadinessChanges` expose whether the connected Host reports gameplay as ready, or `unknown`.
 - `currentHost.trackedQuestsChanges` exposes all tracked quests and objective states as a
   synchronization-aware typed stream.
 - `client.connections.renameDevice(displayName)` exposes the active Host's typed trusted-device rename outcome.
@@ -31,6 +32,7 @@ Repository releases share root `VERSION`. When an SDK change is included in a re
 
 ### Changed
 
+- The SDK supports Host `0.6.x` only and rejects every `0.5.x` Host as too old.
 - The Character API exposes synchronization-aware Identity and Supernatural Traits streams alongside Vitals, XP, and Level.
 - Character gameplay streams now live under `client.currentHost.character`; coherent Vitals, XP,
   and Level remain independent domains.

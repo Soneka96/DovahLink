@@ -467,7 +467,7 @@ void main() {
         expect(find.byType(PairingDialog), findsNothing);
 
         realStore.dispatch(
-          const PairingAuthenticatedAction(hostVersion: '0.5.0', trusted: true),
+          const PairingAuthenticatedAction(hostVersion: '0.6.0', trusted: true),
         );
         await tester.pump();
         await tester.pumpAndSettle();
@@ -609,7 +609,7 @@ void main() {
 
         realStore.dispatch(
           const PairingAuthenticatedAction(
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             trusted: false,
           ),
         );
@@ -779,7 +779,7 @@ void main() {
       await tester.pump();
       expect(find.text('Checking trusted connection…'), findsOneWidget);
       realStore.dispatch(
-        const PairingAuthenticatedAction(hostVersion: '0.5.0', trusted: false),
+        const PairingAuthenticatedAction(hostVersion: '0.6.0', trusted: false),
       );
       await tester.pump();
       await tester.pump();

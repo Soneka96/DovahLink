@@ -281,6 +281,74 @@ void main() {
     );
   });
 
+  group('Method validate for gameplay_readiness behaves correctly', () {
+    test('Method validate accepts a restricted-session readiness shape', () {
+      for (final String? playContextId in <String?>['context-1', null]) {
+        expectValidEnvelope(
+          messageType: ProtocolMessageType.gameplayReadiness,
+          sessionId: 'session-1',
+          correlationId: null,
+          stateAuthorityId: 'authority-1',
+          playContextId: playContextId,
+          clientId: null,
+        );
+      }
+    });
+
+    test('Method validate rejects a readiness correlationId', () {
+      expectInvalidEnvelope(
+        messageType: ProtocolMessageType.gameplayReadiness,
+        correlationId: 'message-1',
+        stateAuthorityId: 'authority-1',
+      );
+    });
+
+    test('Method validate rejects a missing or empty readiness authority', () {
+      for (final String? authority in <String?>[null, '']) {
+        expectInvalidEnvelope(
+          messageType: ProtocolMessageType.gameplayReadiness,
+          correlationId: null,
+          stateAuthorityId: authority,
+        );
+      }
+    });
+
+    test('Method validate rejects a missing or empty readiness sessionId', () {
+      for (final String? sessionId in <String?>[null, '']) {
+        expectInvalidEnvelope(
+          messageType: ProtocolMessageType.gameplayReadiness,
+          sessionId: sessionId,
+          correlationId: null,
+          stateAuthorityId: 'authority-1',
+        );
+      }
+    });
+
+    test('Method validate rejects an empty readiness messageId', () {
+      expectInvalidEnvelope(
+        messageType: ProtocolMessageType.gameplayReadiness,
+        messageId: '',
+        correlationId: null,
+        stateAuthorityId: 'authority-1',
+      );
+    });
+
+    test('Method validate rejects a readiness clientId and empty context', () {
+      expectInvalidEnvelope(
+        messageType: ProtocolMessageType.gameplayReadiness,
+        correlationId: null,
+        stateAuthorityId: 'authority-1',
+        clientId: 'client-1',
+      );
+      expectInvalidEnvelope(
+        messageType: ProtocolMessageType.gameplayReadiness,
+        correlationId: null,
+        stateAuthorityId: 'authority-1',
+        playContextId: '',
+      );
+    });
+  });
+
   group('Method isClientIdRequired behaves correctly', () {
     test(
       'Method isClientIdRequired returns true only for every message type that carries an '
