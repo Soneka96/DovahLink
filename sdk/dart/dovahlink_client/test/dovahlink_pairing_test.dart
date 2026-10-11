@@ -4,6 +4,8 @@ import 'package:test/test.dart';
 import 'package:dovahlink_client_sdk/dovahlink_client.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing.dart'
     show DovahLinkPairing;
+import 'package:dovahlink_client_sdk/src/internal/discovery/host_candidate_service.dart'
+    show IHostCandidateService;
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart'
     show IPairingService;
 import 'fixtures/fixtures.dart';
@@ -11,13 +13,15 @@ import 'fixtures/fixtures.dart';
 /// Mocks the existing pairing protocol owner.
 class MockClientPairingService extends Mock implements IPairingService {}
 
+/// Mocks the candidate discovery owner.
+class MockHostCandidateService extends Mock implements IHostCandidateService {}
+
 /// Tests the grouped pairing view over the existing SDK owners.
 void main() {
   late MockClientPairingService pairingService;
   late Stream<List<DovahLinkHost>> candidates;
-  late Future<List<DovahLinkHost>> Function() discoverOperation;
+  late MockHostCandidateService hostCandidateService;
   late DovahLinkPairing pairing;
-  late int discoveryCalls;
   late List<DovahLinkHost> discoveredHosts;
   final Uri uri = Uri.parse('ws://127.0.0.1:58231/');
   final DovahLinkHostId hostId = DovahLinkHostId(
@@ -31,25 +35,24 @@ void main() {
   setUp(() {
     pairingService = MockClientPairingService();
     candidates = const Stream<List<DovahLinkHost>>.empty();
-    discoveryCalls = 0;
     discoveredHosts = <DovahLinkHost>[Fixtures.buildDovahLinkHost()];
-    discoverOperation = () async {
-      discoveryCalls++;
-      return discoveredHosts;
-    };
+    hostCandidateService = MockHostCandidateService();
+    when(() => hostCandidateService.candidates).thenAnswer((_) => candidates);
+    when(
+      () => hostCandidateService.discoverHosts(),
+    ).thenAnswer((_) async => discoveredHosts);
     pairing = DovahLinkPairing(
-      discoverHosts: () => discoverOperation(),
-      candidates: candidates,
+      hostCandidateService: hostCandidateService,
       pairingService: pairingService,
     );
   });
 
   group('Method discoverHosts behaves correctly', () {
     test(
-      'Method discoverHosts uses the client reconciliation operation',
+      'Method discoverHosts uses the candidate service reconciliation operation',
       () async {
         expect(await pairing.discoverHosts(), discoveredHosts);
-        expect(discoveryCalls, 1);
+        verify(() => hostCandidateService.discoverHosts()).called(1);
       },
     );
 
@@ -57,7 +60,9 @@ void main() {
       const DovahLinkStorageException failure = DovahLinkStorageException(
         'state unavailable',
       );
-      discoverOperation = () async => throw failure;
+      when(
+        () => hostCandidateService.discoverHosts(),
+      ).thenAnswer((_) async => throw failure);
 
       await expectLater(pairing.discoverHosts(), throwsA(same(failure)));
     });

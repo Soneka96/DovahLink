@@ -7,6 +7,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_pairing_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_pairing_handshake.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/discovery/host_candidate_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
@@ -77,34 +78,30 @@ abstract interface class IDovahLinkPairing {
 
 /// Implements [IDovahLinkPairing] over the client's existing discovery and pairing owners.
 class DovahLinkPairing implements IDovahLinkPairing {
-  /// Runs discovery through the client-owned Known Host reconciliation flow.
-  final Future<List<DovahLinkHost>> Function() _discoverHosts;
-
-  /// The client-owned candidate projection stream.
-  final Stream<List<DovahLinkHost>> _candidates;
+  /// Owns candidate discovery and Known Host reconciliation.
+  final IHostCandidateService _hostCandidateService;
 
   /// Owns pairing protocol operations and credential recovery.
   final IPairingService _pairingService;
 
-  /// Creates a pairing view over the existing client discovery and state owners.
-  /// @param discoverHosts Executes the client's authoritative discovery/reconciliation operation.
-  /// @param candidates The client's replaying runtime candidate projection.
+  /// Creates a pairing view over the existing client discovery and pairing owners.
+  /// @param hostCandidateService Owns the runtime candidate projection and discovery.
   /// @param pairingService Owns pairing protocol operations.
   DovahLinkPairing({
-    required Future<List<DovahLinkHost>> Function() discoverHosts,
-    required Stream<List<DovahLinkHost>> candidates,
+    required IHostCandidateService hostCandidateService,
     required IPairingService pairingService,
-  }) : _discoverHosts = discoverHosts,
-       _candidates = candidates,
+  }) : _hostCandidateService = hostCandidateService,
        _pairingService = pairingService;
 
   /// Implements [IDovahLinkPairing.candidates].
   @override
-  Stream<List<DovahLinkHost>> get candidates => _candidates;
+  Stream<List<DovahLinkHost>> get candidates =>
+      _hostCandidateService.candidates;
 
   /// Implements [IDovahLinkPairing.discoverHosts].
   @override
-  Future<List<DovahLinkHost>> discoverHosts() => _discoverHosts();
+  Future<List<DovahLinkHost>> discoverHosts() =>
+      _hostCandidateService.discoverHosts();
 
   /// Implements [IDovahLinkPairing.authenticateCandidate].
   @override

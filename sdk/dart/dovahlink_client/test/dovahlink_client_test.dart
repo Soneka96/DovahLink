@@ -1776,12 +1776,10 @@ void main() {
           ..loadGate = loadGate;
         final MockDovahLinkDiscoveryService discovery =
             MockDovahLinkDiscoveryService();
-        final List<bool> candidateKnownHostsObservation = <bool>[];
         final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
           transport: FakeDovahLinkTransport(),
           storage: pendingStorage,
           discoveryService: discovery,
-          candidateKnownHostsObservation: candidateKnownHostsObservation,
         );
         final List<List<DovahLinkHost>> candidateUpdates =
             <List<DovahLinkHost>>[];
@@ -1807,7 +1805,6 @@ void main() {
 
         expect(await pendingDiscovery, isEmpty);
         await pumpEventQueue();
-        expect(candidateKnownHostsObservation, isEmpty);
         verifyNever(() => discovery.discover());
         expect(candidateUpdates, hasLength(1));
         expect(candidateUpdates.single, isEmpty);
@@ -1880,12 +1877,10 @@ void main() {
           ..loadGate = loadGate;
         final MockDovahLinkDiscoveryService discovery =
             MockDovahLinkDiscoveryService();
-        final List<bool> candidateKnownHostsObservation = <bool>[];
         final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
           transport: FakeDovahLinkTransport(),
           storage: pendingStorage,
           discoveryService: discovery,
-          candidateKnownHostsObservation: candidateKnownHostsObservation,
         );
 
         final Future<List<DovahLinkHost>> pendingDiscovery = closeClient.pairing
@@ -1898,7 +1893,6 @@ void main() {
         loadGate.complete();
 
         expect(await pendingDiscovery, isEmpty);
-        expect(candidateKnownHostsObservation, isEmpty);
         verifyNever(() => discovery.discover());
         expect(pendingStorage.loadCount, 1);
       },
