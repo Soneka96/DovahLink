@@ -954,6 +954,240 @@ void main() {
     );
   });
 
+  group('Method admitRecoverySnapshot behaves correctly', () {
+    Envelope recoverySnapshot({
+      String? stateAuthorityId = 'authority-1',
+      String? playContextId = 'context-1',
+    }) => buildSnapshotEnvelope(
+      area: 'area_a',
+      revision: 9,
+      data: const <String, dynamic>{'value': 1},
+      correlationId: 'snapshot-request-1',
+      stateAuthorityId: stateAuthorityId,
+      playContextId: playContextId,
+    );
+
+    void verifyNoIdentityReset() {
+      for (final MockStateRevisionTracker<Object?> tracker
+          in <MockStateRevisionTracker<Object?>>[trackerA, trackerB]) {
+        verifyNever(
+          () => tracker.resetForIdentity(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+          ),
+        );
+      }
+    }
+
+    test(
+      'Method admitRecoverySnapshot refuses an area that is only provisionally admitted',
+      () {
+        expect(
+          handler.admitRecoverySnapshot('area_a', recoverySnapshot()),
+          isFalse,
+        );
+
+        verifyNoIdentityReset();
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot refuses a retained area whose gate is closed',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+        }, baselineCorrelationId: 'subscribe-1');
+        handler.suspendStateAreas();
+
+        expect(
+          handler.admitRecoverySnapshot('area_a', recoverySnapshot()),
+          isFalse,
+        );
+
+        verifyNoIdentityReset();
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot refuses an area that was never admitted',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        expect(
+          handler.admitRecoverySnapshot('area_a', recoverySnapshot()),
+          isFalse,
+        );
+
+        verifyNoIdentityReset();
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot refuses again when a new subscribe request re-admits the area provisionally',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+        }, baselineCorrelationId: 'subscribe-1');
+        handler.suspendStateAreas();
+        handler.setSubscribedStateAreas(<String>{'area_a'});
+
+        expect(
+          handler.admitRecoverySnapshot('area_a', recoverySnapshot()),
+          isFalse,
+        );
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot admits an acknowledged area and resets every subscribed tracker for a new play context',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        expect(
+          handler.admitRecoverySnapshot(
+            'area_a',
+            recoverySnapshot(playContextId: 'context-2'),
+          ),
+          isTrue,
+        );
+
+        for (final MockStateRevisionTracker<Object?> tracker
+            in <MockStateRevisionTracker<Object?>>[trackerA, trackerB]) {
+          verify(
+            () => tracker.resetForIdentity(
+              stateAuthorityId: 'authority-1',
+              playContextId: 'context-2',
+            ),
+          ).called(1);
+        }
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot resets every subscribed tracker for a changed state authority',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        expect(
+          handler.admitRecoverySnapshot(
+            'area_a',
+            recoverySnapshot(stateAuthorityId: 'authority-2'),
+          ),
+          isTrue,
+        );
+
+        verify(
+          () => trackerB.resetForIdentity(
+            stateAuthorityId: 'authority-2',
+            playContextId: 'context-1',
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot does not reset trackers again for an unchanged identity',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+          'area_b',
+        }, baselineCorrelationId: 'subscribe-1');
+        handler.admitRecoverySnapshot('area_a', recoverySnapshot());
+        clearInteractions(trackerA);
+        clearInteractions(trackerB);
+
+        expect(
+          handler.admitRecoverySnapshot('area_a', recoverySnapshot()),
+          isTrue,
+        );
+
+        verifyNoIdentityReset();
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot admits an area whose baseline is already established',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+        }, baselineCorrelationId: 'subscribe-1');
+        handler.handle(
+          buildSnapshotEnvelope(
+            area: 'area_a',
+            revision: 1,
+            data: const <String, dynamic>{'value': 1},
+            correlationId: 'subscribe-1',
+          ),
+        );
+
+        expect(
+          handler.admitRecoverySnapshot('area_a', recoverySnapshot()),
+          isTrue,
+        );
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot refuses an unadmitted area before it looks at the identity',
+      () {
+        expect(
+          handler.admitRecoverySnapshot(
+            'area_a',
+            recoverySnapshot(stateAuthorityId: null),
+          ),
+          isFalse,
+        );
+
+        verifyNoIdentityReset();
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot leaves the area baseline correlation pending',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        handler.admitRecoverySnapshot('area_a', recoverySnapshot());
+
+        expect(handler.isPendingBaselineCorrelation('subscribe-1'), isTrue);
+      },
+    );
+
+    test(
+      'Method admitRecoverySnapshot rejects an admitted Snapshot with no authority identity',
+      () {
+        handler.setSubscribedStateAreas(<String>{
+          'area_a',
+        }, baselineCorrelationId: 'subscribe-1');
+
+        expect(
+          () => handler.admitRecoverySnapshot(
+            'area_a',
+            recoverySnapshot(stateAuthorityId: null),
+          ),
+          throwsA(
+            isA<DovahLinkProtocolException>().having(
+              (DovahLinkProtocolException error) => error.code,
+              'code',
+              ProtocolErrorCode.malformedMessage,
+            ),
+          ),
+        );
+        verifyNoIdentityReset();
+      },
+    );
+  });
+
   group('Method suspendStateAreas behaves correctly', () {
     test(
       'Method suspendStateAreas keeps every admitted tracker as recovering without resetting it',

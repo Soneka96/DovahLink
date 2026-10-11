@@ -373,6 +373,16 @@ List<JsonMap> _sentSubscriptionUpdates(FakeDovahLinkTransport transport) =>
         .where((JsonMap envelope) => envelope['messageType'] == 'subscribe')
         .toList();
 
+/// Returns the message IDs of every [messageType] envelope sent by [transport], in send order.
+List<String> _sentIdsOfType(
+  FakeDovahLinkTransport transport,
+  String messageType,
+) => transport.sent
+    .map((String raw) => jsonDecode(raw) as JsonMap)
+    .where((JsonMap envelope) => envelope['messageType'] == messageType)
+    .map((JsonMap envelope) => envelope['messageId'] as String)
+    .toList();
+
 /// Builds a correlated `subscription_ack` for the fake Host.
 /// @param accepted The state areas the Host accepted.
 /// @param rejected The state areas the Host rejected.
@@ -8678,6 +8688,122 @@ void main() {
         ))[DovahLinkStateArea.characterLevel]!;
         expect(level.status, DovahLinkStateStatus.synchronized);
         expect(level.revision, levelRevision + 5);
+      },
+    );
+
+    test(
+      'Behavior an orphaned recovery Snapshot answered before the restored subscription is '
+      'acknowledged does not make the domain current, and the restored baseline then does',
+      () async {
+        const List<DovahLinkStateArea> areas = <DovahLinkStateArea>[
+          DovahLinkStateArea.characterLevel,
+          DovahLinkStateArea.characterXp,
+        ];
+        final s = await _establishRetentionSession(areas);
+        final int levelRevision = _baselineRevision(
+          DovahLinkStateArea.characterLevel,
+        );
+        final int xpRevision = _baselineRevision(
+          DovahLinkStateArea.characterXp,
+        );
+        s.transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: levelRevision + 4,
+            revision: levelRevision + 5,
+            value: 30,
+          ),
+        );
+        await pumpEventQueue();
+        expect(_sentIdsOfType(s.transport, 'snapshot_request'), hasLength(1));
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+
+        // Reauthenticate, but never queue the restoration acknowledgement: it is held.
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        s.transport.failMessagesWith(const SocketException('dropped'));
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        final List<String> snapshotRequests = _sentIdsOfType(
+          s.transport,
+          'snapshot_request',
+        );
+        expect(snapshotRequests, hasLength(2));
+        final String restoreId =
+            _sentSubscriptionUpdates(s.transport).last['messageId'] as String;
+
+        // The Host answers the retransmitted request ahead of the held acknowledgement.
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterLevel,
+            levelRevision + 5,
+            correlationId: snapshotRequests.last,
+          ),
+        );
+        await _pumpUntil(() => false);
+
+        Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        _expectRetained(
+          domains[DovahLinkStateArea.characterLevel]!,
+          revision: levelRevision,
+        );
+        _expectRetained(
+          domains[DovahLinkStateArea.characterXp]!,
+          revision: xpRevision,
+        );
+
+        expect(
+          _sentIdsOfType(s.transport, 'snapshot_request'),
+          hasLength(2),
+          reason:
+              'a refused recovery Snapshot must not trigger another request',
+        );
+
+        // The acknowledgement and restored baselines arrive: the domain becomes current.
+        final JsonMap ack =
+            jsonDecode(
+                  _rawSubscriptionAck(
+                    accepted: <String>['character_level', 'character_xp'],
+                  ),
+                )
+                as JsonMap;
+        ack['correlationId'] = restoreId;
+        s.transport.queueRawResponse(jsonEncode(ack));
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterLevel,
+            levelRevision + 5,
+            correlationId: restoreId,
+          ),
+        );
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterXp,
+            xpRevision,
+            correlationId: restoreId,
+          ),
+        );
+        await pumpEventQueue();
+
+        domains = await _readDomains(s.client);
+        final StateSynchronization<Object?> level =
+            domains[DovahLinkStateArea.characterLevel]!;
+        expect(level.status, DovahLinkStateStatus.synchronized);
+        expect(level.revision, levelRevision + 5);
+        expect(
+          domains[DovahLinkStateArea.characterXp]!.status,
+          DovahLinkStateStatus.synchronized,
+        );
       },
     );
   });

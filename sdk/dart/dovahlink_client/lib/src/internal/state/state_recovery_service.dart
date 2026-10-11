@@ -6,6 +6,7 @@ import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart'
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/snapshot_request_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/state_snapshot_payload.dart';
@@ -37,6 +38,9 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
   /// Reports a failed recovery through connection lifecycle handling.
   final ISessionService _sessionService;
 
+  /// Decides whether a recovery Snapshot may be applied and keeps its identity coherent across domains.
+  final IStateMessageHandler _stateMessageHandler;
+
   /// Delay before each recovery attempt; the first attempt runs immediately.
   final List<Duration> _retryDelays;
 
@@ -53,15 +57,18 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
   /// @param domain The registered area, decoder, availability policy, and tracker.
   /// @param requestService The authenticated client request boundary.
   /// @param sessionService The connection lifecycle boundary used after recovery failure.
+  /// @param stateMessageHandler The accepted-area gate and identity authority for the Snapshot.
   /// @param retryDelays The bounded retry schedule, starting with the immediate attempt.
   StateRecoveryService({
     required IStateDomainDefinition<T> domain,
     required IRequestService requestService,
     required ISessionService sessionService,
+    required IStateMessageHandler stateMessageHandler,
     List<Duration> retryDelays = kReconnectAttemptDelays,
   }) : _domain = domain,
        _requestService = requestService,
        _sessionService = sessionService,
+       _stateMessageHandler = stateMessageHandler,
        _retryDelays = retryDelays;
 
   /// See [IStateRecoveryService.start].
@@ -223,6 +230,17 @@ class StateRecoveryService<T> implements IStateRecoveryService<T> {
                 current.playContextId != envelope.playContextId ||
                 (current.revision != null &&
                     current.revision! >= payload.revision))) {
+          return;
+        }
+
+        // A request carried over from an ended session can be answered before the replacement
+        // session's acknowledgement. Such a reply never authorizes the area: leave the retained
+        // observation non-current and let the restored subscription's baseline establish it.
+        if (!_stateMessageHandler.admitRecoverySnapshot(
+          _domain.stateArea,
+          envelope,
+        )) {
+          _domain.tracker.beginRecovery();
           return;
         }
 

@@ -51,6 +51,12 @@ class RecordingStateMessageHandler implements IStateMessageHandler {
   bool isPendingBaselineCorrelation(String correlationId) =>
       baselineCorrelationId == correlationId && subscribedStateAreas.isNotEmpty;
 
+  /// Does not apply recovery Snapshots in subscription-service tests.
+  /// @param stateArea The unused recovery area.
+  /// @param envelope The unused Snapshot envelope.
+  @override
+  bool admitRecoverySnapshot(String stateArea, Envelope envelope) => false;
+
   /// Does not route state messages in subscription-service tests.
   /// @param envelope The unused state envelope.
   @override

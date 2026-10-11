@@ -227,6 +227,7 @@ class DovahLinkClient {
       domains: stateDomains,
       requestService: _requestService,
       sessionService: _sessionService,
+      stateMessageHandler: stateMessageHandler,
     );
 
     final SessionAdmissionService sessionAdmissionService =

@@ -33,6 +33,18 @@ abstract interface class IStateMessageHandler {
   /// @return Whether the correlation belongs to a baseline still being established.
   bool isPendingBaselineCorrelation(String correlationId);
 
+  /// Decides whether a correlated recovery Snapshot may be applied, observing its identity first.
+  /// A recovery request can be carried over from an ended session, so its reply may arrive before
+  /// the replacement session's acknowledgement. Only an area the Host has acknowledged in the
+  /// current session is admitted; a provisionally admitted, retained, or absent area is not, and the
+  /// restored subscription's own baseline establishes it instead. An admitted Snapshot's identity
+  /// goes through the same cross-domain reset as any other state message.
+  /// @param stateArea The area the recovery Snapshot belongs to.
+  /// @param envelope The correlated Snapshot envelope.
+  /// @return Whether the caller may apply the Snapshot to the area's tracker.
+  /// @throws [DovahLinkProtocolException] when an admitted Snapshot has no authority identity.
+  bool admitRecoverySnapshot(String stateArea, Envelope envelope);
+
   /// Handles one canonical state Snapshot or Event envelope.
   /// @param envelope The state envelope from the single inbound reader.
   void handle(Envelope envelope);
@@ -133,6 +145,18 @@ class StateMessageHandler implements IStateMessageHandler {
   bool isPendingBaselineCorrelation(String correlationId) =>
       correlationId != _provisionalBaselineCorrelation &&
       _pendingBaselineCorrelations.values.contains(correlationId);
+
+  /// Implements [IStateMessageHandler.admitRecoverySnapshot].
+  @override
+  bool admitRecoverySnapshot(String stateArea, Envelope envelope) {
+    final String? baselineCorrelation = _pendingBaselineCorrelations[stateArea];
+    if (!_subscribedStateAreas.contains(stateArea) ||
+        baselineCorrelation == _provisionalBaselineCorrelation) {
+      return false;
+    }
+    _observeIdentity(envelope);
+    return true;
+  }
 
   /// See [IStateMessageHandler.handle].
   @override
