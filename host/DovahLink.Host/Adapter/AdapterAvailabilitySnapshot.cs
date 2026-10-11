@@ -11,8 +11,10 @@ namespace DovahLink.Host.Adapter;
 /// <param name="CurrentInstanceId">The most recently connected adapter's instance identity, or <see langword="null"/> if none has ever connected.</param>
 /// <param name="NeedsResynchronization">Whether a resynchronization handshake must complete before adapter-sourced state can be published as current.</param>
 /// <param name="ConnectionGeneration">The monotonically increasing connection generation for the current adapter instance.</param>
+/// <param name="ArmedPlayContextTransitionGeneration">The play-context transition generation resynchronization was most recently re-armed for, or zero if none.</param>
 public sealed record AdapterAvailabilitySnapshot(
     AdapterAvailability Current,
     AdapterInstanceId? CurrentInstanceId,
     bool NeedsResynchronization,
-    long ConnectionGeneration);
+    long ConnectionGeneration,
+    long ArmedPlayContextTransitionGeneration = 0);

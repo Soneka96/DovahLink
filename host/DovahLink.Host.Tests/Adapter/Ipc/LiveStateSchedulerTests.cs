@@ -219,7 +219,7 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
             try
             {
                 await preparationStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
-                tracker.RearmResynchronizationForPlayContextTransition();
+                tracker.RearmResynchronizationForPlayContextTransition(1);
             }
             finally
             {
@@ -325,7 +325,7 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
                 rearm = Task.Run(() =>
                 {
                     rearmStarted.TrySetResult();
-                    tracker.RearmResynchronizationForPlayContextTransition();
+                    tracker.RearmResynchronizationForPlayContextTransition(1);
                 });
                 await rearmStarted.Task.WaitAsync(TimeSpan.FromSeconds(5));
                 await Task.Delay(TimeSpan.FromMilliseconds(20));
@@ -443,7 +443,7 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
 
             Task run = scheduler.RunAsync(cancellation.Token);
             await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
-            adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition();
+            adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition(1);
             await Task.Delay(TimeSpan.FromMilliseconds(120));
 
             Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals));
@@ -475,7 +475,7 @@ namespace DovahLink.Host.Tests.Adapter.Ipc
 
             Task run = scheduler.RunAsync(cancellation.Token);
             await WaitUntilAsync(() => connection.ReadSampleCalls.Contains((uint)CharacterSampleToken.CharacterVitals), run);
-            adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition();
+            adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition(1);
 
             await WaitUntilAsync(() => connection.CancelCalls.Contains(42UL), run);
             Assert.Equal(1, connection.ReadSampleCalls.Count(token => token == (uint)CharacterSampleToken.CharacterVitals));

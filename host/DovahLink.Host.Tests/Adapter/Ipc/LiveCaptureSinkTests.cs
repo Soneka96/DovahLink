@@ -732,7 +732,7 @@ public class LiveCaptureSinkTests
         {
             if (callNumber == 2)
             {
-                fixture.AdapterTracker.RearmResynchronizationForPlayContextTransition();
+                fixture.AdapterTracker.RearmResynchronizationForPlayContextTransition(1);
                 fakeCoordinator.AcquireTokenResult = fixture.AdapterTracker.TryClaimResynchronizationToken();
             }
         };

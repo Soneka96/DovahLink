@@ -38,6 +38,64 @@ public class PlayContextResynchronizationTriggerTests
         Assert.Equal(1, connection.ResynchronizeRequestCalls);
     }
 
+    /// <summary>Verifies that a real transition arms resynchronization for exactly the play-context tracker's transition generation, including while no adapter is connected.</summary>
+    [Fact]
+    public void RealTransition_RecordsTheTrackersOwnTransitionGeneration()
+    {
+        var playContextTracker = new PlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        var listener = new FakeAdapterIpcListener { CurrentConnection = null };
+        _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
+
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        long firstGeneration = playContextTracker.GetSnapshot().TransitionGeneration;
+        Assert.Equal(firstGeneration, availabilityTracker.ArmedPlayContextTransitionGeneration);
+
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        Assert.Equal(playContextTracker.GetSnapshot().TransitionGeneration, availabilityTracker.ArmedPlayContextTransitionGeneration);
+        Assert.True(availabilityTracker.ArmedPlayContextTransitionGeneration > firstGeneration);
+    }
+
+    /// <summary>Verifies that a context-ended transition, and a repeated notification of the current context, leave the armed generation untouched.</summary>
+    [Fact]
+    public void ContextEndedAndRepeatedTransitions_DoNotMoveTheArmedGeneration()
+    {
+        var playContextTracker = new PlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        var listener = new FakeAdapterIpcListener { CurrentConnection = null };
+        _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
+        PlayContextId context = PlayContextId.NewId();
+        playContextTracker.NotifyTransition(context);
+        long armed = availabilityTracker.ArmedPlayContextTransitionGeneration;
+
+        playContextTracker.NotifyTransition(context);
+        Assert.Equal(armed, availabilityTracker.ArmedPlayContextTransitionGeneration);
+
+        playContextTracker.ClearCurrent();
+        Assert.Equal(armed, availabilityTracker.ArmedPlayContextTransitionGeneration);
+        Assert.NotEqual(armed, playContextTracker.GetSnapshot().TransitionGeneration);
+    }
+
+    /// <summary>Verifies that a context-ended transition while an adapter is connected neither re-arms resynchronization nor changes the armed generation.</summary>
+    [Fact]
+    public void ContextEndedWhileConnected_DoesNotRearmOrMoveTheArmedGeneration()
+    {
+        var playContextTracker = new PlayContextTracker();
+        var availabilityTracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        Connect(availabilityTracker, instanceId, 1);
+        var listener = new FakeAdapterIpcListener { CurrentConnection = null };
+        _ = new PlayContextResynchronizationTrigger(playContextTracker, availabilityTracker, listener, new FakeResynchronizationTransactionCoordinator());
+        playContextTracker.NotifyTransition(PlayContextId.NewId());
+        Resynchronize(availabilityTracker, instanceId, 1);
+        long armed = availabilityTracker.ArmedPlayContextTransitionGeneration;
+
+        playContextTracker.ClearCurrent();
+
+        Assert.Equal(armed, availabilityTracker.ArmedPlayContextTransitionGeneration);
+        Assert.False(availabilityTracker.NeedsResynchronization);
+    }
+
     /// <summary>Verifies that a transition with no currently active connection still re-arms the availability tracker, and does not throw for the missing connection.</summary>
     [Fact]
     public void HandleTransition_NoCurrentConnection_StillRearmsAndDoesNotThrow()

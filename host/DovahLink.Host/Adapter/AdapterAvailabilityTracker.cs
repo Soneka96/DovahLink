@@ -22,6 +22,14 @@ public interface IAdapterAvailabilityTracker
     /// <summary>The monotonically increasing generation of the current adapter connection.</summary>
     long CurrentConnectionGeneration { get; }
 
+    /// <summary>
+    /// The play-context transition generation resynchronization was most recently re-armed for, or
+    /// zero if none has been. Readiness compares this against the play-context tracker's own
+    /// transition generation so a context committed but not yet re-armed is never read as
+    /// resynchronized.
+    /// </summary>
+    long ArmedPlayContextTransitionGeneration { get; }
+
     /// <summary>Raised after an availability transition is committed.</summary>
     event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
 
@@ -95,9 +103,11 @@ public interface IAdapterAvailabilityTracker
     /// baseline requirement, not an adapter connection/availability change, so it never publishes an
     /// <see cref="AvailabilityChanged"/> transition. A no-op while no adapter is currently connected:
     /// there is no live connection generation for a play-context trigger to arm a fresh baseline
-    /// requirement against.
+    /// requirement against. The transition generation is recorded either way, so a later
+    /// reconnect on an unchanged context is still recognized as armed for it.
     /// </summary>
-    void RearmResynchronizationForPlayContextTransition();
+    /// <param name="playContextTransitionGeneration">The <see cref="PlayContext.PlayContextSnapshot.TransitionGeneration"/> of the transition being armed for.</param>
+    void RearmResynchronizationForPlayContextTransition(long playContextTransitionGeneration);
 
     /// <summary>
     /// Runs one bounded ordinary-sample queue admission while the tracker still proves that the
@@ -142,6 +152,9 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
 
     /// <summary>The generation assigned to the most recent adapter connection.</summary>
     private long currentConnectionGeneration;
+
+    /// <summary>The play-context transition generation most recently armed for, or zero if none.</summary>
+    private long armedPlayContextTransitionGeneration;
 
     /// <summary>The opaque baseline authorization for the current adapter connection, if still pending.</summary>
     private IAdapterResynchronizationToken? currentResynchronizationToken;
@@ -193,6 +206,18 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
             lock (gate)
             {
                 return currentConnectionGeneration;
+            }
+        }
+    }
+
+    /// <inheritdoc/>
+    public long ArmedPlayContextTransitionGeneration
+    {
+        get
+        {
+            lock (gate)
+            {
+                return armedPlayContextTransitionGeneration;
             }
         }
     }
@@ -301,10 +326,11 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
-    public void RearmResynchronizationForPlayContextTransition()
+    public void RearmResynchronizationForPlayContextTransition(long playContextTransitionGeneration)
     {
         lock (gate)
         {
+            armedPlayContextTransitionGeneration = playContextTransitionGeneration;
             if (current != AdapterAvailability.Available)
             {
                 return;
@@ -340,7 +366,8 @@ public sealed class AdapterAvailabilityTracker : IAdapterAvailabilityTracker
     {
         lock (gate)
         {
-            return new AdapterAvailabilitySnapshot(current, currentInstanceId, needsResynchronization, currentConnectionGeneration);
+            return new AdapterAvailabilitySnapshot(
+                current, currentInstanceId, needsResynchronization, currentConnectionGeneration, armedPlayContextTransitionGeneration);
         }
     }
 
