@@ -411,6 +411,24 @@ T2 and the app half of T1.
 - **Estimated files:** 28-38 (about 20 deletions, edits to middleware, DI, mapper and their tests, 2 docs).
 - **Regression risks:** middleware tests that stub use cases; `sl` registration order; shutdown behavior.
 - **Acceptance criteria:** no forwarding-only type remains; behavior tests for authenticate, confirm, renotify, cancel, disconnect, status mapping, and shutdown pass with unchanged intent; `flutter analyze` is clean.
+- **Outcome:** `PairingMiddleware` now calls `IPairingRemoteDataSource` directly, the one app boundary
+  over the shared `DovahLinkClient`. The seven use cases, their two params types,
+  `IPairingRepository`/`PairingRepository`, and the `PairingHandshakeModel`/`PairingHandshake` pair
+  are removed; `authenticate` returns a `PairingAuthentication` record. Failure, handshake, renotify,
+  and connection-status mapping stay in that boundary and `PairingRenotifyResult` is kept. Eleven
+  forwarding types (plus two params types) and their forwarding-only tests are gone; DI lost nine registrations. No SDK,
+  Host, Adapter, or protocol file changed. **S-1: confirmed** against the real SDK -- after
+  `forgetCredential` and an ordinary transport loss, recovery finishes `connected` with
+  `trustState == unpaired`, and the app mapped that to `restored` and then `trusted`. Fixed inside
+  the boundary: `connected` maps to `restored` only while `currentHost.trustState` is trusted,
+  otherwise `lost` (the UI then shows disconnected; a dedicated "pairing required again"
+  presentation would need a new status and wording and is left to a later decision). The app never
+  calls `forgetCredential`, so the exposure was narrow. **S-2: confirmed as impurity** (three
+  `DateTime.now()` calls in reducers), no flakiness observed. Fixed app-only: the actions carry an
+  `observedAt` stamped by the middleware when the SDK result arrives, and reducers derive deadlines
+  from it. D-6 is resolved in `flutter/architecture.md` and `sdk/api-design.md`; D-8 (who owns the
+  clock) is clarified in `flutter/architecture.md`: the SDK and Host own expiry and cooldown facts,
+  Flutter only derives display deadlines.
 
 ### T3. SDK composition root and facade responsibilities
 
