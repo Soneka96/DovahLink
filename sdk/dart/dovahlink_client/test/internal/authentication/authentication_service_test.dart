@@ -8,8 +8,10 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_not_found_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/client_id_cache.dart';
@@ -2448,6 +2450,127 @@ void main() {
             },
           ),
         );
+      },
+    );
+  });
+
+  group('Method handleKnownHostInvalidation behaves correctly', () {
+    const String hostAId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+    const String hostBId = '81f6cc90-3a88-40c7-8351-104d4a36c971';
+
+    /// Stores two paired Hosts, one with a pending recovery, as the load result.
+    void storePairedHosts({String recoveryHostId = hostAId}) {
+      when(() => storage.load()).thenAnswer(
+        (_) async => PersistedClientState(
+          clientId: 'client-1',
+          knownHosts: <String, PersistedKnownHost>{
+            hostAId: PersistedKnownHost(
+              host: Fixtures.buildDovahLinkHost(hostId: hostAId),
+              credential: 'credential-a',
+              pairingRequired: true,
+            ),
+            hostBId: PersistedKnownHost(
+              host: Fixtures.buildDovahLinkHost(hostId: hostBId),
+              credential: 'credential-b',
+            ),
+          },
+          pendingPairingRecovery: PendingPairingRecovery(
+            hostId: recoveryHostId,
+            state: PairingRecoveryState.confirming,
+          ),
+        ),
+      );
+    }
+
+    const Map<AdministrativeInvalidationReason, bool> expectedPairingRequired =
+        <AdministrativeInvalidationReason, bool>{
+          AdministrativeInvalidationReason.revoked: true,
+          AdministrativeInvalidationReason.trustReset: true,
+          AdministrativeInvalidationReason.factoryReset: true,
+          AdministrativeInvalidationReason.blocked: false,
+        };
+    for (final MapEntry<AdministrativeInvalidationReason, bool> entry
+        in expectedPairingRequired.entries) {
+      test(
+        'Method handleKnownHostInvalidation maps ${entry.key.name} to pairingRequired ${entry.value}',
+        () async {
+          storePairedHosts();
+
+          await service.handleKnownHostInvalidation(
+            DovahLinkKnownHostInvalidation(
+              hostId: DovahLinkHostId(hostAId),
+              reason: entry.key,
+            ),
+          );
+
+          expect(updatedState?.knownHosts[hostAId]?.credential, isNull);
+          expect(
+            updatedState?.knownHosts[hostAId]?.pairingRequired,
+            entry.value,
+          );
+          expect(updatedState?.pendingPairingRecovery, isNull);
+          expect(updatedState?.knownHosts[hostBId]?.credential, 'credential-b');
+          expect(updatedState?.clientId, 'client-1');
+          expect(
+            updatedState?.knownHosts[hostAId]?.host,
+            Fixtures.buildDovahLinkHost(hostId: hostAId),
+          );
+        },
+      );
+    }
+
+    test(
+      'Method handleKnownHostInvalidation preserves another Host pending recovery',
+      () async {
+        storePairedHosts(recoveryHostId: hostBId);
+
+        await service.handleKnownHostInvalidation(
+          DovahLinkKnownHostInvalidation(
+            hostId: DovahLinkHostId(hostAId),
+            reason: AdministrativeInvalidationReason.revoked,
+          ),
+        );
+
+        expect(updatedState?.pendingPairingRecovery?.hostId, hostBId);
+        expect(updatedState?.knownHosts[hostBId]?.credential, 'credential-b');
+      },
+    );
+
+    test(
+      'Method handleKnownHostInvalidation contains a storage failure',
+      () async {
+        when(
+          () => storage.updateState(any()),
+        ).thenAnswer((_) async => throw const DovahLinkStorageException('x'));
+
+        await expectLater(
+          service.handleKnownHostInvalidation(
+            DovahLinkKnownHostInvalidation(
+              hostId: DovahLinkHostId(hostAId),
+              reason: AdministrativeInvalidationReason.revoked,
+            ),
+          ),
+          completes,
+        );
+        verify(() => storage.updateState(any())).called(1);
+      },
+    );
+
+    test(
+      'Method handleKnownHostInvalidation leaves state unchanged for an unknown Host',
+      () async {
+        storePairedHosts();
+
+        await service.handleKnownHostInvalidation(
+          DovahLinkKnownHostInvalidation(
+            hostId: DovahLinkHostId('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'),
+            reason: AdministrativeInvalidationReason.revoked,
+          ),
+        );
+
+        expect(updatedState?.knownHosts[hostAId]?.credential, 'credential-a');
+        expect(updatedState?.knownHosts[hostBId]?.credential, 'credential-b');
+        expect(updatedState?.pendingPairingRecovery?.hostId, hostAId);
       },
     );
   });

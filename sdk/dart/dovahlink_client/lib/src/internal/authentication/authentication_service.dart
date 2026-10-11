@@ -3,6 +3,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_id.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host_identity_mismatch_exception.dart';
+import 'package:dovahlink_client_sdk/src/dovahlink_known_host_invalidation.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_known_host_not_found_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
@@ -89,6 +90,15 @@ abstract interface class IAuthenticationService {
     DovahLinkHostId hostId, {
     bool pairingRequired = false,
   });
+
+  /// Applies the credential cleanup an administrative invalidation requires: discards the exact
+  /// invalidated Host's credential and recovery state. `revoked`, `trustReset`, and `factoryReset`
+  /// set the Host's `pairingRequired` hint; `blocked` clears it. Best-effort: a storage failure
+  /// is contained because invalidation is terminal and a later authentication can retry cleanup.
+  /// @param event The exact invalidated Host and Host-reported reason.
+  Future<void> handleKnownHostInvalidation(
+    DovahLinkKnownHostInvalidation event,
+  );
 }
 
 /// Implements [IAuthenticationService] by coordinating credential loading, Host hello requests,
@@ -504,6 +514,26 @@ class AuthenticationService implements IAuthenticationService {
     DovahLinkHostId hostId, {
     bool pairingRequired = false,
   }) => _forgetCredential(hostId.value, null, pairingRequired: pairingRequired);
+
+  /// Implements [IAuthenticationService.handleKnownHostInvalidation].
+  @override
+  Future<void> handleKnownHostInvalidation(
+    DovahLinkKnownHostInvalidation event,
+  ) async {
+    try {
+      await forgetCredential(
+        event.hostId,
+        pairingRequired: switch (event.reason) {
+          AdministrativeInvalidationReason.revoked ||
+          AdministrativeInvalidationReason.trustReset ||
+          AdministrativeInvalidationReason.factoryReset => true,
+          AdministrativeInvalidationReason.blocked => false,
+        },
+      );
+    } on Object {
+      // Invalidation is terminal; a later authentication can retry cleanup.
+    }
+  }
 
   /// Clears persisted trust only while [generation] remains current.
   /// @param hostId The relationship whose credential is being cleared.

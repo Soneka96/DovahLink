@@ -94,6 +94,10 @@ abstract interface class ISessionService {
     Exception? reason,
   });
 
+  /// Permanently closes the session lifecycle and disconnects any active session. After this,
+  /// `isTerminallyClosed` is `true` and no new connection may begin. Idempotent.
+  Future<void> close();
+
   /// Reports that the connection is no longer healthy (a send failure, a timeout, or a transport
   /// error/close) and must be torn down.
   ///
@@ -323,11 +327,18 @@ class SessionService implements ISessionService {
     );
   }
 
-  /// Permanently closes this client's session lifecycle and disconnects its active session.
+  /// Implements [ISessionService.close].
+  @override
   Future<void> close() {
     _isTerminallyClosed = true;
     return disconnect();
   }
+
+  /// Releases the stream resources of the [SessionState] this service drives. The composition root
+  /// calls it exactly once, last in client shutdown, after [close] and after every consumer of the
+  /// session streams has stopped listening. It is deliberately not part of [ISessionService]: only
+  /// the owner of the session lifecycle may end the state's lifetime.
+  Future<void> dispose() => _state.close();
 
   /// Implements [ISessionService.onUnhealthy]. Ordinary transport loss: tears down, and -- only if
   /// that teardown was not raced by a concurrent administrative invalidation or explicit

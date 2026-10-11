@@ -1502,6 +1502,64 @@ void main() {
     );
   });
 
+  group('Behavior separate client instances behave correctly', () {
+    test(
+      'Behavior two clients share no session, transport, or subscription state',
+      () async {
+        final FakeDovahLinkTransport otherTransport = FakeDovahLinkTransport();
+        final DovahLinkClient other = buildDovahLinkClientForTesting(
+          transport: otherTransport,
+          storage: InMemoryClientStorage(),
+        );
+        addTearDown(other.close);
+
+        await _connectAndHello(transport, client);
+        await expectLater(
+          client.currentHost.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+        expect(other.connections.state, DovahLinkConnectionState.disconnected);
+        expect(otherTransport.connectCalls, isEmpty);
+        expect(client.clientId, isNotNull);
+        expect(other.clientId, isNull);
+        expect(other.currentHost.trustState, isNull);
+        expect(_sentSubscriptionUpdates(otherTransport), isEmpty);
+      },
+    );
+
+    test('Behavior closing one client leaves another fully usable', () async {
+      final FakeDovahLinkTransport otherTransport = FakeDovahLinkTransport();
+      final DovahLinkClient other = buildDovahLinkClientForTesting(
+        transport: otherTransport,
+        storage: InMemoryClientStorage(),
+      );
+      addTearDown(other.close);
+
+      await client.close();
+      await _connectAndHello(otherTransport, other);
+
+      expect(other.connections.state, DovahLinkConnectionState.connected);
+      await expectLater(
+        _connectAndHello(transport, client),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+    });
+
+    test('Behavior close is idempotent and shares one completion', () async {
+      await _connectAndHello(transport, client);
+
+      final Future<void> first = client.close();
+      final Future<void> second = client.close();
+
+      expect(identical(first, second), isTrue);
+      await first;
+      expect(client.connections.state, DovahLinkConnectionState.disconnected);
+      expect(transport.closeCallCount, 1);
+    });
+  });
+
   group('Method loadKnownHosts behaves correctly', () {
     test(
       'Method loadKnownHosts returns persisted Hosts without credentials',
@@ -1776,12 +1834,10 @@ void main() {
           ..loadGate = loadGate;
         final MockDovahLinkDiscoveryService discovery =
             MockDovahLinkDiscoveryService();
-        final List<bool> candidateKnownHostsObservation = <bool>[];
         final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
           transport: FakeDovahLinkTransport(),
           storage: pendingStorage,
           discoveryService: discovery,
-          candidateKnownHostsObservation: candidateKnownHostsObservation,
         );
         final List<List<DovahLinkHost>> candidateUpdates =
             <List<DovahLinkHost>>[];
@@ -1807,7 +1863,6 @@ void main() {
 
         expect(await pendingDiscovery, isEmpty);
         await pumpEventQueue();
-        expect(candidateKnownHostsObservation, isEmpty);
         verifyNever(() => discovery.discover());
         expect(candidateUpdates, hasLength(1));
         expect(candidateUpdates.single, isEmpty);
@@ -1880,12 +1935,10 @@ void main() {
           ..loadGate = loadGate;
         final MockDovahLinkDiscoveryService discovery =
             MockDovahLinkDiscoveryService();
-        final List<bool> candidateKnownHostsObservation = <bool>[];
         final DovahLinkClient closeClient = buildDovahLinkClientForTesting(
           transport: FakeDovahLinkTransport(),
           storage: pendingStorage,
           discoveryService: discovery,
-          candidateKnownHostsObservation: candidateKnownHostsObservation,
         );
 
         final Future<List<DovahLinkHost>> pendingDiscovery = closeClient.pairing
@@ -1898,7 +1951,6 @@ void main() {
         loadGate.complete();
 
         expect(await pendingDiscovery, isEmpty);
-        expect(candidateKnownHostsObservation, isEmpty);
         verifyNever(() => discovery.discover());
         expect(pendingStorage.loadCount, 1);
       },
@@ -3745,6 +3797,115 @@ void main() {
             'stateAreas': <String>['character_xp'],
           },
         );
+      },
+    );
+
+    test(
+      'Behavior trusted initial admission restores remembered subscriptions once',
+      () async {
+        await expectLater(
+          client.currentHost.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            hostName: 'Soneka-Desktop',
+            credential: 'trusted-credential',
+          ),
+        );
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_xp']),
+        );
+
+        await client.connections.connectKnownHost(
+          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+        );
+        for (
+          int attempt = 0;
+          attempt < 20 && _sentSubscriptionUpdates(transport).isEmpty;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        await pumpEventQueue();
+
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          _sentSubscriptionUpdates(transport).single['payload'],
+          <String, dynamic>{
+            'stateAreas': <String>['character_xp'],
+          },
+        );
+      },
+    );
+
+    test(
+      'Behavior an unpaired admission does not restore remembered subscriptions',
+      () async {
+        await expectLater(
+          client.currentHost.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        await _connectAndHello(transport, client);
+        for (int attempt = 0; attempt < 10; attempt++) {
+          await pumpEventQueue();
+        }
+
+        expect(client.currentHost.trustState, DovahLinkTrustState.unpaired);
+        expect(_sentSubscriptionUpdates(transport), isEmpty);
+      },
+    );
+
+    test(
+      'Behavior candidate authentication that recovers a pending pairing restores remembered subscriptions',
+      () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'a1b2c3d4e5f6',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        await expectLater(
+          client.currentHost.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(
+            accepted: <String>['character_xp'],
+            sessionId: 'session-1',
+          ),
+        );
+
+        final DovahLinkPairingHandshake handshake = await client.pairing
+            .authenticateCandidate(Uri.parse('ws://127.0.0.1:58231/'));
+        for (
+          int attempt = 0;
+          attempt < 20 && _sentSubscriptionUpdates(transport).isEmpty;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+
+        expect(handshake.hello.trustState, DovahLinkTrustState.unpaired);
+        expect(handshake.trustState, DovahLinkTrustState.trusted);
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
       },
     );
 
