@@ -127,7 +127,9 @@ PairingState pairingCodeAvailableReducer(
   isRenotifyPending: false,
   codeExpiresAt: action.expiresInSeconds == null
       ? const None()
-      : Some(DateTime.now().add(Duration(seconds: action.expiresInSeconds!))),
+      : Some(
+          action.observedAt.add(Duration(seconds: action.expiresInSeconds!)),
+        ),
   renotifyAvailableAt: const None(),
   pairingOutcome: const None(),
   attemptsRemaining: const None(),
@@ -221,7 +223,9 @@ PairingState pairingRenotifySucceededReducer(
   renotifyOutcome: const Some(PairingRenotifyOutcome.renotified),
   renotifyAvailableAt: action.retryAfterSeconds == null
       ? const None()
-      : Some(DateTime.now().add(Duration(seconds: action.retryAfterSeconds!))),
+      : Some(
+          action.observedAt.add(Duration(seconds: action.retryAfterSeconds!)),
+        ),
 );
 
 /// Handles [PairingRenotifyCooldownAction].
@@ -237,7 +241,9 @@ PairingState pairingRenotifyCooldownReducer(
   renotifyOutcome: const Some(PairingRenotifyOutcome.cooldown),
   renotifyAvailableAt: action.retryAfterSeconds == null
       ? const None()
-      : Some(DateTime.now().add(Duration(seconds: action.retryAfterSeconds!))),
+      : Some(
+          action.observedAt.add(Duration(seconds: action.retryAfterSeconds!)),
+        ),
 );
 
 /// Handles [PairingRenotifyAlreadyIdleAction].

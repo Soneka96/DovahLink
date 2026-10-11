@@ -1,30 +1,20 @@
 import 'dart:async';
 
-import 'package:fpdart/fpdart.dart' show Either;
+import 'package:fpdart/fpdart.dart' show Either, Left, Right;
 import 'package:redux/redux.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.actions.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.selectors.dart';
-import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/cancel_pairing.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing_renotify.usecase.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
 import 'package:dovahlink_client/injection_container.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 import 'package:dovahlink_client/shared/state/app_state.dart';
-import 'package:dovahlink_client/shared/usecase/no_params.dart';
 
 import 'package:dovahlink_client_sdk/dovahlink_client.dart'
     show DovahLinkClient, DovahLinkInitialConnectionRetryStatus;
@@ -42,7 +32,7 @@ abstract interface class IPairingMiddleware {
   Future<void> shutdown();
 }
 
-/// Handles pairing actions, resolving use cases through [sl] and releasing owned resources.
+/// Handles pairing actions, resolving the pairing SDK boundary through [sl] and releasing owned resources.
 class PairingMiddleware extends MiddlewareClass<AppState>
     implements IPairingMiddleware {
   /// The active subscription started by [_pairingSessionTrusted], or `null` before the first
@@ -105,7 +95,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   }
 
   /// Starts the selected Host authentication through
-  /// [AuthenticateUseCase]. With no Host selected there is nothing to connect to, so it
+  /// [IPairingRemoteDataSource.authenticate]. With no Host selected there is nothing to connect to, so it
   /// dispatches [PairingFailedAction] rather than falling back to some default Host. The SDK's
   /// retry status changes the presentation to Offline while its original authentication operation
   /// remains pending; the same selected Host and operation complete on retry success.
@@ -127,13 +117,13 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       store.dispatch(const PairingFailedAction('Select a Host to pair with.'));
       return;
     }
-    final AuthenticateParams params =
+    final Either<Uri, String> target =
         ConnectionSelectors.selectedHostSourceSelector(store.state) ==
             ConnectionHostSelectionSource.knownHost
-        ? AuthenticateParams.knownHost(hostId: host.hostId)
-        : AuthenticateParams(hostUri: host.uri);
-    final Future<Either<Failure, PairingHandshake>> authentication =
-        sl<AuthenticateUseCase>()(params);
+        ? Right(host.hostId)
+        : Left(host.uri);
+    final Future<Either<Failure, PairingAuthentication>> authentication =
+        sl<IPairingRemoteDataSource>().authenticate(target: target);
     final StreamSubscription<DovahLinkInitialConnectionRetryStatus>
     retrySubscription = sl<DovahLinkClient>()
         .connections
@@ -148,7 +138,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           }
         });
     _initialConnectionRetrySubscription = retrySubscription;
-    final Either<Failure, PairingHandshake> result = await authentication;
+    final Either<Failure, PairingAuthentication> result = await authentication;
     if (identical(_initialConnectionRetrySubscription, retrySubscription)) {
       _initialConnectionRetrySubscription = null;
       unawaited(retrySubscription.cancel());
@@ -168,7 +158,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           ),
         );
       },
-      (PairingHandshake handshake) {
+      (PairingAuthentication handshake) {
         store.dispatch(
           PairingAuthenticatedAction(
             hostVersion: handshake.hostVersion,
@@ -193,7 +183,10 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       return;
     }
     final int generation = _pairingFlowGeneration;
-    final result = await sl<RequestPairingRenotifyUseCase>()(NoParams());
+    final result = await sl<IPairingRemoteDataSource>()
+        .requestPairingRenotify();
+    // Captured once, at observation, so reducers derive deadlines without reading the clock.
+    final DateTime observedAt = DateTime.now();
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
@@ -214,12 +207,14 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           case PairingRenotifyOutcome.renotified:
             store.dispatch(
               PairingRenotifySucceededAction(
+                observedAt: observedAt,
                 retryAfterSeconds: result.retryAfterSeconds,
               ),
             );
           case PairingRenotifyOutcome.cooldown:
             store.dispatch(
               PairingRenotifyCooldownAction(
+                observedAt: observedAt,
                 retryAfterSeconds: result.retryAfterSeconds,
               ),
             );
@@ -239,7 +234,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     final int generation = _pairingFlowGeneration;
     final String? pendingPairingHostId =
         ConnectionSelectors.pendingPairingHostIdSelector(store.state);
-    final result = await sl<CancelPairingUseCase>()(NoParams());
+    final result = await sl<IPairingRemoteDataSource>().cancelPairing();
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
@@ -267,7 +262,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   }
 
   /// Requests a pairing challenge
-  /// through [RequestPairingUseCase]. Deliberately does not distinguish
+  /// through [IPairingRemoteDataSource.requestPairingCode]. Deliberately does not distinguish
   /// [NetworkFailure] here or in [_pairingCodeSubmitted] the way
   /// [_pairingStarted] does: silently discarding a code the user is
   /// mid-entering to retry the initial connect would lose their progress, so
@@ -279,7 +274,8 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       return;
     }
     final int generation = _pairingFlowGeneration;
-    final result = await sl<RequestPairingUseCase>()(NoParams());
+    final result = await sl<IPairingRemoteDataSource>().requestPairingCode();
+    final DateTime observedAt = DateTime.now();
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
@@ -297,13 +293,16 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       },
       (int? expiresInSeconds) {
         store.dispatch(
-          PairingCodeAvailableAction(expiresInSeconds: expiresInSeconds),
+          PairingCodeAvailableAction(
+            observedAt: observedAt,
+            expiresInSeconds: expiresInSeconds,
+          ),
         );
       },
     );
   }
 
-  /// Confirms the submitted code through [ConfirmPairingCodeUseCase].
+  /// Confirms the submitted code through [IPairingRemoteDataSource.confirmPairingCode].
   /// @param store The application store receiving the confirmation result.
   /// @param action The submitted pairing code; the display name comes from app identity state.
   Future<void> _pairingCodeSubmitted(
@@ -328,11 +327,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     if (candidateHostId != null) {
       store.dispatch(ConnectionCandidatePairingStartedAction(candidateHostId));
     }
-    final result = await sl<ConfirmPairingCodeUseCase>()(
-      ConfirmPairingCodeParams(
-        code: action.code,
-        displayName: DeviceIdentitySelectors.displayNameSelector(store.state),
-      ),
+    final result = await sl<IPairingRemoteDataSource>().confirmPairingCode(
+      code: action.code,
+      displayName: DeviceIdentitySelectors.displayNameSelector(store.state),
     );
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
@@ -377,7 +374,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
   }
 
   /// Disposes pairing state and disconnects through
-  /// [DisconnectUseCase], unless [PairingDisposedAction.wasTrusted] -- pairing
+  /// [IPairingRemoteDataSource.disconnect], unless [PairingDisposedAction.wasTrusted] -- pairing
   /// had already succeeded, so the established trust and connection are kept
   /// rather than torn down on the way out. Always cancels a pending initial
   /// connection retry and invalidates pending authentication results. Otherwise, best-effort cleanup:
@@ -407,11 +404,11 @@ class PairingMiddleware extends MiddlewareClass<AppState>
         ConnectionCandidatePairingEndedAction(pendingPairingHostId),
       );
     }
-    await sl<DisconnectUseCase>()(NoParams());
+    await sl<IPairingRemoteDataSource>().disconnect();
   }
 
   /// Starts [_connectionStatusSubscription] for the admitted trusted session through
-  /// [ObserveConnectionStatusUseCase], unless one is already running -- a later reconnect or
+  /// [IPairingRemoteDataSource.connectionStatus], unless one is already running -- a later reconnect or
   /// re-pair dispatching this action again must not stack a second subscription onto the same
   /// underlying SDK stream. Dispatches by status: [PairingConnectionStatus.lost] as ordinary
   /// transport loss ([PairingDisconnectedAction], distinct from a rejected pairing attempt), and
@@ -429,10 +426,9 @@ class PairingMiddleware extends MiddlewareClass<AppState>
         _connectionStatusSubscription != null) {
       return;
     }
-    _connectionStatusSubscription =
-        sl<ObserveConnectionStatusUseCase>()(NoParams()).listen((
-          PairingConnectionStatus status,
-        ) {
+    _connectionStatusSubscription = sl<IPairingRemoteDataSource>()
+        .connectionStatus
+        .listen((PairingConnectionStatus status) {
           if (_isShuttingDown) {
             return;
           }

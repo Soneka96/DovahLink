@@ -73,9 +73,12 @@ The current owner boundaries are:
 | Redux and presentation | Flutter middleware mirrors grouped SDK projections | Flutter owns selection, wording, navigation, and dialog lifecycle; it does not implement retry policy or sequence protocol operations. |
 | SDK composition and shutdown | `app/lib/injection_container.dart` creates one client; `AppShutdownService` closes it | Every group references that engine, and shutdown remains idempotent with no late state publication. |
 
-No separate SDK component construction was found in Flutter production code. `PairingRemoteDataSource`,
-repositories, and use cases form application boundaries; remove one only after its behavior has moved
-and its consumer tests prove that no presentation-independent mapping or orchestration remains.
+No separate SDK component construction was found in Flutter production code. The pairing feature
+reaches the SDK through one application boundary, `PairingRemoteDataSource`, which maps typed SDK
+results, exceptions, and connection states into app-owned values; its use cases, repository, and
+handshake Model/Entity forwarded without deciding anything and were removed. Remove any further
+application layer only after its behavior has moved and its consumer tests prove that no
+presentation-independent mapping or orchestration remains.
 
 The in-repository Flutter application and SDK tests are the known consumers. The SDK is not
 published as a stable public package and has no publication workflow; the grouped API is the

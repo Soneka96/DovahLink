@@ -49,9 +49,9 @@ A second carve-out applies when a package's own layer-direction rule requires th
 implementation to live in different layers -- for example `ai/context/flutter/architecture.md`'s
 "domain must not import data" -- even though only one production implementation exists. The
 interface keeps its own file in the layer that declares it; the implementation keeps its own file in
-the layer that provides it. `IPairingRepository` (`app/lib/features/pairing/domain/repositories/
-pairing_repository.dart`) and `PairingRepository` (`app/lib/features/pairing/data/repositories/
-pairing.repository.dart`) are this carve-out's first instance.
+the layer that provides it. `IAppearanceRepository` (`app/lib/features/appearance/domain/
+repositories/appearance_repository.dart`) and `AppearanceRepository` (`app/lib/features/
+appearance/data/repositories/appearance.repository.dart`) are this carve-out's instance.
 
 ## File organization
 

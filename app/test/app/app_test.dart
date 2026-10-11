@@ -17,14 +17,7 @@ import 'package:dovahlink_client/features/connection/domain/entities/host.entity
 import 'package:dovahlink_client/features/connection/presentation/screens/connections.screen.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
-import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/authenticate.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/confirm_pairing_code.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/observe_connection_status.usecase.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/params/authenticate.params.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/params/confirm_pairing_code.params.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/request_pairing.usecase.dart';
+import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
@@ -42,7 +35,6 @@ import 'package:dovahlink_client/shared/state/create_store.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_tokens.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
-import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import '../fixtures/fixtures.dart';
 import '../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
@@ -52,23 +44,9 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
         DovahLinkInitialConnectionRetryStatus,
         IDovahLinkConnections;
 
-/// Mocks the authentication use case the real pairing middleware resolves.
-class MockAuthenticateUseCase extends Mock implements AuthenticateUseCase {}
-
-/// Mocks the disconnect use case the real pairing middleware resolves on dismissal.
-class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
-
-/// Mocks the code-request use case the real pairing middleware resolves after an unpaired
-/// authentication.
-class MockRequestPairingUseCase extends Mock implements RequestPairingUseCase {}
-
-/// Mocks the confirmation use case the real pairing middleware resolves when a code is entered.
-class MockConfirmPairingCodeUseCase extends Mock
-    implements ConfirmPairingCodeUseCase {}
-
-/// Mocks the status-observation use case the real pairing middleware resolves once trusted.
-class MockObserveConnectionStatusUseCase extends Mock
-    implements ObserveConnectionStatusUseCase {}
+/// Mocks the single pairing SDK boundary the real pairing middleware resolves.
+class MockPairingRemoteDataSource extends Mock
+    implements IPairingRemoteDataSource {}
 
 class MockPairingDovahLinkClient extends Mock implements DovahLinkClient {}
 
@@ -119,35 +97,30 @@ void main() {
   });
 
   group('DovahLinkApp opens pairing from Connections', () {
-    late MockAuthenticateUseCase authenticate;
-    late MockDisconnectUseCase disconnect;
-    late MockRequestPairingUseCase requestPairing;
+    late MockPairingRemoteDataSource pairingRemote;
 
     setUpAll(() {
-      registerFallbackValue(Fixtures.buildAuthenticateParams());
-      registerFallbackValue(NoParams());
+      registerFallbackValue(Left<Uri, String>(Uri()));
     });
 
     setUp(() async {
       await sl.reset();
       await initDependencies();
       installInactiveRetryClient();
-      authenticate = MockAuthenticateUseCase();
-      disconnect = MockDisconnectUseCase();
-      requestPairing = MockRequestPairingUseCase();
-      when(() => authenticate(any())).thenAnswer(
-        (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
-      );
-      when(() => disconnect(any())).thenAnswer((_) async => const Right(unit));
+      pairingRemote = MockPairingRemoteDataSource();
       when(
-        () => requestPairing(any()),
+        () => pairingRemote.authenticate(target: any(named: 'target')),
+      ).thenAnswer(
+        (_) async => Right(Fixtures.buildPairingAuthentication(trusted: false)),
+      );
+      when(
+        () => pairingRemote.disconnect(),
+      ).thenAnswer((_) async => const Right(unit));
+      when(
+        () => pairingRemote.requestPairingCode(),
       ).thenAnswer((_) async => const Right(300));
-      sl.unregister<AuthenticateUseCase>();
-      sl.registerLazySingleton<AuthenticateUseCase>(() => authenticate);
-      sl.unregister<DisconnectUseCase>();
-      sl.registerLazySingleton<DisconnectUseCase>(() => disconnect);
-      sl.unregister<RequestPairingUseCase>();
-      sl.registerLazySingleton<RequestPairingUseCase>(() => requestPairing);
+      sl.unregister<IPairingRemoteDataSource>();
+      sl.registerLazySingleton<IPairingRemoteDataSource>(() => pairingRemote);
     });
 
     tearDown(() async {
@@ -195,7 +168,7 @@ void main() {
         );
         // Selecting the Host already expresses the intent to pair, so the code is requested
         // without a further step and the dialog reaches code entry.
-        verify(() => requestPairing(any())).called(1);
+        verify(() => pairingRemote.requestPairingCode()).called(1);
         expect(find.text('Check Skyrim'), findsOneWidget);
         expect(
           find.byKey(const Key('pairing-request-code-button')),
@@ -210,17 +183,13 @@ void main() {
         final Host candidate = Fixtures.buildHost(
           uri: Uri.parse('ws://127.0.0.1:58231/'),
         );
-        final Completer<Either<Failure, PairingHandshake>> authentication =
-            Completer<Either<Failure, PairingHandshake>>();
-        final MockObserveConnectionStatusUseCase observe =
-            MockObserveConnectionStatusUseCase();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
-          () => observe(any()),
+          () => pairingRemote.connectionStatus,
         ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
-        sl.unregister<ObserveConnectionStatusUseCase>();
-        sl.registerLazySingleton<ObserveConnectionStatusUseCase>(() => observe);
         when(
-          () => authenticate(any()),
+          () => pairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
         final Store<AppState> store = const CreateStore()(
           middleware: [PairingMiddleware().call],
@@ -251,7 +220,7 @@ void main() {
         );
         expect(store.state.connection.knownHosts, isEmpty);
         authentication.complete(
-          Right(Fixtures.buildPairingHandshake(trusted: true)),
+          Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
         await tester.pump();
         await tester.pumpAndSettle();
@@ -262,9 +231,9 @@ void main() {
         expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
         expect(store.state.connection.knownHosts, isEmpty);
         verify(
-          () => authenticate(AuthenticateParams(hostUri: candidate.uri)),
+          () => pairingRemote.authenticate(target: Left(candidate.uri)),
         ).called(1);
-        verifyNever(() => disconnect(any()));
+        verifyNever(() => pairingRemote.disconnect());
       },
     );
 
@@ -274,10 +243,10 @@ void main() {
         final Host candidate = Fixtures.buildHost(
           uri: Uri.parse('ws://127.0.0.1:58231/'),
         );
-        final Completer<Either<Failure, PairingHandshake>> authentication =
-            Completer<Either<Failure, PairingHandshake>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
-          () => authenticate(any()),
+          () => pairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
         final Store<AppState> store = const CreateStore()(
           middleware: [PairingMiddleware().call],
@@ -315,7 +284,7 @@ void main() {
         expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
 
         authentication.complete(
-          Right(Fixtures.buildPairingHandshake(trusted: true)),
+          Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
@@ -325,7 +294,7 @@ void main() {
         expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
         expect(store.state.connection.knownHosts, isEmpty);
         verify(
-          () => authenticate(AuthenticateParams(hostUri: candidate.uri)),
+          () => pairingRemote.authenticate(target: Left(candidate.uri)),
         ).called(1);
       },
     );
@@ -357,12 +326,10 @@ void main() {
         await tester.pump(const Duration(milliseconds: 500));
 
         verify(
-          () =>
-              authenticate(AuthenticateParams.knownHost(hostId: second.hostId)),
+          () => pairingRemote.authenticate(target: Right(second.hostId)),
         ).called(1);
         verifyNever(
-          () =>
-              authenticate(AuthenticateParams.knownHost(hostId: first.hostId)),
+          () => pairingRemote.authenticate(target: Right(first.hostId)),
         );
         expect(find.text('Check Skyrim'), findsOneWidget);
         expect(
@@ -395,7 +362,7 @@ void main() {
 
         expect(find.byType(DovahDialog), findsNothing);
         expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
-        verify(() => disconnect(any())).called(1);
+        verify(() => pairingRemote.disconnect()).called(1);
       },
     );
 
@@ -439,58 +406,51 @@ void main() {
 
         expect(find.byType(DovahDialog), findsOneWidget);
         expect(find.text('Check Skyrim'), findsOneWidget);
-        verify(() => authenticate(any())).called(2);
+        verify(
+          () => pairingRemote.authenticate(target: any(named: 'target')),
+        ).called(2);
       },
     );
   });
 
   group('DovahLinkApp pairing dialog follows the pairing state', () {
-    late MockAuthenticateUseCase authenticate;
-    late MockDisconnectUseCase disconnect;
-    late MockRequestPairingUseCase requestPairing;
-    late MockConfirmPairingCodeUseCase confirm;
-    late MockObserveConnectionStatusUseCase observe;
+    late MockPairingRemoteDataSource pairingRemote;
     late StreamController<DovahLinkInitialConnectionRetryStatus>
     initialRetryStatuses;
 
     const Key hostCard = Key('host-card-81869993-955c-4ba3-a7d0-d35ca86078ea');
 
     setUpAll(() {
-      registerFallbackValue(Fixtures.buildAuthenticateParams());
-      registerFallbackValue(NoParams());
-      registerFallbackValue(const ConfirmPairingCodeParams(code: '000000'));
+      registerFallbackValue(Left<Uri, String>(Uri()));
     });
 
     setUp(() async {
       await sl.reset();
       await initDependencies();
       initialRetryStatuses = installInactiveRetryClient();
-      authenticate = MockAuthenticateUseCase();
-      disconnect = MockDisconnectUseCase();
-      requestPairing = MockRequestPairingUseCase();
-      confirm = MockConfirmPairingCodeUseCase();
-      observe = MockObserveConnectionStatusUseCase();
-      when(() => authenticate(any())).thenAnswer(
-        (_) async => Right(Fixtures.buildPairingHandshake(trusted: false)),
+      pairingRemote = MockPairingRemoteDataSource();
+      when(
+        () => pairingRemote.authenticate(target: any(named: 'target')),
+      ).thenAnswer(
+        (_) async => Right(Fixtures.buildPairingAuthentication(trusted: false)),
       );
-      when(() => disconnect(any())).thenAnswer((_) async => const Right(unit));
       when(
-        () => requestPairing(any()),
+        () => pairingRemote.disconnect(),
+      ).thenAnswer((_) async => const Right(unit));
+      when(
+        () => pairingRemote.requestPairingCode(),
       ).thenAnswer((_) async => const Right(300));
-      when(() => confirm(any())).thenAnswer((_) async => const Right(unit));
       when(
-        () => observe(any()),
+        () => pairingRemote.confirmPairingCode(
+          code: any(named: 'code'),
+          displayName: any(named: 'displayName'),
+        ),
+      ).thenAnswer((_) async => const Right(unit));
+      when(
+        () => pairingRemote.connectionStatus,
       ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
-      sl.unregister<AuthenticateUseCase>();
-      sl.registerLazySingleton<AuthenticateUseCase>(() => authenticate);
-      sl.unregister<DisconnectUseCase>();
-      sl.registerLazySingleton<DisconnectUseCase>(() => disconnect);
-      sl.unregister<RequestPairingUseCase>();
-      sl.registerLazySingleton<RequestPairingUseCase>(() => requestPairing);
-      sl.unregister<ConfirmPairingCodeUseCase>();
-      sl.registerLazySingleton<ConfirmPairingCodeUseCase>(() => confirm);
-      sl.unregister<ObserveConnectionStatusUseCase>();
-      sl.registerLazySingleton<ObserveConnectionStatusUseCase>(() => observe);
+      sl.unregister<IPairingRemoteDataSource>();
+      sl.registerLazySingleton<IPairingRemoteDataSource>(() => pairingRemote);
     });
 
     tearDown(() async {
@@ -543,25 +503,29 @@ void main() {
     testWidgets(
       'DovahLinkApp walks connecting, requesting a code, and code entry without a manual request step',
       (WidgetTester tester) async {
-        final Completer<Either<Failure, PairingHandshake>> handshake =
-            Completer<Either<Failure, PairingHandshake>>();
+        final Completer<Either<Failure, PairingAuthentication>> handshake =
+            Completer<Either<Failure, PairingAuthentication>>();
         final Completer<Either<Failure, int?>> code =
             Completer<Either<Failure, int?>>();
-        when(() => authenticate(any())).thenAnswer((_) => handshake.future);
-        when(() => requestPairing(any())).thenAnswer((_) => code.future);
+        when(
+          () => pairingRemote.authenticate(target: any(named: 'target')),
+        ).thenAnswer((_) => handshake.future);
+        when(
+          () => pairingRemote.requestPairingCode(),
+        ).thenAnswer((_) => code.future);
 
         await openPairing(tester);
 
         expect(headerTitle('Pair with Local Host'), findsOneWidget);
         expect(find.text('Checking trusted connection…'), findsOneWidget);
-        verifyNever(() => requestPairing(any()));
+        verifyNever(() => pairingRemote.requestPairingCode());
 
         handshake.complete(
-          Right(Fixtures.buildPairingHandshake(trusted: false)),
+          Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
         await settle(tester);
 
-        verify(() => requestPairing(any())).called(1);
+        verify(() => pairingRemote.requestPairingCode()).called(1);
         expect(headerTitle('Pair with Local Host'), findsOneWidget);
         expect(find.text('Requesting code…'), findsOneWidget);
         expect(
@@ -574,16 +538,17 @@ void main() {
 
         expect(headerTitle('Pair with Local Host'), findsOneWidget);
         expect(find.text('Check Skyrim'), findsOneWidget);
-        verifyNoMoreInteractions(requestPairing);
       },
     );
 
     testWidgets(
       'DovahLinkApp titles the dialog Skyrim isn’t running while the Host is unreachable and recovers when it returns',
       (WidgetTester tester) async {
-        final Completer<Either<Failure, PairingHandshake>> handshake =
-            Completer<Either<Failure, PairingHandshake>>();
-        when(() => authenticate(any())).thenAnswer((_) => handshake.future);
+        final Completer<Either<Failure, PairingAuthentication>> handshake =
+            Completer<Either<Failure, PairingAuthentication>>();
+        when(
+          () => pairingRemote.authenticate(target: any(named: 'target')),
+        ).thenAnswer((_) => handshake.future);
 
         await openPairing(tester);
         initialRetryStatuses.add(
@@ -596,7 +561,7 @@ void main() {
         expect(find.textContaining('Start Skyrim'), findsOneWidget);
 
         handshake.complete(
-          Right(Fixtures.buildPairingHandshake(trusted: false)),
+          Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
         await settle(tester);
 
@@ -616,11 +581,9 @@ void main() {
         expect(headerTitle('Connected'), findsOneWidget);
         expect(find.text('You’re connected'), findsOneWidget);
         verify(
-          () => confirm(
-            const ConfirmPairingCodeParams(
-              code: '123456',
-              displayName: 'This device',
-            ),
+          () => pairingRemote.confirmPairingCode(
+            code: '123456',
+            displayName: 'This device',
           ),
         ).called(1);
 
@@ -629,16 +592,18 @@ void main() {
 
         expect(find.byType(PairingDialog), findsNothing);
         expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
-        verifyNever(() => disconnect(any()));
+        verifyNever(() => pairingRemote.disconnect());
       },
     );
 
     testWidgets(
       'DovahLinkApp titles the dialog Pairing required and waits for Pair again after a rejected credential',
       (WidgetTester tester) async {
-        when(() => authenticate(any())).thenAnswer(
+        when(
+          () => pairingRemote.authenticate(target: any(named: 'target')),
+        ).thenAnswer(
           (_) async => Right(
-            Fixtures.buildPairingHandshake(
+            Fixtures.buildPairingAuthentication(
               trusted: false,
               credentialRejectionReason:
                   PairingCredentialRejectionReason.revoked,
@@ -653,12 +618,12 @@ void main() {
         expect(find.text('Pair Local Host again'), findsOneWidget);
         expect(find.text("This device's trust was revoked."), findsOneWidget);
         expect(find.text('Cancel'), findsOneWidget);
-        verifyNever(() => requestPairing(any()));
+        verifyNever(() => pairingRemote.requestPairingCode());
 
         await tester.tap(find.byKey(const Key('pairing-request-code-button')));
         await settle(tester);
 
-        verify(() => requestPairing(any())).called(1);
+        verify(() => pairingRemote.requestPairingCode()).called(1);
         expect(headerTitle('Pairing required'), findsNothing);
         expect(headerTitle('Pair with Local Host'), findsOneWidget);
         expect(find.text('Check Skyrim'), findsOneWidget);
@@ -668,9 +633,11 @@ void main() {
     testWidgets(
       'DovahLinkApp requests no code and disconnects when Cancel is tapped on the pair-again prompt',
       (WidgetTester tester) async {
-        when(() => authenticate(any())).thenAnswer(
+        when(
+          () => pairingRemote.authenticate(target: any(named: 'target')),
+        ).thenAnswer(
           (_) async => Right(
-            Fixtures.buildPairingHandshake(
+            Fixtures.buildPairingAuthentication(
               trusted: false,
               credentialRejectionReason:
                   PairingCredentialRejectionReason.revoked,
@@ -685,8 +652,8 @@ void main() {
 
         expect(find.byType(PairingDialog), findsNothing);
         expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
-        verifyNever(() => requestPairing(any()));
-        verify(() => disconnect(any())).called(1);
+        verifyNever(() => pairingRemote.requestPairingCode());
+        verify(() => pairingRemote.disconnect()).called(1);
       },
     );
 
@@ -695,7 +662,12 @@ void main() {
       (WidgetTester tester) async {
         final Completer<Either<Failure, Unit>> confirmation =
             Completer<Either<Failure, Unit>>();
-        when(() => confirm(any())).thenAnswer((_) => confirmation.future);
+        when(
+          () => pairingRemote.confirmPairingCode(
+            code: any(named: 'code'),
+            displayName: any(named: 'displayName'),
+          ),
+        ).thenAnswer((_) => confirmation.future);
         final Store<AppState> store = await openPairing(tester);
 
         await submitCode(tester, '123456');
@@ -715,7 +687,7 @@ void main() {
         await tester.tapAt(const Offset(10, 10));
         await settle(tester);
         expect(find.byType(PairingDialog), findsOneWidget);
-        verifyNever(() => disconnect(any()));
+        verifyNever(() => pairingRemote.disconnect());
 
         confirmation.complete(const Right(unit));
         await settle(tester);
@@ -733,7 +705,9 @@ void main() {
         await settle(tester);
 
         expect(find.byType(PairingDialog), findsOneWidget);
-        verify(() => authenticate(any())).called(1);
+        verify(
+          () => pairingRemote.authenticate(target: any(named: 'target')),
+        ).called(1);
       },
     );
 

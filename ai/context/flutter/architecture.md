@@ -358,6 +358,41 @@ Do not pre-create empty `data`, `domain`, or `presentation` subfolders. Add a fo
 
 ## Feature call chain
 
+**Pairing.** `PairingMiddleware` resolves one registered boundary,
+`IPairingRemoteDataSource` (`features/pairing/data/datasources/`), and calls it directly; the call
+chain is `PairingMiddleware` -> `PairingRemoteDataSource` -> `DovahLinkClient` (the one shared SDK
+client). The earlier seven use cases, `IPairingRepository`/`PairingRepository`, and the
+`PairingHandshakeModel`/`PairingHandshake` pair were removed because each only forwarded an SDK
+operation or copied fields from an already-decoded typed result; the SDK owns authentication,
+pending-confirmation recovery, code request, confirmation, renotify, cancel, reconnect, and trust.
+The one boundary keeps the translations Flutter genuinely owns:
+
+- *Failure mapping:* SDK exceptions become app `Failure` values per operation (connection and
+  protocol become `NetworkFailure`, pairing exceptions become typed `PairingFailure` through
+  `PairingFailureMapper`, storage becomes `DatabaseFailure`, administrative invalidation is told
+  apart from ordinary connectivity loss, and anything unrecognized becomes a safe fallback).
+- *Handshake presentation:* `authenticate` maps the SDK handshake to the `PairingAuthentication`
+  record -- Host version, the SDK-resolved trust, and the typed credential-rejection reason with its
+  user-facing message. A record is used because nothing external is decoded; no Model or Entity is
+  warranted.
+- *Renotify and challenge outcomes:* `PairingRenotifyResult` keeps the typed outcome and the
+  Host-reported `retryAfterSeconds`; a code request maps unavailable and other-device-pairing to
+  fixed wording that reveals nothing about the other device.
+- *Connection status:* `connectionStatus` maps `DovahLinkConnectionState` to
+  `PairingConnectionStatus`. `reconnecting`, `reauthenticating`, and `disconnected` are `lost`;
+  `administrativelyInvalidated` is `invalidated`; `connecting` carries no status; `connected` is
+  `restored` only while the SDK's `currentHost.trustState` is trusted, otherwise `lost`, because
+  connected is a transport fact and a recovery can finish connected but unpaired (for example after
+  `forgetCredential`).
+
+Redux stays responsible for the presentation lifecycle: phases, countdown deadlines, dialog state,
+stale-result guards, and subscription ownership live in the reducer and middleware, while the SDK
+remains responsible for pairing and trust semantics. The middleware stamps an `observedAt` instant
+on actions that carry relative seconds (code expiry, renotify retry), so reducers derive display
+deadlines from that value and never read the clock; the SDK and Host stay authoritative for expiry
+and cooldown. The middleware importing the data-layer interface is a deliberate, documented
+exception to the layer-direction rule, because that interface is the app's SDK boundary.
+
 Middleware may call the SDK contract directly when it owns the complete operation. Translate the
 typed result into app-owned values at that boundary before dispatching it into Redux or passing it
 into domain or presentation code. When the Flutter app owns external I/O, external-representation

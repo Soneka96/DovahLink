@@ -14,7 +14,7 @@ import 'package:dovahlink_client/features/connection/presentation/state/viewmode
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_candidate_card.widget.dart';
 import 'package:dovahlink_client/features/connection/presentation/widgets/discover_dialog.widget.dart';
-import 'package:dovahlink_client/features/pairing/domain/usecases/disconnect.usecase.dart';
+import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
@@ -31,7 +31,6 @@ import 'package:dovahlink_client/shared/theme/dovah_dialog_metrics.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_context.dart';
 import 'package:dovahlink_client/shared/theme/dovah_theme_presets.dart';
 import 'package:dovahlink_client/shared/theme/widgets/dovah_dialog.widget.dart';
-import 'package:dovahlink_client/shared/usecase/no_params.dart';
 import '../../../../fixtures/fixtures.dart';
 import '../../../../shared/theme/widgets/dovah_widget_test_helpers.dart';
 
@@ -45,8 +44,9 @@ class MockDiscoverDialogViewModel extends Mock
 /// Mock Store supplied to the dialog's [StoreConnector].
 class MockStore extends Mock implements Store<AppState> {}
 
-/// Mock disconnect resolved by the real [PairingMiddleware] when pairing is disposed.
-class MockDisconnectUseCase extends Mock implements DisconnectUseCase {}
+/// Mock pairing boundary resolved by the real [PairingMiddleware] when pairing is disposed.
+class MockPairingRemoteDataSource extends Mock
+    implements IPairingRemoteDataSource {}
 
 /// Exercises [DiscoverDialog]'s live discovery states and selection result.
 void main() {
@@ -699,20 +699,18 @@ void main() {
   });
 
   group('DiscoverDialog owns the embedded pairing lifecycle', () {
-    late MockDisconnectUseCase mockDisconnect;
+    late MockPairingRemoteDataSource mockDisconnect;
     late List<Object?> actions;
     late Host candidateHost;
     late Store<AppState> realStore;
     late Future<void> flow;
 
-    setUpAll(() => registerFallbackValue(NoParams()));
-
     setUp(() {
-      mockDisconnect = MockDisconnectUseCase();
+      mockDisconnect = MockPairingRemoteDataSource();
       when(
-        () => mockDisconnect(any()),
+        () => mockDisconnect.disconnect(),
       ).thenAnswer((_) async => const Right(unit));
-      sl.registerLazySingleton<DisconnectUseCase>(() => mockDisconnect);
+      sl.registerLazySingleton<IPairingRemoteDataSource>(() => mockDisconnect);
       actions = [];
       candidateHost = Fixtures.buildHost(
         uri: Uri.parse('ws://127.0.0.1:58231/'),
@@ -807,7 +805,7 @@ void main() {
           actions.whereType<PairingDisposedAction>().single.wasTrusted,
           isFalse,
         );
-        verify(() => mockDisconnect(any())).called(1);
+        verify(() => mockDisconnect.disconnect()).called(1);
         expect(realStore.state.pairing.phase, PairingPhase.none);
       },
     );
@@ -862,7 +860,7 @@ void main() {
           ConnectionHostSelectionSource.knownHost,
         );
         expect(realStore.state.connection.selectedHost, candidateHost);
-        verifyNever(() => mockDisconnect(any()));
+        verifyNever(() => mockDisconnect.disconnect());
       },
     );
   });
