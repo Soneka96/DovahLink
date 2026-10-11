@@ -328,15 +328,43 @@ void main() {
     );
 
     test(
-      'Method handleIncoming treats the Host gameplay_readiness message as a protocol violation, because the closed message vocabulary does not include it',
+      'Method handleIncoming routes the canonical gameplay_readiness message to the unsolicited handler',
       () {
-        // Characterization of the current SDK against the canonical readiness fixture: the Host must
-        // not publish this message to an SDK that predates it.
         final String raw = File(
           '../../../protocol/fixtures/readiness/gameplay-readiness-ready.json',
         ).readAsStringSync();
 
         router.handleIncoming(raw);
+
+        final Envelope routed =
+            verify(
+                  () => unsolicitedMessageHandler.handle(captureAny()),
+                ).captured.single
+                as Envelope;
+        expect(routed.messageType, ProtocolMessageType.gameplayReadiness);
+        verifyNever(
+          () => sessionService.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+        verifyNever(() => bookkeeping.resolveReply(any(), any()));
+      },
+    );
+
+    test(
+      'Method handleIncoming reports a correlated gameplay_readiness message as malformed without resolving a request',
+      () {
+        final Map<String, dynamic> json =
+            jsonDecode(
+                  File(
+                    '../../../protocol/fixtures/readiness/gameplay-readiness-ready.json',
+                  ).readAsStringSync(),
+                )
+                as Map<String, dynamic>;
+        json['correlationId'] = 'request-1';
+
+        router.handleIncoming(jsonEncode(json));
 
         final VerificationResult verification = verify(
           () => sessionService.onProtocolViolation(

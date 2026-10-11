@@ -376,6 +376,10 @@ enum ProtocolMessageType {
   @JsonValue('state_event')
   stateEvent,
 
+  /// Reports the Host's coarse gameplay-readiness fact for the admitted session.
+  @JsonValue('gameplay_readiness')
+  gameplayReadiness,
+
   /// Reports a structured protocol failure.
   @JsonValue('error')
   error,

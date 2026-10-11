@@ -35,6 +35,7 @@ class EnvelopeValidator {
       ProtocolMessageType.hello ||
       ProtocolMessageType.capabilities ||
       ProtocolMessageType.stateEvent ||
+      ProtocolMessageType.gameplayReadiness ||
       ProtocolMessageType.sessionInvalidated ||
       ProtocolMessageType.ping ||
       ProtocolMessageType.pairingRequest ||
@@ -81,7 +82,8 @@ class EnvelopeValidator {
     final bool stateAuthorityIdIsRequired = switch (messageType) {
       ProtocolMessageType.helloAck ||
       ProtocolMessageType.stateSnapshot ||
-      ProtocolMessageType.stateEvent => true,
+      ProtocolMessageType.stateEvent ||
+      ProtocolMessageType.gameplayReadiness => true,
       _ => false,
     };
     if (stateAuthorityIdIsRequired) {
