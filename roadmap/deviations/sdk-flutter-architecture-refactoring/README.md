@@ -569,6 +569,11 @@ T2 and the app half of T1.
 - **Scope:** Move the ownership rules from Section 11.3-11.8 into their owning documents, once each, and replace them here with links: SDK historical-snapshot ownership and its separation from client-state persistence (`ai/context/sdk/persistence.md`); live versus historical rules (`ai/context/sdk/api-design.md`); readiness as a Host-owned fact separate from connection state (`ai/context/sdk/architecture.md`, `ai/context/host/architecture.md`); Flutter's no-inference and read-only historical presentation rules (`ai/context/flutter/architecture.md`).
 - **Dependencies:** maintainer approval of the wording; before T8.
 - **Non-goals:** code, protocol, or roadmap status changes; deciding the open questions in 11.5 and 11.7.
+- **Outcome:** the rules were recorded in the five governing documents named in Scope on
+  `docs/overview-readiness-ownership`, and 11.3 to 11.8 now link to them. The questions in 11.5
+  (storage recovery policy, encoding, numeric bounds, encryption, deletion policy), the readiness
+  predicate and message, and the 11.7 pairing-enforcement choice remain open. Nothing in this task
+  changes code, protocol, or any stage status.
 - **Estimated files:** 3-5.
 - **Acceptance criteria:** each rule appears in exactly one governing document; this record links to it; no broken links.
 
@@ -692,51 +697,56 @@ legitimately exist at the main menu, and authentication is not redesigned to req
 
 ### 11.3 Ownership
 
-| Concern | Host | SDK | Flutter |
-| --- | --- | --- | --- |
-| Live gameplay values | Authoritative capture, revisions, play context | Synchronize, revision, recover; typed streams | Mirror and format |
-| Gameplay readiness | Determines it from Adapter availability, resynchronization, and play context | Exposes a typed capability; never derives it from missing values | Presents it; never infers it from missing health, names, quests, or location |
-| Pairing readiness | Decides and enforces whether a ceremony can start and be presented | Returns truthful typed outcomes | Presents availability; disabling Pair is advisory only |
-| Historical snapshots | None | Records, stores, versions, recovers, retains, and deletes them behind an SDK capability another Dart client can use | Chooses when to show them and how they look |
-| Offline navigation | None | None | Owns routes and the read-only shell mode |
+**Recorded by T14.** The approved ownership rules now live in the governing documents below; this
+record keeps the reasoning and the work that remains. The rules themselves are not restated here.
 
-Historical gameplay data is an SDK capability, not a Flutter implementation of DovahLink caching
-rules (`ai/context/sdk/persistence.md`, "Ownership rule" and "Cache ownership").
+| Concern | Governing rule |
+| --- | --- |
+| Live gameplay values; live versus historical semantics | [SDK API design, "Live versus historical state"](../../../ai/context/sdk/api-design.md#live-versus-historical-state) |
+| Historical snapshots (SDK ownership, separation from client-state persistence) | [SDK persistence, "Historical gameplay snapshots"](../../../ai/context/sdk/persistence.md#historical-gameplay-snapshots) |
+| Gameplay readiness: Host-authoritative fact, security boundary | [Host architecture, "Gameplay readiness"](../../../ai/context/host/architecture.md#gameplay-readiness) |
+| Gameplay readiness: SDK projection | [SDK architecture, "Gameplay readiness"](../../../ai/context/sdk/architecture.md#gameplay-readiness) |
+| Presentation, offline navigation, pairing presentation | [Flutter architecture, "Gameplay readiness and historical state"](../../../ai/context/flutter/architecture.md#gameplay-readiness-and-historical-state) |
+
+Pairing readiness enforcement is not recorded as a rule: the Host is the enforcement point, but the
+choice between 11.7 options (a) and (c) remains open.
 
 ### 11.4 Live versus historical state
 
-- **Live state** is what the current admitted session synchronized: `StateSynchronization<T>` from
-  the existing trackers, with real authority, play context, and revision.
-- **Historical state** is a previously synchronized value read from local storage. It is not
-  authoritative and is never presented as synchronized.
+The definitions and truthfulness rules are canonical in
+[SDK API design, "Live versus historical state"](../../../ai/context/sdk/api-design.md#live-versus-historical-state);
+Flutter's side is in
+[Flutter architecture](../../../ai/context/flutter/architecture.md#gameplay-readiness-and-historical-state).
+Rule numbers are kept because other tasks refer to them:
 
-Rules for any implementation:
-
-1. Historical values never enter `StateRevisionTracker`, `StateMessageHandler`, or
-   `SubscriptionService`, and never receive a fabricated revision, authority, play context, or
-   `synchronized` status. A snapshot capability reads from the live trackers; it never writes into them.
-2. The SDK exposes historical data through a distinct read-only surface returning the existing typed
-   domain models plus provenance (Host ID, capture time, the recorded `stateAuthorityId` and
-   `playContextId`). Whether that surface reuses `StateSynchronization<T>` or a separate wrapper type
-   is a decision; a separate type makes misuse harder and is the starting recommendation.
+1. Historical values never enter the live trackers or receive fabricated metadata (governing rules
+   1 to 3 in the SDK API design section).
+2. The SDK exposes historical data through a distinct read-only surface with provenance. Whether it
+   reuses `StateSynchronization<T>` or a separate wrapper type **remains an open decision**; a
+   separate type makes misuse harder and is the starting recommendation.
 3. Keeping the last accepted value visible during recovery (ARCH-001 concern 2) is a *live-state*
-   decision with its original identity intact. It is not historical data and needs no storage.
-4. After reconnect, a domain's live value replaces its historical one only once a new baseline for
-   that domain is accepted. Until then the historical value stays labelled historical.
-5. Redux keeps live and historical sources distinguishable, with an explicit presentation state; it
-   mirrors both SDK sources and runs no second synchronization engine.
+   decision with its original identity intact. It is not historical data and needs no storage. This is
+   T8's decision and is **not** approved by T14.
+4. After reconnect to the same `(stateAuthorityId, playContextId)` pair, a domain's live value
+   replaces its earlier non-current or historical one only once a new baseline for that domain is
+   accepted (governing rule 4). A changed pair ends the previous context's values instead (governing
+   rule 5; [Identity and coherence](../../../ai/context/sdk/persistence.md#identity-and-coherence)).
+   T8 precedes T11 because this rule assumes the retention semantics are decided.
+5. Redux keeps live and historical sources distinguishable and runs no second synchronization
+   engine (governing rule 6 and the Flutter section).
 
 ### 11.5 Persistence considerations
 
 - **Separate port.** `IClientStorage` holds credentials and pairing recovery, writes the whole
   `PersistedClientState` atomically, uses DPAPI on Windows, and fails closed: a store that cannot be
   read throws rather than becoming empty (`persistence/client_storage.dart`;
-  `ai/context/sdk/persistence.md`). Historical snapshots need the opposite recovery policy (a
-  corrupt snapshot is discarded and live gameplay continues), a different write rate, and deletion
+  `ai/context/sdk/persistence.md`). Historical snapshots need their own recovery policy, which is
+  an open decision (see Versioning below and the open decisions in SDK persistence): how a corrupt,
+  unreadable, or unknown-version record is handled is not decided here, but a historical storage
+  failure must never compromise the live session. They also need a different write rate and deletion
   independent of trust. Extending `IClientStorage` or `PersistedClientState` would couple gameplay
-  history to credential writes. History therefore gets its own SDK persistence port behind the
-  platform-port rule (`ai/context/sdk/architecture.md`, "Platform ports"); credential and trust
-  persistence stay unchanged.
+  history to credential writes. This is why history gets its own storage boundary; the rule is
+  canonical in [SDK persistence, "Historical gameplay snapshots"](../../../ai/context/sdk/persistence.md#historical-gameplay-snapshots).
 - **Versioning.** The format is versioned independently of releases (`ai/context/common.md`,
   "Persisted-format migrations"). That rule fails closed on unknown future formats and forbids
   silently replacing a store with an empty one. For a non-authoritative cache, whether "fail closed"
@@ -747,19 +757,14 @@ Rules for any implementation:
   decode it on read with the existing `StateDomainDefinition` decoder. This reuses the decoders but
   ties the stored format to each area's wire shape. Option (b): add encoders to the models. Evaluate
   (a) first because it adds no parallel serializer.
-- **Failure isolation.** Read or write failure never fails connection, synchronization, or the live
-  Overview; it surfaces as a typed, non-fatal condition.
+- **Failure isolation.** Governing rule: [SDK persistence](../../../ai/context/sdk/persistence.md#capture-durability-and-failure-isolation).
 - **Durability while connected.** Snapshots must survive an unexpected termination, so they cannot
   depend on a disconnect, teardown, or shutdown hook, and cannot be read from the live trackers after
-  those have reset (teardown resets every accepted area, ARCH-001). The capability therefore records
-  while the session is live:
-  - *Eligible observations:* only values the SDK has already accepted through the existing gate, with
-    the real `(stateAuthorityId, playContextId)` and revision; never a value that failed validation,
-    a `notSubscribed`/`unavailable` null placeholder, or anything read back from history.
-  - *Coherent snapshot:* it keeps one pending record per Host. A domain value joins the record only
-    when its `(stateAuthorityId, playContextId)` equals the record's; when either changes the record
-    is replaced as a whole (11.8), and an in-flight or queued write for the old identity is dropped.
-    Domains not yet baselined in the new context stay absent.
+  those have reset (teardown resets every accepted area, ARCH-001). The capture, eligibility,
+  coherence, and atomicity rules are canonical in
+  [SDK persistence](../../../ai/context/sdk/persistence.md#capture-durability-and-failure-isolation)
+  and [Identity and coherence](../../../ai/context/sdk/persistence.md#identity-and-coherence). The
+  mechanism below is the proposed T11 design, not an approved contract:
   - *Writes:* non-blocking, coalesced (latest value wins, at most one write in flight, trailing write
     after a quiet period with a maximum staleness bound), never one per Event, and never on the
     synchronization path. The quiet period and the maximum staleness bound are numeric values the
@@ -768,9 +773,10 @@ Rules for any implementation:
   - *Termination between writes:* the player loses at most the data accepted since the last
     committed write, bounded by the approved maximum staleness. Restart must always find the last
     fully committed snapshot or none.
-  - *Atomicity:* each write commits a complete versioned record by writing a new file and replacing
-    the previous one atomically, so a crash leaves the old valid record or the new one, never a partial
-    mix; a record that fails validation on read is discarded and reported (see Versioning).
+  - *Atomicity:* the requirement (a crash leaves the old valid record or the new one, never a partial
+    mix) is governing. The mechanism here, writing a new file and replacing the previous one
+    atomically, is proposed; whether a record that fails validation is discarded or left untouched is
+    the open Versioning decision above.
   - *Write failure:* surfaced as a typed non-fatal condition and retried on the next change within a
     bounded backoff; the live session, subscriptions, and Overview are unaffected.
   - *After trackers reset:* the capability serves the last committed (or last pending) record from
@@ -838,11 +844,11 @@ These are separate facts and must not be conflated:
   current". A play-context transition re-arms resynchronization (so *loading* and *just loaded, not
   yet resynchronized* both read not ready), and an Adapter disconnect sets `Current` to
   `Unavailable` and re-arms resynchronization.
-- **A non-null play context is not evidence of readiness.** `ClearCurrent` has exactly one caller,
-  the Adapter's play-context-ended message (`AdapterIpcSession.cs:359`); `CommitDisconnected` does
-  not touch the play context. After Adapter loss the Host still reports the old context, so
-  readiness must be computed from the whole predicate and must be revoked by the availability
-  transition itself, never by the play context.
+- **A non-null play context is not evidence of readiness.** Governing rule:
+  [Host architecture, "Gameplay readiness"](../../../ai/context/host/architecture.md#gameplay-readiness).
+  The source evidence: `ClearCurrent` has exactly one caller, the Adapter's play-context-ended
+  message (`AdapterIpcSession.cs:359`); `CommitDisconnected` does not touch the play context, so after
+  Adapter loss the Host still reports the old context.
 - **Minimum semantic distinctions.** The Host-side lifecycle is: (1) no Adapter connected;
   (2) Adapter connected, no play context; (3) loading or transitioning; (4) play context present but
   not yet resynchronized; (5) ready; (6) Adapter continuity lost. Only a coarse **ready / not ready**
@@ -876,15 +882,18 @@ These are separate facts and must not be conflated:
     exchange is a one-time, currently always-empty advertisement of registered state areas
     (`CapabilitiesPayload`; non-empty lists are rejected), so it can advertise that a Host supports
     readiness but cannot carry a changing value.
-- The SDK may keep a trusted transport session open at the main menu in order to observe readiness
-  changes; readiness never gates authentication, and the readiness capability must not alter
-  connection, authentication, or trust semantics.
+- That readiness never gates authentication and never alters connection, authentication, or trust
+  semantics is a governing rule
+  ([Host](../../../ai/context/host/architecture.md#gameplay-readiness),
+  [SDK](../../../ai/context/sdk/architecture.md#gameplay-readiness)).
 
 ### 11.7 Pairing availability
 
-- The Host is the enforcement point: a pairing start at the main menu or during loading must not
-  report a code as available. Disabling Pair in the UI is presentation, not a security boundary.
-  Verified today: `HandlePairingRequestAsync` makes no readiness check; it reserves a challenge,
+- The Host is the enforcement point and disabling Pair in the UI is presentation, not a security
+  boundary (governing statement:
+  [Host architecture](../../../ai/context/host/architecture.md#gameplay-readiness) and
+  [Flutter architecture](../../../ai/context/flutter/architecture.md#gameplay-readiness-and-historical-state)).
+  Which mechanism enforces it for the six-digit flow is open (options below). Verified today: `HandlePairingRequestAsync` makes no readiness check; it reserves a challenge,
   asks the Adapter notifier, and reports `unavailable` only when that notifier declines. The
   Adapter's display always accepts once connected.
 - **How a restricted (unpaired) client learns pairing is possible.** Evaluated against the contract:
@@ -926,22 +935,22 @@ These are separate facts and must not be conflated:
   pairing through Stage 5A. With the readiness message in place, the starting recommendation is now
   (a): it is Host-only and makes the "Host must refuse" rows of 11.6 true before 5A lands, while
   (c) remains the route for SAS-specific enforcement. Choosing (a) or (c) is a maintainer decision.
-- The SDK reports a typed outcome that distinguishes "not ready" from other unavailability; that
-  needs a contract addition, coordinated with 5A.7.
+- The SDK reporting a typed outcome that distinguishes "not ready" from other unavailability needs a
+  contract addition, coordinated with 5A.7 (the SDK's reporting role is in
+  [SDK architecture](../../../ai/context/sdk/architecture.md#gameplay-readiness)).
 - All existing security and SAS invariants are preserved. This record changes no SAS implementation.
+  T14 did not resolve options (a) or (c); that choice remains with the maintainer and affects T9 and
+  Stage 5A.2 to 5A.4 and 5A.7.
 
 ### 11.8 Identity and play-context safety
 
-- Snapshots are keyed by durable `hostId`, one per Known Host, and shown only for the matching Host.
-- `playContextId` is runtime identity: the Adapter mints a fresh one for every load, including a
-  reload of the same save (`dovahlink_adapter_plugin.cpp:438-446`). It cannot identify a character
-  or save across loads, and character name or race is not a save identity either. It is recorded as
-  provenance only.
-- A snapshot is coherent: every domain value in it comes from one `(stateAuthorityId, playContextId)`
-  pair. When the play context changes, the snapshot for that Host is replaced as a whole, and a
-  domain not yet baselined in the new context is absent rather than carried over from the old one.
-  The same rule applies to persisted writes in flight (11.5): a write is committed only if its
-  identity still matches the record, so old and new context values are never mixed on disk.
+- The keying, coherence, and `playContextId`-as-provenance rules are canonical in
+  [SDK persistence, "Identity and coherence"](../../../ai/context/sdk/persistence.md#identity-and-coherence)
+  and, for live values,
+  [SDK API design](../../../ai/context/sdk/api-design.md#live-versus-historical-state).
+- Source evidence kept here: the Adapter mints a fresh `playContextId` for every load, including a
+  reload of the same save (`dovahlink_adapter_plugin.cpp:438-446`), so it cannot identify a
+  character or save across loads, and character name or race is not a save identity either.
 - The approved requirement keeps future multi-character or save-profile history possible without a
   redesign. The versioned format (11.5) is enough to meet it: a later format version can add a
   profile key beside `hostId` through an ordinary migration. No profile field, multi-character, or

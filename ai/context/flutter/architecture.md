@@ -187,6 +187,34 @@ when they add real UI semantics. The Session Shell opens on the real Overview an
 Quests, Inventory, and Character destinations as prototype-faithful placeholders until their features
 are approved and implemented.
 
+### Gameplay readiness and historical state
+
+**Status: approved boundary for future work; none of it is implemented.** The SDK has no readiness
+capability and no historical snapshot API today, and the app has no offline Overview route or
+control. The live gameplay behavior above is unchanged. The semantics are owned elsewhere and are
+not restated here: live versus historical state in
+[SDK API design](../sdk/api-design.md#live-versus-historical-state), historical persistence in
+[SDK persistence](../sdk/persistence.md#historical-gameplay-snapshots), and readiness in
+[SDK architecture](../sdk/architecture.md#gameplay-readiness) and
+[Host architecture](../host/architecture.md#gameplay-readiness).
+
+The SDK owns DovahLink domain logic. Flutter is the visual representation and interaction layer, so
+for these capabilities it:
+
+- **Live gameplay:** consumes the typed SDK domain streams and may project them into Redux for
+  rendering. It does not own authoritative gameplay state, revision logic, recovery policy, or
+  protocol synchronization.
+- **Historical gameplay:** consumes the SDK's future historical snapshot API and presents it as
+  read-only historical information with clear provenance. It does not independently capture, merge,
+  repair, persist, or reinterpret authoritative gameplay values, and it never presents a historical
+  value as newly synchronized. Live and historical sources stay distinguishable in Redux.
+- **Gameplay readiness:** displays the SDK's typed readiness state unchanged. It does not infer
+  readiness from missing character values, connection status, Host availability, or
+  `playContextId`, and it adds no readiness engine, timer, or retry.
+- **Pairing:** may reflect readiness in the UI and map typed pairing failures to wording. The Host
+  remains authoritative for authorization; disabling Pair is presentation, not a security boundary.
+  Where readiness is enforced for pairing is an open decision (audit Section 11.7, Stage 5A.7).
+
 ## Feature structure
 
 Feature-owned data, domain, and presentation code lives under its feature boundary. Application-wide

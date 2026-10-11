@@ -111,3 +111,85 @@ cache eventually needs an explicit identity, validity, invalidation, and migrati
 to its feature. Do not prematurely invent the final map (or other future feature) cache identity
 here — the future feature phase that introduces the cache owns its exact semantics; this file only
 fixes the ownership boundary.
+
+## Historical gameplay snapshots
+
+**Status: approved ownership rule; not implemented.** No historical storage, port, or API exists
+today. The SDK capability that provides it is future work (T11 in
+[`roadmap/deviations/sdk-flutter-architecture-refactoring`](../../../roadmap/deviations/sdk-flutter-architecture-refactoring/README.md));
+this section fixes who owns the persistence and how it stays separate from client identity and
+trust. The semantic distinction between live and historical values is owned by
+[SDK API design, "Live versus historical state"](api-design.md#live-versus-historical-state).
+
+### Ownership and separation
+
+The SDK owns historical gameplay snapshot persistence, because a reusable client's remembered
+observations are part of reusable DovahLink client behavior (see "Ownership rule"). Flutter must not
+implement an independent gameplay snapshot database or its own capture, merge, or retention rules.
+Flutter-owned presentation preferences stay app-owned.
+
+Four kinds of data stay distinct and do not share a storage responsibility:
+
+| Data | Meaning | Owner |
+| --- | --- | --- |
+| Client credentials and `clientId` | Identify and authenticate this installation | `IClientStorage` / `ClientStateService` |
+| Known Host records | Describe established Host relationships | `IClientStorage` / `ClientStateService` |
+| Live state | The current admitted session's synchronized values | The SDK's typed domain trackers; runtime only |
+| Historical snapshots | Previously accepted Host-authoritative observations | A dedicated SDK storage boundary |
+
+Historical snapshots get their own storage boundary behind the platform-port rule in
+`ai/context/sdk/architecture.md`. They are not an extension of `IClientStorage` or
+`PersistedClientState`, which are fail-closed credential and trust storage with different recovery,
+write-rate, and deletion needs. Credential and trust persistence is unchanged by this capability.
+
+### Identity and coherence
+
+- A snapshot is associated with an authoritative Known Host identity (`hostId`), never solely with a
+  mutable endpoint or display name, and is shown only for the matching Host.
+- A snapshot is coherent: every domain value in it comes from one `(stateAuthorityId, playContextId)`
+  pair. When that pair changes, the Host's snapshot is replaced as a whole; a domain not yet
+  baselined in the new context is absent, not carried over from the old one. A write still in flight
+  for a superseded pair must not be committed.
+- `playContextId` is runtime identity that the Adapter issues for every load. It is recorded as
+  provenance only and is never a character or save identity.
+
+### Capture, durability, and failure isolation
+
+- The capability records trustworthy observations **while the session is live**. It must not depend
+  on a disconnect, teardown, or shutdown hook, and must not read values back from live trackers after
+  they reset, so unexpected termination does not lose everything. Saving whatever values happen to
+  remain at disconnect is not an acceptable design.
+- Only values the SDK has already accepted through the existing state gate, carrying their real
+  identity and revision, are eligible. Values that failed validation, `notSubscribed`/`unavailable`
+  placeholders, and values read back from history are never recorded.
+- A commit writes a complete, versioned record durably and atomically, so a crash leaves the previous
+  valid record or the new one, never a partial mix.
+- Historical persistence never writes into the live trackers or `StateRevisionTracker`. A read or
+  write failure never fails connection, synchronization, or the live Overview; it surfaces as a typed,
+  non-fatal condition.
+- The format is versioned under the rules in "Versioning and migration" and
+  `ai/context/common.md`'s "Persisted-format migrations".
+
+### Retention and deletion
+
+One last-known Overview per Known Host is kept through disconnect, `close()`, restart, credential
+removal (`forgetCredential`), administrative invalidation, and terminal recovery rejection. Deletion
+is attached only to an operation the player actually requested; credential or trust handling must not
+erase history as a side effect. Known Host removal and erase-all-local-data operations do not exist
+today and are not defined here; each needs its own approved SDK task that invokes history deletion.
+
+### Open decisions
+
+These are recorded in the audit (Section 11.5) and are **not** decided by this document; do not treat
+them as requirements:
+
+- Whether an unreadable or unknown-version historical store is left untouched and shown as empty, or
+  discarded and rewritten.
+- The stored encoding (reuse each area's validated protocol `data` with its existing decoder, or add
+  model encoders).
+- The quiet period and the maximum staleness bound for writes.
+- Whether snapshots need encryption beyond per-user storage.
+- The storage technology (none is assumed; the smallest durable store meeting these rules is
+  preferred).
+- The name and signature of the history-clear operation, and whether revocation or block should ever
+  delete history (a security-deletion policy).
