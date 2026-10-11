@@ -267,7 +267,13 @@ the Adapter is unavailable, so a reconnect on an unchanged context is still reco
 
 `IsReady` is computed on every read from a validated read of both trackers (the play-context
 snapshot must not change while the Adapter snapshot is read; it retries a bounded number of times and
-answers not ready if it cannot stabilize). It is therefore already false the instant an Adapter
+answers not ready if it cannot stabilize). `GetSnapshot()` exposes that same validated read as a
+`GameplayReadinessSnapshot`: the value together with the play context, play-context transition
+generation, Adapter instance, and connection generation it was evaluated against. A consumer that
+must stamp a message with, or later re-check, the context a value belongs to uses the snapshot
+rather than combining `IsReady` with a separate tracker read; the snapshot's value is the same
+predicate, never a second one. When the read cannot be stabilized the snapshot is not ready and
+carries no identity. `IsReady` is therefore already false the instant an Adapter
 disconnect or play-context change is committed, before any change event is raised. `ReadinessChanged`
 is raised once per actual change, in commit order, outside the tracker locks, with subscriber
 failures contained. The evaluator holds no connection, session, trust, or pairing state and carries

@@ -1,3 +1,4 @@
+using DovahLink.Host.Identity;
 using DovahLink.Host.Readiness;
 
 namespace DovahLink.Host.Tests.TestDoubles;
@@ -8,11 +9,27 @@ public sealed class FakeGameplayReadinessEvaluator : IGameplayReadinessEvaluator
     /// <inheritdoc/>
     public bool IsReady { get; set; }
 
+    /// <summary>The play context <see cref="GetSnapshot"/> reports; <see langword="null"/> until a test sets one.</summary>
+    public PlayContextId? PlayContext { get; set; }
+
+    /// <summary>The play-context transition generation <see cref="GetSnapshot"/> reports.</summary>
+    public long PlayContextTransitionGeneration { get; set; }
+
+    /// <summary>The Adapter instance <see cref="GetSnapshot"/> reports; <see langword="null"/> until a test sets one.</summary>
+    public AdapterInstanceId? AdapterInstanceId { get; set; }
+
+    /// <summary>The Adapter connection generation <see cref="GetSnapshot"/> reports.</summary>
+    public long ConnectionGeneration { get; set; }
+
     /// <inheritdoc/>
     public event Action<bool>? ReadinessChanged;
 
     /// <summary>Whether any subscriber is currently attached to <see cref="ReadinessChanged"/>.</summary>
     public bool HasSubscribers => ReadinessChanged is not null;
+
+    /// <inheritdoc/>
+    public GameplayReadinessSnapshot GetSnapshot() =>
+        new(IsReady, PlayContext, PlayContextTransitionGeneration, AdapterInstanceId, ConnectionGeneration);
 
     /// <summary>Sets <see cref="IsReady"/> and raises <see cref="ReadinessChanged"/> when the value actually changed.</summary>
     /// <param name="ready">The new readiness value.</param>

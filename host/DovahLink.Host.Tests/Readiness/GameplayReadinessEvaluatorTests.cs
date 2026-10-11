@@ -292,6 +292,196 @@ public class GameplayReadinessEvaluatorTests
         Assert.True(evaluator.IsReady);
     }
 
+    /// <summary>Verifies that a ready snapshot carries exactly the play-context and Adapter-connection identities the trackers hold.</summary>
+    [Fact]
+    public void GetSnapshot_WhenReady_CarriesTheCurrentContextAndConnectionIdentity()
+    {
+        var rig = new Rig();
+        rig.BecomeReady();
+
+        GameplayReadinessSnapshot snapshot = rig.Evaluator.GetSnapshot();
+
+        Assert.True(snapshot.Ready);
+        Assert.Equal(rig.PlayContext.Current, snapshot.PlayContext);
+        Assert.Equal(rig.PlayContext.GetSnapshot().TransitionGeneration, snapshot.PlayContextTransitionGeneration);
+        Assert.Equal(rig.InstanceId, snapshot.AdapterInstanceId);
+        Assert.Equal(rig.Generation, snapshot.ConnectionGeneration);
+    }
+
+    /// <summary>Verifies that a replaced, not-yet-resynchronized context is reported not ready under the new context's identity, never as ready for the old one.</summary>
+    [Fact]
+    public void GetSnapshot_ReplacedContextNotYetResynchronized_IsNotReadyForTheNewContext()
+    {
+        var rig = new Rig();
+        rig.BecomeReady();
+        GameplayReadinessSnapshot before = rig.Evaluator.GetSnapshot();
+
+        rig.NewContext();
+        GameplayReadinessSnapshot during = rig.Evaluator.GetSnapshot();
+
+        Assert.False(during.Ready);
+        Assert.Equal(rig.PlayContext.Current, during.PlayContext);
+        Assert.NotEqual(before.PlayContext, during.PlayContext);
+        Assert.True(during.PlayContextTransitionGeneration > before.PlayContextTransitionGeneration);
+    }
+
+    /// <summary>Verifies that a context replaced and made ready again yields a ready snapshot whose identity differs from the earlier ready one.</summary>
+    [Fact]
+    public void GetSnapshot_ContextReplacedAndReadyAgain_DiffersFromTheEarlierReadySnapshot()
+    {
+        var rig = new Rig();
+        rig.BecomeReady();
+        GameplayReadinessSnapshot first = rig.Evaluator.GetSnapshot();
+
+        rig.NewContext();
+        rig.Resynchronize();
+        GameplayReadinessSnapshot second = rig.Evaluator.GetSnapshot();
+
+        Assert.True(first.Ready);
+        Assert.True(second.Ready);
+        Assert.NotEqual(first.PlayContext, second.PlayContext);
+        Assert.NotEqual(first.PlayContextTransitionGeneration, second.PlayContextTransitionGeneration);
+        Assert.Equal(first.ConnectionGeneration, second.ConnectionGeneration);
+    }
+
+    /// <summary>Verifies that an Adapter reconnect on an unchanged context yields a ready snapshot with a new connection generation and instance.</summary>
+    [Fact]
+    public void GetSnapshot_AdapterReconnectedOnSameContext_ReportsTheNewConnection()
+    {
+        var rig = new Rig();
+        rig.BecomeReady();
+        GameplayReadinessSnapshot first = rig.Evaluator.GetSnapshot();
+
+        rig.Disconnect();
+        rig.Connect();
+        rig.Resynchronize();
+        GameplayReadinessSnapshot second = rig.Evaluator.GetSnapshot();
+
+        Assert.True(second.Ready);
+        Assert.Equal(first.PlayContext, second.PlayContext);
+        Assert.Equal(first.PlayContextTransitionGeneration, second.PlayContextTransitionGeneration);
+        Assert.NotEqual(first.ConnectionGeneration, second.ConnectionGeneration);
+        Assert.NotEqual(first.AdapterInstanceId, second.AdapterInstanceId);
+    }
+
+    /// <summary>Verifies that the snapshot's value is the single predicate's answer at every point of the lifecycle.</summary>
+    [Fact]
+    public void GetSnapshot_Ready_AlwaysAgreesWithIsReady()
+    {
+        var rig = new Rig();
+
+        Assert.Equal(rig.Evaluator.IsReady, rig.Evaluator.GetSnapshot().Ready);
+        rig.Connect();
+        Assert.Equal(rig.Evaluator.IsReady, rig.Evaluator.GetSnapshot().Ready);
+        rig.NewContext();
+        Assert.Equal(rig.Evaluator.IsReady, rig.Evaluator.GetSnapshot().Ready);
+        rig.Resynchronize();
+        Assert.True(rig.Evaluator.GetSnapshot().Ready);
+        Assert.Equal(rig.Evaluator.IsReady, rig.Evaluator.GetSnapshot().Ready);
+        rig.Disconnect();
+        Assert.False(rig.Evaluator.GetSnapshot().Ready);
+        Assert.Equal(rig.Evaluator.IsReady, rig.Evaluator.GetSnapshot().Ready);
+        rig.PlayContext.ClearCurrent();
+        Assert.False(rig.Evaluator.GetSnapshot().Ready);
+        Assert.Null(rig.Evaluator.GetSnapshot().PlayContext);
+    }
+
+    /// <summary>Verifies that a Host with no Adapter ever connected reports a not-ready snapshot with no Adapter identity.</summary>
+    [Fact]
+    public void GetSnapshot_NoAdapterEverConnected_IsNotReadyWithNoAdapterIdentity()
+    {
+        var rig = new Rig();
+        rig.NewContext();
+
+        GameplayReadinessSnapshot snapshot = rig.Evaluator.GetSnapshot();
+
+        Assert.False(snapshot.Ready);
+        Assert.Equal(rig.PlayContext.Current, snapshot.PlayContext);
+        Assert.Null(snapshot.AdapterInstanceId);
+        Assert.Equal(0, snapshot.ConnectionGeneration);
+    }
+
+    /// <summary>Verifies that a lost Adapter is not ready while the snapshot still names the last connection, so a captured identity is detectably stale.</summary>
+    [Fact]
+    public void GetSnapshot_AdapterDisconnected_IsNotReadyAndRetainsTheLastConnection()
+    {
+        var rig = new Rig();
+        rig.BecomeReady();
+
+        rig.Disconnect();
+        GameplayReadinessSnapshot snapshot = rig.Evaluator.GetSnapshot();
+
+        Assert.False(snapshot.Ready);
+        Assert.Equal(rig.InstanceId, snapshot.AdapterInstanceId);
+        Assert.Equal(rig.Generation, snapshot.ConnectionGeneration);
+    }
+
+    /// <summary>Verifies that a connected Adapter that still needs resynchronization is not ready under its current identity.</summary>
+    [Fact]
+    public void GetSnapshot_ConnectedAwaitingResynchronization_IsNotReadyUnderTheCurrentIdentity()
+    {
+        var rig = new Rig();
+        rig.Connect();
+        rig.NewContext();
+
+        GameplayReadinessSnapshot snapshot = rig.Evaluator.GetSnapshot();
+
+        Assert.False(snapshot.Ready);
+        Assert.Equal(rig.PlayContext.Current, snapshot.PlayContext);
+        Assert.Equal(rig.InstanceId, snapshot.AdapterInstanceId);
+        Assert.Equal(rig.Generation, snapshot.ConnectionGeneration);
+    }
+
+    /// <summary>Verifies that a snapshot taken across a play-context change between the validating reads carries the stable read's identity.</summary>
+    [Fact]
+    public void GetSnapshot_ContextChangingDuringTheRead_CarriesTheStableReadsIdentity()
+    {
+        PlayContextId context = PlayContextId.NewId();
+        int reads = 0;
+        var playContext = new ScriptedPlayContextTracker(() =>
+        {
+            reads++;
+            return reads <= 2 ? new PlayContextSnapshot(null, reads) : new PlayContextSnapshot(context, 5);
+        });
+        var availability = new FakeAdapterAvailabilityTracker
+        {
+            Current = AdapterAvailability.Available,
+            NeedsResynchronization = false,
+            ArmedPlayContextTransitionGeneration = 5,
+        };
+        var evaluator = new GameplayReadinessEvaluator(availability, playContext);
+        reads = 0;
+
+        GameplayReadinessSnapshot snapshot = evaluator.GetSnapshot();
+
+        Assert.True(snapshot.Ready);
+        Assert.Equal(context, snapshot.PlayContext);
+        Assert.Equal(5, snapshot.PlayContextTransitionGeneration);
+    }
+
+    /// <summary>Verifies that a play context that never stabilizes yields a not-ready snapshot with no identity rather than a guess.</summary>
+    [Fact]
+    public void GetSnapshot_ContextThatNeverStabilizes_IsNotReadyAndCarriesNoIdentity()
+    {
+        long generation = 0;
+        PlayContextId context = PlayContextId.NewId();
+        var playContext = new ScriptedPlayContextTracker(() => new PlayContextSnapshot(context, ++generation));
+        var availability = new FakeAdapterAvailabilityTracker
+        {
+            Current = AdapterAvailability.Available,
+            NeedsResynchronization = false,
+        };
+        var evaluator = new GameplayReadinessEvaluator(availability, playContext);
+
+        GameplayReadinessSnapshot snapshot = evaluator.GetSnapshot();
+
+        Assert.False(snapshot.Ready);
+        Assert.Null(snapshot.PlayContext);
+        Assert.Equal(0, snapshot.PlayContextTransitionGeneration);
+        Assert.Null(snapshot.AdapterInstanceId);
+        Assert.Equal(0, snapshot.ConnectionGeneration);
+    }
+
     /// <summary>Verifies that a play context that never stabilizes yields not ready rather than a guess.</summary>
     [Fact]
     public void ContextThatNeverStabilizes_IsNotReady()

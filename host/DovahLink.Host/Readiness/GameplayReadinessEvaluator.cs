@@ -20,6 +20,16 @@ public interface IGameplayReadinessEvaluator
     bool IsReady { get; }
 
     /// <summary>
+    /// Evaluates readiness from one validated read and returns it together with the play-context and
+    /// Adapter-connection identities it was evaluated against, so the value and its provenance can
+    /// never disagree. <see cref="GameplayReadinessSnapshot.Ready"/> is exactly <see cref="IsReady"/>
+    /// for that read: this is the same predicate, not a second one. When the read cannot be
+    /// stabilized the snapshot is not ready and carries no identity.
+    /// </summary>
+    /// <returns>The coherent readiness snapshot.</returns>
+    GameplayReadinessSnapshot GetSnapshot();
+
+    /// <summary>
     /// Raised after readiness actually changed, with the value that was committed. Changes are
     /// raised one at a time in commit order. A subscriber that must act on the newest value reads
     /// <see cref="IsReady"/> rather than trusting a value that may already be superseded.
@@ -74,7 +84,7 @@ public sealed class GameplayReadinessEvaluator : IGameplayReadinessEvaluator
         playContextTracker.Transitioned += _ => Reevaluate();
         lock (publicationGate)
         {
-            lastEvaluated = Evaluate();
+            lastEvaluated = Evaluate().Ready;
         }
     }
 
@@ -82,10 +92,14 @@ public sealed class GameplayReadinessEvaluator : IGameplayReadinessEvaluator
     public event Action<bool>? ReadinessChanged;
 
     /// <inheritdoc/>
-    public bool IsReady => Evaluate();
+    public bool IsReady => Evaluate().Ready;
 
-    /// <summary>Evaluates the predicate from a validated read of both trackers; not ready if the read cannot be stabilized.</summary>
-    private bool Evaluate()
+    /// <inheritdoc/>
+    public GameplayReadinessSnapshot GetSnapshot() => Evaluate();
+
+    /// <summary>Evaluates the predicate from a validated read of both trackers; not ready, with no identity, if the read cannot be stabilized.</summary>
+    /// <returns>The readiness value with the identities of the read it came from.</returns>
+    private GameplayReadinessSnapshot Evaluate()
     {
         for (int attempt = 0; attempt < MaxReadAttempts; attempt++)
         {
@@ -97,13 +111,16 @@ public sealed class GameplayReadinessEvaluator : IGameplayReadinessEvaluator
                 continue;
             }
 
-            return before.Current is not null
+            bool ready = before.Current is not null
                 && adapter.Current == AdapterAvailability.Available
                 && !adapter.NeedsResynchronization
                 && adapter.ArmedPlayContextTransitionGeneration == before.TransitionGeneration;
+
+            return new GameplayReadinessSnapshot(
+                ready, before.Current, before.TransitionGeneration, adapter.CurrentInstanceId, adapter.ConnectionGeneration);
         }
 
-        return false;
+        return new GameplayReadinessSnapshot(false, null, 0, null, 0);
     }
 
     /// <summary>Detects a change against the last committed value and publishes it, in commit order, outside any tracker lock.</summary>
@@ -111,7 +128,7 @@ public sealed class GameplayReadinessEvaluator : IGameplayReadinessEvaluator
     {
         lock (publicationGate)
         {
-            bool value = Evaluate();
+            bool value = Evaluate().Ready;
             if (value == lastEvaluated)
             {
                 return;
