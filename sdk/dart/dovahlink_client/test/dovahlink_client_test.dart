@@ -10034,6 +10034,37 @@ void main() {
     );
 
     test(
+      'Behavior a delayed Snapshot from a superseded authority cannot invalidate readiness a newer authority established',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        s.transport.queueRawResponse(
+          _rawReadiness(
+            ready: true,
+            sequence: 1,
+            sessionId: 'session-paired-1',
+            stateAuthorityId: 'authority-2',
+          ),
+        );
+        await _settle();
+        expect(s.client.currentHost.gameplayReadiness, ready);
+
+        s.transport.queueRawResponse(
+          _rawStateSnapshot(
+            stateArea: 'character_xp',
+            revision: 1,
+            value: 42.5,
+            stateAuthorityId: 'authority-1',
+          ),
+        );
+        await _settle();
+
+        expect(s.client.currentHost.gameplayReadiness, ready);
+      },
+    );
+
+    test(
       'Behavior explicit disconnect makes readiness unknown and a delayed message from the ended session cannot restore it',
       () async {
         await _connectAndHello(transport, client);
