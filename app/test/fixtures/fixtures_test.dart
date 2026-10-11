@@ -4,8 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
-import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
-import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
 import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
@@ -229,98 +228,50 @@ void main() {
     });
   });
 
-  group('Method buildPairingHandshake behaves correctly', () {
-    test('Method buildPairingHandshake builds representative defaults', () {
-      final PairingHandshake handshake = Fixtures.buildPairingHandshake();
-
-      expect(handshake.hostVersion, isA<String>());
-      expect(handshake.hostVersion, '1.2.3');
-      expect(handshake.trusted, isA<bool>());
-      expect(handshake.trusted, isTrue);
-      expect(handshake.credentialRejectionReason, isNull);
-      expect(handshake.credentialRejectedMessage, isNull);
-    });
-
-    test('Method buildPairingHandshake preserves named overrides', () {
-      final PairingHandshake handshake = Fixtures.buildPairingHandshake(
-        hostVersion: '2.0.0',
-        trusted: false,
-        credentialRejectionReason: PairingCredentialRejectionReason.revoked,
-        credentialRejectedMessage: 'Pairing is required again.',
-      );
-
-      expect(handshake.hostVersion, isA<String>());
-      expect(handshake.hostVersion, '2.0.0');
-      expect(handshake.trusted, isA<bool>());
-      expect(handshake.trusted, isFalse);
-      expect(
-        handshake.credentialRejectionReason,
-        PairingCredentialRejectionReason.revoked,
-      );
-      expect(handshake.credentialRejectedMessage, isA<String>());
-      expect(handshake.credentialRejectedMessage, 'Pairing is required again.');
-    });
-
+  group('Method buildPairingAuthentication behaves correctly', () {
     test(
-      'Method buildPairingHandshake keeps trust and rejection independent',
+      'Method buildPairingAuthentication builds representative defaults',
       () {
-        final PairingHandshake untrustedWithoutMessage =
-            Fixtures.buildPairingHandshake(trusted: false);
-        final PairingHandshake trustedWithMessage =
-            Fixtures.buildPairingHandshake(
-              credentialRejectedMessage: 'Pairing is required again.',
-            );
+        final PairingAuthentication authentication =
+            Fixtures.buildPairingAuthentication();
 
-        expect(untrustedWithoutMessage.trusted, isFalse);
-        expect(untrustedWithoutMessage.credentialRejectionReason, isNull);
-        expect(untrustedWithoutMessage.credentialRejectedMessage, isNull);
-        expect(trustedWithMessage.trusted, isTrue);
-        expect(
-          trustedWithMessage.credentialRejectedMessage,
-          'Pairing is required again.',
-        );
+        expect(authentication.hostVersion, '1.2.3');
+        expect(authentication.trusted, isTrue);
+        expect(authentication.credentialRejectionReason, isNull);
+        expect(authentication.credentialRejectedMessage, isNull);
       },
     );
 
-    test('Method buildPairingHandshake returns a fresh value per call', () {
-      final PairingHandshake first = Fixtures.buildPairingHandshake();
-      final PairingHandshake second = Fixtures.buildPairingHandshake();
+    test('Method buildPairingAuthentication preserves named overrides', () {
+      final PairingAuthentication authentication =
+          Fixtures.buildPairingAuthentication(
+            hostVersion: '2.0.0',
+            trusted: false,
+            credentialRejectionReason: PairingCredentialRejectionReason.blocked,
+            credentialRejectedMessage: 'Pairing is required again.',
+          );
 
-      expect(first, second);
-      expect(first.hashCode, second.hashCode);
-      expect(identical(first, second), isFalse);
-    });
-  });
-
-  group('Method buildPairingHandshakeModel behaves correctly', () {
-    test(
-      'Method buildPairingHandshakeModel builds representative defaults',
-      () {
-        final PairingHandshakeModel model =
-            Fixtures.buildPairingHandshakeModel();
-
-        expect(model.hostVersion, '1.2.3');
-        expect(model.trusted, isTrue);
-        expect(model.credentialRejectionReason, isNull);
-        expect(model.credentialRejectedMessage, isNull);
-      },
-    );
-
-    test('Method buildPairingHandshakeModel preserves named overrides', () {
-      final PairingHandshakeModel model = Fixtures.buildPairingHandshakeModel(
-        hostVersion: '2.0.0',
-        trusted: false,
-        credentialRejectionReason: PairingCredentialRejectionReason.blocked,
-        credentialRejectedMessage: 'Pairing is required again.',
-      );
-
-      expect(model.hostVersion, '2.0.0');
-      expect(model.trusted, isFalse);
+      expect(authentication.hostVersion, '2.0.0');
+      expect(authentication.trusted, isFalse);
       expect(
-        model.credentialRejectionReason,
+        authentication.credentialRejectionReason,
         PairingCredentialRejectionReason.blocked,
       );
-      expect(model.credentialRejectedMessage, 'Pairing is required again.');
+      expect(
+        authentication.credentialRejectedMessage,
+        'Pairing is required again.',
+      );
+    });
+
+    test('Method buildPairingAuthentication compares by value', () {
+      expect(
+        Fixtures.buildPairingAuthentication(),
+        Fixtures.buildPairingAuthentication(),
+      );
+      expect(
+        Fixtures.buildPairingAuthentication(),
+        isNot(Fixtures.buildPairingAuthentication(trusted: false)),
+      );
     });
   });
 

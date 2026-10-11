@@ -3,8 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/host.entity.dart';
 import 'package:dovahlink_client/features/connection/domain/entities/known_host.entity.dart';
 import 'package:dovahlink_client/features/connection/presentation/viewdata/host_card.viewdata.dart';
-import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
-import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
+import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_quest.viewdata.dart';
 import 'package:dovahlink_client/features/session/presentation/viewdata/session_overview_vitals.viewdata.dart';
@@ -205,26 +204,6 @@ abstract final class Fixtures {
     recoveredFromRejectedCredential: recoveredFromRejectedCredential,
   );
 
-  /// Builds a pairing handshake with representative trusted-session defaults.
-  static PairingHandshake buildPairingHandshake({
-    /// The Host's own release version reported by the handshake.
-    String hostVersion = '1.2.3',
-
-    /// Whether the session already holds a trusted credential.
-    bool trusted = true,
-
-    /// The Host's typed rejection reason, when it rejected a stored credential.
-    PairingCredentialRejectionReason? credentialRejectionReason,
-
-    /// The user-safe explanation for a rejected credential, when applicable.
-    String? credentialRejectedMessage,
-  }) => PairingHandshake(
-    hostVersion: hostVersion,
-    trusted: trusted,
-    credentialRejectionReason: credentialRejectionReason,
-    credentialRejectedMessage: credentialRejectedMessage,
-  );
-
   /// Builds a typed pairing-code redisplay result.
   static PairingRenotifyResult buildPairingRenotifyResult({
     /// The Host response to the redisplay request.
@@ -237,8 +216,8 @@ abstract final class Fixtures {
     retryAfterSeconds: retryAfterSeconds,
   );
 
-  /// Builds a data-layer pairing handshake with representative trusted-session defaults.
-  static PairingHandshakeModel buildPairingHandshakeModel({
+  /// Builds an app-owned authentication result with representative trusted-session defaults.
+  static PairingAuthentication buildPairingAuthentication({
     /// The Host's own release version reported by the handshake.
     String hostVersion = '1.2.3',
 
@@ -250,7 +229,7 @@ abstract final class Fixtures {
 
     /// The user-safe explanation for a rejected credential, when applicable.
     String? credentialRejectedMessage,
-  }) => PairingHandshakeModel(
+  }) => (
     hostVersion: hostVersion,
     trusted: trusted,
     credentialRejectionReason: credentialRejectionReason,

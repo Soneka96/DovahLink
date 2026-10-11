@@ -18,7 +18,6 @@ import 'package:dovahlink_client/features/connection/presentation/screens/connec
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
-import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/presentation/sections/pairing.section.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
@@ -112,7 +111,7 @@ void main() {
       when(
         () => pairingRemote.authenticate(target: any(named: 'target')),
       ).thenAnswer(
-        (_) async => Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+        (_) async => Right(Fixtures.buildPairingAuthentication(trusted: false)),
       );
       when(
         () => pairingRemote.disconnect(),
@@ -184,8 +183,8 @@ void main() {
         final Host candidate = Fixtures.buildHost(
           uri: Uri.parse('ws://127.0.0.1:58231/'),
         );
-        final Completer<Either<Failure, PairingHandshakeModel>> authentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => pairingRemote.connectionStatus,
         ).thenAnswer((_) => const Stream<PairingConnectionStatus>.empty());
@@ -221,7 +220,7 @@ void main() {
         );
         expect(store.state.connection.knownHosts, isEmpty);
         authentication.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: true)),
+          Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
         await tester.pump();
         await tester.pumpAndSettle();
@@ -244,8 +243,8 @@ void main() {
         final Host candidate = Fixtures.buildHost(
           uri: Uri.parse('ws://127.0.0.1:58231/'),
         );
-        final Completer<Either<Failure, PairingHandshakeModel>> authentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => pairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
@@ -285,7 +284,7 @@ void main() {
         expect(PairingSelectors.phaseSelector(store.state), PairingPhase.none);
 
         authentication.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: true)),
+          Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
         await tester.pump();
         await tester.pump(const Duration(milliseconds: 500));
@@ -433,7 +432,7 @@ void main() {
       when(
         () => pairingRemote.authenticate(target: any(named: 'target')),
       ).thenAnswer(
-        (_) async => Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+        (_) async => Right(Fixtures.buildPairingAuthentication(trusted: false)),
       );
       when(
         () => pairingRemote.disconnect(),
@@ -504,8 +503,8 @@ void main() {
     testWidgets(
       'DovahLinkApp walks connecting, requesting a code, and code entry without a manual request step',
       (WidgetTester tester) async {
-        final Completer<Either<Failure, PairingHandshakeModel>> handshake =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> handshake =
+            Completer<Either<Failure, PairingAuthentication>>();
         final Completer<Either<Failure, int?>> code =
             Completer<Either<Failure, int?>>();
         when(
@@ -522,7 +521,7 @@ void main() {
         verifyNever(() => pairingRemote.requestPairingCode());
 
         handshake.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+          Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
         await settle(tester);
 
@@ -545,8 +544,8 @@ void main() {
     testWidgets(
       'DovahLinkApp titles the dialog Skyrim isn’t running while the Host is unreachable and recovers when it returns',
       (WidgetTester tester) async {
-        final Completer<Either<Failure, PairingHandshakeModel>> handshake =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> handshake =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => pairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => handshake.future);
@@ -562,7 +561,7 @@ void main() {
         expect(find.textContaining('Start Skyrim'), findsOneWidget);
 
         handshake.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+          Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
         await settle(tester);
 
@@ -604,7 +603,7 @@ void main() {
           () => pairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async => Right(
-            Fixtures.buildPairingHandshakeModel(
+            Fixtures.buildPairingAuthentication(
               trusted: false,
               credentialRejectionReason:
                   PairingCredentialRejectionReason.revoked,
@@ -638,7 +637,7 @@ void main() {
           () => pairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async => Right(
-            Fixtures.buildPairingHandshakeModel(
+            Fixtures.buildPairingAuthentication(
               trusted: false,
               credentialRejectionReason:
                   PairingCredentialRejectionReason.revoked,

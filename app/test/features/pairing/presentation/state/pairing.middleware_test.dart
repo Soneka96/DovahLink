@@ -11,7 +11,6 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/connection.state.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.state.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
-import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.middleware.dart';
@@ -178,8 +177,8 @@ void main() {
     test(
       'PairingStartedAction dispatches PairingAuthenticatedAction then PairingCodeRequestedAction when an unpaired session authenticates',
       () async {
-        final PairingHandshakeModel handshake =
-            Fixtures.buildPairingHandshakeModel(trusted: false);
+        final PairingAuthentication handshake =
+            Fixtures.buildPairingAuthentication(trusted: false);
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) async {
@@ -229,7 +228,7 @@ void main() {
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async =>
-              Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+              Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
 
         middleware.call(store, const PairingStartedAction(), next);
@@ -252,7 +251,7 @@ void main() {
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async =>
-              Right(Fixtures.buildPairingHandshakeModel(trusted: true)),
+              Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
         when(
           () => mockPairingRemote.connectionStatus,
@@ -272,7 +271,7 @@ void main() {
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async => Right(
-            Fixtures.buildPairingHandshakeModel(
+            Fixtures.buildPairingAuthentication(
               trusted: false,
               credentialRejectionReason:
                   PairingCredentialRejectionReason.revoked,
@@ -299,7 +298,7 @@ void main() {
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async => Right(
-            Fixtures.buildPairingHandshakeModel(
+            Fixtures.buildPairingAuthentication(
               trusted: false,
               credentialRejectionReason:
                   PairingCredentialRejectionReason.blocked,
@@ -352,7 +351,7 @@ void main() {
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async =>
-              Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+              Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
 
         middleware.call(store, const PairingStartedAction(), next);
@@ -381,7 +380,7 @@ void main() {
       when(
         () => mockPairingRemote.authenticate(target: any(named: 'target')),
       ).thenAnswer(
-        (_) async => Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+        (_) async => Right(Fixtures.buildPairingAuthentication(trusted: false)),
       );
 
       middleware.call(store, const PairingStartedAction(), next);
@@ -407,7 +406,7 @@ void main() {
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async =>
-              Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+              Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
 
         when(
@@ -450,8 +449,8 @@ void main() {
       'PairingStartedAction also dispatches PairingSessionTrustedAction when authentication '
       'presents an already-trusted credential',
       () async {
-        final PairingHandshakeModel handshake =
-            Fixtures.buildPairingHandshakeModel(trusted: true);
+        final PairingAuthentication handshake =
+            Fixtures.buildPairingAuthentication(trusted: true);
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) async => Right(handshake));
@@ -473,8 +472,8 @@ void main() {
     test(
       'PairingStartedAction dispatches PairingAuthenticatedAction carrying the credential-rejected message through',
       () async {
-        final PairingHandshakeModel handshake =
-            Fixtures.buildPairingHandshakeModel(
+        final PairingAuthentication handshake =
+            Fixtures.buildPairingAuthentication(
               trusted: false,
               credentialRejectionReason:
                   PairingCredentialRejectionReason.revoked,
@@ -522,8 +521,8 @@ void main() {
     test(
       'PairingStartedAction maps SDK initial retrying state to Offline without restarting authentication',
       () async {
-        final Completer<Either<Failure, PairingHandshakeModel>> authentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
@@ -551,7 +550,7 @@ void main() {
         ).called(1);
 
         authentication.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+          Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
         await Future<void>.delayed(Duration.zero);
 
@@ -569,8 +568,8 @@ void main() {
     test(
       'PairingStartedAction does not dispatch a duplicate disconnect when already disconnected',
       () async {
-        final Completer<Either<Failure, PairingHandshakeModel>> authentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
@@ -661,8 +660,8 @@ void main() {
     test(
       'PairingStartedAction dispatches trusted after the original authentication succeeds on retry',
       () async {
-        final Completer<Either<Failure, PairingHandshakeModel>> authentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
@@ -684,7 +683,7 @@ void main() {
         expect(initialRetryStatusController.hasListener, isTrue);
 
         authentication.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: true)),
+          Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
         await Future<void>.delayed(Duration.zero);
 
@@ -705,8 +704,8 @@ void main() {
     test(
       'PairingDisposedAction disconnects the SDK retry intent and suppresses late authentication',
       () async {
-        final Completer<Either<Failure, PairingHandshakeModel>> authentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
@@ -737,12 +736,12 @@ void main() {
     test(
       'PairingStartedAction lets a new flow succeed and ignores the older result',
       () async {
-        final Completer<Either<Failure, PairingHandshakeModel>>
+        final Completer<Either<Failure, PairingAuthentication>>
         olderAuthentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
-        final Completer<Either<Failure, PairingHandshakeModel>>
+            Completer<Either<Failure, PairingAuthentication>>();
+        final Completer<Either<Failure, PairingAuthentication>>
         currentAuthentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+            Completer<Either<Failure, PairingAuthentication>>();
         int authenticationCount = 0;
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
@@ -770,13 +769,13 @@ void main() {
         middleware.call(store, const PairingStartedAction(), next);
         await Future<void>.delayed(Duration.zero);
         currentAuthentication.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: true)),
+          Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
         await Future<void>.delayed(Duration.zero);
         final int actionsAfterCurrentFlow = actionLog.length;
 
         olderAuthentication.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+          Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
         await Future<void>.delayed(Duration.zero);
 
@@ -793,12 +792,12 @@ void main() {
     test(
       'PairingStartedAction ignores an older authentication after an overlapping start',
       () async {
-        final Completer<Either<Failure, PairingHandshakeModel>>
+        final Completer<Either<Failure, PairingAuthentication>>
         olderAuthentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
-        final Completer<Either<Failure, PairingHandshakeModel>>
+            Completer<Either<Failure, PairingAuthentication>>();
+        final Completer<Either<Failure, PairingAuthentication>>
         currentAuthentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+            Completer<Either<Failure, PairingAuthentication>>();
         int authenticationCount = 0;
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
@@ -816,7 +815,7 @@ void main() {
 
         olderAuthentication.complete(
           Right(
-            Fixtures.buildPairingHandshakeModel(
+            Fixtures.buildPairingAuthentication(
               hostVersion: 'older-host',
               trusted: false,
             ),
@@ -831,7 +830,7 @@ void main() {
 
         currentAuthentication.complete(
           Right(
-            Fixtures.buildPairingHandshakeModel(
+            Fixtures.buildPairingAuthentication(
               hostVersion: 'current-host',
               trusted: false,
             ),
@@ -855,8 +854,8 @@ void main() {
     test(
       'shutdown suppresses follow-up pairing work when authentication completes late',
       () async {
-        final Completer<Either<Failure, PairingHandshakeModel>> authentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
@@ -867,7 +866,7 @@ void main() {
         await middleware.shutdown();
         expect(initialRetryStatusController.hasListener, isFalse);
         authentication.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: false)),
+          Right(Fixtures.buildPairingAuthentication(trusted: false)),
         );
         await Future<void>.delayed(Duration.zero);
 
@@ -1175,7 +1174,7 @@ void main() {
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async =>
-              Right(Fixtures.buildPairingHandshakeModel(trusted: true)),
+              Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
 
         middleware.call(
@@ -1242,7 +1241,7 @@ void main() {
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer(
           (_) async =>
-              Right(Fixtures.buildPairingHandshakeModel(trusted: true)),
+              Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
 
         middleware.call(
@@ -1611,8 +1610,8 @@ void main() {
     test(
       'PairingDisposedAction invalidates pending work when secure storage becomes unavailable',
       () async {
-        final Completer<Either<Failure, PairingHandshakeModel>> authentication =
-            Completer<Either<Failure, PairingHandshakeModel>>();
+        final Completer<Either<Failure, PairingAuthentication>> authentication =
+            Completer<Either<Failure, PairingAuthentication>>();
         when(
           () => mockPairingRemote.authenticate(target: any(named: 'target')),
         ).thenAnswer((_) => authentication.future);
@@ -1635,7 +1634,7 @@ void main() {
         await pumpEventQueue();
 
         authentication.complete(
-          Right(Fixtures.buildPairingHandshakeModel(trusted: true)),
+          Right(Fixtures.buildPairingAuthentication(trusted: true)),
         );
         initialRetryStatusController.add(
           DovahLinkInitialConnectionRetryStatus.retrying,

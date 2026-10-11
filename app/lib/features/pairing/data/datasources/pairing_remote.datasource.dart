@@ -3,17 +3,65 @@ import 'package:dovahlink_client_sdk/dovahlink_client.dart'
 
 import 'package:fpdart/fpdart.dart';
 
-import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/pairing_failure.mapper.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
+/// The app-owned presentation values for one SDK authentication result. A record rather than a
+/// Model/Entity pair: the SDK already returns the typed [DovahLinkPairingHandshake], so nothing
+/// external is decoded here -- this carries exactly what [PairingAuthenticatedAction] needs.
+typedef PairingAuthentication = ({
+  /// Host release version reported by the SDK.
+  String hostVersion,
+
+  /// Whether the SDK resolved the session as trusted, after pending-pairing recovery.
+  bool trusted,
+
+  /// Typed Host reason for rejecting a previously stored credential, or `null` when none.
+  PairingCredentialRejectionReason? credentialRejectionReason,
+
+  /// User-safe explanation for a recovered rejected credential, or `null` when none.
+  String? credentialRejectedMessage,
+});
+
+/// Maps the SDK's authentication result to [PairingAuthentication]. Trust is read from the SDK's
+/// resolved [DovahLinkPairingHandshake.trustState], never inferred from the hello alone, so an
+/// interrupted confirmation recovered by the SDK reports trusted.
+PairingAuthentication _toPairingAuthentication(
+  DovahLinkPairingHandshake handshake,
+) {
+  final CredentialRejectionReason? rejection =
+      handshake.hello.recoveredFromRejectedCredential;
+  return (
+    hostVersion: handshake.hello.hostVersion,
+    trusted: handshake.trustState == DovahLinkTrustState.trusted,
+    credentialRejectionReason: switch (rejection) {
+      CredentialRejectionReason.revoked =>
+        PairingCredentialRejectionReason.revoked,
+      CredentialRejectionReason.unrecognized =>
+        PairingCredentialRejectionReason.unrecognized,
+      CredentialRejectionReason.blocked =>
+        PairingCredentialRejectionReason.blocked,
+      null => null,
+    },
+    credentialRejectedMessage: switch (rejection) {
+      CredentialRejectionReason.revoked => "This device's trust was revoked.",
+      CredentialRejectionReason.unrecognized =>
+        "This device isn't recognized by this host.",
+      CredentialRejectionReason.blocked =>
+        'This device is blocked by the host and cannot be paired again until an '
+            'administrator unblocks it.',
+      null => null,
+    },
+  );
+}
+
 /// Wraps grouped SDK APIs for the pairing feature's remote operations.
 abstract interface class IPairingRemoteDataSource {
   /// Authenticates and recovers an interrupted confirmation through the SDK. A left target is an
   /// untrusted endpoint candidate; a right target is a Known Host ID.
-  Future<Either<Failure, PairingHandshakeModel>> authenticate({
+  Future<Either<Failure, PairingAuthentication>> authenticate({
     required Either<Uri, String> target,
   });
 
@@ -67,7 +115,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// See [IPairingRemoteDataSource.authenticate]. The SDK owns connection, authentication, and
   /// pending-pairing recovery; this layer maps its typed result to presentation-safe data.
   @override
-  Future<Either<Failure, PairingHandshakeModel>> authenticate({
+  Future<Either<Failure, PairingAuthentication>> authenticate({
     required Either<Uri, String> target,
   }) async {
     try {
@@ -76,7 +124,7 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
         (String hostId) =>
             _client.pairing.authenticateKnownHost(DovahLinkHostId(hostId)),
       );
-      return Right(PairingHandshakeModel.fromPairingHandshake(handshake));
+      return Right(_toPairingAuthentication(handshake));
     } on DovahLinkConnectionException catch (error) {
       // Administrative invalidation (revoked/blocked/trustReset/factoryReset) can fail this same
       // pending call with a generic DovahLinkConnectionException; distinguishing it here through

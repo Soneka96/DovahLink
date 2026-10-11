@@ -6,7 +6,6 @@ import 'package:fpdart/fpdart.dart';
 import 'package:mocktail/mocktail.dart';
 
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
-import 'package:dovahlink_client/features/pairing/data/models/pairing_handshake.model.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 import '../../../../fixtures/fixtures.dart';
@@ -71,8 +70,8 @@ void main() {
 
         expect(
           result,
-          Right<Failure, PairingHandshakeModel>(
-            Fixtures.buildPairingHandshakeModel(trusted: true),
+          Right<Failure, PairingAuthentication>(
+            Fixtures.buildPairingAuthentication(trusted: true),
           ),
         );
         verify(() => mockPairing.authenticateCandidate(hostUri)).called(1);
@@ -104,8 +103,8 @@ void main() {
 
         expect(
           result,
-          Right<Failure, PairingHandshakeModel>(
-            Fixtures.buildPairingHandshakeModel(),
+          Right<Failure, PairingAuthentication>(
+            Fixtures.buildPairingAuthentication(),
           ),
         );
         verify(
@@ -136,9 +135,176 @@ void main() {
 
         expect(
           result,
-          Right<Failure, PairingHandshakeModel>(
-            Fixtures.buildPairingHandshakeModel(
+          Right<Failure, PairingAuthentication>(
+            Fixtures.buildPairingAuthentication(
               trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.revoked,
+              credentialRejectedMessage: "This device's trust was revoked.",
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate maps each rejected credential reason to its typed reason and copy',
+      () async {
+        final mappings =
+            <
+              (
+                CredentialRejectionReason,
+                PairingCredentialRejectionReason,
+                String,
+              )
+            >[
+              (
+                CredentialRejectionReason.revoked,
+                PairingCredentialRejectionReason.revoked,
+                "This device's trust was revoked.",
+              ),
+              (
+                CredentialRejectionReason.unrecognized,
+                PairingCredentialRejectionReason.unrecognized,
+                "This device isn't recognized by this host.",
+              ),
+              (
+                CredentialRejectionReason.blocked,
+                PairingCredentialRejectionReason.blocked,
+                'This device is blocked by the host and cannot be paired again until an '
+                    'administrator unblocks it.',
+              ),
+            ];
+
+        for (final (reason, appReason, message) in mappings) {
+          when(() => mockPairing.authenticateCandidate(hostUri)).thenAnswer(
+            (_) async => DovahLinkPairingHandshake(
+              hello: Fixtures.buildSdkHelloResult(
+                hostVersion: '2.0.0',
+                trustState: DovahLinkTrustState.unpaired,
+                recoveredFromRejectedCredential: reason,
+              ),
+              trustState: DovahLinkTrustState.unpaired,
+            ),
+          );
+
+          final result = await dataSource.authenticate(
+            target: Left<Uri, String>(hostUri),
+          );
+
+          expect(
+            result,
+            Right<Failure, PairingAuthentication>(
+              Fixtures.buildPairingAuthentication(
+                hostVersion: '2.0.0',
+                trusted: false,
+                credentialRejectionReason: appReason,
+                credentialRejectedMessage: message,
+              ),
+            ),
+          );
+        }
+      },
+    );
+
+    test(
+      'Method authenticate reports trusted from the SDK-resolved trust state, not from hello',
+      () async {
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: Fixtures.buildSdkHelloResult(
+              trustState: DovahLinkTrustState.unpaired,
+            ),
+            trustState: DovahLinkTrustState.trusted,
+          ),
+        );
+        final recovered = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: Fixtures.buildSdkHelloResult(
+              trustState: DovahLinkTrustState.trusted,
+            ),
+            trustState: DovahLinkTrustState.unpaired,
+          ),
+        );
+        final unresolved = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
+
+        expect(
+          recovered.map((a) => a.trusted),
+          const Right<Failure, bool>(true),
+        );
+        expect(
+          unresolved.map((a) => a.trusted),
+          const Right<Failure, bool>(false),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate maps a Known Host rejection and a non-default Host version',
+      () async {
+        const String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea';
+        when(
+          () => mockPairing.authenticateKnownHost(DovahLinkHostId(hostId)),
+        ).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: Fixtures.buildSdkHelloResult(
+              hostVersion: '9.8.7',
+              trustState: DovahLinkTrustState.unpaired,
+              recoveredFromRejectedCredential:
+                  CredentialRejectionReason.unrecognized,
+            ),
+            trustState: DovahLinkTrustState.unpaired,
+          ),
+        );
+
+        final result = await dataSource.authenticate(
+          target: const Right(hostId),
+        );
+
+        expect(
+          result,
+          Right<Failure, PairingAuthentication>(
+            Fixtures.buildPairingAuthentication(
+              hostVersion: '9.8.7',
+              trusted: false,
+              credentialRejectionReason:
+                  PairingCredentialRejectionReason.unrecognized,
+              credentialRejectedMessage:
+                  "This device isn't recognized by this host.",
+            ),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method authenticate keeps the rejection copy when the SDK then resolves the session trusted',
+      () async {
+        when(() => mockPairing.authenticateCandidate(hostUri)).thenAnswer(
+          (_) async => DovahLinkPairingHandshake(
+            hello: Fixtures.buildSdkHelloResult(
+              trustState: DovahLinkTrustState.unpaired,
+              recoveredFromRejectedCredential:
+                  CredentialRejectionReason.revoked,
+            ),
+            trustState: DovahLinkTrustState.trusted,
+          ),
+        );
+
+        final result = await dataSource.authenticate(
+          target: Left<Uri, String>(hostUri),
+        );
+
+        expect(
+          result,
+          Right<Failure, PairingAuthentication>(
+            Fixtures.buildPairingAuthentication(
+              trusted: true,
               credentialRejectionReason:
                   PairingCredentialRejectionReason.revoked,
               credentialRejectedMessage: "This device's trust was revoked.",
@@ -164,7 +330,7 @@ void main() {
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeModel>(
+          const Left<Failure, PairingAuthentication>(
             SessionInvalidatedFailure.administrative,
           ),
         );
@@ -187,7 +353,7 @@ void main() {
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeModel>(
+          const Left<Failure, PairingAuthentication>(
             NetworkFailure('unreachable'),
           ),
         );
@@ -211,7 +377,7 @@ void main() {
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeModel>(
+          const Left<Failure, PairingAuthentication>(
             PairingFailure('Pairing could not be completed. Please try again.'),
           ),
         );
@@ -236,7 +402,7 @@ void main() {
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeModel>(
+          const Left<Failure, PairingAuthentication>(
             PairingFailure('Pairing could not be completed. Please try again.'),
           ),
         );
@@ -257,7 +423,7 @@ void main() {
 
         expect(
           result,
-          const Left<Failure, PairingHandshakeModel>(
+          const Left<Failure, PairingAuthentication>(
             PairingFailure(
               'Pairing could not be completed. Please try again.',
               outcome: PairingFailureOutcome.pendingNotFound,

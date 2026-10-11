@@ -8,7 +8,6 @@ import 'package:dovahlink_client/features/connection/presentation/state/connecti
 import 'package:dovahlink_client/features/connection/presentation/state/connection.selectors.dart';
 import 'package:dovahlink_client/features/device_identity/presentation/state/device_identity.selectors.dart';
 import 'package:dovahlink_client/features/pairing/data/datasources/pairing_remote.datasource.dart';
-import 'package:dovahlink_client/features/pairing/domain/entities/pairing_handshake.entity.dart';
 import 'package:dovahlink_client/features/pairing/domain/entities/pairing_renotify_result.entity.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.selectors.dart';
@@ -123,7 +122,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
             ConnectionHostSelectionSource.knownHost
         ? Right(host.hostId)
         : Left(host.uri);
-    final Future<Either<Failure, PairingHandshake>> authentication =
+    final Future<Either<Failure, PairingAuthentication>> authentication =
         sl<IPairingRemoteDataSource>().authenticate(target: target);
     final StreamSubscription<DovahLinkInitialConnectionRetryStatus>
     retrySubscription = sl<DovahLinkClient>()
@@ -139,7 +138,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           }
         });
     _initialConnectionRetrySubscription = retrySubscription;
-    final Either<Failure, PairingHandshake> result = await authentication;
+    final Either<Failure, PairingAuthentication> result = await authentication;
     if (identical(_initialConnectionRetrySubscription, retrySubscription)) {
       _initialConnectionRetrySubscription = null;
       unawaited(retrySubscription.cancel());
@@ -159,7 +158,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           ),
         );
       },
-      (PairingHandshake handshake) {
+      (PairingAuthentication handshake) {
         store.dispatch(
           PairingAuthenticatedAction(
             hostVersion: handshake.hostVersion,
