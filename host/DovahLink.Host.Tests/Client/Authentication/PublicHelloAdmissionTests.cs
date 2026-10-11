@@ -2277,7 +2277,7 @@ public class PublicHelloAdmissionTests
     {
         var evaluator = new FakeGameplayReadinessEvaluator { IsReady = true };
         var publisher = new PublicGameplayReadinessPublisher(
-            evaluator, new PublicEnvelopeCodec(), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
+            evaluator, new PublicEnvelopeCodec(), TestStateAuthorityLifecycle);
         var context = new TestContext(readinessPublisher: publisher);
 
         AdmitViaUnpairedHello(context, out string sessionId, out _);
@@ -2299,7 +2299,7 @@ public class PublicHelloAdmissionTests
     {
         var evaluator = new FakeGameplayReadinessEvaluator { IsReady = true };
         var publisher = new PublicGameplayReadinessPublisher(
-            evaluator, new PublicEnvelopeCodec(), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
+            evaluator, new PublicEnvelopeCodec(), TestStateAuthorityLifecycle);
         var context = new TestContext(readinessPublisher: publisher);
 
         AdmitViaTrustedDeviceCredentialHello(context, out _, out _);
@@ -2318,7 +2318,7 @@ public class PublicHelloAdmissionTests
     {
         var evaluator = new FakeGameplayReadinessEvaluator();
         var publisher = new PublicGameplayReadinessPublisher(
-            evaluator, new PublicEnvelopeCodec(), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
+            evaluator, new PublicEnvelopeCodec(), TestStateAuthorityLifecycle);
         var context = new TestContext(readinessPublisher: publisher);
         AdmitViaUnpairedHello(context, out _, out _);
 
@@ -2341,7 +2341,7 @@ public class PublicHelloAdmissionTests
     {
         var evaluator = new FakeGameplayReadinessEvaluator { IsReady = true };
         var publisher = new PublicGameplayReadinessPublisher(
-            evaluator, new PublicEnvelopeCodec(), new FakePlayContextTracker(), TestStateAuthorityLifecycle);
+            evaluator, new PublicEnvelopeCodec(), TestStateAuthorityLifecycle);
         var context = new TestContext(readinessPublisher: publisher);
         string clientId = Guid.NewGuid().ToString();
         byte[] hello = BuildHello(

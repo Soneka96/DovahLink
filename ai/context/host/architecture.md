@@ -313,7 +313,11 @@ same coarse value.
   existing bounded `ControlOrRecovery` lane, so sequence order is wire order. It is never shared
   between sessions.
 - On every trigger the publisher re-reads the evaluator's current value instead of trusting the value
-  in the change event, so an obsolete value is never sent after a newer one.
+  in the change event, so an obsolete value is never sent after a newer one. The value and the
+  envelope's `playContextId` come from that single `GameplayReadinessSnapshot` read, not from a
+  readiness read followed by a separate play-context read, so a message never pairs an obsolete
+  value with the context that replaced it and never claims ready for a context that has not
+  completed resynchronization. The publisher therefore holds no play-context tracker of its own.
 - `stateAuthorityId` is the epoch captured before the value is read and validated afterwards. A
   message is skipped only when both the value and the authority are unchanged; an authority rotation
   with an unchanged value republishes under the new authority.

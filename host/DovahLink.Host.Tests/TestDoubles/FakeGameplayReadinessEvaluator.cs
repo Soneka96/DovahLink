@@ -21,6 +21,13 @@ public sealed class FakeGameplayReadinessEvaluator : IGameplayReadinessEvaluator
     /// <summary>The Adapter connection generation <see cref="GetSnapshot"/> reports.</summary>
     public long ConnectionGeneration { get; set; }
 
+    /// <summary>
+    /// Optional work run once <see cref="GetSnapshot"/> has built its result and before it returns, so
+    /// a test can land a state change in the window right after a read -- the interleaving a consumer
+    /// that reads the value and its context separately would pair incorrectly.
+    /// </summary>
+    public Action? AfterSnapshotRead { get; set; }
+
     /// <inheritdoc/>
     public event Action<bool>? ReadinessChanged;
 
@@ -28,8 +35,13 @@ public sealed class FakeGameplayReadinessEvaluator : IGameplayReadinessEvaluator
     public bool HasSubscribers => ReadinessChanged is not null;
 
     /// <inheritdoc/>
-    public GameplayReadinessSnapshot GetSnapshot() =>
-        new(IsReady, PlayContext, PlayContextTransitionGeneration, AdapterInstanceId, ConnectionGeneration);
+    public GameplayReadinessSnapshot GetSnapshot()
+    {
+        var snapshot = new GameplayReadinessSnapshot(
+            IsReady, PlayContext, PlayContextTransitionGeneration, AdapterInstanceId, ConnectionGeneration);
+        AfterSnapshotRead?.Invoke();
+        return snapshot;
+    }
 
     /// <summary>Sets <see cref="IsReady"/> and raises <see cref="ReadinessChanged"/> when the value actually changed.</summary>
     /// <param name="ready">The new readiness value.</param>

@@ -1,7 +1,6 @@
 using DovahLink.Host.Client.Protocol;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
-using DovahLink.Host.PlayContext;
 using DovahLink.Host.Readiness;
 
 namespace DovahLink.Host.Client.Readiness;
@@ -45,6 +44,10 @@ public interface IPublicGameplayReadinessPublisher
 /// instead of trusting the value carried by the change event, so an obsolete value is never sent
 /// after a newer one is already established. The authority identity is captured before the value is
 /// read and re-validated after, so a value is never stamped with an authority it was not read under.
+/// The value and the <c>playContextId</c> stamped onto the envelope come from one
+/// <see cref="GameplayReadinessSnapshot"/>, never from a readiness read followed by a separate
+/// play-context read, so a message cannot pair an obsolete value with the context that replaced it
+/// -- in particular it cannot claim ready for a context that has not completed resynchronization.
 /// A message is published only when the (value, authority) pair differs from the last one sent: a
 /// repeated equivalent fact produces no new sequence, while an authority rotation with an unchanged
 /// value still produces a fresh message, since the value a client held belongs to the old epoch.
@@ -63,8 +66,6 @@ public sealed class PublicGameplayReadinessPublisher : IPublicGameplayReadinessP
     private readonly IGameplayReadinessEvaluator evaluator;
 
     private readonly IPublicEnvelopeCodec codec;
-
-    private readonly IPlayContextTracker playContextTracker;
 
     private readonly IStateAuthorityLifecycle stateAuthorityLifecycle;
 
@@ -88,22 +89,18 @@ public sealed class PublicGameplayReadinessPublisher : IPublicGameplayReadinessP
     /// <summary>Creates a publisher for one connection.</summary>
     /// <param name="evaluator">The Host's single gameplay-readiness authority.</param>
     /// <param name="codec">Encodes the readiness message.</param>
-    /// <param name="playContextTracker">Supplies the <c>playContextId</c> stamped onto the envelope.</param>
     /// <param name="stateAuthorityLifecycle">Supplies the authority epoch each value is published under.</param>
     public PublicGameplayReadinessPublisher(
         IGameplayReadinessEvaluator evaluator,
         IPublicEnvelopeCodec codec,
-        IPlayContextTracker playContextTracker,
         IStateAuthorityLifecycle stateAuthorityLifecycle)
     {
         ArgumentNullException.ThrowIfNull(evaluator);
         ArgumentNullException.ThrowIfNull(codec);
-        ArgumentNullException.ThrowIfNull(playContextTracker);
         ArgumentNullException.ThrowIfNull(stateAuthorityLifecycle);
 
         this.evaluator = evaluator;
         this.codec = codec;
-        this.playContextTracker = playContextTracker;
         this.stateAuthorityLifecycle = stateAuthorityLifecycle;
     }
 
@@ -169,11 +166,14 @@ public sealed class PublicGameplayReadinessPublisher : IPublicGameplayReadinessP
                 return;
             }
 
-            bool ready = evaluator.IsReady;
+            // One snapshot supplies both the value and the context it was evaluated for.
+            GameplayReadinessSnapshot readiness = evaluator.GetSnapshot();
             if (!IsStillCurrent(authority))
             {
                 continue;
             }
+
+            bool ready = readiness.Ready;
 
             if (lastPublished is { } previous && previous.Ready == ready && previous.Authority == authority)
             {
@@ -186,7 +186,7 @@ public sealed class PublicGameplayReadinessPublisher : IPublicGameplayReadinessP
                 Guid.NewGuid().ToString(),
                 sessionId.ToString(),
                 null,
-                playContextTracker.GetSnapshot().Current?.ToString(),
+                readiness.PlayContext?.ToString(),
                 null,
                 authority,
                 new GameplayReadinessPayload { Ready = ready, Sequence = nextSequence });

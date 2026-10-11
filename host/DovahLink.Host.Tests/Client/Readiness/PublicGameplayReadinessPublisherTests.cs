@@ -260,7 +260,7 @@ public class PublicGameplayReadinessPublisherTests
     {
         var rig = new Rig { InitiallyReady = true };
         var context = PlayContextId.NewId();
-        rig.PlayContext.NotifyTransition(context);
+        rig.Evaluator.PlayContext = context;
 
         rig.Bind();
 
@@ -269,6 +269,53 @@ public class PublicGameplayReadinessPublisherTests
             ["ready", "sequence"],
             envelope.Payload.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal).ToArray());
         Assert.Equal(context.ToString(), envelope.PlayContextId);
+    }
+
+    /// <summary>
+    /// Verifies the consistency race: a play-context change lands immediately after the readiness
+    /// read. The message carries the value together with the context it was evaluated for, never the
+    /// obsolete value stamped with the newer context; the change then follows as its own message.
+    /// </summary>
+    [Fact]
+    public void ContextChangingRightAfterTheRead_StampsTheValueWithTheContextItWasReadFor()
+    {
+        var rig = new Rig { InitiallyReady = true };
+        var oldContext = PlayContextId.NewId();
+        var newContext = PlayContextId.NewId();
+        rig.Evaluator.PlayContext = oldContext;
+        rig.Evaluator.AfterSnapshotRead = () =>
+        {
+            rig.Evaluator.AfterSnapshotRead = null;
+            rig.Evaluator.PlayContext = newContext;
+            rig.Evaluator.IsReady = false;
+        };
+
+        rig.Bind();
+        rig.Evaluator.RaiseReadinessChanged(false);
+
+        IReadOnlyList<(PublicEnvelope Envelope, GameplayReadinessPayload Payload)> published = rig.Published();
+        Assert.Equal(2, published.Count);
+        Assert.True(published[0].Payload.Ready);
+        Assert.Equal(oldContext.ToString(), published[0].Envelope.PlayContextId);
+        Assert.False(published[1].Payload.Ready);
+        Assert.Equal(newContext.ToString(), published[1].Envelope.PlayContextId);
+    }
+
+    /// <summary>Verifies that a replaced, not-yet-resynchronized context is published as not ready under that new context, never as ready for it.</summary>
+    [Fact]
+    public void ReplacedContextNotYetResynchronized_IsPublishedNotReadyUnderTheNewContext()
+    {
+        var rig = new Rig { InitiallyReady = true };
+        rig.Evaluator.PlayContext = PlayContextId.NewId();
+        rig.Bind();
+        var newContext = PlayContextId.NewId();
+
+        rig.Evaluator.PlayContext = newContext;
+        rig.Evaluator.SetReady(false);
+
+        (PublicEnvelope envelope, GameplayReadinessPayload payload) = rig.Published()[^1];
+        Assert.False(payload.Ready);
+        Assert.Equal(newContext.ToString(), envelope.PlayContextId);
     }
 
     /// <summary>Verifies that publishing outside an active play context stamps a null play context id.</summary>
@@ -345,13 +392,11 @@ public class PublicGameplayReadinessPublisherTests
     {
         var evaluator = new FakeGameplayReadinessEvaluator();
         var codec = new PublicEnvelopeCodec();
-        var playContext = new FakePlayContextTracker();
         var lifecycle = new FakeStateAuthorityLifecycle();
 
-        Assert.Throws<ArgumentNullException>(() => new PublicGameplayReadinessPublisher(null!, codec, playContext, lifecycle));
-        Assert.Throws<ArgumentNullException>(() => new PublicGameplayReadinessPublisher(evaluator, null!, playContext, lifecycle));
-        Assert.Throws<ArgumentNullException>(() => new PublicGameplayReadinessPublisher(evaluator, codec, null!, lifecycle));
-        Assert.Throws<ArgumentNullException>(() => new PublicGameplayReadinessPublisher(evaluator, codec, playContext, null!));
+        Assert.Throws<ArgumentNullException>(() => new PublicGameplayReadinessPublisher(null!, codec, lifecycle));
+        Assert.Throws<ArgumentNullException>(() => new PublicGameplayReadinessPublisher(evaluator, null!, lifecycle));
+        Assert.Throws<ArgumentNullException>(() => new PublicGameplayReadinessPublisher(evaluator, codec, null!));
     }
 
     /// <summary>A publisher, its fakes, and one fake connection for one session.</summary>
@@ -363,15 +408,12 @@ public class PublicGameplayReadinessPublisherTests
         {
             Evaluator = evaluator ?? new FakeGameplayReadinessEvaluator();
             Lifecycle = lifecycle ?? new FakeStateAuthorityLifecycle();
-            PlayContext = new FakePlayContextTracker();
-            Publisher = new PublicGameplayReadinessPublisher(Evaluator, codec, PlayContext, lifecycleOverride ?? Lifecycle);
+            Publisher = new PublicGameplayReadinessPublisher(Evaluator, codec, lifecycleOverride ?? Lifecycle);
         }
 
         public FakeGameplayReadinessEvaluator Evaluator { get; }
 
         public FakeStateAuthorityLifecycle Lifecycle { get; }
-
-        public FakePlayContextTracker PlayContext { get; }
 
         public FakePublicConnectionContext Connection { get; } = new();
 
