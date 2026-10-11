@@ -62,7 +62,15 @@ class PairingCodeRequestedAction extends Equatable {
 /// Marks a pairing code as available to enter.
 class PairingCodeAvailableAction extends Equatable {
   /// Creates a code-available action.
-  const PairingCodeAvailableAction({this.expiresInSeconds});
+  /// @param observedAt When the SDK result was observed; the reducer derives deadlines from it.
+  const PairingCodeAvailableAction({
+    required this.observedAt,
+    this.expiresInSeconds,
+  });
+
+  /// The instant the SDK reported [expiresInSeconds], captured before dispatch so the reducer
+  /// stays pure.
+  final DateTime observedAt;
 
   /// The active code's remaining validity in seconds, or null when the
   /// host did not report one.
@@ -70,7 +78,7 @@ class PairingCodeAvailableAction extends Equatable {
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [expiresInSeconds];
+  List<Object?> get props => [observedAt, expiresInSeconds];
 }
 
 /// Submits the user-entered pairing code.
@@ -163,27 +171,41 @@ class PairingRenotifyRequestedAction extends Equatable {
 /// Marks the active pairing code as redisplayed in Skyrim.
 class PairingRenotifySucceededAction extends Equatable {
   /// Creates a renotify-success action.
-  const PairingRenotifySucceededAction({this.retryAfterSeconds});
+  /// @param observedAt When the SDK result was observed; the reducer derives deadlines from it.
+  const PairingRenotifySucceededAction({
+    required this.observedAt,
+    this.retryAfterSeconds,
+  });
+
+  /// The instant the SDK reported [retryAfterSeconds], captured before dispatch.
+  final DateTime observedAt;
 
   /// Host-reported cooldown seconds after successful redisplay, when provided.
   final int? retryAfterSeconds;
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [retryAfterSeconds];
+  List<Object?> get props => [observedAt, retryAfterSeconds];
 }
 
 /// Carries renotify cooldown information when redisplay was rejected.
 class PairingRenotifyCooldownAction extends Equatable {
   /// Creates a renotify-cooldown action.
-  const PairingRenotifyCooldownAction({this.retryAfterSeconds});
+  /// @param observedAt When the SDK result was observed; the reducer derives deadlines from it.
+  const PairingRenotifyCooldownAction({
+    required this.observedAt,
+    this.retryAfterSeconds,
+  });
+
+  /// The instant the SDK reported [retryAfterSeconds], captured before dispatch.
+  final DateTime observedAt;
 
   /// The remaining cooldown in seconds before the next manual renotify.
   final int? retryAfterSeconds;
 
   /// See [Equatable.props].
   @override
-  List<Object?> get props => [retryAfterSeconds];
+  List<Object?> get props => [observedAt, retryAfterSeconds];
 }
 
 /// Marks that the Host no longer owns an active pairing challenge.

@@ -3,6 +3,9 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:dovahlink_client/features/pairing/presentation/state/pairing.actions.dart';
 import 'package:dovahlink_client/shared/constants/enums.dart';
 
+/// The fixed instant tests supply as the SDK result's observation time.
+final DateTime _observedAt = DateTime.utc(2026, 1, 1, 12);
+
 /// Exercises pairing action construction and equality.
 void main() {
   group('Behavior equality in PairingStartedAction behaves correctly', () {
@@ -101,19 +104,37 @@ void main() {
       test(
         'Behavior equality in PairingRenotifySucceededAction treats two instances as equal',
         () {
-          const action1 = PairingRenotifySucceededAction();
-          const action2 = PairingRenotifySucceededAction();
+          final action1 = PairingRenotifySucceededAction(
+            observedAt: _observedAt,
+          );
+          final action2 = PairingRenotifySucceededAction(
+            observedAt: _observedAt,
+          );
 
           expect(action1, action2);
           expect(action1.hashCode, action2.hashCode);
         },
       );
 
+      test('Behavior equality includes the observation instant', () {
+        final PairingRenotifySucceededAction first =
+            PairingRenotifySucceededAction(observedAt: _observedAt);
+        final PairingRenotifySucceededAction later =
+            PairingRenotifySucceededAction(
+              observedAt: _observedAt.add(const Duration(seconds: 1)),
+            );
+
+        expect(first, isNot(later));
+      });
+
       test('Behavior equality includes the Host retry interval', () {
-        const PairingRenotifySucceededAction immediate =
-            PairingRenotifySucceededAction();
-        const PairingRenotifySucceededAction cooldown =
-            PairingRenotifySucceededAction(retryAfterSeconds: 5);
+        final PairingRenotifySucceededAction immediate =
+            PairingRenotifySucceededAction(observedAt: _observedAt);
+        final PairingRenotifySucceededAction cooldown =
+            PairingRenotifySucceededAction(
+              observedAt: _observedAt,
+              retryAfterSeconds: 5,
+            );
 
         expect(immediate, isNot(cooldown));
       });
@@ -140,8 +161,14 @@ void main() {
       'Behavior equality in PairingRenotifyCooldownAction treats instances with the same '
       'retryAfterSeconds as equal',
       () {
-        const action1 = PairingRenotifyCooldownAction(retryAfterSeconds: 3);
-        const action2 = PairingRenotifyCooldownAction(retryAfterSeconds: 3);
+        final action1 = PairingRenotifyCooldownAction(
+          observedAt: _observedAt,
+          retryAfterSeconds: 3,
+        );
+        final action2 = PairingRenotifyCooldownAction(
+          observedAt: _observedAt,
+          retryAfterSeconds: 3,
+        );
 
         expect(action1, action2);
         expect(action1.hashCode, action2.hashCode);
@@ -152,8 +179,14 @@ void main() {
       'Behavior equality in PairingRenotifyCooldownAction rejects instances with a different '
       'retryAfterSeconds',
       () {
-        const action1 = PairingRenotifyCooldownAction(retryAfterSeconds: 3);
-        const action2 = PairingRenotifyCooldownAction(retryAfterSeconds: 5);
+        final action1 = PairingRenotifyCooldownAction(
+          observedAt: _observedAt,
+          retryAfterSeconds: 3,
+        );
+        final action2 = PairingRenotifyCooldownAction(
+          observedAt: _observedAt,
+          retryAfterSeconds: 5,
+        );
 
         expect(action1, isNot(action2));
       },
@@ -163,8 +196,14 @@ void main() {
       'Behavior equality in PairingRenotifyCooldownAction treats zero retryAfterSeconds '
       '(immediate retry) as a normal value',
       () {
-        const action1 = PairingRenotifyCooldownAction(retryAfterSeconds: 0);
-        const action2 = PairingRenotifyCooldownAction(retryAfterSeconds: 0);
+        final action1 = PairingRenotifyCooldownAction(
+          observedAt: _observedAt,
+          retryAfterSeconds: 0,
+        );
+        final action2 = PairingRenotifyCooldownAction(
+          observedAt: _observedAt,
+          retryAfterSeconds: 0,
+        );
 
         expect(action1, action2);
         expect(action1.retryAfterSeconds, isA<int>());
@@ -177,8 +216,14 @@ void main() {
       'Behavior equality in PairingCodeAvailableAction treats instances with the same '
       'expiresInSeconds as equal',
       () {
-        const action1 = PairingCodeAvailableAction(expiresInSeconds: 30);
-        const action2 = PairingCodeAvailableAction(expiresInSeconds: 30);
+        final action1 = PairingCodeAvailableAction(
+          observedAt: _observedAt,
+          expiresInSeconds: 30,
+        );
+        final action2 = PairingCodeAvailableAction(
+          observedAt: _observedAt,
+          expiresInSeconds: 30,
+        );
 
         expect(action1, action2);
         expect(action1.hashCode, action2.hashCode);
@@ -189,8 +234,14 @@ void main() {
       'Behavior equality in PairingCodeAvailableAction rejects instances with a different '
       'expiresInSeconds',
       () {
-        const action1 = PairingCodeAvailableAction(expiresInSeconds: 30);
-        const action2 = PairingCodeAvailableAction(expiresInSeconds: 15);
+        final action1 = PairingCodeAvailableAction(
+          observedAt: _observedAt,
+          expiresInSeconds: 30,
+        );
+        final action2 = PairingCodeAvailableAction(
+          observedAt: _observedAt,
+          expiresInSeconds: 15,
+        );
 
         expect(action1, isNot(action2));
       },
@@ -200,13 +251,21 @@ void main() {
       'Behavior equality in PairingCodeAvailableAction treats a null expiresInSeconds as equal '
       'to another null expiresInSeconds',
       () {
-        const action1 = PairingCodeAvailableAction();
-        const action2 = PairingCodeAvailableAction(expiresInSeconds: null);
+        final action1 = PairingCodeAvailableAction(observedAt: _observedAt);
+        final action2 = PairingCodeAvailableAction(
+          observedAt: _observedAt,
+          expiresInSeconds: null,
+        );
 
         expect(action1, action2);
         expect(
           action1,
-          isNot(const PairingCodeAvailableAction(expiresInSeconds: 30)),
+          isNot(
+            PairingCodeAvailableAction(
+              observedAt: _observedAt,
+              expiresInSeconds: 30,
+            ),
+          ),
         );
       },
     );

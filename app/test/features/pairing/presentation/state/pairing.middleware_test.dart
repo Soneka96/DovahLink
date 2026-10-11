@@ -977,18 +977,54 @@ void main() {
     );
 
     test(
+      'PairingCodeRequestedAction stamps observedAt when the SDK result arrives, not when requested',
+      () async {
+        final Completer<Either<Failure, int?>> request =
+            Completer<Either<Failure, int?>>();
+        when(
+          () => mockPairingRemote.requestPairingCode(),
+        ).thenAnswer((_) => request.future);
+
+        middleware.call(store, const PairingCodeRequestedAction(), next);
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        final DateTime beforeCompletion = DateTime.now();
+        request.complete(const Right(30));
+        await Future<void>.delayed(Duration.zero);
+
+        final PairingCodeAvailableAction action = actionLog
+            .whereType<PairingCodeAvailableAction>()
+            .single;
+        expect(action.observedAt.isBefore(beforeCompletion), isFalse);
+      },
+    );
+
+    test(
       'PairingCodeRequestedAction dispatches PairingCodeAvailableAction with expiresInSeconds forwarded',
       () async {
         when(
           () => mockPairingRemote.requestPairingCode(),
         ).thenAnswer((_) async => const Right(30));
 
+        final DateTime before = DateTime.now();
         middleware.call(store, const PairingCodeRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
+        final DateTime after = DateTime.now();
 
         expect(actionLog, [
           isA<PairingCodeRequestedAction>(),
-          const PairingCodeAvailableAction(expiresInSeconds: 30),
+          isA<PairingCodeAvailableAction>()
+              .having(
+                (PairingCodeAvailableAction a) => a.expiresInSeconds,
+                'expiresInSeconds',
+                30,
+              )
+              .having(
+                (PairingCodeAvailableAction a) =>
+                    !a.observedAt.isBefore(before) &&
+                    !a.observedAt.isAfter(after),
+                'observedAt captured at observation',
+                isTrue,
+              ),
         ]);
       },
     );
@@ -1749,8 +1785,10 @@ void main() {
           () => mockRenotifyUseCase.requestPairingRenotify(),
         ).thenAnswer((_) async => Right(Fixtures.buildPairingRenotifyResult()));
 
+        final DateTime before = DateTime.now();
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
+        final DateTime after = DateTime.now();
 
         expect(actionLog, [
           isA<PairingRenotifyRequestedAction>(),
@@ -1760,6 +1798,10 @@ void main() {
           (actionLog[1] as PairingRenotifySucceededAction).retryAfterSeconds,
           5,
         );
+        final DateTime observedAt =
+            (actionLog[1] as PairingRenotifySucceededAction).observedAt;
+        expect(observedAt.isBefore(before), isFalse);
+        expect(observedAt.isAfter(after), isFalse);
         verify(() => mockRenotifyUseCase.requestPairingRenotify()).called(1);
       },
     );
@@ -1778,8 +1820,10 @@ void main() {
           ),
         );
 
+        final DateTime before = DateTime.now();
         middleware.call(store, const PairingRenotifyRequestedAction(), next);
         await Future<void>.delayed(Duration.zero);
+        final DateTime after = DateTime.now();
 
         expect(actionLog.length, 2);
         expect(actionLog[0], isA<PairingRenotifyRequestedAction>());
@@ -1788,6 +1832,10 @@ void main() {
           (actionLog[1] as PairingRenotifyCooldownAction).retryAfterSeconds,
           3,
         );
+        final DateTime observedAt =
+            (actionLog[1] as PairingRenotifyCooldownAction).observedAt;
+        expect(observedAt.isBefore(before), isFalse);
+        expect(observedAt.isAfter(after), isFalse);
         verify(() => mockRenotifyUseCase.requestPairingRenotify()).called(1);
       },
     );

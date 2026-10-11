@@ -7,6 +7,9 @@ import 'package:dovahlink_client/features/pairing/presentation/state/pairing.sta
 import 'package:dovahlink_client/shared/constants/enums.dart';
 import 'package:dovahlink_client/shared/failures/failures.dart';
 
+/// The fixed instant tests supply as the SDK result's observation time.
+final DateTime _observedAt = DateTime.utc(2026, 1, 1, 12);
+
 /// Exercises pairing lifecycle reducer transitions.
 void main() {
   group('Action PairingStartedAction behaves correctly', () {
@@ -166,7 +169,7 @@ void main() {
     test('PairingCodeAvailableAction changes the phase to awaitingCode', () {
       final PairingState result = pairingReducer(
         PairingState.initial(),
-        const PairingCodeAvailableAction(),
+        PairingCodeAvailableAction(observedAt: _observedAt),
       );
 
       expect(result.phase, PairingPhase.awaitingCode);
@@ -179,12 +182,18 @@ void main() {
       () {
         final PairingState result = pairingReducer(
           PairingState.initial(),
-          const PairingCodeAvailableAction(expiresInSeconds: 30),
+          PairingCodeAvailableAction(
+            observedAt: _observedAt,
+            expiresInSeconds: 30,
+          ),
         );
 
         expect(result.phase, PairingPhase.awaitingCode);
         expect(result.codeExpiresAt, isNotNull);
-        expect(result.codeExpiresAt!.isAfter(DateTime.now()), isTrue);
+        expect(
+          result.codeExpiresAt,
+          _observedAt.add(const Duration(seconds: 30)),
+        );
       },
     );
 
@@ -193,7 +202,10 @@ void main() {
       () {
         final PairingState result = pairingReducer(
           PairingState.initial(),
-          const PairingCodeAvailableAction(expiresInSeconds: 0),
+          PairingCodeAvailableAction(
+            observedAt: _observedAt,
+            expiresInSeconds: 0,
+          ),
         );
 
         expect(result.codeExpiresAt, isNotNull);
@@ -214,7 +226,7 @@ void main() {
 
         final PairingState result = pairingReducer(
           state,
-          const PairingCodeAvailableAction(),
+          PairingCodeAvailableAction(observedAt: _observedAt),
         );
 
         expect(result.codeExpiresAt, isNull);
@@ -238,7 +250,10 @@ void main() {
 
         final PairingState result = pairingReducer(
           state,
-          const PairingCodeAvailableAction(expiresInSeconds: 30),
+          PairingCodeAvailableAction(
+            observedAt: _observedAt,
+            expiresInSeconds: 30,
+          ),
         );
 
         expect(result.renotifyAvailableAt, isNull);
@@ -506,7 +521,7 @@ void main() {
 
         final PairingState result = pairingReducer(
           state,
-          const PairingRenotifySucceededAction(),
+          PairingRenotifySucceededAction(observedAt: _observedAt),
         );
 
         expect(result.phase, PairingPhase.awaitingCode);
@@ -529,7 +544,7 @@ void main() {
 
       final PairingState result = pairingReducer(
         state,
-        const PairingRenotifySucceededAction(),
+        PairingRenotifySucceededAction(observedAt: _observedAt),
       );
 
       expect(result.codeExpiresAt, expiresAt);
@@ -550,12 +565,18 @@ void main() {
 
       final PairingState result = pairingReducer(
         state,
-        const PairingRenotifyCooldownAction(retryAfterSeconds: 5),
+        PairingRenotifyCooldownAction(
+          observedAt: _observedAt,
+          retryAfterSeconds: 5,
+        ),
       );
 
       expect(result.phase, PairingPhase.awaitingCode);
       expect(result.renotifyAvailableAt, isNotNull);
-      expect(result.renotifyAvailableAt!.isAfter(DateTime.now()), isTrue);
+      expect(
+        result.renotifyAvailableAt,
+        _observedAt.add(const Duration(seconds: 5)),
+      );
       expect(result.isRenotifyPending, isFalse);
       expect(result.renotifyOutcome, PairingRenotifyOutcome.cooldown);
     });
@@ -572,7 +593,10 @@ void main() {
 
       final PairingState result = pairingReducer(
         state,
-        const PairingRenotifyCooldownAction(retryAfterSeconds: 3),
+        PairingRenotifyCooldownAction(
+          observedAt: _observedAt,
+          retryAfterSeconds: 3,
+        ),
       );
 
       expect(result.codeExpiresAt, expiresAt);
@@ -800,4 +824,78 @@ void main() {
       },
     );
   });
+
+  group(
+    'Observed deadlines are derived from the supplied observation time',
+    () {
+      test(
+        'PairingRenotifySucceededAction sets the exact redisplay deadline',
+        () {
+          final PairingState result = pairingReducer(
+            PairingState.initial(),
+            PairingRenotifySucceededAction(
+              observedAt: _observedAt,
+              retryAfterSeconds: 9,
+            ),
+          );
+
+          expect(
+            result.renotifyAvailableAt,
+            _observedAt.add(const Duration(seconds: 9)),
+          );
+        },
+      );
+
+      test(
+        'a zero retry interval yields a deadline equal to the observation',
+        () {
+          final PairingState result = pairingReducer(
+            PairingState.initial(),
+            PairingRenotifyCooldownAction(
+              observedAt: _observedAt,
+              retryAfterSeconds: 0,
+            ),
+          );
+
+          expect(result.renotifyAvailableAt, _observedAt);
+        },
+      );
+
+      test('a missing retry interval clears the redisplay deadline', () {
+        final PairingState stale = PairingState.initial().copyWith(
+          renotifyAvailableAt: Some(_observedAt),
+        );
+
+        final PairingState succeeded = pairingReducer(
+          stale,
+          PairingRenotifySucceededAction(observedAt: _observedAt),
+        );
+        final PairingState cooldown = pairingReducer(
+          stale,
+          PairingRenotifyCooldownAction(observedAt: _observedAt),
+        );
+
+        expect(succeeded.renotifyAvailableAt, isNull);
+        expect(cooldown.renotifyAvailableAt, isNull);
+      });
+
+      test('the same action reduces to the same state at any later time', () {
+        final PairingCodeAvailableAction action = PairingCodeAvailableAction(
+          observedAt: _observedAt,
+          expiresInSeconds: 30,
+        );
+
+        final PairingState first = pairingReducer(
+          PairingState.initial(),
+          action,
+        );
+        final PairingState second = pairingReducer(
+          PairingState.initial(),
+          action,
+        );
+
+        expect(first.codeExpiresAt, second.codeExpiresAt);
+      });
+    },
+  );
 }

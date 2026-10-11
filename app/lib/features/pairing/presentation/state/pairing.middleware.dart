@@ -185,6 +185,8 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     final int generation = _pairingFlowGeneration;
     final result = await sl<IPairingRemoteDataSource>()
         .requestPairingRenotify();
+    // Captured once, at observation, so reducers derive deadlines without reading the clock.
+    final DateTime observedAt = DateTime.now();
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
@@ -205,12 +207,14 @@ class PairingMiddleware extends MiddlewareClass<AppState>
           case PairingRenotifyOutcome.renotified:
             store.dispatch(
               PairingRenotifySucceededAction(
+                observedAt: observedAt,
                 retryAfterSeconds: result.retryAfterSeconds,
               ),
             );
           case PairingRenotifyOutcome.cooldown:
             store.dispatch(
               PairingRenotifyCooldownAction(
+                observedAt: observedAt,
                 retryAfterSeconds: result.retryAfterSeconds,
               ),
             );
@@ -271,6 +275,7 @@ class PairingMiddleware extends MiddlewareClass<AppState>
     }
     final int generation = _pairingFlowGeneration;
     final result = await sl<IPairingRemoteDataSource>().requestPairingCode();
+    final DateTime observedAt = DateTime.now();
     if (_isShuttingDown || generation != _pairingFlowGeneration) {
       return;
     }
@@ -288,7 +293,10 @@ class PairingMiddleware extends MiddlewareClass<AppState>
       },
       (int? expiresInSeconds) {
         store.dispatch(
-          PairingCodeAvailableAction(expiresInSeconds: expiresInSeconds),
+          PairingCodeAvailableAction(
+            observedAt: observedAt,
+            expiresInSeconds: expiresInSeconds,
+          ),
         );
       },
     );
