@@ -90,6 +90,24 @@ enum DovahLinkTrustState {
   trusted,
 }
 
+/// The SDK's view of whether the admitted Host reports gameplay as ready.
+///
+/// Separate from connection state, trust state, Host availability, and gameplay-domain
+/// synchronization. [ready] and [notReady] are only ever the Host's explicit answer for the current
+/// session; [unknown] exists only inside the SDK and is never a wire value.
+enum DovahLinkGameplayReadiness {
+  /// No valid, current readiness fact exists: before admission, during any connection loss,
+  /// reconnection, or reauthentication, after a session is replaced or ended, and after the Host's
+  /// state authority rotates until a fresh Host report arrives.
+  unknown,
+
+  /// The current admitted Host explicitly reported that gameplay is not ready.
+  notReady,
+
+  /// The current admitted Host explicitly reported that gameplay is ready.
+  ready,
+}
+
 /// The wire value of `hello.auth.method`.
 enum AuthMethod {
   /// No credential presented yet; admits a trust-restricted session solely to run pairing.
