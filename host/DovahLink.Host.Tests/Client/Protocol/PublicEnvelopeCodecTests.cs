@@ -57,7 +57,7 @@ public class PublicEnvelopeCodecTests
         {
             HostId = "81869993-955c-4ba3-a7d0-d35ca86078ea",
             HostName = "Soneka-Desktop",
-            HostVersion = "0.5.0",
+            HostVersion = "0.6.0",
             ClientIdentityKind = ClientIdentityKind.Paired,
         };
         byte[] encoded = Codec.Encode(PublicMessageType.HelloAck, "msg-2", "session-1", "msg-1", null, "client-1", payload);
@@ -222,7 +222,7 @@ public class PublicEnvelopeCodecTests
         {
             HostId = "81869993-955c-4ba3-a7d0-d35ca86078ea",
             HostName = "Soneka-Desktop",
-            HostVersion = "0.5.0",
+            HostVersion = "0.6.0",
             ClientIdentityKind = ClientIdentityKind.Unpaired,
         };
         byte[] encoded = Codec.Encode(PublicMessageType.HelloAck, "msg-1", "session-1", "msg-0", null, null, payload);

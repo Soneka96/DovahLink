@@ -3,7 +3,7 @@
 Notable changes to the C# Host and native Skyrim Adapter are recorded here, most recent first. Add
 entries to `[Unreleased]` in the pull request that makes them, grouped under
 `Added`/`Changed`/`Fixed`/`Removed`/`Security` (omit unused subsections). State the outcome in one
-concise sentence; split unrelated outcomes into separate bullets.
+concise sentence; split unrelated outcomes into separate bullets. A changelog records what a release changed from the previous release, not the history of the work: a thing added, then changed or fixed before the same release, is one `Added` entry; a thing added then removed is omitted. Keep each entry short.
 
 The Host/Adapter package is versioned by root `VERSION`. A release promotes its accumulated
 `[Unreleased]` entries into a dated version section and leaves a fresh empty `[Unreleased]` section

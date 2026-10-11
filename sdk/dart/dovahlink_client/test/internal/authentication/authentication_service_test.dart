@@ -55,7 +55,7 @@ class MockClientIdCache extends Mock implements ClientIdCache {}
 /// Builds a decoded `hello_ack` reply [Envelope] from the shared envelope fixture.
 Envelope buildHelloAckEnvelope({
   String? sessionId = 'session-1',
-  String hostVersion = '0.5.0',
+  String hostVersion = '0.6.0',
   String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
   String hostName = 'Soneka-Desktop',
   ClientIdentityKind kind = ClientIdentityKind.unpaired,
@@ -218,7 +218,7 @@ void main() {
             sessionId: 'session-1',
             clientId: 'client-1',
             payload: const <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'unpaired',
@@ -534,7 +534,7 @@ void main() {
         requestService,
         buildHelloAckEnvelope(
           sessionId: 'session-1',
-          hostVersion: '0.5.0',
+          hostVersion: '0.6.0',
           hostId: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
           hostName: 'LIVINGROOM-PC',
           kind: ClientIdentityKind.unpaired,
@@ -568,7 +568,7 @@ void main() {
       );
       expect(result.hostId, 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa');
       expect(result.hostName, 'LIVINGROOM-PC');
-      expect(result.hostVersion, '0.5.0');
+      expect(result.hostVersion, '0.6.0');
       expect(result.trustState, DovahLinkTrustState.unpaired);
     });
 
@@ -1011,7 +1011,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.6.0',
+            hostVersion: '0.7.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -1065,7 +1065,7 @@ void main() {
                   (DovahLinkCompatibilityException error) =>
                       error.supportedHostVersionRange,
                   'supportedHostVersionRange',
-                  '0.5.x',
+                  '0.6.x',
                 )
                 .having(
                   (DovahLinkCompatibilityException error) => error.failure,
@@ -1096,7 +1096,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -1131,7 +1131,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -1156,7 +1156,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -1196,7 +1196,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
             kind: ClientIdentityKind.unpaired,
           ),
@@ -1246,7 +1246,7 @@ void main() {
             sessionId: null,
             stateAuthorityId: 'state-authority-1',
             payload: <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'unpaired',
@@ -1362,7 +1362,7 @@ void main() {
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             payload: <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'not-a-real-kind',
@@ -1691,7 +1691,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             hostId: hostId,
             kind: ClientIdentityKind.paired,
           ),
@@ -1709,7 +1709,7 @@ void main() {
           DovahLinkHostId(hostId),
         );
 
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
         expect(result.hostName, 'Soneka-Desktop');
         expect(result.trustState, DovahLinkTrustState.trusted);
@@ -1742,7 +1742,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -1766,7 +1766,7 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(1);
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.trustState, DovahLinkTrustState.unpaired);
       },
     );
@@ -1790,7 +1790,7 @@ void main() {
         stubSendAndAwait(
           requestService,
           buildHelloAckEnvelope(
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -1814,7 +1814,7 @@ void main() {
             policy: any(named: 'policy'),
           ),
         ).called(1);
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.trustState, DovahLinkTrustState.trusted);
       },
     );
@@ -1826,7 +1826,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             sessionId: 'session-1',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           ),
         );
@@ -1846,7 +1846,7 @@ void main() {
             orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
           ),
         );
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         verifyNever(
           () => hostAvailabilityService.setAvailability(any(), any()),
         );
@@ -2004,7 +2004,7 @@ void main() {
           requestService,
           buildHelloAckEnvelope(
             hostId: hostId,
-            hostVersion: '0.6.0',
+            hostVersion: '0.7.0',
             kind: ClientIdentityKind.paired,
           ),
         );
@@ -2234,7 +2234,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           );
         });
@@ -2315,7 +2315,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           );
         });
@@ -2371,7 +2371,7 @@ void main() {
           }
           return buildHelloAckEnvelope(
             sessionId: 'session-2',
-            hostVersion: '0.5.0',
+            hostVersion: '0.6.0',
             kind: ClientIdentityKind.unpaired,
           );
         });

@@ -557,7 +557,7 @@ void main() {
           ),
           const DovahLinkCompatibilityException(
             hostVersion: '0.4.0',
-            supportedHostVersionRange: '0.5.x',
+            supportedHostVersionRange: '0.6.x',
             failure: HostVersionCompatibilityFailure.hostTooOld,
           ),
         ];

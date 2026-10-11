@@ -114,7 +114,7 @@ abstract final class Fixtures {
   static HelloResult buildHelloResult({
     String hostId = '81869993-955c-4ba3-a7d0-d35ca86078ea',
     String hostName = 'Soneka-Desktop',
-    String hostVersion = '0.5.0',
+    String hostVersion = '0.6.0',
     DovahLinkTrustState trustState = DovahLinkTrustState.trusted,
     CredentialRejectionReason? recoveredFromRejectedCredential,
   }) => HelloResult(

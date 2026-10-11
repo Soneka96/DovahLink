@@ -4,7 +4,7 @@
   "sessionId": "session-1",
   "correlationId": "message-hello-1",
   "payload": {
-    "hostVersion": "0.5.0",
+    "hostVersion": "0.6.0",
     "hostId": "81869993-955c-4ba3-a7d0-d35ca86078ea",
     "hostName": "Soneka-Desktop",
     "clientIdentityKind": "unpaired"

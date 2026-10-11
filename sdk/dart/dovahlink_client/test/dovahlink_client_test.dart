@@ -4298,7 +4298,7 @@ void main() {
           defaultClient.connections.state,
           DovahLinkConnectionState.connected,
         );
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
         expect(result.hostName, 'Soneka-Desktop');
         expect(result.trustState, DovahLinkTrustState.unpaired);
@@ -4794,7 +4794,7 @@ void main() {
             'sessionId': 'session-1',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'paired',
@@ -4820,7 +4820,7 @@ void main() {
             'sessionId': 'session-2',
             'correlationId': 'irrelevant',
             'payload': <String, dynamic>{
-              'hostVersion': '0.5.0',
+              'hostVersion': '0.6.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
               'hostName': 'Soneka-Desktop',
               'clientIdentityKind': 'paired',
@@ -5935,7 +5935,7 @@ void main() {
           'sessionId': 'session-2',
           'correlationId': 'irrelevant',
           'payload': <String, dynamic>{
-            'hostVersion': '0.5.0',
+            'hostVersion': '0.6.0',
             'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
             'hostName': 'Soneka-Desktop',
             'clientIdentityKind': 'paired',
@@ -9672,6 +9672,42 @@ void main() {
         expect(heldClient.currentHost.sessionId, 'session-paired-1');
         expect(heldClient.currentHost.trustState, DovahLinkTrustState.trusted);
         expect(heldClient.currentHost.gameplayReadiness, ready);
+      },
+    );
+
+    test(
+      'Behavior a 0.5.x Host is rejected as too old before admission even when its readiness arrives with no turn after hello_ack',
+      () async {
+        transport.synchronousDelivery = true;
+        transport.queueResponse(_rawHelloAck(hostVersion: '0.5.0'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(_rawReadiness(ready: true, sequence: 1));
+
+        await expectLater(
+          client.connections.connectCandidate(
+            Uri.parse('ws://127.0.0.1:58231/'),
+          ),
+          throwsA(
+            isA<DovahLinkCompatibilityException>()
+                .having(
+                  (DovahLinkCompatibilityException error) => error.failure,
+                  'failure',
+                  HostVersionCompatibilityFailure.hostTooOld,
+                )
+                .having(
+                  (DovahLinkCompatibilityException error) =>
+                      error.supportedHostVersionRange,
+                  'supportedHostVersionRange',
+                  '0.6.x',
+                ),
+          ),
+        );
+        await _settle();
+
+        expect(client.currentHost.sessionId, isNull);
+        expect(client.currentHost.gameplayReadiness, unknown);
       },
     );
 

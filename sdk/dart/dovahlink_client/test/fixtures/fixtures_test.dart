@@ -172,7 +172,7 @@ void main() {
 
         expect(result.hostId, '81869993-955c-4ba3-a7d0-d35ca86078ea');
         expect(result.hostName, 'Soneka-Desktop');
-        expect(result.hostVersion, '0.5.0');
+        expect(result.hostVersion, '0.6.0');
         expect(result.trustState, DovahLinkTrustState.trusted);
       },
     );

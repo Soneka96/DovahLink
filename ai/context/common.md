@@ -29,7 +29,7 @@ client, native Adapter, C# Host, protocol, and integration work. AI authority be
   `sdk/CHANGELOG.md` for client SDK behavior, and `host/CHANGELOG.md` for Host/Adapter behavior.
   For a change that affects more than one component, record each component's distinct outcome in
   its own file. Follow each file's bullet-writing rules. This is ongoing bookkeeping done by feature
-  work itself, not deferred to release time.
+  work itself, not deferred to release time. A changelog records what a release changed from the previous release, not the history of the work: a thing added, then changed or fixed before the same release, is one `Added` entry; a thing added then removed is omitted. Keep each entry short.
 - Repository-only documentation, CI, development-tooling, and governance changes do not require a
   component changelog entry unless they materially affect that component's consumers, packaging,
   compatibility, or runtime behavior.
