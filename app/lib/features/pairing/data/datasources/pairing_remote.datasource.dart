@@ -300,7 +300,9 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
   /// equivalent to [Iterable.whereType], so `where` plus `cast` is the standard substitute.
   /// `reauthenticating` -- the transport back up but not yet re-trusted during recovery -- maps to
   /// `lost` alongside `reconnecting`/`disconnected`, not `restored`: this feature must not report
-  /// the connection restored before the session is actually re-authenticated.
+  /// the connection restored before the session is actually re-authenticated. Likewise `connected`
+  /// maps to `restored` only while the SDK's `currentHost.trustState` is trusted; a recovery that
+  /// ends connected but unpaired stays `lost`, so a restored status never falsely claims trust.
   @override
   Stream<PairingConnectionStatus> get connectionStatus => _client
       .connections
@@ -310,8 +312,13 @@ class PairingRemoteDataSource implements IPairingRemoteDataSource {
           DovahLinkConnectionState.reconnecting ||
           DovahLinkConnectionState.reauthenticating ||
           DovahLinkConnectionState.disconnected => PairingConnectionStatus.lost,
+          // `connected` is a transport/admission fact, not a trust fact: the SDK can finish
+          // recovery connected but unpaired (the stored credential was forgotten), so the SDK's
+          // authoritative trust state decides whether this is a restored trusted session.
           DovahLinkConnectionState.connected =>
-            PairingConnectionStatus.restored,
+            _client.currentHost.trustState == DovahLinkTrustState.trusted
+                ? PairingConnectionStatus.restored
+                : PairingConnectionStatus.lost,
           DovahLinkConnectionState.administrativelyInvalidated =>
             PairingConnectionStatus.invalidated,
           DovahLinkConnectionState.connecting => null,

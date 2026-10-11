@@ -22,11 +22,15 @@ class MockDovahLinkConnections extends Mock implements IDovahLinkConnections {}
 /// Mocks the grouped SDK pairing contract.
 class MockDovahLinkPairing extends Mock implements IDovahLinkPairing {}
 
+/// Mocks the grouped SDK current-Host contract that owns the authoritative trust state.
+class MockDovahLinkCurrentHost extends Mock implements IDovahLinkCurrentHost {}
+
 /// Exercises [PairingRemoteDataSource]'s exception-to-[Failure] mapping.
 void main() {
   late MockDovahLinkClient mockClient;
   late MockDovahLinkConnections mockConnections;
   late MockDovahLinkPairing mockPairing;
+  late MockDovahLinkCurrentHost mockCurrentHost;
   late PairingRemoteDataSource dataSource;
   final Uri hostUri = Uri.parse('ws://192.168.1.20:4000/');
 
@@ -41,6 +45,11 @@ void main() {
     mockClient = MockDovahLinkClient();
     mockConnections = MockDovahLinkConnections();
     mockPairing = MockDovahLinkPairing();
+    mockCurrentHost = MockDovahLinkCurrentHost();
+    when(
+      () => mockCurrentHost.trustState,
+    ).thenReturn(DovahLinkTrustState.trusted);
+    when(() => mockClient.currentHost).thenReturn(mockCurrentHost);
     when(() => mockClient.connections).thenReturn(mockConnections);
     when(
       () => mockConnections.state,
@@ -1291,6 +1300,93 @@ void main() {
         final Future<void> expectation = expectLater(
           dataSource.connectionStatus,
           emits(PairingConnectionStatus.restored),
+        );
+        connectionStates.add(DovahLinkConnectionState.connected);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStatus does not claim restored when recovery ends connected but unpaired',
+      () async {
+        when(
+          () => mockCurrentHost.trustState,
+        ).thenReturn(DovahLinkTrustState.unpaired);
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockConnections.stateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.connectionStatus,
+          emitsInOrder(<Object>[
+            PairingConnectionStatus.lost,
+            PairingConnectionStatus.lost,
+            PairingConnectionStatus.lost,
+          ]),
+        );
+        connectionStates
+          ..add(DovahLinkConnectionState.reconnecting)
+          ..add(DovahLinkConnectionState.reauthenticating)
+          ..add(DovahLinkConnectionState.connected);
+
+        await expectation;
+      },
+    );
+
+    test(
+      'Property connectionStatus reads the SDK trust state at each connected event',
+      () async {
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockConnections.stateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+        final List<PairingConnectionStatus> received =
+            <PairingConnectionStatus>[];
+        final StreamSubscription<PairingConnectionStatus> subscription =
+            dataSource.connectionStatus.listen(received.add);
+        addTearDown(subscription.cancel);
+
+        connectionStates.add(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        when(
+          () => mockCurrentHost.trustState,
+        ).thenReturn(DovahLinkTrustState.unpaired);
+        connectionStates.add(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+        when(
+          () => mockCurrentHost.trustState,
+        ).thenReturn(DovahLinkTrustState.trusted);
+        connectionStates.add(DovahLinkConnectionState.connected);
+        await pumpEventQueue();
+
+        expect(received, <PairingConnectionStatus>[
+          PairingConnectionStatus.restored,
+          PairingConnectionStatus.lost,
+          PairingConnectionStatus.restored,
+        ]);
+      },
+    );
+
+    test(
+      'Property connectionStatus does not claim restored when the SDK reports no current trust state',
+      () async {
+        when(() => mockCurrentHost.trustState).thenReturn(null);
+        final StreamController<DovahLinkConnectionState> connectionStates =
+            StreamController<DovahLinkConnectionState>.broadcast();
+        addTearDown(connectionStates.close);
+        when(
+          () => mockConnections.stateChanges,
+        ).thenAnswer((_) => connectionStates.stream);
+
+        final Future<void> expectation = expectLater(
+          dataSource.connectionStatus,
+          emits(PairingConnectionStatus.lost),
         );
         connectionStates.add(DovahLinkConnectionState.connected);
 
