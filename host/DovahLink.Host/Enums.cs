@@ -853,6 +853,12 @@ public enum PublicMessageType
     /// <summary>Host → client only, unsolicited terminal event.</summary>
     SessionInvalidated,
 
+    /// <summary>
+    /// Host → client only, unsolicited: the coarse gameplay ready / not-ready fact for the session.
+    /// Defined by the canonical schema but not emitted by the Host until a compatible SDK exists.
+    /// </summary>
+    GameplayReadiness,
+
     /// <summary>Client liveness request.</summary>
     Ping,
 

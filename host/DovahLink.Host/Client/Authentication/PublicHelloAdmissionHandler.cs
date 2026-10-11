@@ -402,7 +402,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// trust tier may send, per <c>ai/context/protocol/security.md</c>'s "Hello authentication and
     /// session trust tiers". A server-originated type (<c>hello_ack</c>, <c>pairing_status</c>,
     /// <c>pairing_outcome</c>, <c>rename_outcome</c>, <c>subscription_ack</c>, <c>state_snapshot</c>,
-    /// <c>state_event</c>, <c>error</c>, <c>session_invalidated</c>, <c>pong</c>) is never allowed
+    /// <c>state_event</c>, <c>error</c>, <c>session_invalidated</c>, <c>gameplay_readiness</c>, <c>pong</c>) is never allowed
     /// from a client, in either tier; neither is a bare <c>hello</c> once a session already exists.
     /// </summary>
     private static bool IsAllowedForTier(PublicMessageType messageType, SessionTrustTier tier) => tier switch

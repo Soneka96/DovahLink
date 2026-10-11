@@ -121,7 +121,7 @@ class ValidateEnvelopeTests(unittest.TestCase):
 
     def test_missing_state_authority_id_rejected_for_every_gated_type(self) -> None:
         """Reject a missing stateAuthorityId for each message type the closed presence table requires it on, not only state_snapshot."""
-        for message_type in ("hello_ack", "state_event"):
+        for message_type in ("hello_ack", "state_event", "gameplay_readiness"):
             message = _valid_snapshot()
             message["messageType"] = message_type
             del message["stateAuthorityId"]
@@ -339,6 +339,10 @@ class ValidateAllTests(unittest.TestCase):
             "rename/rename-outcome-not-trusted.json",
             "rename/rename-outcome-renamed.json",
             "rename/rename-request.json",
+            "readiness/gameplay-readiness-not-ready.json",
+            "readiness/gameplay-readiness-ready.json",
+            "readiness/gameplay-readiness-sequence-zero.json",
+            "readiness/gameplay-readiness-unknown-payload-field.json",
         }
         self.assertEqual(set(checked), expected)
 

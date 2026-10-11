@@ -12,6 +12,7 @@ fixtures/
   errors/
   pairing/
   rename/
+  readiness/
 ```
 
 ## Rules

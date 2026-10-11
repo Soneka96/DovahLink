@@ -2182,12 +2182,13 @@ public class PublicHelloAdmissionTests
     [InlineData(PublicMessageType.Error)]
     [InlineData(PublicMessageType.Pong)]
     [InlineData(PublicMessageType.StateSnapshot)]
+    [InlineData(PublicMessageType.GameplayReadiness)]
     public void HandleMessageAsync_RestrictedSessionServerOnlyType_RejectsAsMalformed(PublicMessageType messageType)
     {
         var context = new TestContext();
         AdmitViaUnpairedHello(context, out string sessionId, out _);
 
-        byte[] message = messageType == PublicMessageType.StateSnapshot
+        byte[] message = messageType is PublicMessageType.StateSnapshot or PublicMessageType.GameplayReadiness
             ? context.Codec.EncodeStatePublication(
                 messageType, "msg-2", sessionId, null, null, null, TestStateAuthorityLifecycle.Current, new object())
             : context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());
@@ -2248,12 +2249,13 @@ public class PublicHelloAdmissionTests
     [InlineData(PublicMessageType.Error)]
     [InlineData(PublicMessageType.Pong)]
     [InlineData(PublicMessageType.StateSnapshot)]
+    [InlineData(PublicMessageType.GameplayReadiness)]
     public void HandleMessageAsync_FullSessionServerOnlyType_RejectsAsMalformed(PublicMessageType messageType)
     {
         var context = new TestContext();
         AdmitViaTrustedDeviceCredentialHello(context, out string sessionId, out _);
 
-        byte[] message = messageType == PublicMessageType.StateSnapshot
+        byte[] message = messageType is PublicMessageType.StateSnapshot or PublicMessageType.GameplayReadiness
             ? context.Codec.EncodeStatePublication(
                 messageType, "msg-2", sessionId, null, null, null, TestStateAuthorityLifecycle.Current, new object())
             : context.Codec.Encode(messageType, "msg-2", sessionId, null, null, null, new object());

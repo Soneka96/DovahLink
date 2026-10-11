@@ -82,11 +82,12 @@ public interface IPublicEnvelopeCodec
         TPayload payload);
 
     /// <summary>
-    /// Encodes one state Snapshot or Event using the authority identity captured by its immutable
-    /// publication. It never reads the lifecycle's later current value.
+    /// Encodes one state Snapshot or Event, or one <c>gameplay_readiness</c> message, using the
+    /// authority identity captured by its immutable publication. It never reads the lifecycle's later
+    /// current value.
     /// </summary>
     /// <typeparam name="TPayload">The state publication payload type.</typeparam>
-    /// <param name="messageType">The state publication type, either <c>state_snapshot</c> or <c>state_event</c>.</param>
+    /// <param name="messageType">The publication type: <c>state_snapshot</c>, <c>state_event</c>, or <c>gameplay_readiness</c>.</param>
     /// <param name="messageId">A fresh, cryptographically random message identifier, unique within the socket session.</param>
     /// <param name="sessionId">The server-issued session identity.</param>
     /// <param name="correlationId">The originating request identifier, or <see langword="null"/> when unsolicited.</param>
@@ -264,9 +265,10 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
         StateAuthorityId stateAuthorityId,
         TPayload payload)
     {
-        if (messageType is not (PublicMessageType.StateSnapshot or PublicMessageType.StateEvent))
+        if (messageType is not (PublicMessageType.StateSnapshot or PublicMessageType.StateEvent or PublicMessageType.GameplayReadiness))
         {
-            throw new ArgumentException("A state publication must be a Snapshot or Event.", nameof(messageType));
+            throw new ArgumentException(
+                "An authority-stamped publication must be a Snapshot, Event, or GameplayReadiness.", nameof(messageType));
         }
 
         return EncodeCore(messageType, messageId, sessionId, correlationId, playContextId, clientId, stateAuthorityId, payload);
@@ -440,13 +442,16 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
     }
 
     /// <summary>
-    /// Reports whether <paramref name="messageType"/> is one of the three message types
+    /// Reports whether <paramref name="messageType"/> is one of the four message types
     /// <c>stateAuthorityId</c> is required and non-null on -- the closed wire-presence table
     /// <c>ai/context/protocol/compatibility.md</c> documents; every other message type must omit it
     /// entirely.
     /// </summary>
     private static bool RequiresStateAuthorityId(PublicMessageType messageType) =>
-        messageType is PublicMessageType.HelloAck or PublicMessageType.StateSnapshot or PublicMessageType.StateEvent;
+        messageType is PublicMessageType.HelloAck
+            or PublicMessageType.StateSnapshot
+            or PublicMessageType.StateEvent
+            or PublicMessageType.GameplayReadiness;
 
     /// <summary>
     /// Reads <c>stateAuthorityId</c> per its closed wire-presence table: required and a non-null
@@ -495,6 +500,7 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
             case "state_event": messageType = PublicMessageType.StateEvent; return true;
             case "error": messageType = PublicMessageType.Error; return true;
             case "session_invalidated": messageType = PublicMessageType.SessionInvalidated; return true;
+            case "gameplay_readiness": messageType = PublicMessageType.GameplayReadiness; return true;
             case "ping": messageType = PublicMessageType.Ping; return true;
             case "pong": messageType = PublicMessageType.Pong; return true;
             default: messageType = default; return false;
@@ -523,6 +529,7 @@ public sealed class PublicEnvelopeCodec : IPublicEnvelopeCodec
         PublicMessageType.StateEvent => "state_event",
         PublicMessageType.Error => "error",
         PublicMessageType.SessionInvalidated => "session_invalidated",
+        PublicMessageType.GameplayReadiness => "gameplay_readiness",
         PublicMessageType.Ping => "ping",
         PublicMessageType.Pong => "pong",
         _ => throw new ArgumentOutOfRangeException(nameof(messageType)),

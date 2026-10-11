@@ -94,6 +94,18 @@
     <None Include="..\..\protocol\fixtures\state\state-snapshot-tracked-quests-unavailable.json"
           Link="protocol\fixtures\state\state-snapshot-tracked-quests-unavailable.json"
           CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\readiness\gameplay-readiness-ready.json"
+          Link="protocol\fixtures\readiness\gameplay-readiness-ready.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\readiness\gameplay-readiness-not-ready.json"
+          Link="protocol\fixtures\readiness\gameplay-readiness-not-ready.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\readiness\gameplay-readiness-sequence-zero.json"
+          Link="protocol\fixtures\readiness\gameplay-readiness-sequence-zero.json"
+          CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\protocol\fixtures\readiness\gameplay-readiness-unknown-payload-field.json"
+          Link="protocol\fixtures\readiness\gameplay-readiness-unknown-payload-field.json"
+          CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>

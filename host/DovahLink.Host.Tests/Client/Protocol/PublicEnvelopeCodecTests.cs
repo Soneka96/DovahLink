@@ -265,7 +265,7 @@ public class PublicEnvelopeCodecTests
     [MemberData(nameof(AllMessageTypes))]
     public void EncodeThenDecode_EveryMessageType_RoundTrips(PublicMessageType messageType)
     {
-        byte[] encoded = messageType is PublicMessageType.StateSnapshot or PublicMessageType.StateEvent
+        byte[] encoded = messageType is PublicMessageType.StateSnapshot or PublicMessageType.StateEvent or PublicMessageType.GameplayReadiness
             ? Codec.EncodeStatePublication(messageType, "msg-1", null, null, null, null, PublicationAuthority, new { })
             : Codec.Encode(messageType, "msg-1", null, null, null, null, new { });
 
@@ -292,9 +292,10 @@ public class PublicEnvelopeCodecTests
     [InlineData(PublicMessageType.HelloAck)]
     [InlineData(PublicMessageType.StateSnapshot)]
     [InlineData(PublicMessageType.StateEvent)]
+    [InlineData(PublicMessageType.GameplayReadiness)]
     public void Encode_GatedMessageType_WritesNonNullStateAuthorityId(PublicMessageType messageType)
     {
-        byte[] encoded = messageType is PublicMessageType.StateSnapshot or PublicMessageType.StateEvent
+        byte[] encoded = messageType is PublicMessageType.StateSnapshot or PublicMessageType.StateEvent or PublicMessageType.GameplayReadiness
             ? Codec.EncodeStatePublication(messageType, "msg-1", "session-1", null, null, null, PublicationAuthority, new object())
             : Codec.Encode(messageType, "msg-1", "session-1", null, null, null, new object());
 
@@ -1230,6 +1231,154 @@ public class PublicEnvelopeCodecTests
 
         return builder.ToString();
     }
+
+    // ---- gameplay_readiness ----
+
+    /// <summary>Verifies that a readiness message encodes with the captured authority, a null correlation and client, and only its two payload fields.</summary>
+    [Fact]
+    public void EncodeStatePublication_GameplayReadiness_CarriesCapturedAuthorityAndOnlyCoarsePayload()
+    {
+        byte[] encoded = Codec.EncodeStatePublication(
+            PublicMessageType.GameplayReadiness, "msg-1", "session-1", null, "context-1", null, PublicationAuthority,
+            new GameplayReadinessPayload { Ready = true, Sequence = 7 });
+
+        Assert.True(Codec.TryDecode(encoded, out PublicEnvelope? envelope));
+        Assert.Equal(PublicMessageType.GameplayReadiness, envelope!.MessageType);
+        Assert.Equal("session-1", envelope.SessionId);
+        Assert.Null(envelope.CorrelationId);
+        Assert.Null(envelope.ClientId);
+        Assert.Equal("context-1", envelope.PlayContextId);
+        Assert.Equal(PublicationAuthority.ToString(), envelope.StateAuthorityId);
+        Assert.Equal(
+            ["ready", "sequence"],
+            envelope.Payload.EnumerateObject().Select(property => property.Name).OrderBy(name => name, StringComparer.Ordinal).ToArray());
+        Assert.True(Codec.TryDecodePayload(envelope, out GameplayReadinessPayload? payload));
+        Assert.True(payload!.Ready);
+        Assert.Equal(7, payload.Sequence);
+    }
+
+    /// <summary>Verifies that a readiness message cannot be encoded without a captured authority: it never falls back to the live lifecycle value.</summary>
+    [Fact]
+    public void Encode_GameplayReadinessWithoutCapturedAuthority_Throws()
+    {
+        Assert.Throws<InvalidOperationException>(() => Codec.Encode(
+            PublicMessageType.GameplayReadiness, "msg-1", "session-1", null, null, null,
+            new GameplayReadinessPayload { Ready = false, Sequence = 1 }));
+    }
+
+    /// <summary>Verifies that the authority-stamped encoder still rejects a message type that is not an authority-stamped publication.</summary>
+    [Fact]
+    public void EncodeStatePublication_NonPublicationType_Throws()
+    {
+        Assert.Throws<ArgumentException>(() => Codec.EncodeStatePublication(
+            PublicMessageType.Pong, "msg-1", "session-1", null, null, null, PublicationAuthority, new EmptyPayload()));
+    }
+
+    /// <summary>Verifies that a readiness envelope without stateAuthorityId, or with a null or non-string one, fails envelope decoding.</summary>
+    [Theory]
+    [InlineData("")]
+    [InlineData(",\"stateAuthorityId\":null")]
+    [InlineData(",\"stateAuthorityId\":7")]
+    public void TryDecode_GameplayReadinessWithoutUsableStateAuthorityId_ReturnsFalse(string authorityMember)
+    {
+        string json = "{\"messageType\":\"gameplay_readiness\",\"messageId\":\"m\",\"sessionId\":\"s\",\"correlationId\":null,"
+            + "\"payload\":{\"ready\":true,\"sequence\":1},\"playContextId\":null,\"clientId\":null" + authorityMember + "}";
+
+        Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
+    }
+
+    /// <summary>Verifies that the canonical valid readiness fixtures decode completely, including the not-ready fixture's null play context.</summary>
+    [Theory]
+    [InlineData("gameplay-readiness-ready.json", true, 2, "context-1")]
+    [InlineData("gameplay-readiness-not-ready.json", false, 1, null)]
+    public void TryDecode_ReadinessFixture_DecodesEnvelopeAndPayload(string fileName, bool ready, long sequence, string? playContextId)
+    {
+        Assert.True(Codec.TryDecode(ReadReadinessFixture(fileName), out PublicEnvelope? envelope));
+
+        Assert.Equal(PublicMessageType.GameplayReadiness, envelope!.MessageType);
+        Assert.Equal("session-1", envelope.SessionId);
+        Assert.Null(envelope.CorrelationId);
+        Assert.Null(envelope.ClientId);
+        Assert.Equal("state-authority-1", envelope.StateAuthorityId);
+        Assert.Equal(playContextId, envelope.PlayContextId);
+        Assert.True(Codec.TryDecodePayload(envelope, out GameplayReadinessPayload? payload));
+        Assert.Equal(ready, payload!.Ready);
+        Assert.Equal(sequence, payload.Sequence);
+    }
+
+    /// <summary>Verifies that malformed readiness fixtures decode as envelopes but are rejected as payloads: sequence zero and an unknown, sensitive-looking field.</summary>
+    [Theory]
+    [InlineData("gameplay-readiness-sequence-zero.json")]
+    [InlineData("gameplay-readiness-unknown-payload-field.json")]
+    public void TryDecodePayload_MalformedReadinessFixture_ReturnsFalse(string fileName)
+    {
+        Assert.True(Codec.TryDecode(ReadReadinessFixture(fileName), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out GameplayReadinessPayload? _));
+    }
+
+    /// <summary>Verifies that every other malformed readiness payload shape is rejected: missing, mistyped, negative, fractional, and string-typed members.</summary>
+    [Theory]
+    [InlineData("{\"sequence\":1}")]
+    [InlineData("{\"ready\":true}")]
+    [InlineData("{\"ready\":\"yes\",\"sequence\":1}")]
+    [InlineData("{\"ready\":1,\"sequence\":1}")]
+    [InlineData("{\"ready\":true,\"sequence\":-1}")]
+    [InlineData("{\"ready\":true,\"sequence\":1.5}")]
+    [InlineData("{\"ready\":true,\"sequence\":\"1\"}")]
+    [InlineData("{\"ready\":null,\"sequence\":1}")]
+    [InlineData("{\"ready\":true,\"sequence\":null}")]
+    [InlineData("{\"ready\":true,\"sequence\":true}")]
+    [InlineData("{\"ready\":true,\"sequence\":1.0}")]
+    [InlineData("{\"ready\":true,\"sequence\":1e3}")]
+    [InlineData("{\"ready\":true,\"sequence\":9223372036854775808}")]
+    public void TryDecodePayload_MalformedReadinessShape_ReturnsFalse(string payloadJson)
+    {
+        string json = "{\"messageType\":\"gameplay_readiness\",\"messageId\":\"m\",\"sessionId\":\"s\",\"correlationId\":null,\"payload\":"
+            + payloadJson + ",\"stateAuthorityId\":\"a\",\"playContextId\":null,\"clientId\":null}";
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.False(Codec.TryDecodePayload(envelope!, out GameplayReadinessPayload? _));
+    }
+
+    /// <summary>Verifies that the largest representable sequence is accepted: the only bound is positivity.</summary>
+    [Fact]
+    public void TryDecodePayload_GameplayReadinessMaximumSequence_Decodes()
+    {
+        string json = "{\"messageType\":\"gameplay_readiness\",\"messageId\":\"m\",\"sessionId\":\"s\",\"correlationId\":null,\"payload\":"
+            + "{\"ready\":false,\"sequence\":9223372036854775807},\"stateAuthorityId\":\"a\",\"playContextId\":null,\"clientId\":null}";
+        Assert.True(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out PublicEnvelope? envelope));
+
+        Assert.True(Codec.TryDecodePayload(envelope!, out GameplayReadinessPayload? payload));
+        Assert.Equal(long.MaxValue, payload!.Sequence);
+    }
+
+    /// <summary>Verifies that a readiness envelope whose payload is JSON null or absent fails envelope decoding.</summary>
+    [Theory]
+    [InlineData(",\"payload\":null")]
+    [InlineData("")]
+    public void TryDecode_GameplayReadinessWithoutObjectPayload_ReturnsFalse(string payloadMember)
+    {
+        string json = "{\"messageType\":\"gameplay_readiness\",\"messageId\":\"m\",\"sessionId\":\"s\",\"correlationId\":null,"
+            + "\"stateAuthorityId\":\"a\",\"playContextId\":null,\"clientId\":null" + payloadMember + "}";
+
+        Assert.False(Codec.TryDecode(Encoding.UTF8.GetBytes(json), out _));
+    }
+
+    /// <summary>Verifies that encoding refuses a non-positive sequence, so the Host can never emit an invalid readiness publication.</summary>
+    [Theory]
+    [InlineData(0)]
+    [InlineData(-3)]
+    public void EncodeStatePublication_GameplayReadinessNonPositiveSequence_Throws(long sequence)
+    {
+        Assert.Throws<JsonException>(() => Codec.EncodeStatePublication(
+            PublicMessageType.GameplayReadiness, "msg-1", "session-1", null, null, null, PublicationAuthority,
+            new GameplayReadinessPayload { Ready = true, Sequence = sequence }));
+    }
+
+    /// <summary>Reads one canonical readiness fixture, as copied beside the test assembly.</summary>
+    private static byte[] ReadReadinessFixture(string fileName) =>
+        File.ReadAllBytes(Path.Combine(AppContext.BaseDirectory, "protocol", "fixtures", "readiness", fileName));
 
     /// <summary>Builds a JSON array literal of the given element count.</summary>
     private static string BuildJsonNumberArray(int count) =>
