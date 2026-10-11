@@ -1,4 +1,5 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
+import 'package:dovahlink_client_sdk/src/internal/readiness/gameplay_readiness_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
@@ -11,14 +12,18 @@ abstract interface class ISessionAdmissionService {
   /// Admits a newly authenticated session, recording [sessionId] and [trustState] and triggering
   /// retransmission of any retry-safe operation an earlier ordinary transport loss orphaned, per
   /// `ai/context/sdk/architecture.md`'s "Session-state ownership". A trusted admission also starts
-  /// best-effort restoration of the remembered state-area subscriptions.
+  /// best-effort restoration of the remembered state-area subscriptions. Admission also decides any
+  /// gameplay-readiness message that arrived before it, since the Host sends the first one right
+  /// after `hello_ack`.
   /// @param sessionId The server-issued identity for this connection's session.
   /// @param trustState The trust tier admitted by the Host.
   /// @param currentHost The Host identity and endpoint reported for this session.
+  /// @param stateAuthorityId The state-authority continuity identity reported by `hello_ack`.
   void admitSession({
     required String sessionId,
     required DovahLinkTrustState trustState,
     required DovahLinkHost currentHost,
+    required String stateAuthorityId,
   });
 }
 
@@ -37,18 +42,24 @@ class SessionAdmissionService implements ISessionAdmissionService {
   /// Restores desired state-area subscriptions after trusted admission.
   final ISubscriptionService _subscriptionService;
 
+  /// Decides the readiness message staged before admission and binds readiness to the new session.
+  final IGameplayReadinessService _gameplayReadinessService;
+
   /// Creates a session admission service over [state], retrying orphaned operations through
   /// [requestService], then restoring trusted subscriptions through [subscriptionService].
   /// @param state The single owner of current session state.
   /// @param requestService Retries eligible operations after admission.
   /// @param subscriptionService Restores desired state areas for trusted sessions.
+  /// @param gameplayReadinessService Owns the accepted gameplay-readiness fact.
   SessionAdmissionService({
     required SessionState state,
     required IRequestService requestService,
     required ISubscriptionService subscriptionService,
+    required IGameplayReadinessService gameplayReadinessService,
   }) : _state = state,
        _requestService = requestService,
-       _subscriptionService = subscriptionService;
+       _subscriptionService = subscriptionService,
+       _gameplayReadinessService = gameplayReadinessService;
 
   /// Implements [ISessionAdmissionService.admitSession].
   @override
@@ -56,11 +67,16 @@ class SessionAdmissionService implements ISessionAdmissionService {
     required String sessionId,
     required DovahLinkTrustState trustState,
     required DovahLinkHost currentHost,
+    required String stateAuthorityId,
   }) {
     _state.admit(
       sessionId: sessionId,
       trustState: trustState,
       currentHost: currentHost,
+    );
+    _gameplayReadinessService.onSessionAdmitted(
+      sessionId: sessionId,
+      stateAuthorityId: stateAuthorityId,
     );
     _requestService.retryOrphanedOperations();
     if (trustState == DovahLinkTrustState.trusted) {

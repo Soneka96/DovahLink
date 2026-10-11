@@ -259,6 +259,14 @@ class AuthenticationService implements IAuthenticationService {
           retryable: false,
         );
       }
+      final String? stateAuthorityId = response.stateAuthorityId;
+      if (stateAuthorityId == null) {
+        throw const DovahLinkProtocolException(
+          code: ProtocolErrorCode.malformedMessage,
+          message: 'The host reported hello_ack with no stateAuthorityId.',
+          retryable: false,
+        );
+      }
       final Uri? currentEndpoint = _sessionService.currentEndpoint;
       if (currentEndpoint == null) {
         throw const DovahLinkConnectionException(
@@ -323,6 +331,7 @@ class AuthenticationService implements IAuthenticationService {
         sessionId: sessionId,
         trustState: trustState,
         currentHost: currentHost,
+        stateAuthorityId: stateAuthorityId,
       );
       if (normalizedKnownHostId != null) {
         _sessionService.associateKnownHost(

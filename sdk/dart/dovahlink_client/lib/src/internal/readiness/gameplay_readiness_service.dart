@@ -48,11 +48,12 @@ abstract interface class IGameplayReadinessService {
   /// authority supersedes the previous one: readiness becomes `unknown` until a message under the
   /// new authority is applied, and a later message from a superseded authority is discarded.
   /// Ignored without an admitted session.
-  /// @param stateAuthorityId The authority carried by an accepted state message.
+  /// @param stateAuthorityId The authority carried by a state message routed to a domain.
   void onStateAuthorityObserved(String stateAuthorityId);
 
   /// Forgets the session, its sequence, its authority history, and any staged observation, and
-  /// returns to `unknown`. Called whenever the session ends or a connection attempt begins.
+  /// returns to `unknown`. Called whenever a connection ends, however it ends. A new connection
+  /// attempt always follows such an ending, so none begins with stale readiness.
   void reset();
 
   /// Resets and then ignores every later call. Called when the client closes.

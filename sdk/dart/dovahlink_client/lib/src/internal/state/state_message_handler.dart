@@ -1,5 +1,6 @@
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
+import 'package:dovahlink_client_sdk/src/internal/readiness/gameplay_readiness_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
@@ -79,13 +80,20 @@ class StateMessageHandler implements IStateMessageHandler {
   /// The authority and play context currently installed across subscribed trackers.
   ({String stateAuthorityId, String? playContextId})? _currentIdentity;
 
+  /// Told which state authority each routed state message reveals, so gameplay readiness from a
+  /// superseded authority is never restored. Readiness is otherwise independent of state areas.
+  final IGameplayReadinessService _gameplayReadinessService;
+
   /// Creates a handler over the supplied state-area registrations.
   /// @param sessionService Reports malformed messages to the lifecycle.
   /// @param domains The typed definitions for supported state areas.
+  /// @param gameplayReadinessService Told each state authority a routed message reveals.
   StateMessageHandler({
     required ISessionService sessionService,
     required List<IStateDomainDefinition<Object?>> domains,
+    required IGameplayReadinessService gameplayReadinessService,
   }) : _sessionService = sessionService,
+       _gameplayReadinessService = gameplayReadinessService,
        _domains = <String, IStateDomainDefinition<Object?>>{
          for (final IStateDomainDefinition<Object?> domain in domains)
            domain.stateArea: domain,
@@ -236,6 +244,8 @@ class StateMessageHandler implements IStateMessageHandler {
         retryable: false,
       );
     }
+
+    _gameplayReadinessService.onStateAuthorityObserved(stateAuthorityId);
 
     final ({String stateAuthorityId, String? playContextId}) incomingIdentity =
         (

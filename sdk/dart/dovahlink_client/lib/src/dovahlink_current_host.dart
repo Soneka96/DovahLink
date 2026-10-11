@@ -2,6 +2,7 @@ import 'package:dovahlink_client_sdk/src/dovahlink_character.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_connection_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_host.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
+import 'package:dovahlink_client_sdk/src/internal/readiness/gameplay_readiness_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
@@ -23,6 +24,17 @@ abstract interface class IDovahLinkCurrentHost {
 
   /// The admitted session identifier, or `null` before admission.
   String? get sessionId;
+
+  /// Whether the admitted Host currently reports gameplay as ready.
+  ///
+  /// [DovahLinkGameplayReadiness.unknown] means the SDK holds no valid Host report for the current
+  /// session -- before admission, during any interruption or reconnection, and after a session or
+  /// the Host's state authority changes. It is never inferred from connection state, trust state,
+  /// or retained gameplay values, and it is available to restricted and trusted sessions alike.
+  DovahLinkGameplayReadiness get gameplayReadiness;
+
+  /// Replays [gameplayReadiness] to each new subscriber, then emits every transition.
+  Stream<DovahLinkGameplayReadiness> get gameplayReadinessChanges;
 
   /// The typed game-state views grouped by owning domain.
   IDovahLinkCharacter get character;
@@ -62,6 +74,9 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   /// Owns desired state-area subscriptions.
   final ISubscriptionService _subscriptionService;
 
+  /// Owns the accepted gameplay-readiness fact.
+  final IGameplayReadinessService _gameplayReadinessService;
+
   /// The current player's location synchronization stream.
   final Stream<StateSynchronization<PlayerLocationState?>>
   _playerLocationChanges;
@@ -79,6 +94,7 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   /// @param gameTimeChanges Replays the current Skyrim calendar synchronization state.
   /// @param trackedQuestsChanges Replays the current tracked-quests synchronization state.
   /// @param subscriptionService Owns desired state subscription operations.
+  /// @param gameplayReadinessService Owns the accepted gameplay-readiness fact.
   DovahLinkCurrentHost({
     required ISessionService sessionService,
     required IDovahLinkCharacter character,
@@ -88,7 +104,9 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
     required Stream<StateSynchronization<TrackedQuestsState?>>
     trackedQuestsChanges,
     required ISubscriptionService subscriptionService,
+    required IGameplayReadinessService gameplayReadinessService,
   }) : _sessionService = sessionService,
+       _gameplayReadinessService = gameplayReadinessService,
        _character = character,
        _playerLocationChanges = playerLocationChanges,
        _gameTimeChanges = gameTimeChanges,
@@ -106,6 +124,16 @@ class DovahLinkCurrentHost implements IDovahLinkCurrentHost {
   /// Implements [IDovahLinkCurrentHost.sessionId].
   @override
   String? get sessionId => _sessionService.currentSessionId;
+
+  /// Implements [IDovahLinkCurrentHost.gameplayReadiness].
+  @override
+  DovahLinkGameplayReadiness get gameplayReadiness =>
+      _gameplayReadinessService.current;
+
+  /// Implements [IDovahLinkCurrentHost.gameplayReadinessChanges].
+  @override
+  Stream<DovahLinkGameplayReadiness> get gameplayReadinessChanges =>
+      _gameplayReadinessService.changes;
 
   /// Implements [IDovahLinkCurrentHost.character].
   @override

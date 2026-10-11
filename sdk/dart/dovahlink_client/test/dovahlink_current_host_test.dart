@@ -10,6 +10,7 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart'
     show ISessionService;
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart'
     show ISubscriptionService;
+import 'internal/readiness/mock_gameplay_readiness_service.dart';
 import 'fixtures/fixtures.dart';
 
 /// Mocks the admitted session context owner.
@@ -27,6 +28,7 @@ void main() {
   late MockCurrentHostSessionService sessionService;
   late MockCurrentHostSubscriptionService subscriptionService;
   late MockCurrentHostCharacter character;
+  late MockGameplayReadinessService gameplayReadinessService;
   late Stream<StateSynchronization<PlayerLocationState?>> playerLocationChanges;
   late Stream<StateSynchronization<GameTimeState?>> gameTimeChanges;
   late Stream<StateSynchronization<TrackedQuestsState?>> trackedQuestsChanges;
@@ -36,6 +38,7 @@ void main() {
     sessionService = MockCurrentHostSessionService();
     subscriptionService = MockCurrentHostSubscriptionService();
     character = MockCurrentHostCharacter();
+    gameplayReadinessService = MockGameplayReadinessService();
     playerLocationChanges =
         Stream<StateSynchronization<PlayerLocationState?>>.value(
           const StateSynchronization<PlayerLocationState?>.notSubscribed(),
@@ -54,6 +57,7 @@ void main() {
       gameTimeChanges: gameTimeChanges,
       trackedQuestsChanges: trackedQuestsChanges,
       subscriptionService: subscriptionService,
+      gameplayReadinessService: gameplayReadinessService,
     );
   });
 
@@ -73,6 +77,35 @@ void main() {
       verify(() => sessionService.currentTrustState).called(1);
       verify(() => sessionService.currentSessionId).called(1);
     });
+  });
+
+  group('Property gameplayReadiness behaves correctly', () {
+    test('Property gameplayReadiness reads the readiness owner', () {
+      when(
+        () => gameplayReadinessService.current,
+      ).thenReturn(DovahLinkGameplayReadiness.notReady);
+
+      expect(
+        currentHost.gameplayReadiness,
+        DovahLinkGameplayReadiness.notReady,
+      );
+    });
+
+    test(
+      'Property gameplayReadinessChanges is the readiness owner replay stream',
+      () {
+        final Stream<DovahLinkGameplayReadiness> changes =
+            Stream<DovahLinkGameplayReadiness>.fromIterable(
+              <DovahLinkGameplayReadiness>[
+                DovahLinkGameplayReadiness.unknown,
+                DovahLinkGameplayReadiness.ready,
+              ],
+            );
+        when(() => gameplayReadinessService.changes).thenAnswer((_) => changes);
+
+        expect(currentHost.gameplayReadinessChanges, same(changes));
+      },
+    );
   });
 
   group('Property character behaves correctly', () {

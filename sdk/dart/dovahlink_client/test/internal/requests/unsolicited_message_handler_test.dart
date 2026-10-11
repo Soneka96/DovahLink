@@ -6,9 +6,11 @@ import 'package:dovahlink_client_sdk/src/internal/requests/unsolicited_message_h
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
 import 'package:dovahlink_client_sdk/src/protocol/error_payload.dart';
+import 'package:dovahlink_client_sdk/src/protocol/gameplay_readiness_payload.dart';
 import 'package:dovahlink_client_sdk/src/protocol/json_map.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 import '../../fixtures/fixtures.dart';
+import '../readiness/mock_gameplay_readiness_service.dart';
 import '../state/mock_state_message_handler.dart';
 
 /// Mock session service used to capture unsolicited-message decisions.
@@ -18,12 +20,14 @@ class MockSessionService extends Mock implements ISessionService {}
 void main() {
   late MockSessionService sessionService;
   late MockStateMessageHandler stateMessageHandler;
+  late MockGameplayReadinessService readiness;
   late UnsolicitedMessageHandler handler;
 
   setUpAll(() {
     registerFallbackValue(Exception('fallback for any()'));
     registerFallbackValue(AdministrativeInvalidationReason.revoked);
     registerFallbackValue(Fixtures.buildEnvelope());
+    registerFallbackValue(Fixtures.buildGameplayReadinessPayload());
     registerFallbackValue(
       const ErrorPayload(
         code: ProtocolErrorCode.malformedMessage,
@@ -36,6 +40,14 @@ void main() {
   setUp(() {
     sessionService = MockSessionService();
     stateMessageHandler = MockStateMessageHandler();
+    readiness = MockGameplayReadinessService();
+    when(
+      () => readiness.observe(
+        sessionId: any(named: 'sessionId'),
+        stateAuthorityId: any(named: 'stateAuthorityId'),
+        payload: any(named: 'payload'),
+      ),
+    ).thenAnswer((_) {});
     when(() => stateMessageHandler.handle(any())).thenAnswer((_) {});
     when(
       () => stateMessageHandler.isPendingBaselineCorrelation(any()),
@@ -43,6 +55,116 @@ void main() {
     handler = UnsolicitedMessageHandler(
       sessionService: sessionService,
       stateMessageHandler: stateMessageHandler,
+      gameplayReadinessService: readiness,
+    );
+  });
+
+  group('Method handle for gameplay_readiness behaves correctly', () {
+    /// Builds a valid unsolicited readiness envelope carrying [payload].
+    Envelope buildReadiness(
+      JsonMap payload, {
+      String? sessionId = 'session-1',
+    }) => Fixtures.buildEnvelope(
+      messageType: ProtocolMessageType.gameplayReadiness,
+      sessionId: sessionId,
+      correlationId: null,
+      stateAuthorityId: 'authority-1',
+      payload: payload,
+    );
+
+    test(
+      'Method handle gives a valid readiness message to the readiness owner',
+      () {
+        handler.handle(
+          buildReadiness(const <String, dynamic>{'ready': true, 'sequence': 3}),
+        );
+
+        final GameplayReadinessPayload payload =
+            verify(
+                  () => readiness.observe(
+                    sessionId: 'session-1',
+                    stateAuthorityId: 'authority-1',
+                    payload: captureAny(named: 'payload'),
+                  ),
+                ).captured.single
+                as GameplayReadinessPayload;
+        expect(payload.ready, isTrue);
+        expect(payload.sequence, 3);
+        verifyNever(() => stateMessageHandler.handle(any()));
+        verifyNever(
+          () => sessionService.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handle reports malformed readiness payloads without observing them',
+      () {
+        const List<JsonMap> malformedPayloads = <JsonMap>[
+          <String, dynamic>{'ready': true, 'sequence': 0},
+          <String, dynamic>{'ready': true, 'sequence': 1.5},
+          <String, dynamic>{'ready': 'yes', 'sequence': 1},
+          <String, dynamic>{'sequence': 1},
+          <String, dynamic>{'ready': true, 'sequence': 1, 'reason': 'loading'},
+          <String, dynamic>{},
+        ];
+
+        for (final JsonMap payload in malformedPayloads) {
+          handler.handle(buildReadiness(payload));
+        }
+
+        final VerificationResult verification = verify(
+          () => sessionService.onProtocolViolation(
+            captureAny(),
+            orphanRetrySafeOperations: captureAny(
+              named: 'orphanRetrySafeOperations',
+            ),
+          ),
+        );
+        expect(verification.callCount, malformedPayloads.length);
+        expect(
+          verification.captured.whereType<DovahLinkProtocolException>().map(
+            (DovahLinkProtocolException error) => error.code,
+          ),
+          everyElement(ProtocolErrorCode.malformedMessage),
+        );
+        verifyNever(
+          () => readiness.observe(
+            sessionId: any(named: 'sessionId'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            payload: any(named: 'payload'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method handle reports a readiness envelope without session identity',
+      () {
+        handler.handle(
+          buildReadiness(const <String, dynamic>{
+            'ready': true,
+            'sequence': 1,
+          }, sessionId: null),
+        );
+
+        verify(
+          () => sessionService.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: false,
+          ),
+        ).called(1);
+        verifyNever(
+          () => readiness.observe(
+            sessionId: any(named: 'sessionId'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            payload: any(named: 'payload'),
+          ),
+        );
+      },
     );
   });
 

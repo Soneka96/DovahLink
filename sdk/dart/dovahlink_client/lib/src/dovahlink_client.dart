@@ -19,6 +19,7 @@ import 'package:dovahlink_client_sdk/src/internal/discovery/host_candidate_servi
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/persistence/client_state_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/random_id_generator.dart';
+import 'package:dovahlink_client_sdk/src/internal/readiness/gameplay_readiness_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/message_router.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_bookkeeping.dart';
@@ -160,14 +161,17 @@ class DovahLinkClient {
           gameTimeState.domain,
           trackedQuestsState.domain,
         ];
+    _gameplayReadinessService = GameplayReadinessService();
     final IStateMessageHandler stateMessageHandler = StateMessageHandler(
       sessionService: _sessionService,
       domains: stateDomains,
+      gameplayReadinessService: _gameplayReadinessService,
     );
     final IUnsolicitedMessageHandler unsolicitedMessageHandler =
         UnsolicitedMessageHandler(
           sessionService: _sessionService,
           stateMessageHandler: stateMessageHandler,
+          gameplayReadinessService: _gameplayReadinessService,
         );
 
     final PendingOperationBookkeeping bookkeeping =
@@ -213,6 +217,7 @@ class DovahLinkClient {
           state: state,
           requestService: _requestService,
           subscriptionService: _subscriptionService,
+          gameplayReadinessService: _gameplayReadinessService,
         );
     final SessionTrustService sessionTrustService = SessionTrustService(
       state: state,
@@ -241,6 +246,9 @@ class DovahLinkClient {
         reason,
         orphanRetrySafeOperations: orphanRetrySafeOperations,
       );
+      // Gameplay readiness is session evidence, never retained like gameplay values: any ended
+      // connection, including one that will be recovered, leaves it unknown.
+      _gameplayReadinessService.reset();
       // Teardown has already resolved the lifecycle: only a session that is still `reconnecting`
       // will be replaced by bounded automatic recovery, so only then do accepted observations
       // stay readable (as non-current). Every other ending clears them with the accepted gate.
@@ -305,6 +313,7 @@ class DovahLinkClient {
       gameTimeChanges: gameTimeState.changes,
       trackedQuestsChanges: trackedQuestsState.changes,
       subscriptionService: _subscriptionService,
+      gameplayReadinessService: _gameplayReadinessService,
     );
     pairing = DovahLinkPairing(
       hostCandidateService: _hostCandidateService,
@@ -352,6 +361,9 @@ class DovahLinkClient {
   /// Owns pending requests, timeouts, and retry behavior for this client's session.
   late final IRequestService _requestService;
 
+  /// Owns the accepted gameplay-readiness fact for this client's sessions.
+  late final IGameplayReadinessService _gameplayReadinessService;
+
   /// Owns desired state-area subscriptions and their current Host acknowledgement.
   late final ISubscriptionService _subscriptionService;
 
@@ -395,6 +407,7 @@ class DovahLinkClient {
     await _knownHostInvalidationSubscription.cancel().catchError(
       (Object _, StackTrace __) {},
     );
+    _gameplayReadinessService.close();
     await _hostAvailabilityService.close().catchError(
       (Object _, StackTrace __) {},
     );

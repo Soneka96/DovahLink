@@ -63,6 +63,7 @@ Envelope buildHelloAckEnvelope({
 }) => Fixtures.buildEnvelope(
   messageType: ProtocolMessageType.helloAck,
   sessionId: sessionId,
+  stateAuthorityId: 'state-authority-1',
   clientId: clientId,
   payload: <String, dynamic>{
     'hostVersion': hostVersion,
@@ -159,6 +160,7 @@ void main() {
         sessionId: any(named: 'sessionId'),
         trustState: any(named: 'trustState'),
         currentHost: any(named: 'currentHost'),
+        stateAuthorityId: any(named: 'stateAuthorityId'),
       ),
     ).thenAnswer((_) {});
     when(() => storage.load()).thenAnswer(
@@ -184,6 +186,60 @@ void main() {
       hostAvailabilityService: hostAvailabilityService,
       clientIdResolver: clientIdResolver,
       clientIdCache: clientIdCache,
+    );
+  });
+
+  group('Method hello for stateAuthorityId behaves correctly', () {
+    test(
+      'Method hello admits the session with the hello_ack state authority',
+      () async {
+        stubSendAndAwait(requestService, buildHelloAckEnvelope());
+
+        await service.hello();
+
+        verify(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+            stateAuthorityId: 'state-authority-1',
+          ),
+        ).called(1);
+      },
+    );
+
+    test(
+      'Method hello rejects a hello_ack without a state authority before admission',
+      () async {
+        stubSendAndAwait(
+          requestService,
+          Fixtures.buildEnvelope(
+            messageType: ProtocolMessageType.helloAck,
+            sessionId: 'session-1',
+            clientId: 'client-1',
+            payload: const <String, dynamic>{
+              'hostVersion': '0.5.0',
+              'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
+              'hostName': 'Soneka-Desktop',
+              'clientIdentityKind': 'unpaired',
+            },
+          ),
+        );
+
+        await expectLater(
+          service.hello(),
+          throwsA(isA<DovahLinkProtocolException>()),
+        );
+
+        verifyNever(
+          () => sessionAdmissionService.admitSession(
+            sessionId: any(named: 'sessionId'),
+            trustState: any(named: 'trustState'),
+            currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+          ),
+        );
+      },
     );
   });
 
@@ -258,6 +314,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
       },
@@ -296,6 +353,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -382,6 +440,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
       },
@@ -418,6 +477,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -498,6 +558,7 @@ void main() {
             hostName: 'LIVINGROOM-PC',
             endpoint: Uri.parse('ws://127.0.0.1:58231/'),
           ),
+          stateAuthorityId: 'state-authority-1',
         ),
       ]);
       verifyNever(
@@ -627,6 +688,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -691,6 +753,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -748,6 +811,7 @@ void main() {
             sessionId: 'session-1',
             trustState: DovahLinkTrustState.unpaired,
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         ).called(1);
         verifyNever(() => storage.updateState(any()));
@@ -804,6 +868,7 @@ void main() {
               hostName: 'Soneka-Desktop',
               endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),
+            stateAuthorityId: 'state-authority-1',
           ),
         ).called(1);
       },
@@ -850,6 +915,7 @@ void main() {
               hostName: 'Soneka-Desktop',
               endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),
+            stateAuthorityId: 'state-authority-1',
           ),
         ).called(1);
         verifyNever(() => storage.updateState(any()));
@@ -892,6 +958,7 @@ void main() {
             hostName: 'UNPAIRED-CANDIDATE',
             endpoint: Uri.parse('ws://127.0.0.1:58231/'),
           ),
+          stateAuthorityId: 'state-authority-1',
         ),
       ).called(1);
     });
@@ -926,6 +993,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verifyNever(
@@ -964,6 +1032,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1011,6 +1080,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1154,6 +1224,7 @@ void main() {
               hostName: 'Soneka-Desktop',
               endpoint: Uri.parse('ws://127.0.0.1:58231/'),
             ),
+            stateAuthorityId: 'state-authority-1',
           ),
         ).called(1);
         verifyNever(
@@ -1173,6 +1244,7 @@ void main() {
           Fixtures.buildEnvelope(
             messageType: ProtocolMessageType.helloAck,
             sessionId: null,
+            stateAuthorityId: 'state-authority-1',
             payload: <String, dynamic>{
               'hostVersion': '0.5.0',
               'hostId': '81869993-955c-4ba3-a7d0-d35ca86078ea',
@@ -1198,6 +1270,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1232,6 +1305,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1271,6 +1345,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1310,6 +1385,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(
@@ -1339,6 +1415,7 @@ void main() {
             sessionId: any(named: 'sessionId'),
             trustState: any(named: 'trustState'),
             currentHost: any(named: 'currentHost'),
+            stateAuthorityId: any(named: 'stateAuthorityId'),
           ),
         );
         verify(

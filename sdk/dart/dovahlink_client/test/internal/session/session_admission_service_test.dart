@@ -6,6 +6,7 @@ import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart'
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_state.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
+import '../readiness/mock_gameplay_readiness_service.dart';
 import '../state/mock_subscription_service.dart';
 
 /// Mock session state used to isolate [SessionAdmissionService]'s own behavior, per
@@ -29,6 +30,7 @@ void main() {
   late MockSessionState state;
   late MockRequestService requestService;
   late MockSubscriptionService subscriptionService;
+  late MockGameplayReadinessService gameplayReadinessService;
   late SessionAdmissionService service;
 
   setUpAll(() {
@@ -46,6 +48,13 @@ void main() {
     state = MockSessionState();
     requestService = MockRequestService();
     subscriptionService = MockSubscriptionService();
+    gameplayReadinessService = MockGameplayReadinessService();
+    when(
+      () => gameplayReadinessService.onSessionAdmitted(
+        sessionId: any(named: 'sessionId'),
+        stateAuthorityId: any(named: 'stateAuthorityId'),
+      ),
+    ).thenAnswer((_) {});
     when(
       () => state.admit(
         sessionId: any(named: 'sessionId'),
@@ -61,10 +70,30 @@ void main() {
       state: state,
       requestService: requestService,
       subscriptionService: subscriptionService,
+      gameplayReadinessService: gameplayReadinessService,
     );
   });
 
   group('Method admitSession behaves correctly', () {
+    test(
+      'Method admitSession decides readiness for an unpaired session as well as a trusted one',
+      () {
+        service.admitSession(
+          sessionId: 'session-unpaired',
+          trustState: DovahLinkTrustState.unpaired,
+          currentHost: _currentHost(),
+          stateAuthorityId: 'state-authority-9',
+        );
+
+        verify(
+          () => gameplayReadinessService.onSessionAdmitted(
+            sessionId: 'session-unpaired',
+            stateAuthorityId: 'state-authority-9',
+          ),
+        ).called(1);
+      },
+    );
+
     test(
       'Method admitSession records sessionId and trustState onto SessionState',
       () {
@@ -72,6 +101,7 @@ void main() {
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
           currentHost: _currentHost(),
+          stateAuthorityId: 'state-authority-1',
         );
 
         verify(
@@ -91,6 +121,7 @@ void main() {
           sessionId: 'session-1',
           trustState: DovahLinkTrustState.trusted,
           currentHost: _currentHost(),
+          stateAuthorityId: 'state-authority-1',
         );
 
         verifyInOrder(<void Function()>[
@@ -98,6 +129,10 @@ void main() {
             sessionId: 'session-1',
             trustState: DovahLinkTrustState.trusted,
             currentHost: _currentHost(),
+          ),
+          () => gameplayReadinessService.onSessionAdmitted(
+            sessionId: 'session-1',
+            stateAuthorityId: 'state-authority-1',
           ),
           () => requestService.retryOrphanedOperations(),
           () => subscriptionService.restoreDesiredStateAreas(),
@@ -112,6 +147,7 @@ void main() {
           sessionId: 'session-unpaired',
           trustState: DovahLinkTrustState.unpaired,
           currentHost: _currentHost(),
+          stateAuthorityId: 'state-authority-1',
         );
         verifyNever(() => subscriptionService.restoreDesiredStateAreas());
 
@@ -119,6 +155,7 @@ void main() {
           sessionId: 'session-trusted',
           trustState: DovahLinkTrustState.trusted,
           currentHost: _currentHost(),
+          stateAuthorityId: 'state-authority-1',
         );
         verify(() => subscriptionService.restoreDesiredStateAreas()).called(1);
       },
