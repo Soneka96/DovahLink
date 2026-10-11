@@ -33,6 +33,17 @@ class RecordingStateMessageHandler implements IStateMessageHandler {
     this.baselineCorrelationId = baselineCorrelationId;
   }
 
+  /// How many times the gate was closed for automatic recovery rather than cleared.
+  int suspendCalls = 0;
+
+  /// Records a gate closure that keeps domain observations.
+  @override
+  void suspendStateAreas() {
+    suspendCalls++;
+    subscribedStateAreas = <String>{};
+    baselineCorrelationId = null;
+  }
+
   /// Reports whether the supplied correlation is the recorded baseline request.
   /// @param correlationId The Host response correlation to check.
   /// @return Whether the correlation matches the recorded request.

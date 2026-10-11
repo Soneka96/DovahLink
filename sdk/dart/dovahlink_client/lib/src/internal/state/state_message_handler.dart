@@ -21,6 +21,13 @@ abstract interface class IStateMessageHandler {
     String? baselineCorrelationId,
   });
 
+  /// Closes the accepted-area gate for an ended session that automatic recovery may replace, keeping
+  /// each admitted area's last accepted value, identity, and revision under the non-current
+  /// `recovering` status. Retention never authorizes a state message: nothing is applied until the
+  /// next [setSubscribedStateAreas] admits the area again. A later call reconciles every retained
+  /// area against its set: areas absent from it are reset, and a changed identity clears the rest.
+  void suspendStateAreas();
+
   /// Whether [correlationId] still identifies an accepted area's initial baseline.
   /// @param correlationId The Host response correlation to check.
   /// @return Whether the correlation belongs to a baseline still being established.
@@ -45,6 +52,10 @@ class StateMessageHandler implements IStateMessageHandler {
   /// ACK-adjacent baseline cannot race ahead of the gate. After the acknowledgement, it is
   /// reconciled to the Host-accepted set.
   final Set<String> _subscribedStateAreas = <String>{};
+
+  /// Areas whose gate closed with [suspendStateAreas] and whose trackers still hold the last accepted
+  /// observation. They are outside [_subscribedStateAreas], so they can never accept a message.
+  final Set<String> _retainedStateAreas = <String>{};
 
   /// Marks an area admitted when its `subscribe` was sent, whose request ID is not yet known to be
   /// authoritative. The acknowledgement replaces it with the real request ID; it never matches one.
@@ -74,6 +85,10 @@ class StateMessageHandler implements IStateMessageHandler {
     Set<String> stateAreas, {
     String? baselineCorrelationId,
   }) {
+    for (final String area in _retainedStateAreas.difference(stateAreas)) {
+      _domains[area]?.tracker.resetToNotSubscribed();
+    }
+    _retainedStateAreas.clear();
     final Set<String> addedAreas = stateAreas.difference(_subscribedStateAreas);
     for (final String area in addedAreas) {
       _domains[area]?.tracker.beginRecovery();
@@ -100,6 +115,17 @@ class StateMessageHandler implements IStateMessageHandler {
     _subscribedStateAreas
       ..clear()
       ..addAll(stateAreas);
+  }
+
+  /// Implements [IStateMessageHandler.suspendStateAreas].
+  @override
+  void suspendStateAreas() {
+    for (final String area in _subscribedStateAreas) {
+      _domains[area]?.tracker.beginRecovery();
+      _retainedStateAreas.add(area);
+    }
+    _subscribedStateAreas.clear();
+    _pendingBaselineCorrelations.clear();
   }
 
   /// Implements [IStateMessageHandler.isPendingBaselineCorrelation].
