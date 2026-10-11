@@ -10,6 +10,7 @@ import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import '../../fixtures/fixtures.dart';
 import 'controlled_request_service.dart';
 import 'mock_session_service.dart';
+import 'mock_state_message_handler.dart';
 import 'mock_state_revision_tracker.dart';
 
 /// Mock registered definition used to declare each area's capability.
@@ -50,10 +51,12 @@ buildStaleDefinition({
 void main() {
   late ControlledRequestService requests;
   late MockSessionService session;
+  late MockStateMessageHandler stateMessageHandler;
 
   setUp(() {
     requests = ControlledRequestService();
     session = MockSessionService();
+    stateMessageHandler = MockStateMessageHandler();
     when(
       () => session.currentTrustState,
     ).thenReturn(DovahLinkTrustState.trusted);
@@ -80,6 +83,7 @@ void main() {
               domains: <MockStateDomainDefinition>[eventDomain.domain],
               requestService: requests,
               sessionService: session,
+              stateMessageHandler: stateMessageHandler,
             );
         await Future<void>.delayed(Duration.zero);
 
@@ -114,6 +118,7 @@ void main() {
               domains: <MockStateDomainDefinition>[snapshotOnly.domain],
               requestService: requests,
               sessionService: session,
+              stateMessageHandler: stateMessageHandler,
             );
         await Future<void>.delayed(Duration.zero);
 
@@ -161,6 +166,7 @@ void main() {
               ],
               requestService: requests,
               sessionService: session,
+              stateMessageHandler: stateMessageHandler,
             );
         await Future<void>.delayed(Duration.zero);
 
@@ -191,6 +197,7 @@ void main() {
               domains: character.domains,
               requestService: requests,
               sessionService: session,
+              stateMessageHandler: stateMessageHandler,
             );
 
         expect(services, hasLength(1));
@@ -203,6 +210,7 @@ void main() {
         domains: const <IStateDomainDefinition<Object?>>[],
         requestService: requests,
         sessionService: session,
+        stateMessageHandler: stateMessageHandler,
       );
 
       expect(services, isEmpty);

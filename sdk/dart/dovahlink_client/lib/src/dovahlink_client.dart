@@ -227,6 +227,7 @@ class DovahLinkClient {
       domains: stateDomains,
       requestService: _requestService,
       sessionService: _sessionService,
+      stateMessageHandler: stateMessageHandler,
     );
 
     final SessionAdmissionService sessionAdmissionService =
@@ -254,14 +255,22 @@ class DovahLinkClient {
     _knownHostInvalidationSubscription = state.knownHostInvalidations.listen(
       _handleKnownHostInvalidation,
     );
-    _sessionService.onTeardown =
-        (Exception reason, {required bool orphanRetrySafeOperations}) {
-          _requestService.failAll(
-            reason,
-            orphanRetrySafeOperations: orphanRetrySafeOperations,
-          );
-          _subscriptionService.onSessionEnded();
-        };
+    _sessionService
+        .onTeardown = (Exception reason, {required bool orphanRetrySafeOperations}) {
+      _requestService.failAll(
+        reason,
+        orphanRetrySafeOperations: orphanRetrySafeOperations,
+      );
+      // Teardown has already resolved the lifecycle: only a session that is still `reconnecting`
+      // will be replaced by bounded automatic recovery, so only then do accepted observations
+      // stay readable (as non-current). Every other ending clears them with the accepted gate.
+      if (_sessionService.connectionState ==
+          DovahLinkConnectionState.reconnecting) {
+        _subscriptionService.onSessionInterrupted();
+      } else {
+        _subscriptionService.onSessionEnded();
+      }
+    };
     _reconnectService = ReconnectService(
       sessionService: _sessionService,
       authenticationService: _authenticationService,

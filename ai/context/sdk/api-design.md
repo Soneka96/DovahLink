@@ -36,7 +36,7 @@ The public operations are:
 | Group | Public surface | Owner and semantics |
 | --- | --- | --- |
 | `hosts` | `loadKnownHosts()`, `knownHostsChanges`, `knownHostStatesChanges` | `ClientStateService` and `HostAvailabilityService`; durable metadata and runtime availability/session projection remain distinct. |
-| `connections` | `connectCandidate(uri)`, `connectKnownHost(hostId)`, `renameDevice(displayName)`, `disconnect()`, `state`, `stateChanges`, `initialConnectionRetryChanges`, `invalidationReason`, `knownHostInvalidations` | `SessionService`, `AuthenticationService`, `ReconnectService`, and `RequestService`; each discrete invalidation event carries the exact Known Host ID and Host-reported reason together. Events are not replayed. Each connect operation includes authentication and session admission. Initial retries do not enter established-session `reconnecting` state. Ordinary transport loss goes `connected → reconnecting → reauthenticating → connected` with no transient `disconnected`; `disconnected` is terminal (explicit disconnect or recovery give-up) and `administrativelyInvalidated` is terminal. Live gameplay values are still reset to `notSubscribed` during teardown until in-memory retention is specified. `renameDevice` requires the active trusted session and affects only the Client trust record on that Host. |
+| `connections` | `connectCandidate(uri)`, `connectKnownHost(hostId)`, `renameDevice(displayName)`, `disconnect()`, `state`, `stateChanges`, `initialConnectionRetryChanges`, `invalidationReason`, `knownHostInvalidations` | `SessionService`, `AuthenticationService`, `ReconnectService`, and `RequestService`; each discrete invalidation event carries the exact Known Host ID and Host-reported reason together. Events are not replayed. Each connect operation includes authentication and session admission. Initial retries do not enter established-session `reconnecting` state. Ordinary transport loss goes `connected → reconnecting → reauthenticating → connected` with no transient `disconnected`; `disconnected` is terminal (explicit disconnect or recovery give-up) and `administrativelyInvalidated` is terminal. Accepted gameplay values are retained in memory, as non-current `recovering` observations, across eligible `reconnecting`/`reauthenticating` recovery and are cleared when the lifecycle ends (see "Live versus historical state"). `renameDevice` requires the active trusted session and affects only the Client trust record on that Host. |
 | `pairing` | `candidates`, `discoverHosts()`, `authenticateCandidate(uri)`, `authenticateKnownHost(hostId)`, `requestCode()`, `renotify()`, `cancel()`, `confirmCode(...)`, `recoverPendingPairing()` | `PairingService` composes connection admission with pending-confirmation recovery and sequences confirmation plus credential acknowledgement. Candidates remain runtime-only. |
 | `currentHost` | Admitted Host/session context, typed game-state streams, and subscription operations | Existing session, state trackers, and `SubscriptionService`; retain per-domain replay, synchronization, error, and recovery behavior. |
 
@@ -217,11 +217,11 @@ subscription intent; ordinary transport loss and administrative invalidation pre
 This section is the canonical definition of the live/historical distinction. Persistence ownership
 for history is in [SDK persistence, "Historical gameplay snapshots"](persistence.md#historical-gameplay-snapshots).
 
-**Status.** The live-state half describes the current contract. The historical half is an approved
-rule for future work: no historical API exists, and the SDK does not yet keep live values across
-recovery (teardown still resets accepted domains to `notSubscribed` with no value). Both capabilities
-are tracked in the audit's T8 (in-memory retention) and T11 (historical snapshots); do not describe
-either as implemented.
+**Status.** The live-state half, including in-memory retention across eligible automatic recovery
+(audit T8), is implemented and describes the current contract. The historical half is an approved
+rule for future work: no historical API exists (audit T11), so do not describe historical snapshots
+or an offline Overview as implemented. Retention is live state held in memory only; it is not
+persisted and does not survive a terminal session end or process exit.
 
 - **Live state** is what the current admitted Host session supplies and synchronizes through the
   typed `currentHost` domain streams, as `StateSynchronization<T>` with its real `stateAuthorityId`,
@@ -239,6 +239,43 @@ logic:
 | Historical stored value | A separate read-only historical surface that carries provenance; never a live `StateSynchronization<T>` pretending to be synchronized |
 | Unavailable value | The existing unavailable status; no fabricated value |
 | Unknown state | No current Host evidence (for example not subscribed, or before a baseline); no value is implied |
+
+### In-memory retention across automatic recovery
+
+When an established session loses its transport and bounded automatic recovery follows (the
+lifecycle resolves to `reconnecting`), each domain keeps its last accepted usable observation in the
+same tracker and public stream:
+
+- The exact typed value, `stateAuthorityId`, `playContextId`, and last accepted `revision` are kept
+  unchanged, and the status becomes `recovering`. `recovering` is the non-current marker; a retained
+  value is never `synchronized`. No new status exists.
+- Connection state is unaffected: `connected → reconnecting → reauthenticating → connected`, with no
+  transient `disconnected`. A successful reconnect or `hello` does not synchronize gameplay; each
+  domain stays `recovering` until its own new baseline is accepted.
+- A domain with no accepted baseline gains no value, revision, or identity; it stays `recovering`
+  with a `null` value. Zero XP, an empty quest list, all-false traits, and unavailable values keep
+  their existing distinct representations.
+- The accepted-area gate is separate from retention. It belongs to the current authenticated session
+  and is closed during recovery, so retained values never admit a state message and messages from
+  the lost transport or an unadmitted session change nothing. Desired subscription intent is kept
+  and restored through the normal `subscribe` request; the Host's acknowledgement reopens the gate
+  and its Snapshots establish new baselines.
+- A Snapshot accepted for the same `(stateAuthorityId, playContextId)` pair replaces the retained
+  observation under the existing revision rules. An obsolete revision, a rejected, or a malformed
+  Snapshot does not, and the domain stays `recovering`. Event-capable domains recover from revision
+  gaps through the same Snapshot recovery as before. A recovery Snapshot answering a request carried
+  over from the lost session is applied only once the replacement session's acknowledgement has
+  authorized its area; an earlier reply changes nothing and the restored baseline establishes the
+  area.
+- A changed `stateAuthorityId` or `playContextId` clears the retained values of every subscribed
+  domain (value, revision, and old identity) so the new context builds its own baselines; revisions
+  are never compared across pairs.
+- A domain the Host rejects in the restoration acknowledgement, or one the consumer unsubscribes,
+  returns to `notSubscribed` with no value or metadata.
+- Retention ends, resetting every domain to `notSubscribed` with no value or metadata, on explicit
+  disconnect, SDK close, administrative invalidation, nonrecoverable protocol failure, cancelled
+  recovery, or exhausted reconnect attempts. The decision uses the lifecycle that teardown resolves
+  to, not request retry eligibility.
 
 The exact historical type is not decided. Whether it reuses `StateSynchronization<T>` or a separate
 wrapper is an open decision; the requirement is that it cannot be mistaken for live data.

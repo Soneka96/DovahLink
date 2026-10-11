@@ -14,6 +14,7 @@ import 'package:dovahlink_client_sdk/src/state/state_synchronization.dart';
 import '../../fixtures/fixtures.dart';
 import 'controlled_request_service.dart';
 import 'mock_session_service.dart';
+import 'mock_state_message_handler.dart';
 import 'mock_state_revision_tracker.dart';
 
 /// Immediate, zero-delay attempts keep recovery retry tests deterministic and fast.
@@ -60,17 +61,20 @@ Envelope buildStateSnapshotEnvelope({
 /// @param domain The mock registered state-domain policy and tracker.
 /// @param requests The request fake controlling correlated Snapshot replies.
 /// @param session The mock connection lifecycle service.
+/// @param stateMessageHandler The mock accepted-area gate and identity authority.
 /// @param retryDelays The bounded retry schedule used by the recovery service.
 /// @return The state recovery service under test.
 IStateRecoveryService<int?> buildStateRecoveryService({
   required MockStateDomainDefinition<int?> domain,
   required ControlledRequestService requests,
   required MockSessionService session,
+  required MockStateMessageHandler stateMessageHandler,
   List<Duration> retryDelays = _shortRetryDelays,
 }) => StateRecoveryService<int?>(
   domain: domain,
   requestService: requests,
   sessionService: session,
+  stateMessageHandler: stateMessageHandler,
   retryDelays: retryDelays,
 );
 
@@ -80,6 +84,7 @@ void main() {
   late MockStateRevisionTracker<int?> tracker;
   late ControlledRequestService requests;
   late MockSessionService session;
+  late MockStateMessageHandler stateMessageHandler;
   late StreamController<StateSynchronization<int?>> stateChanges;
   late StateSynchronization<int?> currentState;
   late bool recoveryBufferOverflowed;
@@ -87,6 +92,7 @@ void main() {
 
   setUpAll(() {
     registerFallbackValue(Exception('fallback for any()'));
+    registerFallbackValue(buildStateSnapshotEnvelope(revision: 0, value: 0));
     registerFallbackValue(<String, dynamic>{});
     registerFallbackValue(Fixtures.buildStateSynchronization<int?>());
   });
@@ -96,6 +102,10 @@ void main() {
     tracker = MockStateRevisionTracker<int?>();
     requests = ControlledRequestService();
     session = MockSessionService();
+    stateMessageHandler = MockStateMessageHandler();
+    when(
+      () => stateMessageHandler.admitRecoverySnapshot(any(), any()),
+    ).thenReturn(true);
     stateChanges = StreamController<StateSynchronization<int?>>.broadcast();
     addTearDown(stateChanges.close);
     recoveryBufferOverflowed = false;
@@ -182,6 +192,7 @@ void main() {
       domain: domain,
       requests: requests,
       session: session,
+      stateMessageHandler: stateMessageHandler,
       retryDelays: _shortRetryDelays,
     );
     service.start();
@@ -729,6 +740,166 @@ void main() {
           () => session.onUnhealthy(any(), connectionGeneration: null),
         ).called(1);
         verifyNever(() => session.onUnhealthy(any(), connectionGeneration: 3));
+      },
+    );
+
+    test(
+      'Method recover leaves the domain recovering when the handler refuses the Snapshot',
+      () async {
+        when(
+          () => stateMessageHandler.admitRecoverySnapshot(any(), any()),
+        ).thenReturn(false);
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(revision: 5, value: 50),
+        );
+        await service.recover();
+
+        final Envelope reply =
+            verify(
+                  () => stateMessageHandler.admitRecoverySnapshot(
+                    'test_area',
+                    captureAny(),
+                  ),
+                ).captured.single
+                as Envelope;
+        expect(reply.correlationId, 'request-5');
+        verifyNever(
+          () => tracker.applySnapshot(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+            revision: any(named: 'revision'),
+            value: any(named: 'value'),
+            isUnavailable: any(named: 'isUnavailable'),
+          ),
+        );
+        verifyNever(() => tracker.failRecovery());
+        verifyNever(
+          () => session.onUnhealthy(
+            any(),
+            connectionGeneration: any(named: 'connectionGeneration'),
+          ),
+        );
+        verifyNever(
+          () => session.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: any(named: 'orphanRetrySafeOperations'),
+          ),
+        );
+        expect(currentState.status, DovahLinkStateStatus.recovering);
+        expect(currentState.value, 10);
+        expect(currentState.revision, 1);
+        expect(requests.requests, hasLength(1));
+      },
+    );
+
+    test(
+      'Method recover applies the Snapshot only after the handler admits it',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(revision: 5, value: 50),
+        );
+        await service.recover();
+
+        verifyInOrder(<void Function()>[
+          () => stateMessageHandler.admitRecoverySnapshot('test_area', any()),
+          () => tracker.applySnapshot(
+            stateAuthorityId: 'authority-1',
+            playContextId: 'context-1',
+            revision: 5,
+            value: 50,
+            isUnavailable: false,
+          ),
+        ]);
+        expect(currentState.status, DovahLinkStateStatus.synchronized);
+      },
+    );
+
+    test(
+      'Method recover does not consult the handler for a superseded Snapshot',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+        replaceCurrentState(
+          stateAuthorityId: 'authority-2',
+          playContextId: 'context-1',
+          revision: 5,
+          value: 20,
+        );
+
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(revision: 6, value: 60),
+        );
+        await service.recover();
+
+        verifyNever(
+          () => stateMessageHandler.admitRecoverySnapshot(any(), any()),
+        );
+      },
+    );
+
+    test(
+      'Method recover fails recovery when the handler rejects the Snapshot identity',
+      () async {
+        when(
+          () => stateMessageHandler.admitRecoverySnapshot(any(), any()),
+        ).thenThrow(
+          const DovahLinkProtocolException(
+            code: ProtocolErrorCode.malformedMessage,
+            message: 'A state message has no authority identity.',
+            retryable: false,
+          ),
+        );
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(revision: 5, value: 50),
+        );
+        await service.recover();
+
+        verify(() => tracker.failRecovery()).called(1);
+        verify(
+          () => session.onProtocolViolation(
+            any(),
+            orphanRetrySafeOperations: false,
+          ),
+        ).called(1);
+        verifyNever(
+          () => tracker.applySnapshot(
+            stateAuthorityId: any(named: 'stateAuthorityId'),
+            playContextId: any(named: 'playContextId'),
+            revision: any(named: 'revision'),
+            value: any(named: 'value'),
+            isUnavailable: any(named: 'isUnavailable'),
+          ),
+        );
+      },
+    );
+
+    test(
+      'Method recover does not consult the handler for a Snapshot of another state area',
+      () async {
+        emitStaleState();
+        await Future<void>.delayed(Duration.zero);
+
+        requests.requests.single.reply.complete(
+          buildStateSnapshotEnvelope(
+            revision: 5,
+            value: 50,
+            stateArea: 'other_area',
+          ),
+        );
+        await service.recover();
+
+        verifyNever(
+          () => stateMessageHandler.admitRecoverySnapshot(any(), any()),
+        );
       },
     );
 

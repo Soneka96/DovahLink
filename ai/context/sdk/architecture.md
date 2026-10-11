@@ -462,6 +462,15 @@ composition root. Recovery sends its correlated `snapshot_request` through the e
 receiver or revision tracker. The tracker, decoder, and unavailable-value rule come from the same
 definition normal message handling uses.
 
+A retry-safe `snapshot_request` orphaned by transport loss is retransmitted into the replacement
+session before its restored `subscribe`, and the Host answers a bare request for a registered area
+whether or not it is subscribed. Recovery therefore never applies a reply on its own authority: it
+asks `IStateMessageHandler.admitRecoverySnapshot`, which admits only an area the current session's
+acknowledgement has authorized (not the provisional admission opened when `subscribe` is sent, and
+not a retained or absent area) and runs the reply through the same cross-domain identity reset as any
+state message. A refused reply leaves the retained value non-current; the restored subscription's
+own baseline establishes the area, so nothing is queued, deferred, or retried.
+
 Composition order is unchanged: `StateMessageHandler` is composed before `RequestService` because
 the inbound router depends on the unsolicited state handler. `SubscriptionService` is composed after
 `RequestService`, using the already-created state handler to update its accepted-area gate when a
@@ -569,7 +578,11 @@ whether recovery will follow, and `SessionState.resetAfterTeardown` then never p
 transient `disconnected`. Ineligibility (no endpoint or callback, stale handoff, explicit
 disconnect, shutdown, administrative invalidation) ends in `disconnected` or
 `administrativelyInvalidated` as before, so `disconnected` is always terminal for its session.
-Teardown still resets every accepted gameplay domain to `notSubscribed` with no value; retaining
-values across recovery is a separate, future decision. Initial retries remain a separate intent, report their
+Once teardown has resolved the lifecycle, the composition root separates the accepted-area gate from
+the domain trackers: a session that is `reconnecting` interrupts its subscriptions
+(`SubscriptionService.onSessionInterrupted`), which closes the gate but keeps each tracker's last
+accepted observation as `recovering`; every other ending clears the gate and resets every domain to
+`notSubscribed` with no value. Retention never admits a message and is decided by the resolved
+lifecycle, not by request retry eligibility (see [API design](api-design.md#in-memory-retention-across-automatic-recovery)). Initial retries remain a separate intent, report their
 `inactive`/`retrying` status through the grouped connection API, and do not present themselves as
 established-session recovery.

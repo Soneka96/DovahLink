@@ -1,6 +1,7 @@
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_domain_definition.dart';
+import 'package:dovahlink_client_sdk/src/internal/state/state_message_handler.dart';
 import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.dart';
 
 /// Starts exactly one [StateRecoveryService] for each Event-capable registered definition.
@@ -11,11 +12,13 @@ import 'package:dovahlink_client_sdk/src/internal/state/state_recovery_service.d
 /// @param domains The same registered definitions the shared state-message handler dispatches to.
 /// @param requestService The shared request boundary carrying correlated `snapshot_request`s.
 /// @param sessionService The shared connection lifecycle used to report a failed recovery.
+/// @param stateMessageHandler The shared accepted-area gate and identity authority.
 /// @return The started services, one per Event-capable definition, in registration order.
 List<IStateRecoveryService<Object?>> startStateRecovery({
   required List<IStateDomainDefinition<Object?>> domains,
   required IRequestService requestService,
   required ISessionService sessionService,
+  required IStateMessageHandler stateMessageHandler,
 }) {
   final List<IStateRecoveryService<Object?>> services =
       <IStateRecoveryService<Object?>>[
@@ -25,6 +28,7 @@ List<IStateRecoveryService<Object?>> startStateRecovery({
               domain: domain,
               requestService: requestService,
               sessionService: sessionService,
+              stateMessageHandler: stateMessageHandler,
             ),
       ];
   for (final IStateRecoveryService<Object?> service in services) {

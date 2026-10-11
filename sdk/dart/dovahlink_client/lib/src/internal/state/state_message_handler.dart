@@ -21,10 +21,29 @@ abstract interface class IStateMessageHandler {
     String? baselineCorrelationId,
   });
 
+  /// Closes the accepted-area gate for an ended session that automatic recovery may replace, keeping
+  /// each admitted area's last accepted value, identity, and revision under the non-current
+  /// `recovering` status. Retention never authorizes a state message: nothing is applied until the
+  /// next [setSubscribedStateAreas] admits the area again. A later call reconciles every retained
+  /// area against its set: areas absent from it are reset, and a changed identity clears the rest.
+  void suspendStateAreas();
+
   /// Whether [correlationId] still identifies an accepted area's initial baseline.
   /// @param correlationId The Host response correlation to check.
   /// @return Whether the correlation belongs to a baseline still being established.
   bool isPendingBaselineCorrelation(String correlationId);
+
+  /// Decides whether a correlated recovery Snapshot may be applied, observing its identity first.
+  /// A recovery request can be carried over from an ended session, so its reply may arrive before
+  /// the replacement session's acknowledgement. Only an area the Host has acknowledged in the
+  /// current session is admitted; a provisionally admitted, retained, or absent area is not, and the
+  /// restored subscription's own baseline establishes it instead. An admitted Snapshot's identity
+  /// goes through the same cross-domain reset as any other state message.
+  /// @param stateArea The area the recovery Snapshot belongs to.
+  /// @param envelope The correlated Snapshot envelope.
+  /// @return Whether the caller may apply the Snapshot to the area's tracker.
+  /// @throws [DovahLinkProtocolException] when an admitted Snapshot has no authority identity.
+  bool admitRecoverySnapshot(String stateArea, Envelope envelope);
 
   /// Handles one canonical state Snapshot or Event envelope.
   /// @param envelope The state envelope from the single inbound reader.
@@ -45,6 +64,10 @@ class StateMessageHandler implements IStateMessageHandler {
   /// ACK-adjacent baseline cannot race ahead of the gate. After the acknowledgement, it is
   /// reconciled to the Host-accepted set.
   final Set<String> _subscribedStateAreas = <String>{};
+
+  /// Areas whose gate closed with [suspendStateAreas] and whose trackers still hold the last accepted
+  /// observation. They are outside [_subscribedStateAreas], so they can never accept a message.
+  final Set<String> _retainedStateAreas = <String>{};
 
   /// Marks an area admitted when its `subscribe` was sent, whose request ID is not yet known to be
   /// authoritative. The acknowledgement replaces it with the real request ID; it never matches one.
@@ -74,6 +97,10 @@ class StateMessageHandler implements IStateMessageHandler {
     Set<String> stateAreas, {
     String? baselineCorrelationId,
   }) {
+    for (final String area in _retainedStateAreas.difference(stateAreas)) {
+      _domains[area]?.tracker.resetToNotSubscribed();
+    }
+    _retainedStateAreas.clear();
     final Set<String> addedAreas = stateAreas.difference(_subscribedStateAreas);
     for (final String area in addedAreas) {
       _domains[area]?.tracker.beginRecovery();
@@ -102,11 +129,34 @@ class StateMessageHandler implements IStateMessageHandler {
       ..addAll(stateAreas);
   }
 
+  /// Implements [IStateMessageHandler.suspendStateAreas].
+  @override
+  void suspendStateAreas() {
+    for (final String area in _subscribedStateAreas) {
+      _domains[area]?.tracker.beginRecovery();
+      _retainedStateAreas.add(area);
+    }
+    _subscribedStateAreas.clear();
+    _pendingBaselineCorrelations.clear();
+  }
+
   /// Implements [IStateMessageHandler.isPendingBaselineCorrelation].
   @override
   bool isPendingBaselineCorrelation(String correlationId) =>
       correlationId != _provisionalBaselineCorrelation &&
       _pendingBaselineCorrelations.values.contains(correlationId);
+
+  /// Implements [IStateMessageHandler.admitRecoverySnapshot].
+  @override
+  bool admitRecoverySnapshot(String stateArea, Envelope envelope) {
+    final String? baselineCorrelation = _pendingBaselineCorrelations[stateArea];
+    if (!_subscribedStateAreas.contains(stateArea) ||
+        baselineCorrelation == _provisionalBaselineCorrelation) {
+      return false;
+    }
+    _observeIdentity(envelope);
+    return true;
+  }
 
   /// See [IStateMessageHandler.handle].
   @override

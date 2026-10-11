@@ -33,12 +33,29 @@ class RecordingStateMessageHandler implements IStateMessageHandler {
     this.baselineCorrelationId = baselineCorrelationId;
   }
 
+  /// How many times the gate was closed for automatic recovery rather than cleared.
+  int suspendCalls = 0;
+
+  /// Records a gate closure that keeps domain observations.
+  @override
+  void suspendStateAreas() {
+    suspendCalls++;
+    subscribedStateAreas = <String>{};
+    baselineCorrelationId = null;
+  }
+
   /// Reports whether the supplied correlation is the recorded baseline request.
   /// @param correlationId The Host response correlation to check.
   /// @return Whether the correlation matches the recorded request.
   @override
   bool isPendingBaselineCorrelation(String correlationId) =>
       baselineCorrelationId == correlationId && subscribedStateAreas.isNotEmpty;
+
+  /// Does not apply recovery Snapshots in subscription-service tests.
+  /// @param stateArea The unused recovery area.
+  /// @param envelope The unused Snapshot envelope.
+  @override
+  bool admitRecoverySnapshot(String stateArea, Envelope envelope) => false;
 
   /// Does not route state messages in subscription-service tests.
   /// @param envelope The unused state envelope.
@@ -566,6 +583,224 @@ void main() {
         expect(service.desiredStateAreas, <DovahLinkStateArea>{
           DovahLinkStateArea.characterXp,
         });
+      },
+    );
+
+    test(
+      'Method onSessionInterrupted suspends the gate once per call and preserves desired intent',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await update;
+
+        service.onSessionInterrupted();
+        service.onSessionInterrupted();
+
+        expect(stateMessageHandler.suspendCalls, 2);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+        expect(service.desiredStateAreas, <DovahLinkStateArea>{
+          DovahLinkStateArea.characterXp,
+        });
+      },
+    );
+
+    test(
+      'Method onSessionInterrupted ignores a late acknowledgement from the interrupted session',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        service.onSessionInterrupted();
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+
+        expect(await update, isEmpty);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+        expect(stateMessageHandler.suspendCalls, 1);
+      },
+    );
+
+    test(
+      'Method onSessionInterrupted restores desired intent through the normal request and gates on the new acknowledgement',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await update;
+        service.onSessionInterrupted();
+
+        service.restoreDesiredStateAreas();
+        expect(requestService.requests, hasLength(2));
+        expect(requestService.requests.last.payload, <String, dynamic>{
+          'stateAreas': <String>[DovahLinkStateArea.characterXp.protocolValue],
+        });
+        expect(stateMessageHandler.baselineCorrelationId, isNull);
+        final Envelope acknowledgement = _acknowledgement(
+          accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+        );
+        requestService.requests.last.reply.complete(acknowledgement);
+        await pumpEventQueue();
+
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+        });
+        expect(
+          stateMessageHandler.baselineCorrelationId,
+          acknowledgement.correlationId,
+        );
+      },
+    );
+
+    test(
+      'Method onSessionInterrupted keeps retaining when a restoration request fails',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await update;
+        service.onSessionInterrupted();
+
+        final Future<Set<DovahLinkStateArea>> failed = service
+            .subscribeStateArea(DovahLinkStateArea.playerLocation);
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+          DovahLinkStateArea.playerLocation.protocolValue,
+        });
+        requestService.requests.last.reply.completeError(
+          const DovahLinkConnectionException('No session.'),
+        );
+        await expectLater(failed, throwsA(isA<DovahLinkConnectionException>()));
+
+        expect(stateMessageHandler.suspendCalls, 2);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+      },
+    );
+
+    test(
+      'Method onSessionInterrupted stops retaining once a newer acknowledgement arrives',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await update;
+        service.onSessionInterrupted();
+        service.restoreDesiredStateAreas();
+        requestService.requests.last.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await pumpEventQueue();
+
+        final Future<Set<DovahLinkStateArea>> failed = service
+            .unsubscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.last.reply.completeError(
+          const DovahLinkConnectionException('Request failed.'),
+        );
+        await expectLater(failed, throwsA(isA<DovahLinkConnectionException>()));
+
+        expect(stateMessageHandler.suspendCalls, 1);
+        expect(stateMessageHandler.subscribedStateAreas, <String>{
+          DovahLinkStateArea.characterXp.protocolValue,
+        });
+      },
+    );
+
+    test(
+      'Method onSessionEnded after an interruption ends retention so a failed request clears instead of suspending',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await update;
+        service.onSessionInterrupted();
+        service.onSessionEnded();
+
+        final Future<Set<DovahLinkStateArea>> failed = service
+            .subscribeStateArea(DovahLinkStateArea.playerLocation);
+        requestService.requests.last.reply.completeError(
+          const DovahLinkConnectionException('No session.'),
+        );
+        await expectLater(failed, throwsA(isA<DovahLinkConnectionException>()));
+
+        expect(stateMessageHandler.suspendCalls, 1);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+      },
+    );
+
+    test(
+      'Method onSessionInterrupted leaves a request that was in flight when it ran from touching the gate when it fails',
+      () async {
+        final Future<Set<DovahLinkStateArea>> inFlight = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        service.onSessionInterrupted();
+
+        requestService.requests.single.reply.completeError(
+          const DovahLinkConnectionException('Connection lost.'),
+        );
+        await expectLater(
+          inFlight,
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(stateMessageHandler.suspendCalls, 1);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+      },
+    );
+
+    test(
+      'Method restoreDesiredStateAreas sends nothing after an interruption when no intent remains',
+      () {
+        service.onSessionInterrupted();
+
+        service.restoreDesiredStateAreas();
+
+        expect(requestService.requests, isEmpty);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+      },
+    );
+
+    test(
+      'Method clearDesiredStateAreas after an interruption clears intent and ends retention',
+      () async {
+        final Future<Set<DovahLinkStateArea>> update = service
+            .subscribeStateArea(DovahLinkStateArea.characterXp);
+        requestService.requests.single.reply.complete(
+          _acknowledgement(
+            accepted: <String>[DovahLinkStateArea.characterXp.protocolValue],
+          ),
+        );
+        await update;
+        service.onSessionInterrupted();
+
+        service.clearDesiredStateAreas();
+
+        expect(service.desiredStateAreas, isEmpty);
+        expect(stateMessageHandler.subscribedStateAreas, isEmpty);
+        expect(stateMessageHandler.suspendCalls, 1);
       },
     );
 

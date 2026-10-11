@@ -373,6 +373,16 @@ List<JsonMap> _sentSubscriptionUpdates(FakeDovahLinkTransport transport) =>
         .where((JsonMap envelope) => envelope['messageType'] == 'subscribe')
         .toList();
 
+/// Returns the message IDs of every [messageType] envelope sent by [transport], in send order.
+List<String> _sentIdsOfType(
+  FakeDovahLinkTransport transport,
+  String messageType,
+) => transport.sent
+    .map((String raw) => jsonDecode(raw) as JsonMap)
+    .where((JsonMap envelope) => envelope['messageType'] == messageType)
+    .map((JsonMap envelope) => envelope['messageId'] as String)
+    .toList();
+
 /// Builds a correlated `subscription_ack` for the fake Host.
 /// @param accepted The state areas the Host accepted.
 /// @param rejected The state areas the Host rejected.
@@ -605,6 +615,314 @@ Future<void> waitForClientPresenceProbes(
     await pumpEventQueue();
   }
   expect(probe.requests.length, greaterThanOrEqualTo(count));
+}
+
+/// Builds the wire value for [area] in the live-state retention tests, varied by [n].
+/// @param area The gameplay domain to build.
+/// @param n A number that makes values from different baselines distinguishable.
+/// @return The canonical wire value for [area].
+Object? _retentionWireValue(DovahLinkStateArea area, int n) => switch (area) {
+  DovahLinkStateArea.characterXp => n * 1.5,
+  DovahLinkStateArea.characterVitals => <String, dynamic>{
+    'health': <String, dynamic>{'current': 100.0 + n, 'max': 410.0},
+    'magicka': <String, dynamic>{'current': 180.0, 'max': 250.0},
+    'stamina': <String, dynamic>{'current': 120.0, 'max': 190.0},
+  },
+  DovahLinkStateArea.characterLevel => n,
+  DovahLinkStateArea.characterIdentity => <String, dynamic>{
+    'name': 'Dragonborn $n',
+    'race': 'Nord',
+  },
+  DovahLinkStateArea.characterSupernaturalTraits => <String, dynamic>{
+    'isVampire': false,
+    'hasVampireLordForm': false,
+    'hasWerewolfForm': false,
+  },
+  DovahLinkStateArea.playerLocation => <String, dynamic>{
+    'cellId': 1000 + n,
+    'cellKind': 'exterior',
+    'cellName': 'WhiterunWorld',
+    'locationId': 98765,
+    'locationName': 'Whiterun',
+    'worldspaceId': 1,
+    'worldspaceName': 'Skyrim',
+  },
+  DovahLinkStateArea.gameTime => <String, dynamic>{
+    'year': 201,
+    'month': 9,
+    'monthName': 'Hearthfire',
+    'day': n,
+    'hour': 17,
+    'minute': 45,
+  },
+  DovahLinkStateArea.trackedQuests => <String, dynamic>{'quests': <Object>[]},
+};
+
+/// The distinct baseline revision each domain holds before a transport loss.
+int _baselineRevision(DovahLinkStateArea area) => 3 + area.index;
+
+/// Builds one Snapshot for [area] using the retention test wire values.
+/// @param area The gameplay domain.
+/// @param revision The authoritative revision.
+/// @param stateAuthorityId The Host continuity epoch on the envelope.
+/// @param playContextId The play context on the envelope.
+/// @param correlationId The subscribe or snapshot request the Snapshot answers, if any.
+/// @return The raw Snapshot envelope.
+String _retentionSnapshot(
+  DovahLinkStateArea area,
+  int revision, {
+  String stateAuthorityId = 'authority-1',
+  String playContextId = 'context-1',
+  String? correlationId,
+}) => _rawStateSnapshot(
+  stateArea: area.protocolValue,
+  revision: revision,
+  value: _retentionWireValue(area, revision),
+  stateAuthorityId: stateAuthorityId,
+  playContextId: playContextId,
+  correlationId: correlationId,
+);
+
+/// Reads the replayed current value of every gameplay domain.
+/// @param client The client whose public typed streams are read.
+/// @return Each domain's current synchronization view, keyed by its state area.
+Future<Map<DovahLinkStateArea, StateSynchronization<Object?>>> _readDomains(
+  DovahLinkClient client,
+) async {
+  final IDovahLinkCurrentHost host = client.currentHost;
+  return <DovahLinkStateArea, StateSynchronization<Object?>>{
+    DovahLinkStateArea.characterXp: await host.character.xpChanges.first,
+    DovahLinkStateArea.characterVitals:
+        await host.character.vitalsChanges.first,
+    DovahLinkStateArea.characterLevel: await host.character.levelChanges.first,
+    DovahLinkStateArea.characterIdentity:
+        await host.character.identityChanges.first,
+    DovahLinkStateArea.characterSupernaturalTraits:
+        await host.character.supernaturalTraitsChanges.first,
+    DovahLinkStateArea.playerLocation: await host.playerLocationChanges.first,
+    DovahLinkStateArea.gameTime: await host.gameTimeChanges.first,
+    DovahLinkStateArea.trackedQuests: await host.trackedQuestsChanges.first,
+  };
+}
+
+/// Records every emission of every gameplay domain stream, starting with its replayed value.
+/// @param client The client whose public typed streams are recorded.
+/// @return The emissions for each domain, in order.
+Map<DovahLinkStateArea, List<StateSynchronization<Object?>>> _recordDomains(
+  DovahLinkClient client,
+) {
+  final Map<DovahLinkStateArea, List<StateSynchronization<Object?>>> records =
+      <DovahLinkStateArea, List<StateSynchronization<Object?>>>{
+        for (final DovahLinkStateArea area in DovahLinkStateArea.values)
+          area: <StateSynchronization<Object?>>[],
+      };
+  void record<T>(
+    DovahLinkStateArea area,
+    Stream<StateSynchronization<T>> changes,
+  ) {
+    final StreamSubscription<StateSynchronization<T>> subscription = changes
+        .listen(records[area]!.add);
+    addTearDown(subscription.cancel);
+  }
+
+  final IDovahLinkCurrentHost host = client.currentHost;
+  record(DovahLinkStateArea.characterXp, host.character.xpChanges);
+  record(DovahLinkStateArea.characterVitals, host.character.vitalsChanges);
+  record(DovahLinkStateArea.characterLevel, host.character.levelChanges);
+  record(DovahLinkStateArea.characterIdentity, host.character.identityChanges);
+  record(
+    DovahLinkStateArea.characterSupernaturalTraits,
+    host.character.supernaturalTraitsChanges,
+  );
+  record(DovahLinkStateArea.playerLocation, host.playerLocationChanges);
+  record(DovahLinkStateArea.gameTime, host.gameTimeChanges);
+  record(DovahLinkStateArea.trackedQuests, host.trackedQuestsChanges);
+  return records;
+}
+
+/// Connects a trusted client, subscribes [areas], and delivers a baseline for each [baselined] area.
+/// @param areas The areas to request, cumulatively.
+/// @param baselined The subset that receives a Snapshot; defaults to every requested area.
+/// @return The transport and client of the established session.
+Future<({FakeDovahLinkTransport transport, DovahLinkClient client})>
+_establishRetentionSession(
+  Iterable<DovahLinkStateArea> areas, {
+  Iterable<DovahLinkStateArea>? baselined,
+}) async {
+  final FakeDovahLinkTransport transport = FakeDovahLinkTransport();
+  final InMemoryClientStorage storage = InMemoryClientStorage();
+  final DovahLinkClient client = _buildFastReconnectClient(transport, storage);
+  addTearDown(client.close);
+  await _connectAndTrustedHello(transport, client, storage);
+  await _subscribeStateAreas(transport, client, areas);
+  for (final DovahLinkStateArea area in baselined ?? areas) {
+    transport.queueRawResponse(
+      _retentionSnapshot(area, _baselineRevision(area)),
+    );
+  }
+  await pumpEventQueue();
+  return (transport: transport, client: client);
+}
+
+/// Queues one reauthentication and a restoration acknowledgement, then drops the live socket.
+/// @param transport The fake Host transport.
+/// @param accepted The areas the restoration acknowledgement accepts.
+/// @param rejected The areas the restoration acknowledgement rejects.
+void _dropTransport(
+  FakeDovahLinkTransport transport, {
+  required Iterable<DovahLinkStateArea> accepted,
+  Iterable<DovahLinkStateArea> rejected = const <DovahLinkStateArea>[],
+}) {
+  transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+  transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
+  transport.queueResponse(
+    _rawSubscriptionAck(
+      accepted: <String>[
+        for (final DovahLinkStateArea area in accepted) area.protocolValue,
+      ],
+      rejected: <String>[
+        for (final DovahLinkStateArea area in rejected) area.protocolValue,
+      ],
+    ),
+  );
+  transport.failMessagesWith(const SocketException('dropped'));
+}
+
+/// Pumps the event queue until [done] holds or the bounded budget is spent.
+Future<void> _pumpUntil(bool Function() done) async {
+  for (int turn = 0; turn < 80 && !done(); turn++) {
+    await pumpEventQueue();
+  }
+}
+
+/// Pumps until a restoration `subscribe` beyond the first [subscribesBefore] has been sent.
+Future<void> _pumpUntilRestoreSent(
+  FakeDovahLinkTransport transport,
+  int subscribesBefore,
+) => _pumpUntil(
+  () => _sentSubscriptionUpdates(transport).length > subscribesBefore,
+);
+
+/// A session whose Character Level recovery request survived a transport loss and was
+/// retransmitted into a reauthenticated session whose restored subscription is not yet acknowledged.
+typedef _OrphanedRecovery = ({
+  FakeDovahLinkTransport transport,
+  DovahLinkClient client,
+  List<DovahLinkConnectionState> states,
+  String snapshotRequestId,
+  String restoreId,
+  int levelRevision,
+});
+
+/// Establishes [areas] with baselines, opens a Character Level revision gap, then drops the
+/// transport and reauthenticates without delivering the restored subscription's acknowledgement.
+/// @param areas The areas to subscribe, including Character Level.
+/// @return The held-acknowledgement session and the IDs needed to answer it.
+Future<_OrphanedRecovery> _startOrphanedRecovery(
+  List<DovahLinkStateArea> areas,
+) async {
+  final s = await _establishRetentionSession(areas);
+  final List<DovahLinkConnectionState> states = <DovahLinkConnectionState>[];
+  final StreamSubscription<DovahLinkConnectionState> stateSubscription = s
+      .client
+      .connections
+      .stateChanges
+      .listen(states.add);
+  addTearDown(stateSubscription.cancel);
+  final int levelRevision = _baselineRevision(
+    DovahLinkStateArea.characterLevel,
+  );
+  s.transport.queueRawResponse(
+    _rawStateEvent(
+      stateArea: 'character_level',
+      baseRevision: levelRevision + 4,
+      revision: levelRevision + 5,
+      value: 30,
+    ),
+  );
+  await pumpEventQueue();
+  expect(_sentIdsOfType(s.transport, 'snapshot_request'), hasLength(1));
+  final int subscribesBefore = _sentSubscriptionUpdates(s.transport).length;
+  s.transport.queueResponse(_rawFixture('connection/hello-ack-paired.json'));
+  s.transport.queueResponse(_rawFixture('capabilities/capabilities-host.json'));
+  s.transport.failMessagesWith(const SocketException('dropped'));
+  await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+  await _pumpUntil(
+    () => s.client.connections.state == DovahLinkConnectionState.connected,
+  );
+  final List<String> requests = _sentIdsOfType(s.transport, 'snapshot_request');
+  expect(requests, hasLength(2));
+  return (
+    transport: s.transport,
+    client: s.client,
+    states: states,
+    snapshotRequestId: requests.last,
+    restoreId:
+        _sentSubscriptionUpdates(s.transport).last['messageId'] as String,
+    levelRevision: levelRevision,
+  );
+}
+
+/// Delivers the restored subscription's acknowledgement for [restoreId].
+void _deliverRestoreAck(
+  FakeDovahLinkTransport transport,
+  String restoreId, {
+  required Iterable<DovahLinkStateArea> accepted,
+  Iterable<DovahLinkStateArea> rejected = const <DovahLinkStateArea>[],
+}) {
+  final JsonMap ack =
+      jsonDecode(
+            _rawSubscriptionAck(
+              accepted: <String>[
+                for (final DovahLinkStateArea area in accepted)
+                  area.protocolValue,
+              ],
+              rejected: <String>[
+                for (final DovahLinkStateArea area in rejected)
+                  area.protocolValue,
+              ],
+            ),
+          )
+          as JsonMap;
+  ack['correlationId'] = restoreId;
+  transport.queueRawResponse(jsonEncode(ack));
+}
+
+/// Pumps a fixed number of turns so every delivered frame is fully processed.
+Future<void> _settle() => _pumpUntil(() => false);
+
+/// Expects [state] to hold a retained, non-current observation.
+void _expectRetained(
+  StateSynchronization<Object?> state, {
+  required int revision,
+  String authority = 'authority-1',
+  String context = 'context-1',
+}) {
+  expect(state.status, DovahLinkStateStatus.recovering);
+  expect(state.revision, revision);
+  expect(state.value, isNotNull);
+  expect(state.stateAuthorityId, authority);
+  expect(state.playContextId, context);
+}
+
+/// Expects [state] to be awaiting its first baseline: recovering, with no value or revision. The
+/// identity may already be the one other domains observed, but no usable observation exists.
+void _expectAwaitingBaseline(StateSynchronization<Object?> state) {
+  expect(state.status, DovahLinkStateStatus.recovering);
+  expect(state.value, isNull);
+  expect(state.revision, isNull);
+}
+
+/// Expects [state] to carry no value or metadata, with [status].
+void _expectEmpty(
+  StateSynchronization<Object?> state, [
+  DovahLinkStateStatus status = DovahLinkStateStatus.notSubscribed,
+]) {
+  expect(state.status, status);
+  expect(state.value, isNull);
+  expect(state.revision, isNull);
+  expect(state.stateAuthorityId, isNull);
+  expect(state.playContextId, isNull);
 }
 
 /// Runs public-client behavior tests.
@@ -3431,7 +3749,7 @@ void main() {
     );
 
     test(
-      'Behavior ordinary reconnect restores only desired areas and waits for a fresh Snapshot',
+      'Behavior ordinary reconnect restores only desired areas, retains their value as recovering, and replaces it with a fresh Snapshot',
       () async {
         final FakeDovahLinkTransport reconnectTransport =
             FakeDovahLinkTransport();
@@ -3505,11 +3823,11 @@ void main() {
         expect(updates.last['payload'], <String, dynamic>{
           'stateAreas': <String>['character_vitals'],
         });
-        expect(
-          (await reconnectClient.currentHost.character.vitalsChanges.first)
-              .status,
-          DovahLinkStateStatus.recovering,
-        );
+        final StateSynchronization<CharacterVitalsState> retained =
+            await reconnectClient.currentHost.character.vitalsChanges.first;
+        expect(retained.status, DovahLinkStateStatus.recovering);
+        expect(retained.revision, 7);
+        expect(retained.value?.health?.current, 87.5);
         expect(
           (await reconnectClient.currentHost.character.xpChanges.first).status,
           DovahLinkStateStatus.notSubscribed,
@@ -3518,7 +3836,7 @@ void main() {
         reconnectTransport.queueRawResponse(
           _rawStateSnapshot(
             stateArea: 'character_vitals',
-            revision: 1,
+            revision: 8,
             value: <String, dynamic>{
               'health': <String, dynamic>{'current': 75.0, 'max': 410.0},
               'magicka': <String, dynamic>{'current': 180.0, 'max': 250.0},
@@ -3533,7 +3851,7 @@ void main() {
         final StateSynchronization<CharacterVitalsState> recovered =
             await reconnectClient.currentHost.character.vitalsChanges.first;
         expect(recovered.status, DovahLinkStateStatus.synchronized);
-        expect(recovered.revision, 1);
+        expect(recovered.revision, 8);
         expect(recovered.value?.health?.current, 75.0);
         expect(
           (await reconnectClient.currentHost.character.xpChanges.first).status,
@@ -7685,6 +8003,1288 @@ void main() {
                     state.availability == DovahLinkHostAvailability.online,
               ),
           isEmpty,
+        );
+      },
+    );
+  });
+
+  group('Behavior live-state retention across automatic recovery behaves '
+      'correctly', () {
+    const List<DovahLinkStateArea> allAreas = DovahLinkStateArea.values;
+
+    test(
+      'Behavior every gameplay domain keeps its exact value, identity, and revision as recovering '
+      'through reconnecting and reauthenticating without a transient disconnected',
+      () async {
+        final s = await _establishRetentionSession(allAreas);
+        final Map<DovahLinkStateArea, List<StateSynchronization<Object?>>>
+        records = _recordDomains(s.client);
+        final List<DovahLinkConnectionState> states =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> stateSubscription = s
+            .client
+            .connections
+            .stateChanges
+            .listen(states.add);
+        addTearDown(stateSubscription.cancel);
+        final Completer<void> helloGate = Completer<void>();
+        s.transport.heldSends.add(helloGate);
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+
+        _dropTransport(s.transport, accepted: allAreas);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state ==
+              DovahLinkConnectionState.reauthenticating,
+        );
+
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> during =
+            await _readDomains(s.client);
+        for (final DovahLinkStateArea area in allAreas) {
+          _expectRetained(during[area]!, revision: _baselineRevision(area));
+        }
+        expect(
+          (during[DovahLinkStateArea.characterXp]!.value as CharacterXpState)
+              .value,
+          _baselineRevision(DovahLinkStateArea.characterXp) * 1.5,
+        );
+        expect(
+          (during[DovahLinkStateArea.characterVitals]!.value
+                  as CharacterVitalsState)
+              .health
+              ?.current,
+          100.0 + _baselineRevision(DovahLinkStateArea.characterVitals),
+        );
+        expect(
+          (during[DovahLinkStateArea.characterLevel]!.value
+                  as CharacterLevelState)
+              .value,
+          _baselineRevision(DovahLinkStateArea.characterLevel),
+        );
+        expect(
+          (during[DovahLinkStateArea.characterSupernaturalTraits]!.value
+                  as CharacterSupernaturalTraitsState)
+              .isVampire,
+          isFalse,
+        );
+        expect(
+          (during[DovahLinkStateArea.trackedQuests]!.value
+                  as TrackedQuestsState)
+              .quests,
+          isEmpty,
+        );
+
+        helloGate.complete();
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        await pumpEventQueue();
+
+        expect(states, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.connected,
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.connected,
+        ]);
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> after =
+            await _readDomains(s.client);
+        for (final DovahLinkStateArea area in allAreas) {
+          _expectRetained(after[area]!, revision: _baselineRevision(area));
+          expect(
+            records[area]!.map(
+              (StateSynchronization<Object?> state) => state.status,
+            ),
+            <DovahLinkStateStatus>[
+              DovahLinkStateStatus.synchronized,
+              DovahLinkStateStatus.recovering,
+            ],
+            reason:
+                '${area.protocolValue} must never pass through notSubscribed',
+          );
+        }
+      },
+    );
+
+    test(
+      'Behavior a domain without an accepted baseline gains no value, revision, or identity '
+      'through retention',
+      () async {
+        final s = await _establishRetentionSession(
+          <DovahLinkStateArea>[
+            DovahLinkStateArea.characterXp,
+            DovahLinkStateArea.playerLocation,
+          ],
+          baselined: <DovahLinkStateArea>[DovahLinkStateArea.characterXp],
+        );
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+
+        _dropTransport(
+          s.transport,
+          accepted: <DovahLinkStateArea>[
+            DovahLinkStateArea.characterXp,
+            DovahLinkStateArea.playerLocation,
+          ],
+        );
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        _expectRetained(
+          domains[DovahLinkStateArea.characterXp]!,
+          revision: _baselineRevision(DovahLinkStateArea.characterXp),
+        );
+        _expectAwaitingBaseline(domains[DovahLinkStateArea.playerLocation]!);
+        _expectEmpty(domains[DovahLinkStateArea.gameTime]!);
+      },
+    );
+
+    test(
+      'Behavior baselines replace retained values per domain, rejecting an obsolete revision '
+      'and letting a never-baselined domain gain its first value only from a Snapshot',
+      () async {
+        final s = await _establishRetentionSession(
+          <DovahLinkStateArea>[
+            DovahLinkStateArea.characterXp,
+            DovahLinkStateArea.characterVitals,
+            DovahLinkStateArea.playerLocation,
+          ],
+          baselined: <DovahLinkStateArea>[
+            DovahLinkStateArea.characterXp,
+            DovahLinkStateArea.characterVitals,
+          ],
+        );
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+        _dropTransport(
+          s.transport,
+          accepted: <DovahLinkStateArea>[
+            DovahLinkStateArea.characterXp,
+            DovahLinkStateArea.characterVitals,
+            DovahLinkStateArea.playerLocation,
+          ],
+        );
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        final String restoreId =
+            _sentSubscriptionUpdates(s.transport).last['messageId'] as String;
+        final int xpRevision = _baselineRevision(
+          DovahLinkStateArea.characterXp,
+        );
+        final int vitalsRevision = _baselineRevision(
+          DovahLinkStateArea.characterVitals,
+        );
+
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterVitals,
+            vitalsRevision + 5,
+            correlationId: restoreId,
+          ),
+        );
+        await pumpEventQueue();
+        Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        expect(
+          domains[DovahLinkStateArea.characterVitals]!.status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          domains[DovahLinkStateArea.characterVitals]!.revision,
+          vitalsRevision + 5,
+        );
+        expect(
+          (domains[DovahLinkStateArea.characterVitals]!.value
+                  as CharacterVitalsState)
+              .health
+              ?.current,
+          100.0 + vitalsRevision + 5,
+        );
+        _expectRetained(
+          domains[DovahLinkStateArea.characterXp]!,
+          revision: xpRevision,
+        );
+        _expectAwaitingBaseline(domains[DovahLinkStateArea.playerLocation]!);
+
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterXp,
+            xpRevision - 1,
+            correlationId: restoreId,
+          ),
+        );
+        await pumpEventQueue();
+        domains = await _readDomains(s.client);
+        _expectRetained(
+          domains[DovahLinkStateArea.characterXp]!,
+          revision: xpRevision,
+        );
+
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterXp,
+            xpRevision + 1,
+            correlationId: restoreId,
+          ),
+        );
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.playerLocation,
+            1,
+            correlationId: restoreId,
+          ),
+        );
+        await pumpEventQueue();
+        domains = await _readDomains(s.client);
+        expect(
+          domains[DovahLinkStateArea.characterXp]!.status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(
+          domains[DovahLinkStateArea.characterXp]!.revision,
+          xpRevision + 1,
+        );
+        expect(
+          domains[DovahLinkStateArea.playerLocation]!.status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(domains[DovahLinkStateArea.playerLocation]!.revision, 1);
+      },
+    );
+
+    test(
+      'Behavior a baseline delivered in the same frame burst as its subscription acknowledgement '
+      'is not lost',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+        final Completer<void> subscribeGate = Completer<void>();
+        s.transport.heldSends
+          ..add(Completer<void>()..complete())
+          ..add(subscribeGate);
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        s.transport.failMessagesWith(const SocketException('dropped'));
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+
+        s.transport.queueResponsesForNextSend(<String>[
+          _rawSubscriptionAck(accepted: <String>['character_xp']),
+          _retentionSnapshot(
+            DovahLinkStateArea.characterXp,
+            _baselineRevision(DovahLinkStateArea.characterXp) + 2,
+            correlationId: 'rewritten-to-the-subscribe-id',
+          ),
+        ]);
+        subscribeGate.complete();
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        await pumpEventQueue();
+
+        final StateSynchronization<Object?> xp = (await _readDomains(
+          s.client,
+        ))[DovahLinkStateArea.characterXp]!;
+        expect(xp.status, DovahLinkStateStatus.synchronized);
+        expect(
+          xp.revision,
+          _baselineRevision(DovahLinkStateArea.characterXp) + 2,
+        );
+      },
+    );
+
+    for (final ({String authority, String context, String label}) change
+        in <({String authority, String context, String label})>[
+          (
+            authority: 'authority-2',
+            context: 'context-1',
+            label: 'stateAuthorityId',
+          ),
+          (
+            authority: 'authority-1',
+            context: 'context-2',
+            label: 'playContextId',
+          ),
+        ]) {
+      test(
+        'Behavior a new ${change.label} clears every retained value of the old identity and '
+        'establishes its own baselines',
+        () async {
+          final s = await _establishRetentionSession(<DovahLinkStateArea>[
+            DovahLinkStateArea.characterXp,
+            DovahLinkStateArea.characterVitals,
+          ]);
+          final int subscribesBefore = _sentSubscriptionUpdates(
+            s.transport,
+          ).length;
+          _dropTransport(
+            s.transport,
+            accepted: <DovahLinkStateArea>[
+              DovahLinkStateArea.characterXp,
+              DovahLinkStateArea.characterVitals,
+            ],
+          );
+          await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+          await _pumpUntil(
+            () =>
+                s.client.connections.state ==
+                DovahLinkConnectionState.connected,
+          );
+          final String restoreId =
+              _sentSubscriptionUpdates(s.transport).last['messageId'] as String;
+
+          s.transport.queueRawResponse(
+            _retentionSnapshot(
+              DovahLinkStateArea.characterVitals,
+              1,
+              stateAuthorityId: change.authority,
+              playContextId: change.context,
+              correlationId: restoreId,
+            ),
+          );
+          await pumpEventQueue();
+
+          Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+              await _readDomains(s.client);
+          final StateSynchronization<Object?> vitals =
+              domains[DovahLinkStateArea.characterVitals]!;
+          expect(vitals.status, DovahLinkStateStatus.synchronized);
+          expect(vitals.revision, 1);
+          expect(vitals.stateAuthorityId, change.authority);
+          expect(vitals.playContextId, change.context);
+          final StateSynchronization<Object?> xp =
+              domains[DovahLinkStateArea.characterXp]!;
+          expect(xp.status, DovahLinkStateStatus.recovering);
+          expect(xp.value, isNull);
+          expect(xp.revision, isNull);
+          expect(xp.stateAuthorityId, change.authority);
+          expect(xp.playContextId, change.context);
+
+          // The new identity's revision sequence is independent, so a lower revision is accepted.
+          s.transport.queueRawResponse(
+            _retentionSnapshot(
+              DovahLinkStateArea.characterXp,
+              1,
+              stateAuthorityId: change.authority,
+              playContextId: change.context,
+              correlationId: restoreId,
+            ),
+          );
+          await pumpEventQueue();
+          domains = await _readDomains(s.client);
+          expect(
+            domains[DovahLinkStateArea.characterXp]!.status,
+            DovahLinkStateStatus.synchronized,
+          );
+          expect(domains[DovahLinkStateArea.characterXp]!.revision, 1);
+        },
+      );
+    }
+
+    test(
+      'Behavior a rejected restoration clears that domain while accepted domains stay '
+      'retained and non-current, and a late message for it is ignored',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+          DovahLinkStateArea.characterVitals,
+        ]);
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+        _dropTransport(
+          s.transport,
+          accepted: <DovahLinkStateArea>[DovahLinkStateArea.characterVitals],
+          rejected: <DovahLinkStateArea>[DovahLinkStateArea.characterXp],
+        );
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        await pumpEventQueue();
+
+        s.transport.queueRawResponse(
+          _retentionSnapshot(DovahLinkStateArea.characterXp, 99),
+        );
+        await pumpEventQueue();
+
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        _expectEmpty(domains[DovahLinkStateArea.characterXp]!);
+        _expectRetained(
+          domains[DovahLinkStateArea.characterVitals]!,
+          revision: _baselineRevision(DovahLinkStateArea.characterVitals),
+        );
+      },
+    );
+
+    test(
+      'Behavior a state message that arrives before the new session is admitted cannot modify '
+      'retained data',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        final Completer<void> helloGate = Completer<void>();
+        s.transport.heldSends.add(helloGate);
+        _dropTransport(
+          s.transport,
+          accepted: <DovahLinkStateArea>[DovahLinkStateArea.characterXp],
+        );
+        await _pumpUntil(
+          () =>
+              s.client.connections.state ==
+              DovahLinkConnectionState.reauthenticating,
+        );
+
+        s.transport.queueRawResponse(
+          _retentionSnapshot(DovahLinkStateArea.characterXp, 99),
+        );
+        await pumpEventQueue();
+
+        _expectRetained(
+          (await _readDomains(s.client))[DovahLinkStateArea.characterXp]!,
+          revision: _baselineRevision(DovahLinkStateArea.characterXp),
+        );
+        helloGate.complete();
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+      },
+    );
+
+    test(
+      'Behavior explicit disconnect during recovery resets every domain to notSubscribed with no '
+      'obsolete metadata and a late pending operation changes nothing',
+      () async {
+        final s = await _establishRetentionSession(allAreas);
+        final Completer<void> helloGate = Completer<void>();
+        s.transport.heldSends.add(helloGate);
+        _dropTransport(s.transport, accepted: allAreas);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state ==
+              DovahLinkConnectionState.reauthenticating,
+        );
+
+        await s.client.connections.disconnect();
+        helloGate.complete();
+        await _pumpUntil(() => false);
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+        expect(s.transport.connectCalls, hasLength(2));
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        for (final DovahLinkStateArea area in allAreas) {
+          _expectEmpty(domains[area]!);
+        }
+      },
+    );
+
+    test(
+      'Behavior a second transport loss while reauthenticating keeps the retained observations '
+      'non-current until the session ends',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        final Completer<void> helloGate = Completer<void>();
+        s.transport.heldSends.add(helloGate);
+        _dropTransport(
+          s.transport,
+          accepted: <DovahLinkStateArea>[DovahLinkStateArea.characterXp],
+        );
+        await _pumpUntil(
+          () =>
+              s.client.connections.state ==
+              DovahLinkConnectionState.reauthenticating,
+        );
+        final List<DovahLinkConnectionState> states =
+            <DovahLinkConnectionState>[];
+        final StreamSubscription<DovahLinkConnectionState> stateSubscription = s
+            .client
+            .connections
+            .stateChanges
+            .listen(states.add);
+        addTearDown(stateSubscription.cancel);
+        final List<StateSynchronization<Object?>> xp = _recordDomains(
+          s.client,
+        )[DovahLinkStateArea.characterXp]!;
+
+        s.transport.failMessagesWith(const SocketException('dropped again'));
+        await _pumpUntil(
+          () => states.contains(DovahLinkConnectionState.reconnecting),
+        );
+        final int retainedEmissions = xp.length;
+        for (final StateSynchronization<Object?> state in xp) {
+          _expectRetained(
+            state,
+            revision: _baselineRevision(DovahLinkStateArea.characterXp),
+          );
+        }
+        helloGate.complete();
+        await s.client.connections.disconnect();
+
+        expect(retainedEmissions, 1);
+        expect(
+          xp.map((StateSynchronization<Object?> state) => state.status),
+          <DovahLinkStateStatus>[
+            DovahLinkStateStatus.recovering,
+            DovahLinkStateStatus.notSubscribed,
+          ],
+        );
+        _expectEmpty(xp.last);
+      },
+    );
+
+    test(
+      'Behavior a session invalidation received while reauthenticating is nonrecoverable and '
+      'clears retained values',
+      () async {
+        final s = await _establishRetentionSession(allAreas);
+        final Completer<void> helloGate = Completer<void>();
+        s.transport.heldSends.add(helloGate);
+        _dropTransport(s.transport, accepted: allAreas);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state ==
+              DovahLinkConnectionState.reauthenticating,
+        );
+
+        s.transport.queueRawResponse(
+          _rawSessionInvalidated('revoked', sessionId: 'session-paired-1'),
+        );
+        await _pumpUntil(
+          () =>
+              s.client.connections.state ==
+              DovahLinkConnectionState.disconnected,
+        );
+        helloGate.complete();
+        await pumpEventQueue();
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        for (final DovahLinkStateArea area in allAreas) {
+          _expectEmpty(domains[area]!);
+        }
+      },
+    );
+
+    test(
+      'Behavior explicit disconnect from a stable connected session resets synchronized domains',
+      () async {
+        final s = await _establishRetentionSession(allAreas);
+
+        await s.client.connections.disconnect();
+
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        for (final DovahLinkStateArea area in allAreas) {
+          _expectEmpty(domains[area]!);
+        }
+      },
+    );
+
+    test(
+      'Behavior duplicate transport close events start one recovery and keep the retained '
+      'observations intact until baselines arrive',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterXp,
+        ]);
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        s.transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_xp']),
+        );
+
+        s.transport.failMessagesWithBoth(const SocketException('dropped'));
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        await pumpEventQueue();
+
+        expect(s.transport.connectCalls, hasLength(2));
+        _expectRetained(
+          (await _readDomains(s.client))[DovahLinkStateArea.characterXp]!,
+          revision: _baselineRevision(DovahLinkStateArea.characterXp),
+        );
+      },
+    );
+
+    test(
+      'Behavior administrative invalidation clears retained values and starts no automatic '
+      'recovery',
+      () async {
+        final s = await _establishRetentionSession(allAreas);
+
+        s.transport.queueRawResponse(
+          _rawSessionInvalidated('revoked', sessionId: 'session-paired-1'),
+        );
+        await pumpEventQueue();
+        await pumpEventQueue();
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.administrativelyInvalidated,
+        );
+        expect(s.transport.connectCalls, hasLength(1));
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        for (final DovahLinkStateArea area in allAreas) {
+          _expectEmpty(domains[area]!);
+        }
+      },
+    );
+
+    test(
+      'Behavior exhausted reconnect attempts clear retained values when the lifecycle becomes '
+      'disconnected',
+      () async {
+        final s = await _establishRetentionSession(allAreas);
+        final Map<DovahLinkStateArea, List<StateSynchronization<Object?>>>
+        records = _recordDomains(s.client);
+        s.transport.failConnectWith = const SocketException('unreachable');
+
+        s.transport.failMessagesWith(const SocketException('dropped'));
+        await _pumpUntil(
+          () =>
+              s.client.connections.state ==
+              DovahLinkConnectionState.disconnected,
+        );
+
+        expect(
+          s.client.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        for (final DovahLinkStateArea area in allAreas) {
+          _expectEmpty(domains[area]!);
+          expect(
+            records[area]!.map(
+              (StateSynchronization<Object?> state) => state.status,
+            ),
+            <DovahLinkStateStatus>[
+              DovahLinkStateStatus.synchronized,
+              DovahLinkStateStatus.recovering,
+              DovahLinkStateStatus.notSubscribed,
+            ],
+          );
+        }
+      },
+    );
+
+    test(
+      'Behavior Character Level revision-gap recovery works on a retained domain after its '
+      'baseline is restored',
+      () async {
+        final s = await _establishRetentionSession(<DovahLinkStateArea>[
+          DovahLinkStateArea.characterLevel,
+        ]);
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+        _dropTransport(
+          s.transport,
+          accepted: <DovahLinkStateArea>[DovahLinkStateArea.characterLevel],
+        );
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        final String restoreId =
+            _sentSubscriptionUpdates(s.transport).last['messageId'] as String;
+        final int levelRevision = _baselineRevision(
+          DovahLinkStateArea.characterLevel,
+        );
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterLevel,
+            levelRevision + 1,
+            correlationId: restoreId,
+          ),
+        );
+        await pumpEventQueue();
+
+        s.transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: levelRevision + 4,
+            revision: levelRevision + 5,
+            value: 30,
+          ),
+        );
+        await pumpEventQueue();
+
+        final JsonMap request = jsonDecode(s.transport.sent.last) as JsonMap;
+        expect(request['messageType'], 'snapshot_request');
+        expect(request['payload'], <String, dynamic>{
+          'stateArea': 'character_level',
+          'knownRevision': levelRevision + 1,
+        });
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterLevel,
+            levelRevision + 5,
+            correlationId: request['messageId'] as String,
+          ),
+        );
+        await pumpEventQueue();
+        final StateSynchronization<Object?> level = (await _readDomains(
+          s.client,
+        ))[DovahLinkStateArea.characterLevel]!;
+        expect(level.status, DovahLinkStateStatus.synchronized);
+        expect(level.revision, levelRevision + 5);
+      },
+    );
+
+    test(
+      'Behavior an orphaned recovery Snapshot answered before the restored subscription is '
+      'acknowledged does not make the domain current, and the restored baseline then does',
+      () async {
+        const List<DovahLinkStateArea> areas = <DovahLinkStateArea>[
+          DovahLinkStateArea.characterLevel,
+          DovahLinkStateArea.characterXp,
+        ];
+        final s = await _establishRetentionSession(areas);
+        final int levelRevision = _baselineRevision(
+          DovahLinkStateArea.characterLevel,
+        );
+        final int xpRevision = _baselineRevision(
+          DovahLinkStateArea.characterXp,
+        );
+        s.transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: levelRevision + 4,
+            revision: levelRevision + 5,
+            value: 30,
+          ),
+        );
+        await pumpEventQueue();
+        expect(_sentIdsOfType(s.transport, 'snapshot_request'), hasLength(1));
+        final int subscribesBefore = _sentSubscriptionUpdates(
+          s.transport,
+        ).length;
+
+        // Reauthenticate, but never queue the restoration acknowledgement: it is held.
+        s.transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        s.transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        s.transport.failMessagesWith(const SocketException('dropped'));
+        await _pumpUntilRestoreSent(s.transport, subscribesBefore);
+        await _pumpUntil(
+          () =>
+              s.client.connections.state == DovahLinkConnectionState.connected,
+        );
+        final List<String> snapshotRequests = _sentIdsOfType(
+          s.transport,
+          'snapshot_request',
+        );
+        expect(snapshotRequests, hasLength(2));
+        final String restoreId =
+            _sentSubscriptionUpdates(s.transport).last['messageId'] as String;
+
+        // The Host answers the retransmitted request ahead of the held acknowledgement.
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterLevel,
+            levelRevision + 5,
+            correlationId: snapshotRequests.last,
+          ),
+        );
+        await _pumpUntil(() => false);
+
+        Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(s.client);
+        _expectRetained(
+          domains[DovahLinkStateArea.characterLevel]!,
+          revision: levelRevision,
+        );
+        _expectRetained(
+          domains[DovahLinkStateArea.characterXp]!,
+          revision: xpRevision,
+        );
+
+        expect(
+          _sentIdsOfType(s.transport, 'snapshot_request'),
+          hasLength(2),
+          reason:
+              'a refused recovery Snapshot must not trigger another request',
+        );
+
+        // The acknowledgement and restored baselines arrive: the domain becomes current.
+        final JsonMap ack =
+            jsonDecode(
+                  _rawSubscriptionAck(
+                    accepted: <String>['character_level', 'character_xp'],
+                  ),
+                )
+                as JsonMap;
+        ack['correlationId'] = restoreId;
+        s.transport.queueRawResponse(jsonEncode(ack));
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterLevel,
+            levelRevision + 5,
+            correlationId: restoreId,
+          ),
+        );
+        s.transport.queueRawResponse(
+          _retentionSnapshot(
+            DovahLinkStateArea.characterXp,
+            xpRevision,
+            correlationId: restoreId,
+          ),
+        );
+        await pumpEventQueue();
+
+        domains = await _readDomains(s.client);
+        final StateSynchronization<Object?> level =
+            domains[DovahLinkStateArea.characterLevel]!;
+        expect(level.status, DovahLinkStateStatus.synchronized);
+        expect(level.revision, levelRevision + 5);
+        expect(
+          domains[DovahLinkStateArea.characterXp]!.status,
+          DovahLinkStateStatus.synchronized,
+        );
+      },
+    );
+
+    const DovahLinkStateArea level = DovahLinkStateArea.characterLevel;
+    const DovahLinkStateArea xp = DovahLinkStateArea.characterXp;
+    const List<DovahLinkStateArea> levelAndXp = <DovahLinkStateArea>[level, xp];
+
+    test(
+      'Behavior an orphaned recovery Snapshot answered after the acknowledgement applies and '
+      'later revision-gap recovery still works',
+      () async {
+        final o = await _startOrphanedRecovery(levelAndXp);
+        _deliverRestoreAck(o.transport, o.restoreId, accepted: levelAndXp);
+        await _settle();
+
+        o.transport.queueRawResponse(
+          _retentionSnapshot(
+            level,
+            o.levelRevision + 5,
+            correlationId: o.snapshotRequestId,
+          ),
+        );
+        await _settle();
+
+        Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(o.client);
+        expect(domains[level]!.status, DovahLinkStateStatus.synchronized);
+        expect(domains[level]!.revision, o.levelRevision + 5);
+        _expectRetained(domains[xp]!, revision: _baselineRevision(xp));
+
+        o.transport.queueRawResponse(
+          _retentionSnapshot(
+            xp,
+            _baselineRevision(xp),
+            correlationId: o.restoreId,
+          ),
+        );
+        o.transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: o.levelRevision + 8,
+            revision: o.levelRevision + 9,
+            value: 40,
+          ),
+        );
+        await _settle();
+        final List<String> requests = _sentIdsOfType(
+          o.transport,
+          'snapshot_request',
+        );
+        expect(requests, hasLength(3));
+        o.transport.queueRawResponse(
+          _retentionSnapshot(
+            level,
+            o.levelRevision + 9,
+            correlationId: requests.last,
+          ),
+        );
+        await _settle();
+
+        domains = await _readDomains(o.client);
+        expect(domains[level]!.status, DovahLinkStateStatus.synchronized);
+        expect(domains[level]!.revision, o.levelRevision + 9);
+        expect(domains[xp]!.status, DovahLinkStateStatus.synchronized);
+      },
+    );
+
+    for (final ({String label, String authority, String context}) change
+        in <({String label, String authority, String context})>[
+          (
+            label: 'play context',
+            authority: 'authority-1',
+            context: 'context-2',
+          ),
+          (
+            label: 'state authority',
+            authority: 'authority-2',
+            context: 'context-1',
+          ),
+        ]) {
+      test(
+        'Behavior an orphaned recovery Snapshot with a changed ${change.label} before the '
+        'acknowledgement leaves every domain on its old retained identity, then the restored '
+        'baselines establish the new identity for all domains',
+        () async {
+          final o = await _startOrphanedRecovery(levelAndXp);
+
+          o.transport.queueRawResponse(
+            _retentionSnapshot(
+              level,
+              o.levelRevision + 5,
+              stateAuthorityId: change.authority,
+              playContextId: change.context,
+              correlationId: o.snapshotRequestId,
+            ),
+          );
+          await _settle();
+          Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+              await _readDomains(o.client);
+          for (final DovahLinkStateArea area in levelAndXp) {
+            _expectRetained(domains[area]!, revision: _baselineRevision(area));
+          }
+
+          _deliverRestoreAck(o.transport, o.restoreId, accepted: levelAndXp);
+          for (final DovahLinkStateArea area in levelAndXp) {
+            o.transport.queueRawResponse(
+              _retentionSnapshot(
+                area,
+                _baselineRevision(area) + 10,
+                stateAuthorityId: change.authority,
+                playContextId: change.context,
+                correlationId: o.restoreId,
+              ),
+            );
+          }
+          await _settle();
+
+          domains = await _readDomains(o.client);
+          for (final DovahLinkStateArea area in levelAndXp) {
+            expect(domains[area]!.status, DovahLinkStateStatus.synchronized);
+            expect(domains[area]!.stateAuthorityId, change.authority);
+            expect(domains[area]!.playContextId, change.context);
+            expect(domains[area]!.revision, _baselineRevision(area) + 10);
+          }
+        },
+      );
+
+      test(
+        'Behavior an admitted recovery Snapshot with a changed ${change.label} clears the old '
+        'identity from every other domain instead of mixing it',
+        () async {
+          final o = await _startOrphanedRecovery(levelAndXp);
+          _deliverRestoreAck(o.transport, o.restoreId, accepted: levelAndXp);
+          await _settle();
+
+          o.transport.queueRawResponse(
+            _retentionSnapshot(
+              level,
+              o.levelRevision + 5,
+              stateAuthorityId: change.authority,
+              playContextId: change.context,
+              correlationId: o.snapshotRequestId,
+            ),
+          );
+          await _settle();
+
+          final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+              await _readDomains(o.client);
+          expect(domains[level]!.status, DovahLinkStateStatus.synchronized);
+          expect(domains[level]!.stateAuthorityId, change.authority);
+          expect(domains[level]!.playContextId, change.context);
+          _expectAwaitingBaseline(domains[xp]!);
+          expect(domains[xp]!.stateAuthorityId, change.authority);
+          expect(domains[xp]!.playContextId, change.context);
+        },
+      );
+    }
+
+    test(
+      'Behavior a rejected area cannot stay current because of an earlier orphaned recovery '
+      'response',
+      () async {
+        final o = await _startOrphanedRecovery(levelAndXp);
+        o.transport.queueRawResponse(
+          _retentionSnapshot(
+            level,
+            o.levelRevision + 5,
+            correlationId: o.snapshotRequestId,
+          ),
+        );
+        await _settle();
+
+        _deliverRestoreAck(
+          o.transport,
+          o.restoreId,
+          accepted: <DovahLinkStateArea>[xp],
+          rejected: <DovahLinkStateArea>[level],
+        );
+        await _settle();
+
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(o.client);
+        _expectEmpty(domains[level]!);
+        _expectRetained(domains[xp]!, revision: _baselineRevision(xp));
+      },
+    );
+
+    test(
+      'Behavior a baseline delivered in the same transport burst as the acknowledgement is '
+      'applied even after an orphaned recovery response was refused',
+      () async {
+        final FakeDovahLinkTransport transport = FakeDovahLinkTransport()
+          ..synchronousDelivery = true;
+        final InMemoryClientStorage storage = InMemoryClientStorage();
+        final DovahLinkClient client = _buildFastReconnectClient(
+          transport,
+          storage,
+        );
+        addTearDown(client.close);
+        await _connectAndTrustedHello(transport, client, storage);
+        await _subscribeStateAreas(transport, client, levelAndXp);
+        for (final DovahLinkStateArea area in levelAndXp) {
+          transport.queueRawResponse(
+            _retentionSnapshot(area, _baselineRevision(area)),
+          );
+        }
+        await _settle();
+        final int levelRevision = _baselineRevision(level);
+        transport.queueRawResponse(
+          _rawStateEvent(
+            stateArea: 'character_level',
+            baseRevision: levelRevision + 4,
+            revision: levelRevision + 5,
+            value: 30,
+          ),
+        );
+        await _settle();
+        final int subscribesBefore = _sentSubscriptionUpdates(transport).length;
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.failMessagesWith(const SocketException('dropped'));
+        await _pumpUntilRestoreSent(transport, subscribesBefore);
+        await _pumpUntil(
+          () => client.connections.state == DovahLinkConnectionState.connected,
+        );
+        final String requestId = _sentIdsOfType(
+          transport,
+          'snapshot_request',
+        ).last;
+        final String restoreId =
+            _sentSubscriptionUpdates(transport).last['messageId'] as String;
+
+        transport.queueRawResponse(
+          _retentionSnapshot(
+            level,
+            levelRevision + 5,
+            correlationId: requestId,
+          ),
+        );
+        await _settle();
+        final StateSynchronization<Object?> beforeAck = (await _readDomains(
+          client,
+        ))[level]!;
+        _expectRetained(beforeAck, revision: levelRevision);
+
+        _deliverRestoreAck(transport, restoreId, accepted: levelAndXp);
+        transport.queueRawResponse(
+          _retentionSnapshot(
+            xp,
+            _baselineRevision(xp),
+            correlationId: restoreId,
+          ),
+        );
+        transport.queueRawResponse(
+          _retentionSnapshot(
+            level,
+            levelRevision + 5,
+            correlationId: restoreId,
+          ),
+        );
+        await _settle();
+
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(client);
+        expect(domains[xp]!.status, DovahLinkStateStatus.synchronized);
+        expect(domains[level]!.status, DovahLinkStateStatus.synchronized);
+        expect(domains[level]!.revision, levelRevision + 5);
+      },
+    );
+
+    test(
+      'Behavior a failed restored subscribe closes the gate so a late orphaned recovery '
+      'response establishes nothing',
+      () async {
+        final o = await _startOrphanedRecovery(levelAndXp);
+        o.transport.queueRawResponse(
+          jsonEncode(<String, dynamic>{
+            'messageType': 'error',
+            'messageId': 'message-error-restore',
+            'sessionId': 'session-paired-1',
+            'correlationId': o.restoreId,
+            'payload': <String, dynamic>{
+              'code': 'temporarily_unavailable',
+              'message': 'Subscription could not be restored.',
+              'retryable': true,
+            },
+            'playContextId': null,
+            'clientId': null,
+          }),
+        );
+        await _settle();
+        o.transport.queueRawResponse(
+          _retentionSnapshot(
+            level,
+            o.levelRevision + 5,
+            correlationId: o.snapshotRequestId,
+          ),
+        );
+        await _settle();
+
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(o.client);
+        for (final DovahLinkStateArea area in levelAndXp) {
+          _expectRetained(domains[area]!, revision: _baselineRevision(area));
+        }
+      },
+    );
+
+    test(
+      'Behavior an explicit disconnect with an orphaned recovery request resurrects nothing '
+      'when its response arrives late',
+      () async {
+        final o = await _startOrphanedRecovery(levelAndXp);
+        await o.client.connections.disconnect();
+
+        o.transport.queueRawResponse(
+          _retentionSnapshot(
+            level,
+            o.levelRevision + 5,
+            correlationId: o.snapshotRequestId,
+          ),
+        );
+        await _settle();
+
+        final Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(o.client);
+        for (final DovahLinkStateArea area in levelAndXp) {
+          _expectEmpty(domains[area]!);
+        }
+        expect(
+          o.client.connections.state,
+          DovahLinkConnectionState.disconnected,
+        );
+      },
+    );
+
+    test(
+      'Behavior unrelated Snapshot-only and non-recovering domains keep their retained '
+      'observations and the lifecycle keeps one subscription round',
+      () async {
+        const List<DovahLinkStateArea> areas = <DovahLinkStateArea>[
+          level,
+          xp,
+          DovahLinkStateArea.gameTime,
+          DovahLinkStateArea.characterVitals,
+        ];
+        final o = await _startOrphanedRecovery(areas);
+        o.transport.queueRawResponse(
+          _retentionSnapshot(
+            level,
+            o.levelRevision + 5,
+            correlationId: o.snapshotRequestId,
+          ),
+        );
+        await _settle();
+
+        Map<DovahLinkStateArea, StateSynchronization<Object?>> domains =
+            await _readDomains(o.client);
+        for (final DovahLinkStateArea area in areas) {
+          _expectRetained(domains[area]!, revision: _baselineRevision(area));
+        }
+
+        _deliverRestoreAck(o.transport, o.restoreId, accepted: areas);
+        for (final DovahLinkStateArea area in areas) {
+          o.transport.queueRawResponse(
+            _retentionSnapshot(
+              area,
+              area == level ? o.levelRevision + 5 : _baselineRevision(area),
+              correlationId: o.restoreId,
+            ),
+          );
+        }
+        await _settle();
+
+        domains = await _readDomains(o.client);
+        for (final DovahLinkStateArea area in areas) {
+          expect(domains[area]!.status, DovahLinkStateStatus.synchronized);
+        }
+        expect(o.states, <DovahLinkConnectionState>[
+          DovahLinkConnectionState.connected,
+          DovahLinkConnectionState.reconnecting,
+          DovahLinkConnectionState.reauthenticating,
+          DovahLinkConnectionState.connected,
+        ]);
+        expect(
+          _sentSubscriptionUpdates(o.transport).length - areas.length,
+          1,
+          reason:
+              'one cumulative subscribe per area, plus exactly one restoration round',
         );
       },
     );

@@ -40,8 +40,15 @@ abstract interface class ISubscriptionService {
   /// Starts best-effort restoration after an authenticated session becomes trusted.
   void restoreDesiredStateAreas();
 
-  /// Clears the accepted state gate when the current socket session ends, preserving intent.
+  /// Clears the accepted state gate when the current socket session ends for good, preserving
+  /// intent. Every domain returns to `notSubscribed`, including any retained observation.
   void onSessionEnded();
+
+  /// Closes the accepted state gate when the session is lost but bounded automatic recovery will
+  /// replace it, preserving intent and keeping each domain's last accepted observation as
+  /// non-current. Retention never admits a state message: the gate reopens only through a new
+  /// request, and a new acknowledgement and baseline are still required.
+  void onSessionInterrupted();
 
   /// Clears both desired intent and the current accepted state gate.
   void clearDesiredStateAreas();
@@ -78,6 +85,11 @@ class SubscriptionService implements ISubscriptionService {
   /// The areas the Host last accepted for the current session, restored to the gate if a request
   /// that provisionally admitted a larger set fails.
   Set<String> _acceptedProtocolAreas = <String>{};
+
+  /// Whether the last session ended through [onSessionInterrupted] and no acknowledgement for a
+  /// newer session has arrived. While set, a failed request returns the gate to the retaining state
+  /// instead of clearing the retained observations.
+  bool _retainingObservations = false;
 
   /// Creates a subscription service over the shared request, session, and state-message owners.
   /// @param requestService Sends correlated subscription updates.
@@ -185,6 +197,7 @@ class SubscriptionService implements ISubscriptionService {
       if (isNewestAcknowledgementForSession) {
         _acceptedRequestSequence = requestSequence;
         _acceptedProtocolAreas = acceptedProtocolAreas;
+        _retainingObservations = false;
       }
 
       if (isNewestAcknowledgementForSession &&
@@ -198,7 +211,11 @@ class SubscriptionService implements ISubscriptionService {
     } on Object {
       if (_intentGeneration == requestGeneration &&
           _sessionGeneration == requestSessionGeneration) {
-        _stateMessageHandler.setSubscribedStateAreas(_acceptedProtocolAreas);
+        if (_retainingObservations) {
+          _stateMessageHandler.suspendStateAreas();
+        } else {
+          _stateMessageHandler.setSubscribedStateAreas(_acceptedProtocolAreas);
+        }
       }
       rethrow;
     }
@@ -229,7 +246,17 @@ class SubscriptionService implements ISubscriptionService {
   void onSessionEnded() {
     _sessionGeneration++;
     _acceptedProtocolAreas = <String>{};
+    _retainingObservations = false;
     _stateMessageHandler.setSubscribedStateAreas(<String>{});
+  }
+
+  /// See [ISubscriptionService.onSessionInterrupted].
+  @override
+  void onSessionInterrupted() {
+    _sessionGeneration++;
+    _acceptedProtocolAreas = <String>{};
+    _retainingObservations = true;
+    _stateMessageHandler.suspendStateAreas();
   }
 
   /// See [ISubscriptionService.clearDesiredStateAreas].
