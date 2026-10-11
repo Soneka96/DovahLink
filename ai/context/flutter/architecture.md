@@ -159,8 +159,7 @@ Gameplay observation follows the admitted session, not the Session Shell route. 
 Connections leaves the session and its listeners active. Ordinary reconnect (`connected →
 reconnecting → reauthenticating → connected`, with no transient `disconnected`) keeps those
 listeners attached under the same observation token, keeps the requested-area tracking, and issues
-no second subscription round, because the SDK restores desired intent itself. The SDK still resets
-domain to `notSubscribed` only when the session ends for good. During eligible recovery the SDK keeps
+no second subscription round, because the SDK restores desired intent itself. The SDK resets every domain to `notSubscribed` only when the session ends for good. During eligible recovery the SDK keeps
 each domain's last accepted observation and publishes it as `recovering` with its original identity
 and revision, so the projection mirrors those retained, non-current values and receives new
 baselines once the session is admitted again. Flutter neither fabricates nor retains values, and
