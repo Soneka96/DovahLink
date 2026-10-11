@@ -1,6 +1,7 @@
 using DovahLink.Host.Authentication;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Client.Protocol;
+using DovahLink.Host.Client.Readiness;
 using DovahLink.Host.Client.Subscription;
 using DovahLink.Host.Client.Transport;
 using DovahLink.Host.Identity;
@@ -97,6 +98,13 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// </summary>
     private readonly IPublicStateSubscription? subscription;
 
+    /// <summary>
+    /// This connection's own gameplay-readiness publisher, or <see langword="null"/> when readiness is
+    /// not published. It is bound after <c>hello_ack</c> and <c>capabilities</c> so its first message
+    /// follows them, and unbound when the connection ends.
+    /// </summary>
+    private readonly IPublicGameplayReadinessPublisher? readinessPublisher;
+
     /// <summary>How long this connection may remain unadmitted before it is closed.</summary>
     private readonly TimeSpan admissionDeadline;
 
@@ -166,6 +174,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// <param name="hostIdentity">The validated persistent Host ID and current computer name reported during admission.</param>
     /// <param name="admissionDeadline">How long this connection may remain unadmitted before it is closed. Defaults to <see cref="Constants.PublicHelloAdmissionDeadline"/>.</param>
     /// <param name="subscription">This connection's own state-area subscription and event-forwarding gate. Defaults to <see langword="null"/>, under which <c>subscribe</c> and <c>snapshot_request</c> reject every request.</param>
+    /// <param name="readinessPublisher">This connection's own gameplay-readiness publisher. Defaults to <see langword="null"/>, under which no readiness message is ever sent.</param>
     public PublicHelloAdmissionHandler(
         IPublicEnvelopeCodec codec,
         ISessionRegistry sessionRegistry,
@@ -179,7 +188,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         IPublicSessionConnectionRegistry connectionRegistry,
         HostIdentity hostIdentity,
         TimeSpan? admissionDeadline = null,
-        IPublicStateSubscription? subscription = null)
+        IPublicStateSubscription? subscription = null,
+        IPublicGameplayReadinessPublisher? readinessPublisher = null)
     {
         this.codec = codec;
         this.sessionRegistry = sessionRegistry;
@@ -194,6 +204,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         this.hostIdentity = hostIdentity;
         this.admissionDeadline = admissionDeadline ?? Constants.PublicHelloAdmissionDeadline;
         this.subscription = subscription;
+        this.readinessPublisher = readinessPublisher;
     }
 
     /// <inheritdoc/>
@@ -402,7 +413,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
     /// trust tier may send, per <c>ai/context/protocol/security.md</c>'s "Hello authentication and
     /// session trust tiers". A server-originated type (<c>hello_ack</c>, <c>pairing_status</c>,
     /// <c>pairing_outcome</c>, <c>rename_outcome</c>, <c>subscription_ack</c>, <c>state_snapshot</c>,
-    /// <c>state_event</c>, <c>error</c>, <c>session_invalidated</c>, <c>pong</c>) is never allowed
+    /// <c>state_event</c>, <c>error</c>, <c>session_invalidated</c>, <c>gameplay_readiness</c>, <c>pong</c>) is never allowed
     /// from a client, in either tier; neither is a bare <c>hello</c> once a session already exists.
     /// </summary>
     private static bool IsAllowedForTier(PublicMessageType messageType, SessionTrustTier tier) => tier switch
@@ -936,6 +947,8 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
             null,
             capabilitiesPayload);
         connectionContext.TrySend(capabilitiesBytes, PublicOutboundLane.ControlOrRecovery);
+
+        readinessPublisher?.Bind(connectionContext, newSessionId);
     }
 
     /// <inheritdoc/>
@@ -958,6 +971,7 @@ public sealed class PublicHelloAdmissionHandler : IPublicWebSocketMessageHandler
         deadlineCts?.Cancel();
         connectionRegistry.Unregister(connectionId);
         subscription?.Unsubscribe();
+        readinessPublisher?.Unbind();
 
         if (wasAdmitted)
         {

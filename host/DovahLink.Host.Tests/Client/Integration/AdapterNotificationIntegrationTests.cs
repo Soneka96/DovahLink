@@ -63,11 +63,12 @@ public class AdapterNotificationIntegrationTests
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
         (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        (Socket adapterSocket, FakeAdapterResynchronizationDriver adapter) = await ConnectGameplayReadyAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket ownedAdapterSocket = adapterSocket;
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
-        var displayRequest = Assert.IsType<IpcPairingDisplayMessage>(await ReadIpcFrameAsync(adapterStream, ipcCodec));
+        IpcPairingDisplayMessage displayRequest = await adapter.ReadPairingDisplayAsync();
         Assert.Equal(PairingDisplayMode.Initial, displayRequest.Mode);
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPairingDisplayAckMessage(displayRequest.CorrelationId, Accepted: true)));
 
@@ -89,11 +90,12 @@ public class AdapterNotificationIntegrationTests
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
         (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        (Socket adapterSocket, FakeAdapterResynchronizationDriver adapter) = await ConnectGameplayReadyAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket ownedAdapterSocket = adapterSocket;
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
-        var displayRequest = Assert.IsType<IpcPairingDisplayMessage>(await ReadIpcFrameAsync(adapterStream, ipcCodec));
+        IpcPairingDisplayMessage displayRequest = await adapter.ReadPairingDisplayAsync();
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPairingDisplayAckMessage(displayRequest.CorrelationId, Accepted: false)));
 
         PairingStatusPayload status = await statusTask.WaitAsync(TimeSpan.FromSeconds(5));
@@ -177,11 +179,12 @@ public class AdapterNotificationIntegrationTests
         (Task<int> runTask, CancellationTokenSource shutdown, int publicPort, int adapterPort, byte[] adapterProof, OwnerLifetimeId ownerLifetimeId) = await StartComposedHostAsync();
         (ClientWebSocket client, string sessionId, string clientId) = await ConnectAndAdmitPublicClientAsync(publicPort, codec);
         using ClientWebSocket ownedClient = client;
-        using Socket adapterSocket = await ConnectActiveAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        (Socket adapterSocket, FakeAdapterResynchronizationDriver adapter) = await ConnectGameplayReadyAdapterAsync(adapterPort, adapterProof, ownerLifetimeId, ipcCodec);
+        using Socket ownedAdapterSocket = adapterSocket;
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
 
         Task<PairingStatusPayload> statusTask = RequestPairingStatusAsync(client, codec, sessionId, clientId);
-        var displayRequest = Assert.IsType<IpcPairingDisplayMessage>(await ReadIpcFrameAsync(adapterStream, ipcCodec));
+        IpcPairingDisplayMessage displayRequest = await adapter.ReadPairingDisplayAsync();
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPairingDisplayAckMessage(displayRequest.CorrelationId, Accepted: true)));
         PairingStatusPayload status = await statusTask.WaitAsync(TimeSpan.FromSeconds(5));
         Assert.Equal(PairingStatusWireState.Available, status.State);
@@ -430,6 +433,35 @@ public class AdapterNotificationIntegrationTests
         Assert.Equal(PublicMessageType.PairingStatus, envelope!.MessageType);
         Assert.True(codec.TryDecodePayload(envelope, out PairingStatusPayload? payload));
         return payload!;
+    }
+
+    /// <summary>
+    /// Connects a raw socket as an active adapter and drives a complete real resynchronization, so
+    /// the composed Host is gameplay-ready: pairing is refused outside gameplay, so a test exercising
+    /// the ordinary pairing flow needs the Host genuinely ready rather than merely connected.
+    /// </summary>
+    /// <param name="adapterPort">The private adapter listener's bound port.</param>
+    /// <param name="adapterProofToken">The proof token issued by the Host.</param>
+    /// <param name="ownerLifetimeId">The Skyrim process lifetime accepted by the Host.</param>
+    /// <param name="ipcCodec">The codec used for private IPC frames.</param>
+    /// <returns>The connected socket, left open for the test, and the driver that answers the Host's ordinary sampling.</returns>
+    private static async Task<(Socket Socket, FakeAdapterResynchronizationDriver Driver)> ConnectGameplayReadyAdapterAsync(
+        int adapterPort, byte[] adapterProofToken, OwnerLifetimeId ownerLifetimeId, IIpcFrameCodec ipcCodec)
+    {
+        var socket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
+        await socket.ConnectAsync(IPAddress.Loopback, adapterPort);
+        var stream = new NetworkStream(socket, ownsSocket: false);
+        await stream.WriteAsync(ipcCodec.Encode(new IpcHelloMessage(1, AdapterInstanceId.NewId(), adapterProofToken, ownerLifetimeId: ownerLifetimeId.ToBytes())));
+
+        var ack = Assert.IsType<IpcHelloAckMessage>(await ReadIpcFrameAsync(stream, ipcCodec));
+        Assert.True(ack.Accepted);
+        var playContextId = new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10"));
+        await stream.WriteAsync(ipcCodec.Encode(new IpcPlayContextChangedMessage(0, playContextId)));
+        var request = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadIpcFrameAsync(stream, ipcCodec));
+
+        var driver = new FakeAdapterResynchronizationDriver(stream, ipcCodec, playContextId);
+        await driver.CompleteResynchronizationAsync(request);
+        return (socket, driver);
     }
 
     /// <summary>Connects a raw socket as an active adapter and completes the context-gated resynchronization handshake.</summary>

@@ -25,7 +25,7 @@ object per message; framing is not part of the JSON payload.
 | `sessionId` | string or `null` | yes | `null` for pre-authentication `hello`, and `null` for an `error` that rejects a connection before any session was established on that socket (for example an auth failure or a violation detected before decoding completes). `hello_ack` and every other message carry the server-issued identity for that socket; an `error` reported after a session exists carries that session's identity. A session ID is valid only on the socket to which it was issued. |
 | `correlationId` | string or `null` | yes | Message ID being answered, or `null` when there is no correlation; response rules are defined below. |
 | `payload` | object | yes | Message-specific data. |
-| `stateAuthorityId` | string | conditional | Identifies the Host's current authoritative-state continuity epoch: it changes only when an event breaks revision continuity (a Host restart, or an Adapter/IPC connection loss detected — never a mere reconnect, new session, or play-context change). Required and non-null on `hello_ack`, `state_snapshot`, and `state_event`; absent on every other message, including every client-originated one. See `ai/context/protocol/compatibility.md` for the full continuity-epoch definition. |
+| `stateAuthorityId` | string | conditional | Identifies the Host's current authoritative-state continuity epoch: it changes only when an event breaks revision continuity (a Host restart, or an Adapter/IPC connection loss detected — never a mere reconnect, new session, or play-context change). Required and non-null on `hello_ack`, `state_snapshot`, `state_event`, and `gameplay_readiness`; absent on every other message, including every client-originated one. See `ai/context/protocol/compatibility.md` for the full continuity-epoch definition. |
 | `playContextId` | string or `null` | yes | Identifies the currently loaded play context. `null` outside an active play context (main menu, before any load, or after a return to the main menu) — genuine semantic absence, not a placeholder. |
 | `clientId` | string or `null` | yes | Identifies the logical client, established at `hello`. `null` on the client's own `hello` (not yet established) and on every message the Host sends after `hello_ack`: once a session exists, the Host derives the authenticated client from that session rather than repeating it on the wire. `hello_ack` itself still carries the value it accepted, confirming the identity the session now owns. |
 
@@ -337,7 +337,7 @@ The subsequent native level-up, delivered as an unsolicited Event with `revision
 `pairing_request`, `pairing_status`, `pairing_confirm`, `pairing_ack`, `pairing_renotify`,
 `pairing_cancel`, `pairing_outcome`, `rename_request`, `rename_outcome`, `capabilities`,
 `subscribe`, `subscription_ack`, `snapshot_request`, `state_snapshot`, `state_event`, `error`,
-`session_invalidated`, `ping`, and `pong`. A Host/SDK compatibility check occurs immediately
+`session_invalidated`, `gameplay_readiness`, `ping`, and `pong`. A Host/SDK compatibility check occurs immediately
 after `hello_ack`; an unrecognized message type is malformed protocol input and is rejected rather
 than interpreted as a forward-compatible value.
 
@@ -808,6 +808,57 @@ Required payload field: `reason`. It is one of `"revoked"`, `"blocked"`, `"trust
 Device became Revoked; `"factory_reset"` may terminate developer-token sessions even though the
 configured developer token remains valid. Clients must treat the event as terminal for the current
 session and must not wait for an acknowledgement before local cleanup or disconnect handling.
+
+### `gameplay_readiness`
+
+An unsolicited, Host-originated message that carries the Host's authoritative coarse answer to "is
+gameplay ready" for one admitted session. It is not a state area: it is never subscribed to, is not
+revisioned per `(stateAuthorityId, playContextId, stateArea)`, and survives the play-context changes
+that remove state areas. It is sent to every admitted session, restricted or trusted.
+
+```json
+{
+  "messageType": "gameplay_readiness",
+  "messageId": "opaque-message-id",
+  "sessionId": "opaque-connection-id",
+  "correlationId": null,
+  "payload": { "ready": true, "sequence": 2 },
+  "stateAuthorityId": "opaque-state-authority-id",
+  "playContextId": "opaque-play-context-id",
+  "clientId": null
+}
+```
+
+Required payload fields: `ready` (boolean) and `sequence` (integer, at least 1). No other payload
+field is sent, and a payload carrying any other field is malformed: the message carries no character,
+save, location, resource, Adapter, pairing, or diagnostic data.
+
+- **Envelope.** `correlationId` is `null`, `clientId` is `null` (a Host message after `hello_ack`),
+  and `sessionId` identifies the admitted session it is sent on. `stateAuthorityId` is required and
+  non-null, naming the authority continuity epoch current when the value was published; a message
+  whose `stateAuthorityId` differs from the session's current epoch must not be applied. `playContextId`
+  follows the common envelope rule (the current play context, or `null` outside one) and is **not**
+  evidence of readiness.
+- **Meaning.** `ready: true` only when the Host's whole readiness predicate holds: the Adapter is
+  available, its resynchronization is complete for the current connection and play-context transition,
+  and a play context is active. A non-null `playContextId` alone never implies ready. `false` covers
+  main menu, loading, an unsynchronized new context, and Adapter loss alike; the wire carries no
+  reason. Host unreachability is never put on the wire: a client derives it from its own connection.
+- **Sequence.** `sequence` starts at 1 for each admitted session and strictly increases with every
+  publication on that session. It is not reused across sessions and is unrelated to any state-area
+  revision. A client applies a message only when its `sequence` is greater than the last it applied on
+  the same session.
+- **Delivery.** The Host sends the current value once after `hello_ack` (and the `capabilities`
+  advertisement), and again whenever readiness changes, on the existing control lane, without
+  reconnect, subscription, or trusted status. It is never sent before admission, never in reply to a
+  client message, and is not part of the sessionless discovery probe.
+- **Direction.** Server-originated only. A client that sends it is rejected as `malformed_message`
+  in either trust tier.
+- **Activation.** The type is part of the canonical vocabulary, but a client that does not recognize
+  it treats it as malformed protocol input (see "Message types"), and the current Dart SDK does. The
+  Host therefore does not emit `gameplay_readiness` until a Host release whose supported-range
+  compatibility is coordinated with an SDK that understands it; see
+  [`ai/context/protocol/compatibility.md`](../../ai/context/protocol/compatibility.md).
 
 ### `ping` and `pong`
 

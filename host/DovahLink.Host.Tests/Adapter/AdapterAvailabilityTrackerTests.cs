@@ -87,7 +87,7 @@ public class AdapterAvailabilityTrackerTests
             return true;
         }));
 
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
         Assert.False(tracker.TryExecuteWhileOrdinarySamplingAllowed(4, () =>
         {
             admissions++;
@@ -129,7 +129,7 @@ public class AdapterAvailabilityTrackerTests
         AdapterInstanceId instanceId = AdapterInstanceId.NewId();
         PublishConnected(tracker, instanceId, 1);
         IAdapterResynchronizationToken staleToken = tracker.TryClaimResynchronizationToken()!;
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
 
         tracker.NotifyResynchronized(instanceId, 1, staleToken);
 
@@ -500,7 +500,7 @@ public class AdapterAvailabilityTrackerTests
         tracker.NotifyResynchronized(instanceId, 1, firstToken);
         Assert.False(tracker.NeedsResynchronization);
 
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
 
         Assert.Equal(AdapterAvailability.Available, tracker.Current);
         Assert.Equal(instanceId, tracker.CurrentInstanceId);
@@ -518,7 +518,7 @@ public class AdapterAvailabilityTrackerTests
     {
         var tracker = new AdapterAvailabilityTracker();
 
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
 
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
         Assert.False(tracker.NeedsResynchronization);
@@ -534,10 +534,82 @@ public class AdapterAvailabilityTrackerTests
         PublishConnected(tracker, instanceId, 1);
         PublishDisconnected(tracker, instanceId, 1);
 
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
 
         Assert.Equal(AdapterAvailability.Unavailable, tracker.Current);
         Assert.Null(tracker.TryClaimResynchronizationToken());
+    }
+
+    /// <summary>Verifies that a re-arm records the play-context transition generation it armed for and exposes it through both the property and the snapshot.</summary>
+    [Fact]
+    public void RearmResynchronizationForPlayContextTransition_WhileConnected_RecordsArmedGeneration()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        PublishConnected(tracker, AdapterInstanceId.NewId(), 1);
+
+        tracker.RearmResynchronizationForPlayContextTransition(7);
+
+        Assert.Equal(7, tracker.ArmedPlayContextTransitionGeneration);
+        Assert.Equal(7, tracker.GetSnapshot().ArmedPlayContextTransitionGeneration);
+    }
+
+    /// <summary>Verifies that the armed generation is still recorded while no adapter is connected, even though the re-arm itself changes nothing else.</summary>
+    [Fact]
+    public void RearmResynchronizationForPlayContextTransition_WhileDisconnected_StillRecordsArmedGeneration()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+
+        tracker.RearmResynchronizationForPlayContextTransition(4);
+
+        Assert.Equal(4, tracker.ArmedPlayContextTransitionGeneration);
+        Assert.False(tracker.NeedsResynchronization);
+    }
+
+    /// <summary>Verifies that connecting, disconnecting, and a resynchronization completion never move the recorded armed generation.</summary>
+    [Fact]
+    public void ArmedGeneration_IsUnchangedByConnectionAndResynchronizationChanges()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        tracker.RearmResynchronizationForPlayContextTransition(3);
+
+        PublishConnected(tracker, instanceId, 1);
+        IAdapterResynchronizationToken token = tracker.TryClaimResynchronizationToken()!;
+        tracker.NotifyResynchronized(instanceId, 1, token);
+        PublishDisconnected(tracker, instanceId, 1);
+
+        Assert.Equal(3, tracker.ArmedPlayContextTransitionGeneration);
+    }
+
+    /// <summary>Verifies that a generation armed while disconnected survives a reconnect, and that the reconnect still requires resynchronization.</summary>
+    [Fact]
+    public void ArmedGenerationRecordedWhileDisconnected_SurvivesReconnect()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        tracker.RearmResynchronizationForPlayContextTransition(5);
+
+        PublishConnected(tracker, AdapterInstanceId.NewId(), 2);
+
+        AdapterAvailabilitySnapshot snapshot = tracker.GetSnapshot();
+        Assert.Equal(5, snapshot.ArmedPlayContextTransitionGeneration);
+        Assert.True(snapshot.NeedsResynchronization);
+    }
+
+    /// <summary>Verifies that a re-arm invalidates the previously claimed token, so a completion from the earlier transaction can neither pass the current-token check nor clear the requirement.</summary>
+    [Fact]
+    public void Rearm_InvalidatesClaimedTokenAndRejectsItsCompletion()
+    {
+        var tracker = new AdapterAvailabilityTracker();
+        AdapterInstanceId instanceId = AdapterInstanceId.NewId();
+        PublishConnected(tracker, instanceId, 1);
+        IAdapterResynchronizationToken oldToken = tracker.TryClaimResynchronizationToken()!;
+        Assert.True(tracker.IsCurrentResynchronizationToken(oldToken));
+
+        tracker.RearmResynchronizationForPlayContextTransition(2);
+        tracker.NotifyResynchronized(instanceId, 1, oldToken);
+
+        Assert.False(tracker.IsCurrentResynchronizationToken(oldToken));
+        Assert.True(tracker.NeedsResynchronization);
     }
 
     /// <summary>Verifies that mixed concurrent connection notifications preserve one coherent current connection.</summary>

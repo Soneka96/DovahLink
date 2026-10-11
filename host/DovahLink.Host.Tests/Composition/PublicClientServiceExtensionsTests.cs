@@ -189,6 +189,10 @@ public class PublicClientServiceExtensionsTests
 
         IAdapterIpcListener adapterListener = provider.GetRequiredService<IAdapterIpcListener>();
         Task adapterRunTask = adapterListener.RunAsync(shutdown.Token);
+        // Pairing is refused outside gameplay, so this test completes a real resynchronization; that
+        // needs the sampling scheduler and the tracked-quest coordinator the host runtime would run.
+        Task schedulerRunTask = provider.GetRequiredService<ILiveStateScheduler>().RunAsync(shutdown.Token);
+        Task questRunTask = provider.GetRequiredService<ITrackedQuestCaptureCoordinator>().RunAsync(shutdown.Token);
         var ipcCodec = new IpcFrameCodec();
         using Socket adapterSocket = await ConnectClientAsync(adapterListener.BoundPort);
         using var adapterStream = new NetworkStream(adapterSocket, ownsSocket: false);
@@ -198,7 +202,9 @@ public class PublicClientServiceExtensionsTests
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPlayContextChangedMessage(
             0, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")))));
         var resynchronizeRequest = Assert.IsType<IpcResynchronizeRequestMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec));
-        await adapterStream.WriteAsync(ipcCodec.Encode(new IpcResynchronizeResultMessage(resynchronizeRequest.CorrelationId, Accepted: true)));
+        var adapterDriver = new FakeAdapterResynchronizationDriver(
+            adapterStream, ipcCodec, new PlayContextId(new Guid("01020304-0506-0708-090a-0b0c0d0e0f10")));
+        await adapterDriver.CompleteResynchronizationAsync(resynchronizeRequest);
 
         IPublicWebSocketListener listener = provider.GetRequiredService<IPublicWebSocketListener>();
         Task publicRunTask = listener.RunAsync(shutdown.Token);
@@ -224,12 +230,55 @@ public class PublicClientServiceExtensionsTests
         byte[] pairingRequest = codec.Encode(PublicMessageType.PairingRequest, "pairing-1", sessionId, null, null, clientId, new EmptyPayload());
         await clientWebSocket.SendAsync(pairingRequest, WebSocketMessageType.Text, true, CancellationToken.None);
 
-        var display = Assert.IsType<IpcPairingDisplayMessage>(await ReadOneFrameAsync(adapterStream, ipcCodec));
+        IpcPairingDisplayMessage display = await adapterDriver.ReadPairingDisplayAsync();
         await adapterStream.WriteAsync(ipcCodec.Encode(new IpcPairingDisplayAckMessage(display.CorrelationId, Accepted: true)));
         await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
 
         shutdown.Cancel();
         await adapterRunTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await publicRunTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await schedulerRunTask.WaitAsync(TimeSpan.FromSeconds(5));
+        await questRunTask.WaitAsync(TimeSpan.FromSeconds(5));
+    }
+
+    /// <summary>
+    /// Guards the staged activation boundary: the composed Host must not publish
+    /// <c>gameplay_readiness</c> to any session, because the current SDK treats an unrecognized message
+    /// type as a protocol violation. After <c>hello_ack</c> and <c>capabilities</c> the next frame a
+    /// real admitted client receives is the reply to its own ping.
+    /// </summary>
+    [Fact]
+    public async Task AddPublicClientServices_AdmittedSession_ReceivesNoReadinessMessage()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), publicListenerPort: 0);
+        IPublicWebSocketListener listener = provider.GetRequiredService<IPublicWebSocketListener>();
+        Task publicRunTask = listener.RunAsync(shutdown.Token);
+        var codec = new PublicEnvelopeCodec();
+        using var clientWebSocket = new ClientWebSocket();
+        await clientWebSocket.ConnectAsync(new Uri($"ws://127.0.0.1:{listener.BoundPort}/"), CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        var clientId = Guid.NewGuid().ToString();
+        byte[] hello = codec.Encode(
+            PublicMessageType.Hello, "hello-1", null, null, null, null,
+            new HelloPayload { Endpoint = "client", ClientId = clientId, Auth = new HelloAuthPayload { Method = HelloAuthMethod.Unpaired } });
+        await clientWebSocket.SendAsync(hello, WebSocketMessageType.Text, true, CancellationToken.None);
+        var buffer = new byte[4096];
+
+        WebSocketReceiveResult helloAckResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, helloAckResult.Count), out PublicEnvelope? helloAck));
+        Assert.Equal(PublicMessageType.HelloAck, helloAck!.MessageType);
+        WebSocketReceiveResult capabilitiesResult = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, capabilitiesResult.Count), out PublicEnvelope? capabilities));
+        Assert.Equal(PublicMessageType.Capabilities, capabilities!.MessageType);
+
+        byte[] ping = codec.Encode(PublicMessageType.Ping, "ping-1", helloAck.SessionId, null, null, clientId, new EmptyPayload());
+        await clientWebSocket.SendAsync(ping, WebSocketMessageType.Text, true, CancellationToken.None);
+        WebSocketReceiveResult next = await clientWebSocket.ReceiveAsync(buffer, CancellationToken.None).WaitAsync(TimeSpan.FromSeconds(5));
+
+        Assert.True(codec.TryDecode(buffer.AsMemory(0, next.Count), out PublicEnvelope? nextEnvelope));
+        Assert.Equal(PublicMessageType.Pong, nextEnvelope!.MessageType);
+
+        shutdown.Cancel();
         await publicRunTask.WaitAsync(TimeSpan.FromSeconds(5));
     }
 

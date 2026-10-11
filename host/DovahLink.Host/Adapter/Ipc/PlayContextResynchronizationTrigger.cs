@@ -79,14 +79,18 @@ public sealed class PlayContextResynchronizationTrigger : IPlayContextResynchron
             return;
         }
 
-        adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition();
+        //  Transitioned is raised while PlayContextTracker still holds its publication gate, so
+        //  transitions and their handlers are serialized and this read is the latest committed
+        //  generation: the one readiness must see armed.
+        long transitionGeneration = playContextTracker.GetSnapshot().TransitionGeneration;
+        adapterAvailabilityTracker.RearmResynchronizationForPlayContextTransition(transitionGeneration);
 
         AdapterAvailabilitySnapshot availability = adapterAvailabilityTracker.GetSnapshot();
         if (availability.Current == AdapterAvailability.Available && availability.CurrentInstanceId is not null)
         {
             resynchronizationTransactionCoordinator.BeginTransaction(
                 availability.CurrentInstanceId.Value, availability.ConnectionGeneration,
-                transition.NewPlayContextId.Value, playContextTracker.GetSnapshot().TransitionGeneration);
+                transition.NewPlayContextId.Value, transitionGeneration);
         }
 
         IAdapterIpcConnection? connection = listener.CurrentConnection;

@@ -28,6 +28,9 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     public long CurrentConnectionGeneration { get; set; }
 
     /// <inheritdoc/>
+    public long ArmedPlayContextTransitionGeneration { get; set; }
+
+    /// <inheritdoc/>
     public event Action<AdapterAvailabilityTransition>? AvailabilityChanged;
 
     /// <inheritdoc/>
@@ -111,8 +114,9 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     }
 
     /// <inheritdoc/>
-    public void RearmResynchronizationForPlayContextTransition()
+    public void RearmResynchronizationForPlayContextTransition(long playContextTransitionGeneration)
     {
+        ArmedPlayContextTransitionGeneration = playContextTransitionGeneration;
         if (Current != AdapterAvailability.Available)
         {
             return;
@@ -158,7 +162,8 @@ public sealed class FakeAdapterAvailabilityTracker : IAdapterAvailabilityTracker
     {
         int callNumber = ++snapshotCallCount;
         OnGetSnapshot?.Invoke(callNumber);
-        return new AdapterAvailabilitySnapshot(Current, CurrentInstanceId, NeedsResynchronization, CurrentConnectionGeneration);
+        return new AdapterAvailabilitySnapshot(
+            Current, CurrentInstanceId, NeedsResynchronization, CurrentConnectionGeneration, ArmedPlayContextTransitionGeneration);
     }
 
     private sealed class FakeAdapterResynchronizationToken : IAdapterResynchronizationToken

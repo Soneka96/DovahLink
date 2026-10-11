@@ -30,7 +30,7 @@ REQUIRED_FIELDS = (
 # stateAuthorityId's closed wire-presence table (ai/context/protocol/compatibility.md):
 # required and non-null on exactly these message types; absent on every other message.
 STATE_AUTHORITY_ID_REQUIRED_MESSAGE_TYPES = frozenset(
-    {"hello_ack", "state_snapshot", "state_event"}
+    {"hello_ack", "state_snapshot", "state_event", "gameplay_readiness"}
 )
 
 

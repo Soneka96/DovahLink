@@ -1,10 +1,13 @@
 using System.Net;
 using System.Net.Sockets;
+using DovahLink.Host.Adapter;
 using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Composition;
 using DovahLink.Host.Identity;
+using DovahLink.Host.PlayContext;
 using DovahLink.Host.Process;
+using DovahLink.Host.Readiness;
 using DovahLink.Host.State;
 using DovahLink.Host.Security;
 using DovahLink.Host.Tests.TestDoubles;
@@ -63,6 +66,33 @@ public class AdapterIpcServiceExtensionsTests
         Assert.IsType<TrackedQuestCaptureCoordinator>(provider.GetRequiredService<ITrackedQuestCaptureCoordinator>());
         Assert.NotNull(provider.GetRequiredService<ILiveCaptureSink>());
         Assert.NotNull(provider.GetRequiredService<LiveStateScheduler>());
+    }
+
+    /// <summary>Verifies that the composed readiness evaluator is one singleton reading the composed trackers and the composed trigger's re-arm, not an independently constructed copy.</summary>
+    [Fact]
+    public async Task AddAdapterIpcServices_ReadinessEvaluator_IsSingletonOverTheComposedTrackers()
+    {
+        using var shutdown = new CancellationTokenSource();
+        using ServiceProvider provider = await BuildProviderAsync(shutdown, new FakeTrustStorePersistence(), listenerPort: 0, new OwnerLifetimeId(1, 2));
+        IGameplayReadinessEvaluator evaluator = provider.GetRequiredService<IGameplayReadinessEvaluator>();
+        IAdapterAvailabilityTracker availability = provider.GetRequiredService<IAdapterAvailabilityTracker>();
+        IPlayContextTracker playContext = provider.GetRequiredService<IPlayContextTracker>();
+        var changes = new List<bool>();
+        evaluator.ReadinessChanged += changes.Add;
+        var instanceId = AdapterInstanceId.NewId();
+
+        AdapterAvailabilityTransition? connected = availability.CommitConnected(instanceId, 1);
+        availability.PublishTransition(connected!);
+        playContext.NotifyTransition(PlayContextId.NewId());
+        Assert.False(evaluator.IsReady);
+
+        IAdapterResynchronizationToken? token = availability.TryClaimResynchronizationToken();
+        Assert.NotNull(token);
+        availability.NotifyResynchronized(instanceId, 1, token);
+
+        Assert.Same(evaluator, provider.GetRequiredService<IGameplayReadinessEvaluator>());
+        Assert.True(evaluator.IsReady);
+        Assert.Equal([true], changes);
     }
 
     /// <summary>

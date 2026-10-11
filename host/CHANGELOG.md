@@ -23,6 +23,7 @@ for the player-facing summary posted with each Nexus Mods package. See
 
 ### Changed
 
+- Six-digit pairing is refused with the existing unavailable status while Skyrim is not in a ready gameplay session, instead of reserving a pairing code at the main menu or while a save loads.
 - Tracked-quest Snapshot collection now returns unavailable after five seconds so a delayed page sequence cannot keep resynchronization pending.
 - Adapter logs now suppress routine capture and successful setup messages while retaining one startup status and 30-second rate-limited capacity warnings.
 - Host publishes current and effective maximum Health, Magicka, and Stamina as one coherent

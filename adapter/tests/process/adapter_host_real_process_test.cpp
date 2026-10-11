@@ -1001,6 +1001,16 @@ LifetimeIdWithMarker(std::byte marker) {
     return id;
 }
 
+///  Builds a deterministic play-context identity for a real-Host test whose
+///  Adapter replays an active play context.
+///  @param marker The byte every identity byte is filled with.
+///  @return The 16-byte play-context identity.
+std::array<std::byte, 16> PlayContextIdWithMarker(std::byte marker) {
+    std::array<std::byte, 16> id{};
+    id.fill(marker);
+    return id;
+}
+
 ///  Extracts a top-level JSON string field's value by key from `json`, using
 ///  plain substring search rather than a full JSON parser -- sufficient for
 ///  this test's own real, well-formed server responses. Returns an empty
@@ -1102,6 +1112,61 @@ std::string ReceiveUntil(MinimalPublicWebSocketClient& client,
     }
     throw std::runtime_error("Timed out waiting for a \"" + expectedMessageType +
                              "\" message from the real Host's public listener.");
+}
+
+///  Sends `pairing_request` until the real Host answers with something other
+///  than its gameplay-readiness refusal, returning that reply.
+///
+///  The Host refuses a pairing request with `pairing_status` `unavailable` --
+///  before any reservation, Adapter display request, or credential -- until
+///  gameplay is ready, which a real Adapter resynchronization baseline
+///  establishes asynchronously. The Adapter side has no direct readiness
+///  signal (the Host does not publish one yet), so this observes the refusal
+///  itself: an `unavailable` reply for which the sink has recorded no new
+///  display request can only be that refusal, since a rejected display is
+///  recorded by the sink before the Host replies. Each refused attempt leaves
+///  no Host state behind, so retrying is safe. Bounded, never unbounded: it
+///  throws once `timeout` elapses without a non-refusal reply.
+///  @param client The admitted public client to send through.
+///  @param sessionId The Host-assigned session id echoed on every message.
+///  @param clientId The client id declared in `hello`.
+///  @param pairingSink The sink the real Adapter session presents displays through.
+///  @param timeout The longest to keep retrying a readiness refusal.
+///  @return The first `pairing_status` reply that is not a readiness refusal.
+///  @throws std::runtime_error If `timeout` elapses while the Host still
+///  answers with the readiness refusal.
+std::string RequestPairingOnceGameplayReady(
+    MinimalPublicWebSocketClient& client, const std::string& sessionId,
+    const std::string& clientId,
+    const RecordingPairingNotificationSink& pairingSink,
+    std::chrono::milliseconds timeout) {
+    const std::size_t displayedBefore = pairingSink.Displayed().size();
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    for (int attempt = 0;; ++attempt) {
+        //  A repeated message id is a protocol violation, so each attempt is unique.
+        const std::string messageId =
+            attempt == 0 ? "m2" : "m2-ready-retry-" + std::to_string(attempt);
+        client.SendText(R"({"messageType":"pairing_request","messageId":")" +
+                        messageId + R"(","sessionId":")" + sessionId +
+                        R"(","correlationId":null,"payload":{},)"
+                        R"("playContextId":null,"clientId":")" +
+                        clientId + R"("})");
+        std::string reply = client.ReceiveText();
+        const bool readinessRefusal =
+            reply.find(R"("state":"unavailable")") != std::string::npos &&
+            pairingSink.Displayed().size() == displayedBefore;
+        if (!readinessRefusal) {
+            return reply;
+        }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            throw std::runtime_error(
+                "The real Host kept answering pairing_request unavailable with "
+                "no display request reaching the Adapter: either gameplay "
+                "never became ready (baseline resynchronization did not "
+                "complete) or the private IPC channel is down.");
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
 }
 
 ///  Returns whether a real loopback port no longer accepts connections.
@@ -1629,7 +1694,8 @@ class RealHostFixture {
 ///  so a captured baseline this fixture's `DeterministicBaselineCaptureRouter`
 ///  produces during a real Host-driven resynchronization actually crosses
 ///  the real private IPC connection, rather than being silently accepted and
-///  dropped. Used only by the live-state E2E test below.
+///  dropped. Used by the live-state E2E tests and by the pairing E2E tests,
+///  which also need a real, completed baseline for the Host to be ready.
 class RealHostLiveStateFixture {
   public:
     ///  Launches a real host under a fresh, uniquely marked owner-lifetime
@@ -1727,6 +1793,13 @@ class RealHostLiveStateFixture {
     RealHostLiveStateFixture(const RealHostLiveStateFixture&) = delete;
     RealHostLiveStateFixture& operator=(const RealHostLiveStateFixture&) = delete;
 
+    ///  The isolated trust-store file this fixture's real Host was launched
+    ///  with, so a test can assert the Host actually persisted through it.
+    ///  @return The trust-store file path owned by this fixture.
+    const std::filesystem::path& TrustStorePath() const {
+        return trustStorePath_.Path();
+    }
+
     ///  Whether the authenticated private-IPC session is still active.
     ///  @return Whether the session is authenticated.
     bool IsHostAvailable() const { return session_.IsHostAvailable(); }
@@ -1742,7 +1815,9 @@ class RealHostLiveStateFixture {
             std::chrono::seconds(10));
     }
 
-    ///  Releases the baseline-capture worker after the public pairing exchange completes.
+    ///  Releases the baseline-capture worker so the Host's baseline
+    ///  resynchronization can complete. Gameplay readiness (and so pairing)
+    ///  depends on it, hence a test calls this before its first pairing request.
     void ReleaseBaselineCaptures() {
         {
             std::lock_guard<std::mutex> lock(baselineCaptureDrainMutex_);
@@ -1796,10 +1871,11 @@ class RealHostLiveStateFixture {
     //  rather than `&session_` directly, since session_ is declared (and
     //  constructed) after this member, but the drain callback cannot run
     //  until this queue's worker thread actually drains an enqueued item,
-    //  which happens well after this constructor finishes. The test holds the
-    //  queue worker after its first dequeue until the initial resynchronization
-    //  result and pairing acknowledgement have been sent, so worker capture
-    //  sends cannot contend with those continuity-critical reader-thread sends.
+    //  which happens well after this constructor finishes. The queue worker is
+    //  held after its first dequeue until the test releases it, so the
+    //  initial resynchronization result is sent by the reader thread before
+    //  any worker capture send can contend with it; a test releases it before
+    //  pairing, since gameplay readiness needs the baselines to complete.
     AdapterCaptureHandoffQueue captureQueue_{
         [this](const AdapterCaptureWorkItem& item) {
             {
@@ -2030,11 +2106,21 @@ TEST_CASE("a real native adapter observes a real Host's pairing-display "
     //  DOVAHLINK_TEST_PUBLIC_LISTENER_PORT before launching the real Host --
     //  see Program::ParseTestPublicListenerPort's own documentation for why
     //  the production launch path never does.
+    //
+    //  The Host refuses pairing outside ready gameplay, so this uses the
+    //  fixture that establishes a real play context and completes the real
+    //  baseline resynchronization (the readiness predicate itself is not
+    //  relaxed); the baseline captures are released up front so readiness can
+    //  be reached before the pairing request below.
     const std::uint16_t kPublicListenerPort = FindAvailableLoopbackPort();
-    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
-        kPublicListenerPort);
     RecordingPairingNotificationSink pairingSink;
-    RealHostFixture fixture(std::byte{0xE6}, &pairingSink);
+    RealHostLiveStateFixture fixture(std::byte{0xE6},
+                                     PlayContextIdWithMarker(std::byte{0xE6}),
+                                     kPublicListenerPort, pairingSink);
+    //  Released only after the initial resynchronization request was handled,
+    //  so worker capture sends cannot contend with that reader-thread send.
+    REQUIRE(fixture.WaitForInitialResynchronizationRequest());
+    fixture.ReleaseBaselineCaptures();
 
     MinimalPublicWebSocketClient client(kPublicListenerPort);
     client.SendText(
@@ -2058,12 +2144,10 @@ TEST_CASE("a real native adapter observes a real Host's pairing-display "
 
     //  A post-admission client message must carry both the socket-bound
     //  sessionId and the envelope-level clientId it declared in hello -- null
-    //  was only ever valid pre-admission.
-    client.SendText(
-        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
-        sessionId +
-        R"(","correlationId":null,"payload":{},)"
-        R"("playContextId":null,"clientId":"e6e6e6e6-e6e6-e6e6-e6e6-e6e6e6e6e6e6"})");
+    //  was only ever valid pre-admission. Sent once the Host is gameplay-ready.
+    std::string pairingStatus = RequestPairingOnceGameplayReady(
+        client, sessionId, "e6e6e6e6-e6e6-e6e6-e6e6-e6e6e6e6e6e6", pairingSink,
+        std::chrono::seconds(15));
 
     REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
                       std::chrono::seconds(10)));
@@ -2084,7 +2168,6 @@ TEST_CASE("a real native adapter observes a real Host's pairing-display "
     //  AwaitPairingDisplayAckAsync observed an ack correlated to the exact
     //  request it sent -- a wrong or missing correlation id would time out into
     //  "unavailable" instead.
-    std::string pairingStatus = client.ReceiveText();
     CHECK(pairingStatus.find(R"("messageType":"pairing_status")") !=
           std::string::npos);
     CHECK(pairingStatus.find(R"("state":"available")") != std::string::npos);
@@ -2101,13 +2184,19 @@ TEST_CASE("a real native adapter acknowledges a rejected pairing-display "
     //  encodes and sends a real IpcPairingDisplayAckMessage with accepted =
     //  false, and the real Host's own rollback path reports pairing_status
     //  unavailable rather than committing a challenge no adapter actually
-    //  presented.
+    //  presented. Uses the gameplay-ready fixture for the same reason the
+    //  accepted-display E2E above does: the Host refuses pairing, with no
+    //  display request at all, until real baseline resynchronization completes.
     const std::uint16_t kPublicListenerPort = FindAvailableLoopbackPort();
-    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
-        kPublicListenerPort);
     RecordingPairingNotificationSink pairingSink;
     pairingSink.SetAcceptDisplay(false);
-    RealHostFixture fixture(std::byte{0xE7}, &pairingSink);
+    RealHostLiveStateFixture fixture(std::byte{0xE7},
+                                     PlayContextIdWithMarker(std::byte{0xE7}),
+                                     kPublicListenerPort, pairingSink);
+    //  Released only after the initial resynchronization request was handled,
+    //  so worker capture sends cannot contend with that reader-thread send.
+    REQUIRE(fixture.WaitForInitialResynchronizationRequest());
+    fixture.ReleaseBaselineCaptures();
 
     MinimalPublicWebSocketClient client(kPublicListenerPort);
     client.SendText(
@@ -2131,18 +2220,17 @@ TEST_CASE("a real native adapter acknowledges a rejected pairing-display "
 
     //  A post-admission client message must carry both the socket-bound
     //  sessionId and the envelope-level clientId it declared in hello -- null
-    //  was only ever valid pre-admission.
-    client.SendText(
-        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
-        sessionId +
-        R"(","correlationId":null,"payload":{},)"
-        R"("playContextId":null,"clientId":"e7e7e7e7-e7e7-e7e7-e7e7-e7e7e7e7e7e7"})");
+    //  was only ever valid pre-admission. The reply returned is the first one
+    //  that is not the readiness refusal, so an `unavailable` here is the
+    //  rejected display, proven by the recorded display request below.
+    std::string pairingStatus = RequestPairingOnceGameplayReady(
+        client, sessionId, "e7e7e7e7-e7e7-e7e7-e7e7-e7e7e7e7e7e7", pairingSink,
+        std::chrono::seconds(15));
 
     REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
                       std::chrono::seconds(10)));
     CHECK(pairingSink.Displayed().size() == 1);
 
-    std::string pairingStatus = client.ReceiveText();
     CHECK(pairingStatus.find(R"("messageType":"pairing_status")") !=
           std::string::npos);
     CHECK(pairingStatus.find(R"("state":"unavailable")") != std::string::npos);
@@ -2162,11 +2250,18 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
     //  involvement at all -- proving trusted reconnect never depends on the
     //  adapter being present, using the real native adapter binary that
     //  produces the displayed code here.
+    //
+    //  The gameplay-ready fixture is required: the Host refuses pairing until
+    //  a real play context and baseline resynchronization make it ready.
     const std::uint16_t kPublicListenerPort = FindAvailableLoopbackPort();
-    ScopedTestPublicListenerPortEnvironmentVariable publicListenerPort(
-        kPublicListenerPort);
     RecordingPairingNotificationSink pairingSink;
-    RealHostFixture fixture(std::byte{0xEB}, &pairingSink);
+    RealHostLiveStateFixture fixture(std::byte{0xEB},
+                                     PlayContextIdWithMarker(std::byte{0xEB}),
+                                     kPublicListenerPort, pairingSink);
+    //  Released only after the initial resynchronization request was handled,
+    //  so worker capture sends cannot contend with that reader-thread send.
+    REQUIRE(fixture.WaitForInitialResynchronizationRequest());
+    fixture.ReleaseBaselineCaptures();
     const std::string clientId = "ebebebeb-ebeb-ebeb-ebeb-ebebebebebeb";
 
     std::string sessionId;
@@ -2192,11 +2287,8 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
         REQUIRE(capabilities.find(R"("messageType":"capabilities")") !=
                 std::string::npos);
 
-        client.SendText(
-            R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
-            sessionId + R"(","correlationId":null,"payload":{},)" +
-            R"("playContextId":null,"clientId":")" +
-            clientId + R"("})");
+        std::string pairingStatus = RequestPairingOnceGameplayReady(
+            client, sessionId, clientId, pairingSink, std::chrono::seconds(15));
 
         REQUIRE(WaitUntil([&] { return !pairingSink.Displayed().empty(); },
                           std::chrono::seconds(10)));
@@ -2205,7 +2297,6 @@ TEST_CASE("a real native adapter completes full pairing and a fresh "
         code = displayed.front().first;
         REQUIRE_FALSE(code.empty());
 
-        std::string pairingStatus = client.ReceiveText();
         REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
 
         //  The code a human would read off their Skyrim screen -- never sent
@@ -2509,6 +2600,9 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     RealHostLiveStateFixture fixture(std::byte{0xF9}, playContextId,
                                      kPublicListenerPort, pairingSink);
     REQUIRE(fixture.WaitForInitialResynchronizationRequest());
+    //  Gameplay readiness requires the baseline captures to be sent, so the
+    //  fixture's capture barrier is released before pairing, not after it.
+    fixture.ReleaseBaselineCaptures();
 
     //  The real Host's own reaction to the real native adapter's replayed
     //  active context: a fresh resynchronization request against the
@@ -2538,17 +2632,17 @@ TEST_CASE("a real native adapter's Host-driven resynchronization baseline "
     //  rather than a test-only bypass. UpgradeToFullTrust upgrades this same
     //  session's tier in place once pairing_ack resolves, so no reconnect is
     //  needed before subscribing below.
-    client.SendText(
-        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
-        sessionId + R"(","correlationId":null,"payload":{},)" +
-        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    //  The Host refuses pairing until gameplay is ready, which needs this
+    //  Adapter's baseline captures to have crossed the private IPC channel and
+    //  completed the resynchronization. They were released above, so the
+    //  request is retried only while the Host reports that refusal.
+    std::string pairingStatus = RequestPairingOnceGameplayReady(
+        client, sessionId, clientId, pairingSink, std::chrono::seconds(15));
     INFO("Adapter IPC available after pairing request: " << fixture.IsHostAvailable());
-    std::string pairingStatus = client.ReceiveText();
     INFO("Pairing response: " << pairingStatus);
     INFO("Capture queue rejections: " << fixture.CaptureQueueRejectionCount());
     REQUIRE(pairingStatus.find(R"("messageType":"pairing_status")") != std::string::npos);
     REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
-    fixture.ReleaseBaselineCaptures();
     auto displayed = pairingSink.Displayed();
     REQUIRE(displayed.size() == 1);
     const std::string code = displayed.front().first;
@@ -2690,6 +2784,9 @@ TEST_CASE("a synthetic native LevelChanged event reaches a real public "
     RealHostLiveStateFixture fixture(std::byte{0xAB}, playContextId,
                                      kPublicListenerPort, pairingSink);
     REQUIRE(fixture.WaitForInitialResynchronizationRequest());
+    //  Gameplay readiness requires the baseline captures to be sent, so the
+    //  fixture's capture barrier is released before pairing, not after it.
+    fixture.ReleaseBaselineCaptures();
 
     //  The real Host's own reaction to the real native adapter's replayed
     //  active context: a fresh resynchronization request against the
@@ -2716,17 +2813,17 @@ TEST_CASE("a synthetic native LevelChanged event reaches a real public "
     //  A Restricted-tier session may not subscribe -- only Full trust may --
     //  so this client must complete real pairing first, reusing the same
     //  real cross-language pairing/trust flow as the XP E2E above.
-    client.SendText(
-        R"({"messageType":"pairing_request","messageId":"m2","sessionId":")" +
-        sessionId + R"(","correlationId":null,"payload":{},)" +
-        R"("playContextId":null,"clientId":")" + clientId + R"("})");
+    //  The Host refuses pairing until gameplay is ready, which needs this
+    //  Adapter's baseline captures to have crossed the private IPC channel and
+    //  completed the resynchronization. They were released above, so the
+    //  request is retried only while the Host reports that refusal.
+    std::string pairingStatus = RequestPairingOnceGameplayReady(
+        client, sessionId, clientId, pairingSink, std::chrono::seconds(15));
     INFO("Adapter IPC available after pairing request: " << fixture.IsHostAvailable());
-    std::string pairingStatus = client.ReceiveText();
     INFO("Pairing response: " << pairingStatus);
     INFO("Capture queue rejections: " << fixture.CaptureQueueRejectionCount());
     REQUIRE(pairingStatus.find(R"("messageType":"pairing_status")") != std::string::npos);
     REQUIRE(pairingStatus.find(R"("state":"available")") != std::string::npos);
-    fixture.ReleaseBaselineCaptures();
     auto displayed = pairingSink.Displayed();
     REQUIRE(displayed.size() == 1);
     const std::string code = displayed.front().first;

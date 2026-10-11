@@ -3,6 +3,7 @@ using DovahLink.Host.Adapter.Ipc;
 using DovahLink.Host.Client.Dispatch;
 using DovahLink.Host.Process;
 using DovahLink.Host.PlayContext;
+using DovahLink.Host.Readiness;
 using DovahLink.Host.State;
 using DovahLink.Host.Time;
 using Microsoft.Extensions.DependencyInjection;
@@ -76,6 +77,7 @@ public static class AdapterIpcServiceExtensions
         services.AddSingleton<LiveStateScheduler>();
         services.AddSingleton<ILiveStateScheduler>(sp => sp.GetRequiredService<LiveStateScheduler>());
         services.AddSingleton<IPlayContextResynchronizationTrigger, PlayContextResynchronizationTrigger>();
+        services.AddSingleton<IGameplayReadinessEvaluator, GameplayReadinessEvaluator>();
 
         return services;
     }

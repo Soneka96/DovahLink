@@ -256,7 +256,7 @@ public class ResynchronizationTransactionCoordinatorTests
         // re-arm is PlayContextResynchronizationTrigger's own real call, always made before any
         // capture for the new context can reach this coordinator -- it is what actually mints the
         // fresh token AcquireToken below claims for B.
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
         foreach (StateAreaId area in AllAreas)
         {
             coordinator.AcquireToken(instanceId, 1, contextB, 2);
@@ -329,7 +329,7 @@ public class ResynchronizationTransactionCoordinatorTests
         // Context transitions to B while its first area remains outstanding; that old acceptance
         // cannot count for B. The re-arm mints B's fresh token, the
         // same real call PlayContextResynchronizationTrigger makes on every play-context transition.
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
         foreach (StateAreaId area in new[] { AreaB })
         {
             coordinator.AcquireToken(instanceId, 1, contextB, 2);
@@ -551,7 +551,7 @@ public class ResynchronizationTransactionCoordinatorTests
         // Before A's plan-accepted report arrives, a play-context transition commits on the same
         // connection and re-arms the tracker directly, minting a fresh token -- A's own captured
         // token is now stale even though the coordinator has not tracked any newer tuple yet.
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
         Assert.True(tracker.NeedsResynchronization);
         Assert.False(tracker.IsCurrentResynchronizationToken(tokenA!));
 
@@ -660,7 +660,7 @@ public class ResynchronizationTransactionCoordinatorTests
         PlayContextId contextB = PlayContextId.NewId();
 
         coordinator.AcquireToken(instanceId, 1, contextA, 1); // Arms A's watchdog.
-        tracker.RearmResynchronizationForPlayContextTransition();
+        tracker.RearmResynchronizationForPlayContextTransition(1);
         coordinator.AcquireToken(instanceId, 1, contextB, 2); // Supersedes A and arms B's own watchdog.
 
         await WaitUntilAsync(() => continuityRecovery.RecoveryRequests.Count > 0);

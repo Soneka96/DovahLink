@@ -439,6 +439,414 @@ public class ClientMessageDispatcherTests
         Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
     }
 
+    /// <summary>
+    /// Verifies that a pairing request while gameplay is not ready answers the existing unavailable
+    /// outcome with no reservation, no Adapter display request, and no committed challenge: a later
+    /// request, once ready, starts a brand-new challenge rather than resuming one.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestWhileGameplayNotReady_SendsUnavailableWithoutReservationOrDisplay()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var readiness = new FakeGameplayReadinessEvaluator { IsReady = false };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock,
+            gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        Assert.False(result.IsProtocolViolation);
+        (PublicEnvelope statusEnvelope, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicMessageType.PairingStatus, statusEnvelope.MessageType);
+        Assert.Equal("msg-1", statusEnvelope.CorrelationId);
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Null(status.ExpiresInSeconds);
+        Assert.Empty(adapterNotifier.DisplayedCodes);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>Verifies that the same request becomes an ordinary available challenge as soon as gameplay is ready, with no other change to the flow.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestAfterGameplayBecomesReady_SendsAvailable()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        var readiness = new FakeGameplayReadinessEvaluator { IsReady = false };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock,
+            gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+        readiness.SetReady(true);
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        Assert.Equal(2, fakeConnection.SentPayloads.Count);
+        (_, PairingStatusPayload first) = DecodeSent<PairingStatusPayload>(fakeConnection.SentPayloads[0]);
+        (_, PairingStatusPayload second) = DecodeSent<PairingStatusPayload>(fakeConnection.SentPayloads[1]);
+        Assert.Equal(PairingStatusWireState.Unavailable, first.State);
+        Assert.Equal(PairingStatusWireState.Available, second.State);
+        Assert.Equal(300, second.ExpiresInSeconds);
+        Assert.Single(adapterNotifier.DisplayedCodes);
+    }
+
+    /// <summary>
+    /// Verifies that readiness lost while the Adapter display acknowledgement is in flight answers
+    /// unavailable, never commits the challenge, and releases the reservation: no active challenge
+    /// is left behind, so a later request starts a new one instead of resuming it.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestLosesReadinessDuringDisplay_RollsBackWithoutCommitting()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator { IsReady = true };
+        var adapterNotifier = new FakePairingAdapterNotifier
+        {
+            AcceptDisplay = true,
+            BeforeNotifyCodeAvailable = () =>
+            {
+                readiness.SetReady(false);
+                return Task.CompletedTask;
+            },
+        };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock,
+            gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Null(status.ExpiresInSeconds);
+        Assert.Single(adapterNotifier.DisplayedCodes);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the context-replacement race: the play context ends and a new one becomes ready again
+    /// while the Adapter acknowledgement is pending. Readiness reads true throughout the check, but
+    /// the displayed code belongs to the previous context, so it is never committed and the
+    /// reservation is released.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PlayContextReplacedAndReadyAgainDuringDisplay_RollsBackWithoutCommitting()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator
+        {
+            IsReady = true,
+            PlayContext = PlayContextId.NewId(),
+            PlayContextTransitionGeneration = 1,
+            AdapterInstanceId = AdapterInstanceId.NewId(),
+            ConnectionGeneration = 1,
+        };
+        var adapterNotifier = new FakePairingAdapterNotifier
+        {
+            AcceptDisplay = true,
+            BeforeNotifyCodeAvailable = () =>
+            {
+                readiness.PlayContext = PlayContextId.NewId();
+                readiness.PlayContextTransitionGeneration = 2;
+                return Task.CompletedTask;
+            },
+        };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock,
+            gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Null(status.ExpiresInSeconds);
+        Assert.Single(adapterNotifier.DisplayedCodes);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>Verifies that the transition generation changing alone, with the same context id, is also rejected: it is a different transition.</summary>
+    [Fact]
+    public async Task DispatchAsync_TransitionGenerationChangedDuringDisplay_RollsBackWithoutCommitting()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator
+        {
+            IsReady = true,
+            PlayContext = PlayContextId.NewId(),
+            PlayContextTransitionGeneration = 1,
+            AdapterInstanceId = AdapterInstanceId.NewId(),
+            ConnectionGeneration = 1,
+        };
+        var adapterNotifier = new FakePairingAdapterNotifier
+        {
+            BeforeNotifyCodeAvailable = () =>
+            {
+                readiness.PlayContextTransitionGeneration = 2;
+                return Task.CompletedTask;
+            },
+        };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock,
+            gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies the connection-replacement race: the Adapter reconnects (new connection generation and
+    /// instance) and resynchronizes while the acknowledgement is pending. Gameplay is ready again, but
+    /// the code was displayed over the previous connection, so it is never committed.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_AdapterReconnectedAndReadyAgainDuringDisplay_RollsBackWithoutCommitting()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator
+        {
+            IsReady = true,
+            PlayContext = PlayContextId.NewId(),
+            PlayContextTransitionGeneration = 1,
+            AdapterInstanceId = AdapterInstanceId.NewId(),
+            ConnectionGeneration = 1,
+        };
+        var adapterNotifier = new FakePairingAdapterNotifier
+        {
+            BeforeNotifyCodeAvailable = () =>
+            {
+                readiness.AdapterInstanceId = AdapterInstanceId.NewId();
+                readiness.ConnectionGeneration = 2;
+                return Task.CompletedTask;
+            },
+        };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock,
+            gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that every identity member is compared on its own: changing exactly one member of the
+    /// captured identity while the evaluator still reports ready is rejected, so no single comparison
+    /// can be dropped unnoticed.
+    /// </summary>
+    /// <param name="changedMember">The single identity member the acknowledgement-time mutation changes.</param>
+    [Theory]
+    [InlineData("PlayContext")]
+    [InlineData("PlayContextToNull")]
+    [InlineData("AdapterInstanceId")]
+    [InlineData("AdapterInstanceIdToNull")]
+    [InlineData("ConnectionGeneration")]
+    public async Task DispatchAsync_SingleIdentityMemberChangedDuringDisplay_RollsBackWithoutCommitting(string changedMember)
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator
+        {
+            IsReady = true,
+            PlayContext = PlayContextId.NewId(),
+            PlayContextTransitionGeneration = 1,
+            AdapterInstanceId = AdapterInstanceId.NewId(),
+            ConnectionGeneration = 1,
+        };
+        var adapterNotifier = new FakePairingAdapterNotifier
+        {
+            BeforeNotifyCodeAvailable = () =>
+            {
+                switch (changedMember)
+                {
+                    case "PlayContext":
+                        readiness.PlayContext = PlayContextId.NewId();
+                        break;
+                    case "PlayContextToNull":
+                        readiness.PlayContext = null;
+                        break;
+                    case "AdapterInstanceId":
+                        readiness.AdapterInstanceId = AdapterInstanceId.NewId();
+                        break;
+                    case "AdapterInstanceIdToNull":
+                        readiness.AdapterInstanceId = null;
+                        break;
+                    case "ConnectionGeneration":
+                        readiness.ConnectionGeneration = 2;
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(changedMember), changedMember, "Unrecognized identity member.");
+                }
+
+                return Task.CompletedTask;
+            },
+        };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock,
+            gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Equal(PairingStartOutcome.Started, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>Verifies that an unchanged, still-ready identity across the acknowledgement commits the challenge and reports it available.</summary>
+    [Fact]
+    public async Task DispatchAsync_IdentityUnchangedAcrossDisplay_CommitsAndReportsAvailable()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator
+        {
+            IsReady = true,
+            PlayContext = PlayContextId.NewId(),
+            PlayContextTransitionGeneration = 3,
+            AdapterInstanceId = AdapterInstanceId.NewId(),
+            ConnectionGeneration = 4,
+        };
+        var adapterNotifier = new FakePairingAdapterNotifier();
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, adapterNotifier: adapterNotifier, clock: clock,
+            gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Available, status.State);
+        Assert.Equal(PairingStartOutcome.Resumed, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>Verifies that a request while not ready does not disturb the caller's already displayed challenge, which stays resumable once gameplay is ready.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestWhileNotReady_LeavesExistingDisplayedChallengeIntact()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator { IsReady = false };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock, gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PairingStartResult started = pairingCoordinator.BeginPairing(clientId);
+        pairingCoordinator.CommitInitialDisplay(clientId, started.Challenge!.Id);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingStatusPayload status) = DecodeSent<PairingStatusPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingStatusWireState.Unavailable, status.State);
+        Assert.Equal(PairingStartOutcome.Resumed, pairingCoordinator.BeginPairing(clientId).Outcome);
+    }
+
+    /// <summary>
+    /// Verifies that readiness gates only the start of pairing: confirming an already displayed
+    /// challenge with its correct code is unchanged while gameplay is not ready.
+    /// </summary>
+    [Fact]
+    public async Task DispatchAsync_PairingConfirmWhileGameplayNotReady_IsUnchanged()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator { IsReady = false };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock, gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PairingStartResult start = BeginAndDisplayPairing(pairingCoordinator, clientId);
+        PublicEnvelope envelope = BuildEnvelope(
+            PublicMessageType.PairingConfirm, "msg-1", "session-1",
+            new PairingConfirmPayload { Code = start.Challenge!.Code, DisplayName = "Living Room PC" });
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.CredentialIssued, outcome.Outcome);
+    }
+
+    /// <summary>Verifies that a stale session still wins over the readiness refusal: it is reported as a stale-session violation, never as an ordinary unavailable.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingRequestStaleSessionWhileNotReady_ReportsStaleSession()
+    {
+        var readiness = new FakeGameplayReadinessEvaluator { IsReady = false };
+        var dispatcher = Fixtures.BuildClientMessageDispatcher(codec: Codec, gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingRequest, "msg-1", "session-1", new EmptyPayload());
+
+        ClientDispatchResult result = await dispatcher.DispatchAsync(
+            ClientId.NewId(), SessionId.NewId(), ConnectionId.NewId(), connection, envelope, CancellationToken.None);
+
+        (_, ErrorPayload error) = DecodeSent<ErrorPayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PublicProtocolErrorCode.StaleSession, error.Code);
+        Assert.True(result.IsProtocolViolation);
+    }
+
+    /// <summary>Verifies that cancelling a challenge is unaffected by readiness, so a client can always release its own reservation.</summary>
+    [Fact]
+    public async Task DispatchAsync_PairingCancelWhileGameplayNotReady_StillCancels()
+    {
+        var clock = new FakeClock();
+        var pairingCoordinator = new PairingCoordinator(new FakeTrustStore(), clock);
+        var readiness = new FakeGameplayReadinessEvaluator { IsReady = false };
+        ClientId clientId = ClientId.NewId();
+        var (dispatcher, sessionId, connectionId) = Fixtures.BuildClientMessageDispatcherWithActiveSession(
+            clientId, codec: Codec, pairingCoordinator: pairingCoordinator, clock: clock, gameplayReadiness: readiness);
+        var fakeConnection = new FakePublicWebSocketConnection(Stream.Null) { TrySendResult = true };
+        IPublicConnectionContext connection = new PublicConnectionContext(fakeConnection);
+        pairingCoordinator.BeginPairing(clientId);
+        PublicEnvelope envelope = BuildEnvelope(PublicMessageType.PairingCancel, "msg-1", "session-1", new EmptyPayload());
+
+        await dispatcher.DispatchAsync(clientId, sessionId, connectionId, connection, envelope, CancellationToken.None);
+
+        (_, PairingOutcomePayload outcome) = DecodeSent<PairingOutcomePayload>(Assert.Single(fakeConnection.SentPayloads));
+        Assert.Equal(PairingOutcomeWireValue.Cancelled, outcome.Outcome);
+    }
+
     /// <summary>Verifies that resuming an owned active challenge reports in_progress with its remaining seconds and never re-displays.</summary>
     [Fact]
     public async Task DispatchAsync_PairingRequestResumedActiveChallenge_SendsInProgressWithSeconds()
