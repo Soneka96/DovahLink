@@ -462,6 +462,15 @@ composition root. Recovery sends its correlated `snapshot_request` through the e
 receiver or revision tracker. The tracker, decoder, and unavailable-value rule come from the same
 definition normal message handling uses.
 
+A retry-safe `snapshot_request` orphaned by transport loss is retransmitted into the replacement
+session before its restored `subscribe`, and the Host answers a bare request for a registered area
+whether or not it is subscribed. Recovery therefore never applies a reply on its own authority: it
+asks `IStateMessageHandler.admitRecoverySnapshot`, which admits only an area the current session's
+acknowledgement has authorized (not the provisional admission opened when `subscribe` is sent, and
+not a retained or absent area) and runs the reply through the same cross-domain identity reset as any
+state message. A refused reply leaves the retained value non-current; the restored subscription's
+own baseline establishes the area, so nothing is queued, deferred, or retried.
+
 Composition order is unchanged: `StateMessageHandler` is composed before `RequestService` because
 the inbound router depends on the unsolicited state handler. `SubscriptionService` is composed after
 `RequestService`, using the already-created state handler to update its accepted-area gate when a

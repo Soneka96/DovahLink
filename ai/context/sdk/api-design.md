@@ -263,7 +263,10 @@ same tracker and public stream:
 - A Snapshot accepted for the same `(stateAuthorityId, playContextId)` pair replaces the retained
   observation under the existing revision rules. An obsolete revision, a rejected, or a malformed
   Snapshot does not, and the domain stays `recovering`. Event-capable domains recover from revision
-  gaps through the same Snapshot recovery as before.
+  gaps through the same Snapshot recovery as before. A recovery Snapshot answering a request carried
+  over from the lost session is applied only once the replacement session's acknowledgement has
+  authorized its area; an earlier reply changes nothing and the restored baseline establishes the
+  area.
 - A changed `stateAuthorityId` or `playContextId` clears the retained values of every subscribed
   domain (value, revision, and old identity) so the new context builds its own baselines; revisions
   are never compared across pairs.
