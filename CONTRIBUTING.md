@@ -61,10 +61,11 @@ Branch names:
   `feature/3.1-live-pairing-challenge-ux`.
 - For a fix or a change with no corresponding roadmap phase, use a short kebab-case description
   instead.
-- For a release (the version bump, promotion of affected component changelog entries, and every
-  synced version literal -- see `ai/context/common.md`'s "Versioning"), name it
-  `release/<version-string>`, cut from `main`, as its own dedicated pull request separate from any
-  feature/phase branch.
+- For actual release preparation (promoting changelog entries and validating the release; see
+  `ai/context/common.md`'s "Versioning"), name it `release/<version-string>`, cut from `main`, as its
+  own dedicated pull request separate from any feature/phase branch. A version change alone does not
+  make a branch a release: a feature or fix branch that bumps a version remains a normal branch.
+  Publishing is a separate maintainer action after the release pull request merges.
 
 ```text
 feature/3.1-live-pairing-challenge-ux

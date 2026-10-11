@@ -5,8 +5,8 @@ Notable changes to supported client SDKs are recorded here, most recent first. A
 `Removed`/`Security` (omit unused subsections). State the consumer-visible outcome in one concise
 sentence; split unrelated outcomes into separate bullets. A changelog records what a release changed from the previous release, not the history of the work: a thing added, then changed or fixed before the same release, is one `Added` entry; a thing added then removed is omitted. Keep each entry short.
 
-Repository releases share root `VERSION`. When an SDK change is included in a release, its
-`[Unreleased]` entries are promoted into a dated version section in that release PR. See
+Repository releases share root `VERSION`, which may be bumped before a release. Only a dedicated
+release PR promotes an included SDK change's `[Unreleased]` entries into a dated version section. See
 [`ai/context/common.md`](../ai/context/common.md)'s "Versioning" for the release workflow.
 
 ## [Unreleased]

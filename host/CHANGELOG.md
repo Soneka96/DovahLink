@@ -5,9 +5,10 @@ entries to `[Unreleased]` in the pull request that makes them, grouped under
 `Added`/`Changed`/`Fixed`/`Removed`/`Security` (omit unused subsections). State the outcome in one
 concise sentence; split unrelated outcomes into separate bullets. A changelog records what a release changed from the previous release, not the history of the work: a thing added, then changed or fixed before the same release, is one `Added` entry; a thing added then removed is omitted. Keep each entry short.
 
-The Host/Adapter package is versioned by root `VERSION`. A release promotes its accumulated
+The Host/Adapter package is versioned by root `VERSION`, which may be newer than the newest dated
+section here until a release is prepared. Only a dedicated release PR promotes the accumulated
 `[Unreleased]` entries into a dated version section and leaves a fresh empty `[Unreleased]` section
-at the top, in the same release PR that synchronizes the version literals. This file is the source
+at the top. This file is the source
 for the player-facing summary posted with each Nexus Mods package. See
 [`ai/context/common.md`](../ai/context/common.md)'s "Versioning" for the release workflow and
 [`tooling/DovahLinkBuilder/README.md`](../tooling/DovahLinkBuilder/README.md) for packaging.
