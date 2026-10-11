@@ -231,7 +231,8 @@ class DovahLinkClient {
       clientIdCache: clientIdCache,
     );
     _knownHostInvalidationSubscription = state.knownHostInvalidations.listen(
-      _handleKnownHostInvalidation,
+      (DovahLinkKnownHostInvalidation event) =>
+          unawaited(_authenticationService.handleKnownHostInvalidation(event)),
     );
     _sessionService
         .onTeardown = (Exception reason, {required bool orphanRetrySafeOperations}) {
@@ -358,26 +359,6 @@ class DovahLinkClient {
 
   /// This installation's stable client ID, or `null` before authentication resolves it.
   String? get clientId => _authenticationService.clientId;
-
-  /// Removes the credential using the Host ID and reason captured by the invalidation event.
-  /// @param event The exact invalidated Host and Host-reported reason.
-  void _handleKnownHostInvalidation(DovahLinkKnownHostInvalidation event) {
-    unawaited(
-      _authenticationService
-          .forgetCredential(
-            event.hostId,
-            pairingRequired: switch (event.reason) {
-              AdministrativeInvalidationReason.revoked ||
-              AdministrativeInvalidationReason.trustReset ||
-              AdministrativeInvalidationReason.factoryReset => true,
-              AdministrativeInvalidationReason.blocked => false,
-            },
-          )
-          .catchError((Object _, StackTrace __) {
-            // Invalidation is terminal; a later authentication can retry cleanup.
-          }),
-    );
-  }
 
   /// Permanently closes this client. This terminal, idempotent, best-effort operation stops
   /// Known Host presence monitoring, disconnects any active session through the SDK lifecycle,
