@@ -727,9 +727,11 @@ Rule numbers are kept because other tasks refer to them:
 3. Keeping the last accepted value visible during recovery (ARCH-001 concern 2) is a *live-state*
    decision with its original identity intact. It is not historical data and needs no storage. This is
    T8's decision and is **not** approved by T14.
-4. After reconnect, a domain's live value replaces its historical one only once a new baseline for
-   that domain is accepted (governing rule 4). T8 precedes T11 because this rule assumes the
-   retention semantics are decided.
+4. After reconnect to the same `(stateAuthorityId, playContextId)` pair, a domain's live value
+   replaces its earlier non-current or historical one only once a new baseline for that domain is
+   accepted (governing rule 4). A changed pair ends the previous context's values instead (governing
+   rule 5; [Identity and coherence](../../../ai/context/sdk/persistence.md#identity-and-coherence)).
+   T8 precedes T11 because this rule assumes the retention semantics are decided.
 5. Redux keeps live and historical sources distinguishable and runs no second synchronization
    engine (governing rule 6 and the Flutter section).
 
@@ -738,8 +740,10 @@ Rule numbers are kept because other tasks refer to them:
 - **Separate port.** `IClientStorage` holds credentials and pairing recovery, writes the whole
   `PersistedClientState` atomically, uses DPAPI on Windows, and fails closed: a store that cannot be
   read throws rather than becoming empty (`persistence/client_storage.dart`;
-  `ai/context/sdk/persistence.md`). Historical snapshots need the opposite recovery policy (a
-  corrupt snapshot is discarded and live gameplay continues), a different write rate, and deletion
+  `ai/context/sdk/persistence.md`). Historical snapshots need their own recovery policy, which is
+  an open decision (see Versioning below and the open decisions in SDK persistence): how a corrupt,
+  unreadable, or unknown-version record is handled is not decided here, but a historical storage
+  failure must never compromise the live session. They also need a different write rate and deletion
   independent of trust. Extending `IClientStorage` or `PersistedClientState` would couple gameplay
   history to credential writes. This is why history gets its own storage boundary; the rule is
   canonical in [SDK persistence, "Historical gameplay snapshots"](../../../ai/context/sdk/persistence.md#historical-gameplay-snapshots).

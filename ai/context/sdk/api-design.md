@@ -252,9 +252,10 @@ Truthfulness and precedence rules:
 3. Historical values never enter `StateRevisionTracker`, `StateMessageHandler`, or
    `SubscriptionService`. A snapshot capability reads accepted values and never writes into the live
    trackers.
-4. A fresh authoritative baseline supersedes any earlier non-current or historical observation for
-   that domain, and only once that baseline is accepted; until then the earlier value stays labelled
-   non-current or historical.
+4. Within an unchanged `(stateAuthorityId, playContextId)` pair, a fresh authoritative baseline
+   supersedes any earlier non-current or historical observation for that domain, and only once that
+   baseline is accepted; until then the earlier value stays labelled non-current or historical. This
+   retention never applies across a changed pair; rule 5 governs that case.
 5. Identity safeguards: a change of `stateAuthorityId` or `playContextId` ends the previous
    context's values rather than mixing them with the new context. A revision is meaningful only within
    one `(stateAuthorityId, playContextId)` pair and is never compared across pairs or invented for a
