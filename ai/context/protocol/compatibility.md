@@ -78,6 +78,40 @@ Earlier unreleased builds remain outside the compatibility target under the pre-
 not use capability negotiation or a second wire implementation to imply compatibility with an older
 supported release.
 
+## Gameplay readiness activation
+
+`gameplay_readiness` is a Host-originated message that carries the Host's coarse gameplay
+ready / not-ready fact to every admitted session (its contract is `protocol/schema/README.md`'s
+`gameplay_readiness` section; its Host-side ownership is `ai/context/host/architecture.md`'s
+"Gameplay readiness"). It also adds `gameplay_readiness` to the closed set of message types
+`stateAuthorityId` is required on: `hello_ack`, `state_snapshot`, `state_event`, and
+`gameplay_readiness`.
+
+**Compatibility impact.** The message vocabulary is closed, and an unrecognized message type is
+malformed protocol input. The current Dart SDK's envelope decoding rejects an unknown `messageType`,
+and the message router turns that into a non-retryable `malformed_message` protocol violation that
+fails the session (verified by a characterization test in the SDK's `message_router_test.dart`).
+Both the Host and that SDK declare the same Host-version range, so a Host that emitted the message
+within that range would break a client the range declares supported. The existing supported range
+therefore does **not** remain valid for a Host that emits it.
+
+**Resolution.** No runtime capability negotiation and no fallback is used to hide this, per the
+rules above. Until activation:
+
+1. The Host defines and tests the message and its per-session publisher but does not publish it:
+   `PublicConnectionFactory` gives no admission handler a publisher, and a composition test fails if
+   a session ever receives one.
+2. Activation is one deliberate step that lands with, and is gated on, all of the following in one
+   coordinated change: the SDK gaining the typed readiness capability (T10), a new Host release
+   version, the SDK's declared minimum Host version being raised to that release (so an old SDK
+   rejects the new Host cleanly at `hello_ack` instead of failing mid-session), the readiness
+   publisher being supplied in the connection factory, and the compatibility review above being
+   repeated for that release.
+3. An SDK that predates the message must never be connected to a Host that publishes it.
+
+Pairing enforcement for the six-digit flow does not depend on this message and is active now: it
+changes no wire message, field, or status value.
+
 ## Release compatibility review
 
 At each SDK/Host release, review the SDK↔Host compatibility range: the minimum supported

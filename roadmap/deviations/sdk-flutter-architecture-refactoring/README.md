@@ -541,6 +541,24 @@ T2 and the app half of T1.
   10. If option (a) is chosen, a pairing request while not ready answers `unavailable` without a reservation and one that loses readiness during display is rolled back.
   Stage 5A names 5A.7 as its only public-contract phase; that statement is scoped to Stage 5A, so this separately approved protocol change sequences its compatibility impact with 5A.7 rather than landing inside it.
 
+- **Outcome:** partially delivered on `feature/host-gameplay-readiness-contract`; live publication is
+  deliberately not active. Delivered and tested: one Host readiness owner, `GameplayReadinessEvaluator`
+  (Adapter available, not awaiting resynchronization, resynchronization armed for the current
+  play-context transition, and a context current), including the commit-before-re-arm coherence rule;
+  the canonical `gameplay_readiness` message (schema section, fixtures, validator, Host codec and
+  payload, server-originated only, `stateAuthorityId` required); a per-session publisher that sends
+  the initial value after `hello_ack` and every change with a per-session sequence on the bounded
+  control lane; and 11.7 option (a), refusing six-digit pairing with the existing `unavailable`
+  status while not ready and again before display commit. **Not delivered:** emitting the message.
+  The current SDK rejects an unknown `messageType` as a `malformed_message` protocol violation and
+  declares the same Host range, so activation needs T10, a new Host release version, and the SDK's
+  declared Host minimum raised in one coordinated change (see
+  `ai/context/protocol/compatibility.md`, "Gameplay readiness activation"). The Host-side acceptance
+  tests 1 to 9 hold at the evaluator and publisher level; the "published on an existing session
+  without reconnect" criteria hold for the publisher bound to an admitted session in tests, not yet
+  in the composed Host. T10, T13, and Stage 5A (prompt invalidation, pending approval, typed not-ready
+  outcome) are not implemented.
+
 ### T10. SDK gameplay-readiness capability (C)
 
 - **Branch:** `feature/sdk-gameplay-readiness`

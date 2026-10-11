@@ -573,12 +573,14 @@ and one request router described above.
 
 ## Gameplay readiness
 
-**Status: approved ownership rule; not implemented.** The SDK has no readiness capability today.
+**Status: approved ownership rule; not implemented.** The SDK has no readiness capability today, and
+its closed message vocabulary rejects `gameplay_readiness` as malformed.
 This section fixes responsibilities for the future capability (T10 in
 [`roadmap/deviations/sdk-flutter-architecture-refactoring`](../../../roadmap/deviations/sdk-flutter-architecture-refactoring/README.md));
 it must not be read as a description of the current API. The Host-side fact and its security
 boundary are owned by [Host architecture, "Gameplay readiness"](../host/architecture.md#gameplay-readiness),
-and its wire contract does not exist until the maintainer approves a protocol addition.
+and its wire contract is the `gameplay_readiness` message in `protocol/schema/README.md`, which the
+Host does not emit until this capability and a coordinated compatibility step exist.
 
 Gameplay readiness is not:
 

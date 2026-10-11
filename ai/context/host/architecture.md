@@ -237,61 +237,126 @@ current state, so investigate the subscription, the SDK, or the app.
 
 ## Gameplay readiness
 
-**Status: approved ownership rule; not implemented.** No Host message, SDK type, or client
-presentation carries gameplay readiness today. The wire contract is future work (T9 in
-[`roadmap/deviations/sdk-flutter-architecture-refactoring`](../../../roadmap/deviations/sdk-flutter-architecture-refactoring/README.md))
-and needs its own maintainer-approved protocol change under `ai/context/protocol/compatibility.md`.
-The SDK's consuming side is in [SDK architecture, "Gameplay readiness"](../sdk/architecture.md#gameplay-readiness).
+**Status: Host evaluation, the wire definition, the per-session publisher, and six-digit pairing
+enforcement are implemented (T9). Publication is staged and inactive: the Host does not emit the
+readiness message yet** (see "Activation" below). The SDK and Flutter consuming sides are future work
+(T10, T13); the SDK's side is in [SDK architecture, "Gameplay readiness"](../sdk/architecture.md#gameplay-readiness).
+The wire contract is `protocol/schema/README.md`'s `gameplay_readiness` section.
 
 A running Host is not necessarily a loaded Skyrim gameplay session. The Host is authoritative for
 whether gameplay is ready, because only it observes the actual capture and synchronization
 conditions. Readiness is derived from those conditions and is **never inferred from `playContextId`
 alone**: the Host's play context can remain non-null after the Adapter is lost.
 
-The evidence readiness depends on:
+### Predicate and owner
 
-- Skyrim Adapter availability.
-- Whether gameplay capture is actually ready.
-- Play-context validity.
-- Whether resynchronization has completed.
+`GameplayReadinessEvaluator` (`Readiness/`) is the single owner of the predicate and is the only
+place it is evaluated. Gameplay is ready exactly when all of these hold:
 
-The exact predicate is a Host decision recorded with the protocol change. The audit's current
-starting candidate is: Adapter `Available`, not awaiting resynchronization, and a play context
-current. That candidate is not yet approved and must not be implemented or documented elsewhere as
-final.
+1. a play context is current (`IPlayContextTracker`);
+2. the Adapter is `Available` (`IAdapterAvailabilityTracker`);
+3. the Adapter does not need resynchronization (`NeedsResynchronization` is false); and
+4. the Adapter's resynchronization was armed for the play-context transition generation that is
+   current (`ArmedPlayContextTransitionGeneration` equals `PlayContextSnapshot.TransitionGeneration`).
 
-Whatever the final predicate, readiness must change correctly in these cases:
+Condition 4 exists because the two trackers have independent locks and a play-context transition
+commits before the resynchronization re-arm that follows it. Without it, a completion from the
+previous transaction could clear `NeedsResynchronization` in that window and briefly read as ready
+for a context that was never synchronized. The re-arm records the generation it armed for even while
+the Adapter is unavailable, so a reconnect on an unchanged context is still recognized as armed.
 
-1. Host online while Skyrim is at the main menu: not ready.
-2. A save loads while a client is already connected: becomes ready, without that client reconnecting.
-3. Gameplay resynchronization completes: ready.
-4. Return to the main menu: not ready.
-5. Save or play-context change: not ready until resynchronization completes for the new context.
-6. Adapter disconnection: not ready immediately, even though a play context is still recorded.
-7. Adapter reconnection before resynchronization completes: still not ready.
+`IsReady` is computed on every read from a validated read of both trackers (the play-context
+snapshot must not change while the Adapter snapshot is read; it retries a bounded number of times and
+answers not ready if it cannot stabilize). It is therefore already false the instant an Adapter
+disconnect or play-context change is committed, before any change event is raised. `ReadinessChanged`
+is raised once per actual change, in commit order, outside the tracker locks, with subscriber
+failures contained. The evaluator holds no connection, session, trust, or pairing state and carries
+no gameplay values. Stage 5A components consume this same evaluator; they must not build a second
+predicate or a second detector for loading and main-menu transitions.
 
-Contract requirements for any future readiness publication:
+The authoritative input signals are `AdapterAvailabilityTracker` (`Current`, `NeedsResynchronization`,
+`ArmedPlayContextTransitionGeneration`, with its `AvailabilityChanged` and `Resynchronized` events)
+and `PlayContextTracker` (`GetSnapshot`, with its `Transitioned` event). A play-context ended
+notification (loading starts, or return to the main menu) clears the context; an Adapter disconnect
+sets the Adapter unavailable and re-arms resynchronization; a new connection or context re-arms it
+again.
 
-- It must support updates within an existing admitted session (an initial value on admission and a
-  change notification afterwards); a client must not need to reconnect or re-authenticate to observe
-  a transition.
-- Readiness never gates authentication, and an authenticated session may exist at the main menu.
-- It is a separate fact from connection, trust, and Host availability, and does not change their
-  meanings.
-- "Host unreachable" is not a Host fact; the SDK derives *unknown* locally from connection state.
+### Lifecycle
 
-Security boundary: a restricted (unpaired) client may receive only the explicitly approved coarse
-readiness information. Readiness delivery must not add private gameplay state, character identity,
-save or world identifiers, play-context identifiers, or synchronization diagnostics for the purpose
-of presenting readiness. Readiness is a gameplay-availability fact about an already-authenticated
-session and is never evidence of Host identity. This section does not change what existing
-envelopes carry. Whether a coarse not-ready reason is sent is an open decision.
+| Situation | Ready |
+| --- | --- |
+| Host online, Skyrim at the main menu (no context) | false |
+| Save loading (context ended) | false |
+| New or replaced play context, not yet resynchronized | false |
+| Resynchronization completes for the current connection and context | true |
+| Return to the main menu | false |
+| Adapter disconnect (a previous context is still recorded) | false, immediately |
+| Adapter reconnect before resynchronization | false |
+| Repeated equivalent notifications | unchanged; no duplicate publication |
+| Delayed completion from a superseded connection or context | cannot restore ready |
 
-Pairing availability is related but distinct. The Host is the enforcement point for whether a
-pairing ceremony may begin and be presented; client-side disabling is presentation only. **Whether
-and how readiness is enforced for the existing six-digit flow versus Stage 5A SAS pairing is an open
-maintainer decision** (audit Section 11.7, options (a) and (c); typed outcome owned by Stage 5A.7).
-This section does not choose between them and changes no pairing, trust, or SAS behavior.
+### Publication
+
+`PublicGameplayReadinessPublisher` (`Client/Readiness/`) is one instance per connection, bound by
+`PublicHelloAdmissionHandler` after `hello_ack` and `capabilities` and unbound when the connection
+ends. It is not tied to trust tier or subscription: a restricted and a trusted session receive the
+same coarse value.
+
+- The initial value is sent once after admission; each later change is sent without reconnect.
+- The per-session `sequence` starts at 1 and is assigned together with the send under one gate on the
+  existing bounded `ControlOrRecovery` lane, so sequence order is wire order. It is never shared
+  between sessions.
+- On every trigger the publisher re-reads the evaluator's current value instead of trusting the value
+  in the change event, so an obsolete value is never sent after a newer one.
+- `stateAuthorityId` is the epoch captured before the value is read and validated afterwards. A
+  message is skipped only when both the value and the authority are unchanged; an authority rotation
+  with an unchanged value republishes under the new authority.
+- A refused control-lane send, a faulted authority lifecycle, or an authority that never stabilizes
+  closes the connection through the existing `RequestClose` policy and ends publication for that
+  session. A reconnect receives a fresh initial value.
+- The payload is only `ready` and `sequence`. The message is never included in the sessionless
+  discovery probe, never created in reply to a client message, and cannot be sent by a client.
+
+### Activation
+
+The message is part of the canonical vocabulary, but a client that does not recognize a message type
+treats it as malformed protocol input, and the current Dart SDK does (verified by a characterization
+test in `sdk/dart/dovahlink_client/test/internal/requests/message_router_test.dart`). The Host
+therefore does **not** emit it: `PublicConnectionFactory` does not give its admission handler a
+publisher, and a composition test guards that. Activation is a single, deliberate step, taken only
+with the SDK capability (T10) and the compatibility step in
+`ai/context/protocol/compatibility.md` ("Gameplay readiness activation").
+
+Readiness never gates authentication and never alters connection, authentication, or trust
+semantics. An authenticated session may exist at the main menu, and "Host unreachable" is not a Host
+fact: the SDK derives *unknown* locally from connection state.
+
+### Security boundary
+
+A restricted (unpaired) client may receive only the coarse ready flag and its sequence. Readiness
+delivery adds no private gameplay state, character identity, save or world identifiers, or
+synchronization diagnostics, and adds no state area or subscription path for restricted sessions.
+The envelope's existing `playContextId` is unchanged and is not evidence of readiness. Readiness is a
+gameplay-availability fact about an already-authenticated session and is never evidence of Host
+identity.
+
+### Pairing
+
+The Host is the enforcement point for whether a pairing ceremony may begin; client-side disabling is
+presentation only. For the existing six-digit flow (audit Section 11.7, option (a)),
+`ClientMessageDispatcher` evaluates readiness inside the same session-guarded critical section as
+`BeginPairing`, before any reservation: when gameplay is not ready the existing `pairing_status`
+`unavailable` is returned with no reservation, no Adapter display request, no credential, and no
+trust change. It is evaluated again after the Adapter display acknowledgement and before
+`CommitInitialDisplay`; if readiness was lost in between, the challenge is never committed and the
+reservation is released through the ordinary rollback. A request that would have resumed a displayed
+challenge also answers `unavailable` while not ready, and leaves that challenge untouched.
+`pairing_confirm`, `pairing_ack`, `pairing_renotify`, and `pairing_cancel` are unchanged: a challenge
+already displayed and committed remains valid until its normal expiry, and invalidating a displayed
+prompt on loading and main-menu transitions is Stage 5A (5A.2 to 5A.4). There is no typed "not ready"
+pairing outcome; that belongs to the coordinated SDK and SAS contract work (5A.7). Code generation,
+length, attempts, pacing, challenge lifetime, trust persistence, revocation, blocking, factory reset,
+and per-device isolation are unchanged.
 
 ## Public contract ownership
 

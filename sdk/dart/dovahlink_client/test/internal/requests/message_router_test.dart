@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:mocktail/mocktail.dart';
 import 'package:test/test.dart';
@@ -322,6 +323,39 @@ void main() {
           contains('Invalid protocol envelope'),
         );
         expect(verification.captured[1], isFalse);
+        verifyNever(() => bookkeeping.resolveReply(any(), any()));
+      },
+    );
+
+    test(
+      'Method handleIncoming treats the Host gameplay_readiness message as a protocol violation, because the closed message vocabulary does not include it',
+      () {
+        // Characterization of the current SDK against the canonical readiness fixture: the Host must
+        // not publish this message to an SDK that predates it.
+        final String raw = File(
+          '../../../protocol/fixtures/readiness/gameplay-readiness-ready.json',
+        ).readAsStringSync();
+
+        router.handleIncoming(raw);
+
+        final VerificationResult verification = verify(
+          () => sessionService.onProtocolViolation(
+            captureAny(),
+            orphanRetrySafeOperations: captureAny(
+              named: 'orphanRetrySafeOperations',
+            ),
+          ),
+        );
+        expect(verification.captured[0], isA<DovahLinkProtocolException>());
+        expect(
+          (verification.captured[0] as DovahLinkProtocolException).code,
+          ProtocolErrorCode.malformedMessage,
+        );
+        expect(
+          (verification.captured[0] as DovahLinkProtocolException).retryable,
+          isFalse,
+        );
+        verifyNever(() => unsolicitedMessageHandler.handle(any()));
         verifyNever(() => bookkeeping.resolveReply(any(), any()));
       },
     );
