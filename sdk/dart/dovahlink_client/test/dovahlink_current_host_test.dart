@@ -10,8 +10,8 @@ import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart'
     show ISessionService;
 import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart'
     show ISubscriptionService;
-import 'internal/readiness/mock_gameplay_readiness_service.dart';
 import 'fixtures/fixtures.dart';
+import 'internal/readiness/mock_gameplay_readiness_service.dart';
 
 /// Mocks the admitted session context owner.
 class MockCurrentHostSessionService extends Mock implements ISessionService {}

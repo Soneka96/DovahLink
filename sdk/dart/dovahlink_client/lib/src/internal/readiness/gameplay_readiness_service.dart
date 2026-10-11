@@ -24,6 +24,7 @@ abstract interface class IGameplayReadinessService {
   /// (only the newest is kept) and decided at [onSessionAdmitted]; afterwards it is applied only
   /// if it belongs to the current session, is newer than every message already applied, and does
   /// not come from a state authority already superseded. Anything else is silently discarded.
+  /// A session that supersedes more authorities than can be remembered stays `unknown` until it ends.
   /// @param sessionId The envelope's session identity.
   /// @param stateAuthorityId The envelope's state-authority continuity identity.
   /// @param payload The decoded readiness payload.
@@ -47,7 +48,7 @@ abstract interface class IGameplayReadinessService {
   /// Records the state authority another message of the current session revealed. A different
   /// authority supersedes the previous one: readiness becomes `unknown` until a message under the
   /// new authority is applied, and a later message from a superseded authority is discarded.
-  /// Ignored without an admitted session.
+  /// Ignored without an admitted session or once the authority history is exhausted.
   /// @param stateAuthorityId The authority carried by a state message routed to a domain.
   void onStateAuthorityObserved(String stateAuthorityId);
 
@@ -62,8 +63,9 @@ abstract interface class IGameplayReadinessService {
 
 /// Implements [IGameplayReadinessService].
 class GameplayReadinessService implements IGameplayReadinessService {
-  /// The most superseded authorities remembered for one session; a rotation is rare, so the
-  /// oldest is forgotten rather than letting a long-lived session grow this without bound.
+  /// The most superseded authorities remembered for one session. Authority identifiers are opaque,
+  /// so a forgotten one could not be told from a new one. Rather than forget the oldest, the
+  /// session fails closed when this is exceeded: see [_authorityHistoryExhausted].
   static const int maxRememberedSupersededAuthorities = 32;
 
   /// Replays the current readiness to every subscriber.
@@ -74,6 +76,11 @@ class GameplayReadinessService implements IGameplayReadinessService {
 
   /// Authorities this session has moved past, oldest first.
   final List<String> _supersededAuthorities = <String>[];
+
+  /// Whether this session has superseded more authorities than [maxRememberedSupersededAuthorities].
+  /// Readiness then stays `unknown` and every later observation is ignored until the session ends,
+  /// because a message could no longer be proven to come from the current authority.
+  bool _authorityHistoryExhausted = false;
 
   /// The admitted session readiness may currently be applied to, or `null` before admission.
   String? _sessionId;
@@ -118,12 +125,17 @@ class GameplayReadinessService implements IGameplayReadinessService {
       return;
     }
     if (sessionId != admittedSessionId ||
+        _authorityHistoryExhausted ||
         payload.sequence <= _lastSequence ||
         _supersededAuthorities.contains(stateAuthorityId)) {
       return;
     }
 
     _adoptAuthority(stateAuthorityId);
+    if (_authorityHistoryExhausted) {
+      _readiness.update(DovahLinkGameplayReadiness.unknown);
+      return;
+    }
     _lastSequence = payload.sequence;
     _readiness.update(
       payload.ready
@@ -159,6 +171,7 @@ class GameplayReadinessService implements IGameplayReadinessService {
   void onStateAuthorityObserved(String stateAuthorityId) {
     if (_closed ||
         _sessionId == null ||
+        _authorityHistoryExhausted ||
         _supersededAuthorities.contains(stateAuthorityId)) {
       return;
     }
@@ -178,6 +191,7 @@ class GameplayReadinessService implements IGameplayReadinessService {
     _lastSequence = 0;
     _staged = null;
     _supersededAuthorities.clear();
+    _authorityHistoryExhausted = false;
     _readiness.update(DovahLinkGameplayReadiness.unknown);
   }
 
@@ -202,7 +216,8 @@ class GameplayReadinessService implements IGameplayReadinessService {
     }
   }
 
-  /// Makes [stateAuthorityId] the session's newest authority, remembering the one it replaces.
+  /// Makes [stateAuthorityId] the session's newest authority, remembering the one it replaces, or
+  /// marking the history exhausted when there is no room to remember it.
   /// @param stateAuthorityId The authority just revealed.
   /// @return Whether this changed the session's authority.
   bool _adoptAuthority(String stateAuthorityId) {
@@ -211,9 +226,10 @@ class GameplayReadinessService implements IGameplayReadinessService {
       return false;
     }
     if (previous != null) {
-      _supersededAuthorities.add(previous);
-      if (_supersededAuthorities.length > maxRememberedSupersededAuthorities) {
-        _supersededAuthorities.removeAt(0);
+      if (_supersededAuthorities.length >= maxRememberedSupersededAuthorities) {
+        _authorityHistoryExhausted = true;
+      } else {
+        _supersededAuthorities.add(previous);
       }
     }
     _authorityId = stateAuthorityId;

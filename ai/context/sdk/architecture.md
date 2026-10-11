@@ -605,7 +605,10 @@ is greater than the last applied one, and its `stateAuthorityId` is not an autho
 has already moved past. Authority identifiers are opaque: ordering comes from the session's own
 observations (`hello_ack`, applied readiness, and the authority of each routed state message), never
 from comparing identifier values. A newly revealed authority makes readiness `unknown` until a
-report under it is applied. At most 32 superseded authorities are remembered per session.
+report under it is applied. At most 32 superseded authorities are remembered per session; a
+session that would supersede a 33rd fails closed, because a forgotten identifier could no longer be
+told from a new one. Readiness stays `unknown` and further reports are ignored until the connection
+ends and a new admission starts with fresh evidence.
 
 **Early messages.** The Host sends the first report right after `hello_ack`, so it can reach the
 handler before `SessionAdmissionService.admitSession` runs (a trusted admission awaits storage; a

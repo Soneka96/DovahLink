@@ -32,6 +32,16 @@ void _admit(
   stateAuthorityId: authority,
 );
 
+/// The most superseded authorities one session remembers.
+const int _bound = GameplayReadinessService.maxRememberedSupersededAuthorities;
+
+/// Rotates [service] through [count] authorities, each revealed by a state message.
+void _rotate(IGameplayReadinessService service, int count) {
+  for (int i = 1; i <= count; i++) {
+    service.onStateAuthorityObserved('authority-$i');
+  }
+}
+
 /// Runs [GameplayReadinessService] behavior tests.
 void main() {
   late GameplayReadinessService service;
@@ -471,38 +481,273 @@ void main() {
     );
 
     test(
-      'Method onStateAuthorityObserved forgets the oldest superseded authority past the bound',
+      'Method onStateAuthorityObserved still rejects the oldest authority at exactly the bound',
       () {
         _admit(service, authority: 'authority-0');
-        for (
-          int i = 1;
-          i <= GameplayReadinessService.maxRememberedSupersededAuthorities + 1;
-          i++
-        ) {
-          service.onStateAuthorityObserved('authority-$i');
-        }
+        _rotate(
+          service,
+          GameplayReadinessService.maxRememberedSupersededAuthorities,
+        );
 
         _observe(service, authority: 'authority-0', ready: true, sequence: 1);
+        expect(service.current, DovahLinkGameplayReadiness.unknown);
+
+        _observe(
+          service,
+          authority: 'authority-$_bound',
+          ready: true,
+          sequence: 1,
+        );
+        expect(service.current, DovahLinkGameplayReadiness.ready);
+      },
+    );
+  });
+
+  group('Behavior authority history exhaustion fails closed', () {
+    test(
+      'Method onStateAuthorityObserved keeps the oldest authority unusable after the bound is exceeded',
+      () {
+        _admit(service, authority: 'authority-0');
+        _rotate(service, _bound + 1);
+
+        _observe(service, authority: 'authority-0', ready: true, sequence: 1);
+
+        expect(service.current, DovahLinkGameplayReadiness.unknown);
+      },
+    );
+
+    test(
+      'Method onStateAuthorityObserved leaves readiness unknown for every authority once exhausted',
+      () {
+        _admit(service, authority: 'authority-0');
+        _observe(service, authority: 'authority-0', ready: true, sequence: 1);
+        _rotate(service, _bound + 1);
+
+        _observe(
+          service,
+          authority: 'authority-${_bound + 1}',
+          ready: true,
+          sequence: 2,
+        );
+        _observe(service, authority: 'authority-5', ready: true, sequence: 3);
+        _observe(service, authority: 'never-seen', ready: true, sequence: 4);
+
+        expect(service.current, DovahLinkGameplayReadiness.unknown);
+      },
+    );
+
+    test(
+      'Method observe rotating past the bound through readiness ends at unknown, not ready',
+      () {
+        _admit(service, authority: 'authority-0');
+        _rotate(service, _bound);
+
+        _observe(
+          service,
+          authority: 'fresh-authority',
+          ready: true,
+          sequence: 1,
+        );
+
+        expect(service.current, DovahLinkGameplayReadiness.unknown);
+      },
+    );
+
+    test(
+      'Method onStateAuthorityObserved emits unknown once on exhaustion',
+      () async {
+        final List<DovahLinkGameplayReadiness> seen =
+            <DovahLinkGameplayReadiness>[];
+        _admit(service, authority: 'authority-0');
+        _observe(service, authority: 'authority-0', ready: true, sequence: 1);
+        final StreamSubscription<DovahLinkGameplayReadiness> subscription =
+            service.changes.listen(seen.add);
+
+        _rotate(service, _bound + 3);
+        await Future<void>.delayed(Duration.zero);
+        await subscription.cancel();
+
+        expect(seen, <DovahLinkGameplayReadiness>[
+          DovahLinkGameplayReadiness.ready,
+          DovahLinkGameplayReadiness.unknown,
+        ]);
+      },
+    );
+
+    test(
+      'Method observe emits unknown when readiness rotation exhausts the history',
+      () async {
+        final List<DovahLinkGameplayReadiness> seen =
+            <DovahLinkGameplayReadiness>[];
+        _admit(service, authority: 'authority-0');
+        _rotate(service, _bound);
+        _observe(
+          service,
+          authority: 'authority-$_bound',
+          ready: true,
+          sequence: 1,
+        );
+        final StreamSubscription<DovahLinkGameplayReadiness> subscription =
+            service.changes.listen(seen.add);
+
+        _observe(
+          service,
+          authority: 'fresh-authority',
+          ready: true,
+          sequence: 2,
+        );
+        await Future<void>.delayed(Duration.zero);
+        await subscription.cancel();
+
+        expect(seen, <DovahLinkGameplayReadiness>[
+          DovahLinkGameplayReadiness.ready,
+          DovahLinkGameplayReadiness.unknown,
+        ]);
+      },
+    );
+
+    test(
+      'Property changes replays unknown to a late subscriber after exhaustion',
+      () async {
+        _admit(service, authority: 'authority-0');
+        _observe(service, authority: 'authority-0', ready: true, sequence: 1);
+        _rotate(service, _bound + 1);
+
+        expect(await service.changes.first, DovahLinkGameplayReadiness.unknown);
+      },
+    );
+
+    test(
+      'Method observe rejecting a message at a full history does not exhaust it',
+      () {
+        _admit(service, authority: 'authority-0');
+        _rotate(service, _bound);
+        _observe(
+          service,
+          authority: 'authority-$_bound',
+          ready: true,
+          sequence: 2,
+        );
+
+        _observe(service, authority: 'authority-0', ready: false, sequence: 9);
+        _observe(
+          service,
+          authority: 'authority-$_bound',
+          ready: false,
+          sequence: 1,
+        );
+        _observe(
+          service,
+          sessionId: 'other-session',
+          authority: 'fresh-authority',
+          ready: false,
+          sequence: 9,
+        );
 
         expect(service.current, DovahLinkGameplayReadiness.ready);
       },
     );
 
     test(
-      'Method onStateAuthorityObserved still remembers authorities within the bound',
+      'Method onSessionAdmitted clears exhaustion for the replacement session',
+      () {
+        _admit(service, sessionId: 'session-1', authority: 'authority-0');
+        _rotate(service, _bound + 1);
+
+        _admit(service, sessionId: 'session-2', authority: 'authority-0');
+        _observe(
+          service,
+          sessionId: 'session-2',
+          authority: 'authority-0',
+          ready: true,
+          sequence: 1,
+        );
+
+        expect(service.current, DovahLinkGameplayReadiness.ready);
+      },
+    );
+
+    test(
+      'Method reset clears exhaustion so a reconnect starts without old evidence',
       () {
         _admit(service, authority: 'authority-0');
-        for (
-          int i = 1;
-          i <= GameplayReadinessService.maxRememberedSupersededAuthorities + 1;
-          i++
-        ) {
-          service.onStateAuthorityObserved('authority-$i');
-        }
+        _rotate(service, _bound + 1);
+        service.reset();
 
-        _observe(service, authority: 'authority-1', ready: true, sequence: 1);
+        _admit(service, authority: 'authority-new');
+        _observe(
+          service,
+          authority: 'authority-new',
+          ready: false,
+          sequence: 1,
+        );
 
-        expect(service.current, DovahLinkGameplayReadiness.unknown);
+        expect(service.current, DovahLinkGameplayReadiness.notReady);
+      },
+    );
+
+    test('Method close keeps an exhausted service inert', () {
+      _admit(service, authority: 'authority-0');
+      _rotate(service, _bound + 1);
+      service.close();
+
+      _observe(service, authority: 'authority-0', ready: true, sequence: 1);
+
+      expect(service.current, DovahLinkGameplayReadiness.unknown);
+    });
+  });
+
+  group('Behavior authority provenance behaves correctly', () {
+    test(
+      'Method onStateAuthorityObserved is idempotent for the same authority',
+      () {
+        _admit(service);
+        _observe(service, ready: true, sequence: 1);
+
+        service.onStateAuthorityObserved('authority-1');
+        service.onStateAuthorityObserved('authority-1');
+
+        expect(service.current, DovahLinkGameplayReadiness.ready);
+      },
+    );
+
+    test(
+      'Method onStateAuthorityObserved cannot replace a newer authority with a superseded one',
+      () {
+        _admit(service);
+        service.onStateAuthorityObserved('authority-2');
+        _observe(service, authority: 'authority-2', ready: true, sequence: 1);
+
+        service.onStateAuthorityObserved('authority-1');
+
+        expect(service.current, DovahLinkGameplayReadiness.ready);
+      },
+    );
+
+    test(
+      'Method observe rejects a higher sequence from a superseded authority after rotation',
+      () {
+        _admit(service);
+        _observe(service, ready: true, sequence: 1);
+        service.onStateAuthorityObserved('authority-2');
+        _observe(service, authority: 'authority-2', ready: false, sequence: 2);
+
+        _observe(service, authority: 'authority-1', ready: true, sequence: 9);
+
+        expect(service.current, DovahLinkGameplayReadiness.notReady);
+      },
+    );
+
+    test(
+      'Method observe rejects an older sequence after a newer authority result',
+      () {
+        _admit(service);
+        service.onStateAuthorityObserved('authority-2');
+        _observe(service, authority: 'authority-2', ready: false, sequence: 5);
+
+        _observe(service, authority: 'authority-2', ready: true, sequence: 4);
+
+        expect(service.current, DovahLinkGameplayReadiness.notReady);
       },
     );
   });
