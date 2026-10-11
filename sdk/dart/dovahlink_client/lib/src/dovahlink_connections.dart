@@ -9,15 +9,9 @@ import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/hello_result.dart';
 import 'package:dovahlink_client_sdk/src/internal/authentication/authentication_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/protocol_payload_decoder.dart';
 import 'package:dovahlink_client_sdk/src/internal/reconnect/reconnect_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/connection_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
-import 'package:dovahlink_client_sdk/src/protocol/envelope.dart';
-import 'package:dovahlink_client_sdk/src/protocol/rename_outcome_payload.dart';
-import 'package:dovahlink_client_sdk/src/protocol/rename_request_payload.dart';
-import 'package:dovahlink_client_sdk/src/request_policy.dart';
 import 'package:dovahlink_client_sdk/src/shared/enums.dart';
 
 /// Exposes operations and lifecycle state for the client's single active session.
@@ -75,7 +69,8 @@ abstract interface class IDovahLinkConnections {
   Future<void> disconnect();
 }
 
-/// Implements [IDovahLinkConnections] over the existing session and authentication owners.
+/// Implements [IDovahLinkConnections] over the existing session, authentication, reconnect, and
+/// connection-operation owners.
 class DovahLinkConnections implements IDovahLinkConnections {
   /// Owns connection and authentication state.
   final ISessionService _sessionService;
@@ -83,32 +78,26 @@ class DovahLinkConnections implements IDovahLinkConnections {
   /// Owns candidate and Known Host authentication.
   final IAuthenticationService _authenticationService;
 
-  /// Owns bounded established-session recovery.
+  /// Owns initial connection retry and bounded established-session recovery.
   final IReconnectService _reconnectService;
 
-  /// Owns desired game-state subscription intent.
-  final ISubscriptionService _subscriptionService;
-
-  /// Sends correlated requests over the active session.
-  final IRequestService _requestService;
+  /// Owns deliberate disconnect and device rename.
+  final IConnectionService _connectionService;
 
   /// Creates the connection view over the client's existing lifecycle owners.
   /// @param sessionService Owns transport and admitted session state.
   /// @param authenticationService Authenticates candidate and Known Host sessions.
-  /// @param reconnectService Cancels established-session recovery on deliberate disconnect.
-  /// @param subscriptionService Clears desired state subscriptions on deliberate disconnect.
-  /// @param requestService Sends trusted-session protocol requests.
+  /// @param reconnectService Retries initial connections and reports retry status.
+  /// @param connectionService Owns deliberate disconnect and device rename.
   DovahLinkConnections({
     required ISessionService sessionService,
     required IAuthenticationService authenticationService,
     required IReconnectService reconnectService,
-    required ISubscriptionService subscriptionService,
-    required IRequestService requestService,
+    required IConnectionService connectionService,
   }) : _sessionService = sessionService,
        _authenticationService = authenticationService,
        _reconnectService = reconnectService,
-       _subscriptionService = subscriptionService,
-       _requestService = requestService;
+       _connectionService = connectionService;
 
   /// Implements [IDovahLinkConnections.state].
   @override
@@ -151,40 +140,10 @@ class DovahLinkConnections implements IDovahLinkConnections {
 
   /// Implements [IDovahLinkConnections.renameDevice].
   @override
-  Future<RenameOutcome> renameDevice(String displayName) async {
-    final Envelope response = await _requestService.sendAndAwait(
-      messageType: ProtocolMessageType.renameRequest,
-      payload: RenameRequestPayload(displayName: displayName).toJson(),
-      expectedType: ProtocolMessageType.renameOutcome,
-      policy: const RequestPolicy(
-        retrySafe: false,
-        requiredTrustState: DovahLinkTrustState.trusted,
-        timeoutClass: TimeoutClass.normal,
-      ),
-    );
-    final RenameOutcomePayload outcome;
-    try {
-      outcome = ProtocolPayloadDecoder.decode(
-        RenameOutcomePayload.fromJson,
-        response.payload,
-      );
-    } on DovahLinkProtocolException catch (error) {
-      _sessionService.onProtocolViolation(
-        error,
-        orphanRetrySafeOperations: false,
-      );
-      rethrow;
-    }
-    return outcome.outcome;
-  }
+  Future<RenameOutcome> renameDevice(String displayName) =>
+      _connectionService.renameDevice(displayName);
 
   /// Implements [IDovahLinkConnections.disconnect].
   @override
-  Future<void> disconnect() async {
-    _authenticationService.cancelPendingAuthentication();
-    _reconnectService.stopInitialConnectionRetry();
-    _reconnectService.stopRecovery();
-    _subscriptionService.clearDesiredStateAreas();
-    await _sessionService.disconnect();
-  }
+  Future<void> disconnect() => _connectionService.disconnect();
 }

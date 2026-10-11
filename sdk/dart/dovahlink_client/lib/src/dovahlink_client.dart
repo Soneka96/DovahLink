@@ -25,6 +25,7 @@ import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_boo
 import 'package:dovahlink_client_sdk/src/internal/requests/pending_operation_transmitter.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/request_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/requests/unsolicited_message_handler.dart';
+import 'package:dovahlink_client_sdk/src/internal/session/connection_service.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/connection_teardown_coordinator.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/lifecycle_operation_queue.dart';
 import 'package:dovahlink_client_sdk/src/internal/session/session_admission_service.dart';
@@ -284,12 +285,18 @@ class DovahLinkClient {
     if (knownHostPresenceMonitoringEnabled) {
       _knownHostPresenceMonitor.start();
     }
-    connections = DovahLinkConnections(
+    _connectionService = ConnectionService(
       sessionService: _sessionService,
       authenticationService: _authenticationService,
       reconnectService: _reconnectService,
       subscriptionService: _subscriptionService,
       requestService: _requestService,
+    );
+    connections = DovahLinkConnections(
+      sessionService: _sessionService,
+      authenticationService: _authenticationService,
+      reconnectService: _reconnectService,
+      connectionService: _connectionService,
     );
     currentHost = DovahLinkCurrentHost(
       sessionService: _sessionService,
@@ -336,6 +343,9 @@ class DovahLinkClient {
   late final StreamSubscription<DovahLinkKnownHostInvalidation>
   _knownHostInvalidationSubscription;
 
+  /// Owns deliberate disconnect, terminal shutdown, and device rename.
+  late final IConnectionService _connectionService;
+
   /// Owns candidate discovery and its Known Host reconciliation.
   late final IHostCandidateService _hostCandidateService;
 
@@ -374,13 +384,9 @@ class DovahLinkClient {
     final Future<void> monitorCleanup = Future<void>.sync(
       _knownHostPresenceMonitor.close,
     ).catchError((Object _, StackTrace __) {});
-    final Future<void> sessionCleanup = Future<void>.sync(() {
-      _authenticationService.cancelPendingAuthentication();
-      _reconnectService.stopInitialConnectionRetry();
-      _reconnectService.stopRecovery();
-      _subscriptionService.clearDesiredStateAreas();
-      return _sessionService.close();
-    }).catchError((Object _, StackTrace __) {});
+    final Future<void> sessionCleanup = Future<void>.sync(
+      _connectionService.shutdown,
+    ).catchError((Object _, StackTrace __) {});
     await Future.wait<void>(<Future<void>>[
       candidateCleanup,
       monitorCleanup,
