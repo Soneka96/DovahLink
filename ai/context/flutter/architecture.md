@@ -160,9 +160,11 @@ Connections leaves the session and its listeners active. Ordinary reconnect (`co
 reconnecting → reauthenticating → connected`, with no transient `disconnected`) keeps those
 listeners attached under the same observation token, keeps the requested-area tracking, and issues
 no second subscription round, because the SDK restores desired intent itself. The SDK still resets
-every accepted domain to `notSubscribed` with no value during teardown, so the projection shows no
-gameplay values while recovering and receives new baselines once the session is admitted again;
-Flutter neither fabricates nor retains values. Each admitted observation has an app-local token captured by its stream callbacks
+domain to `notSubscribed` only when the session ends for good. During eligible recovery the SDK keeps
+each domain's last accepted observation and publishes it as `recovering` with its original identity
+and revision, so the projection mirrors those retained, non-current values and receives new
+baselines once the session is admitted again. Flutter neither fabricates nor retains values, and
+implements no retention policy of its own: it forwards what the SDK streams emit. Each admitted observation has an app-local token captured by its stream callbacks
 and required-area request sequence; work may dispatch, report, or continue only while that token is
 still current for its Redux store. A `disconnected` (explicit disconnect or recovery give-up) or administratively invalidated session
 invalidates its token before cancellation and resets the projected slice; the middleware does not send
@@ -176,8 +178,10 @@ predicates remain independent; Location retains cell, selected location, and wor
 remains Skyrim calendar data; and Tracked Quests remains the complete plural collection with every
 objective instance. An empty tracked-quest list, unavailable nullable values, and all-false traits
 remain distinguishable through synchronization status. Values the SDK reports as retained while
-unavailable within one session stay distinguishable the same way; values do not survive SDK
-teardown or recovery today.
+unavailable within one session, or as `recovering` during eligible automatic recovery, stay
+distinguishable the same way; a retained value is never presented as current. Retention is in-memory
+only and ends with the SDK's terminal session end; no persistent history or offline Overview is
+implemented.
 
 `SessionOverviewViewModel` exposes these selector results to the Session Overview. Widgets must
 not subscribe directly to SDK streams, call SDK live-state subscription APIs, or bypass the approved
@@ -191,7 +195,8 @@ are approved and implemented.
 
 **Status: approved boundary for future work; none of it is implemented.** The SDK has no readiness
 capability and no historical snapshot API today, and the app has no offline Overview route or
-control. The live gameplay behavior above is unchanged. The semantics are owned elsewhere and are
+control. The live gameplay behavior above, including the SDK's in-memory retention of non-current
+values during automatic recovery, is unchanged and is not historical state. The semantics are owned elsewhere and are
 not restated here: live versus historical state in
 [SDK API design](../sdk/api-design.md#live-versus-historical-state), historical persistence in
 [SDK persistence](../sdk/persistence.md#historical-gameplay-snapshots), and readiness in

@@ -734,77 +734,93 @@ void main() {
       },
     );
 
-    test('ordinary recovery keeps listeners and tracking, projects the SDK reset and fresh baseline, '
-        'and issues no second subscription round', () async {
-      sdk.connectionState = DovahLinkConnectionState.connected;
-      middleware.initialize(store);
-      await pumpEventQueue();
-      await _trustCurrentSession(sdk, middleware, store);
-      sdk.vitals.add(
-        StateSynchronization<CharacterVitalsState>(
-          status: DovahLinkStateStatus.synchronized,
-          value: Fixtures.buildCharacterVitals(
-            health: Fixtures.buildCharacterVital(current: 88, max: 100),
-            magicka: Fixtures.buildCharacterVital(current: 55, max: 80),
-            stamina: Fixtures.buildCharacterVital(current: 48, max: 90),
+    test(
+      'ordinary recovery keeps listeners and tracking, projects the SDK-retained non-current '
+      'observation unchanged and then the fresh baseline, and issues no second subscription round',
+      () async {
+        sdk.connectionState = DovahLinkConnectionState.connected;
+        middleware.initialize(store);
+        await pumpEventQueue();
+        await _trustCurrentSession(sdk, middleware, store);
+        sdk.vitals.add(
+          StateSynchronization<CharacterVitalsState>(
+            status: DovahLinkStateStatus.synchronized,
+            value: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 88, max: 100),
+              magicka: Fixtures.buildCharacterVital(current: 55, max: 80),
+              stamina: Fixtures.buildCharacterVital(current: 48, max: 90),
+            ),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 4,
           ),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 4,
-        ),
-      );
+        );
 
-      // The real SDK sequence for ordinary transport loss: no transient disconnected. Its
-      // teardown still resets every accepted domain to notSubscribed with no value (T8 will
-      // retain values), and each domain then receives a fresh baseline once admitted again.
-      for (final DovahLinkConnectionState state in _sdkOrdinaryRecovery) {
-        sdk.emitConnectionState(state);
-        if (state == DovahLinkConnectionState.reconnecting) {
-          sdk.vitals.add(
-            const StateSynchronization<CharacterVitalsState>.notSubscribed(),
-          );
+        // The real SDK sequence for ordinary transport loss: no transient disconnected. The SDK
+        // retains each accepted observation as recovering with its original identity and revision;
+        // the middleware only forwards it, and each domain then receives a fresh baseline.
+        for (final DovahLinkConnectionState state in _sdkOrdinaryRecovery) {
+          sdk.emitConnectionState(state);
+          if (state == DovahLinkConnectionState.reconnecting) {
+            sdk.vitals.add(
+              StateSynchronization<CharacterVitalsState>(
+                status: DovahLinkStateStatus.recovering,
+                value: Fixtures.buildCharacterVitals(
+                  health: Fixtures.buildCharacterVital(current: 88, max: 100),
+                  magicka: Fixtures.buildCharacterVital(current: 55, max: 80),
+                  stamina: Fixtures.buildCharacterVital(current: 48, max: 90),
+                ),
+                stateAuthorityId: 'authority-a',
+                playContextId: 'context-a',
+                revision: 4,
+              ),
+            );
+          }
         }
-      }
-      sdk.vitals.add(
-        StateSynchronization<CharacterVitalsState>(
-          status: DovahLinkStateStatus.synchronized,
-          value: Fixtures.buildCharacterVitals(
-            health: Fixtures.buildCharacterVital(current: 89, max: 100),
-            magicka: Fixtures.buildCharacterVital(current: 54, max: 80),
-            stamina: Fixtures.buildCharacterVital(current: 49, max: 90),
+        sdk.vitals.add(
+          StateSynchronization<CharacterVitalsState>(
+            status: DovahLinkStateStatus.synchronized,
+            value: Fixtures.buildCharacterVitals(
+              health: Fixtures.buildCharacterVital(current: 89, max: 100),
+              magicka: Fixtures.buildCharacterVital(current: 54, max: 80),
+              stamina: Fixtures.buildCharacterVital(current: 49, max: 90),
+            ),
+            stateAuthorityId: 'authority-a',
+            playContextId: 'context-a',
+            revision: 5,
           ),
-          stateAuthorityId: 'authority-a',
-          playContextId: 'context-a',
-          revision: 5,
-        ),
-      );
-      await pumpEventQueue();
+        );
+        await pumpEventQueue();
 
-      final List<CharacterVitalsSynchronizationChangedAction> projections =
-          actions
-              .whereType<CharacterVitalsSynchronizationChangedAction>()
-              .toList();
-      expect(projections, hasLength(3));
-      expect(
-        projections.first.synchronization.status,
-        DovahLinkStateStatus.synchronized,
-      );
-      expect(projections.first.synchronization.value?.health?.current, 88);
-      expect(
-        projections[1].synchronization.status,
-        DovahLinkStateStatus.notSubscribed,
-      );
-      expect(projections[1].synchronization.value, isNull);
-      expect(
-        projections.last.synchronization.status,
-        DovahLinkStateStatus.synchronized,
-      );
-      expect(projections.last.synchronization.revision, 5);
-      expect(actions.whereType<SessionLiveStateResetAction>(), isEmpty);
-      expect(sdk.vitals.hasListener, isTrue);
-      expect(sdk.vitalsStreamReads, 1);
-      expect(sdk.requestedAreas, _expectedAreas);
-    });
+        final List<CharacterVitalsSynchronizationChangedAction> projections =
+            actions
+                .whereType<CharacterVitalsSynchronizationChangedAction>()
+                .toList();
+        expect(projections, hasLength(3));
+        expect(
+          projections.first.synchronization.status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(projections.first.synchronization.value?.health?.current, 88);
+        expect(
+          projections[1].synchronization.status,
+          DovahLinkStateStatus.recovering,
+        );
+        expect(projections[1].synchronization.value?.health?.current, 88);
+        expect(projections[1].synchronization.stateAuthorityId, 'authority-a');
+        expect(projections[1].synchronization.playContextId, 'context-a');
+        expect(projections[1].synchronization.revision, 4);
+        expect(
+          projections.last.synchronization.status,
+          DovahLinkStateStatus.synchronized,
+        );
+        expect(projections.last.synchronization.revision, 5);
+        expect(actions.whereType<SessionLiveStateResetAction>(), isEmpty);
+        expect(sdk.vitals.hasListener, isTrue);
+        expect(sdk.vitalsStreamReads, 1);
+        expect(sdk.requestedAreas, _expectedAreas);
+      },
+    );
 
     test(
       'a failed recovery attempt followed by success keeps listeners and requests nothing new',
