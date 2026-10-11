@@ -235,6 +235,64 @@ reports unavailable, the Host does not currently consider the area authoritative
 investigate the adapter, capture, or resynchronization. If it reports a Snapshot, the Host holds
 current state, so investigate the subscription, the SDK, or the app.
 
+## Gameplay readiness
+
+**Status: approved ownership rule; not implemented.** No Host message, SDK type, or client
+presentation carries gameplay readiness today. The wire contract is future work (T9 in
+[`roadmap/deviations/sdk-flutter-architecture-refactoring`](../../../roadmap/deviations/sdk-flutter-architecture-refactoring/README.md))
+and needs its own maintainer-approved protocol change under `ai/context/protocol/compatibility.md`.
+The SDK's consuming side is in [SDK architecture, "Gameplay readiness"](../sdk/architecture.md#gameplay-readiness).
+
+A running Host is not necessarily a loaded Skyrim gameplay session. The Host is authoritative for
+whether gameplay is ready, because only it observes the actual capture and synchronization
+conditions. Readiness is derived from those conditions and is **never inferred from `playContextId`
+alone**: the Host's play context can remain non-null after the Adapter is lost.
+
+The evidence readiness depends on:
+
+- Skyrim Adapter availability.
+- Whether gameplay capture is actually ready.
+- Play-context validity.
+- Whether resynchronization has completed.
+
+The exact predicate is a Host decision recorded with the protocol change. The audit's current
+starting candidate is: Adapter `Available`, not awaiting resynchronization, and a play context
+current. That candidate is not yet approved and must not be implemented or documented elsewhere as
+final.
+
+Whatever the final predicate, readiness must change correctly in these cases:
+
+1. Host online while Skyrim is at the main menu: not ready.
+2. A save loads while a client is already connected: becomes ready, without that client reconnecting.
+3. Gameplay resynchronization completes: ready.
+4. Return to the main menu: not ready.
+5. Save or play-context change: not ready until resynchronization completes for the new context.
+6. Adapter disconnection: not ready immediately, even though a play context is still recorded.
+7. Adapter reconnection before resynchronization completes: still not ready.
+
+Contract requirements for any future readiness publication:
+
+- It must support updates within an existing admitted session (an initial value on admission and a
+  change notification afterwards); a client must not need to reconnect or re-authenticate to observe
+  a transition.
+- Readiness never gates authentication, and an authenticated session may exist at the main menu.
+- It is a separate fact from connection, trust, and Host availability, and does not change their
+  meanings.
+- "Host unreachable" is not a Host fact; the SDK derives *unknown* locally from connection state.
+
+Security boundary: a restricted (unpaired) client may receive only the explicitly approved coarse
+readiness information. Readiness delivery must not add private gameplay state, character identity,
+save or world identifiers, play-context identifiers, or synchronization diagnostics for the purpose
+of presenting readiness. Readiness is a gameplay-availability fact about an already-authenticated
+session and is never evidence of Host identity. This section does not change what existing
+envelopes carry. Whether a coarse not-ready reason is sent is an open decision.
+
+Pairing availability is related but distinct. The Host is the enforcement point for whether a
+pairing ceremony may begin and be presented; client-side disabling is presentation only. **Whether
+and how readiness is enforced for the existing six-digit flow versus Stage 5A SAS pairing is an open
+maintainer decision** (audit Section 11.7, options (a) and (c); typed outcome owned by Stage 5A.7).
+This section does not choose between them and changes no pairing, trust, or SAS behavior.
+
 ## Public contract ownership
 
 The public SDK-to-host contract and the private host-to-adapter contract are separate contracts;

@@ -488,6 +488,43 @@ second copy of state and would grow the root with every area. The existing group
 API is preserved as it is, and each domain keeps its own typed stream under the one session engine
 and one request router described above.
 
+## Gameplay readiness
+
+**Status: approved ownership rule; not implemented.** The SDK has no readiness capability today.
+This section fixes responsibilities for the future capability (T10 in
+[`roadmap/deviations/sdk-flutter-architecture-refactoring`](../../../roadmap/deviations/sdk-flutter-architecture-refactoring/README.md));
+it must not be read as a description of the current API. The Host-side fact and its security
+boundary are owned by [Host architecture, "Gameplay readiness"](../host/architecture.md#gameplay-readiness),
+and its wire contract does not exist until the maintainer approves a protocol addition.
+
+Gameplay readiness is not:
+
+- connection state (`DovahLinkConnectionState`),
+- trust state,
+- Host availability (`DovahLinkHostAvailability`),
+- whether a gameplay stream currently holds a value, or
+- whether `playContextId` is non-null.
+
+When its contract exists, the SDK exposes readiness as a separate typed capability, never as a new
+connection state and never by changing the meaning of connection, trust, or availability. The Host
+provides the readiness fact; the SDK validates it against the current session and projects it. The
+SDK must not derive readiness from missing or incomplete gameplay values or from `playContextId`.
+
+Lifecycle principles:
+
+- Readiness reflects the current admitted Host session.
+- It changes when the Host reports a transition, and a consumer must not need to reconnect to
+  observe one.
+- On connection loss or invalidation, readiness is *unknown* until fresh authoritative evidence
+  arrives. *Unknown* is derived locally and is never a wire value.
+- A stale readiness message, from a replaced session or a superseded authority, never updates a
+  newer session.
+
+The SDK reports the Host's typed pairing outcome; it does not decide pairing authorization. Flutter's
+role is in [Flutter architecture](../flutter/architecture.md#gameplay-readiness-and-historical-state).
+Where readiness is enforced for pairing is an open decision recorded in the audit (Section 11.7) and
+Stage 5A.7.
+
 ## Session-state ownership
 
 `SessionState` is created exactly once, by the composition root (`DovahLinkClient`), and is the
