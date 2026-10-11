@@ -164,13 +164,56 @@ void main() {
     );
 
     test(
-      'Behavior shutdown surfaces it and skips the terminal close',
+      'Behavior shutdown surfaces a late cancellation failure and still attempts the terminal close',
       () async {
         final StateError failure = StateError('stopRecovery failed');
         when(() => reconnectService.stopRecovery()).thenThrow(failure);
 
         await expectLater(service.shutdown(), throwsA(same(failure)));
-        verifyNever(() => sessionService.close());
+        verify(() => sessionService.close()).called(1);
+        verifyNever(() => subscriptionService.clearDesiredStateAreas());
+        expect(calls, <String>[
+          'cancelAuthentication',
+          'stopInitialRetry',
+          'close',
+        ]);
+      },
+    );
+
+    test(
+      'Behavior shutdown surfaces an early cancellation failure and still attempts the terminal close',
+      () async {
+        final StateError failure = StateError('cancelAuthentication failed');
+        when(
+          () => authenticationService.cancelPendingAuthentication(),
+        ).thenThrow(failure);
+
+        await expectLater(service.shutdown(), throwsA(same(failure)));
+        verify(() => sessionService.close()).called(1);
+        verifyNever(() => reconnectService.stopInitialConnectionRetry());
+        verifyNever(() => reconnectService.stopRecovery());
+        verifyNever(() => subscriptionService.clearDesiredStateAreas());
+        expect(calls, <String>['close']);
+      },
+    );
+
+    test(
+      'Behavior shutdown surfaces the close failure when cancellation and close both fail',
+      () async {
+        final StateError cancellationFailure = StateError(
+          'stopRecovery failed',
+        );
+        const DovahLinkConnectionException closeFailure =
+            DovahLinkConnectionException('close failed');
+        when(
+          () => reconnectService.stopRecovery(),
+        ).thenThrow(cancellationFailure);
+        when(
+          () => sessionService.close(),
+        ).thenAnswer((_) async => throw closeFailure);
+
+        await expectLater(service.shutdown(), throwsA(same(closeFailure)));
+        verify(() => sessionService.close()).called(1);
       },
     );
   });

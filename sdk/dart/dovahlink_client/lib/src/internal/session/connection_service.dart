@@ -22,7 +22,9 @@ abstract interface class IConnectionService {
   Future<void> disconnect();
 
   /// Ends the client's lifetime: the same cancellation sequence as [disconnect], followed by the
-  /// session service's terminal close, so the session can never be reused.
+  /// session service's terminal close, so the session can never be reused. The terminal close is
+  /// attempted even if a cancellation step throws; that failure then propagates once the close
+  /// completes.
   Future<void> shutdown();
 
   /// Renames this client in the active Host's trust record.
@@ -81,8 +83,11 @@ class ConnectionService implements IConnectionService {
   /// Implements [IConnectionService.shutdown].
   @override
   Future<void> shutdown() async {
-    _cancelPendingWork();
-    await _sessionService.close();
+    try {
+      _cancelPendingWork();
+    } finally {
+      await _sessionService.close();
+    }
   }
 
   /// Implements [IConnectionService.renameDevice].
