@@ -8,7 +8,6 @@ import 'package:dovahlink_client_sdk/src/dovahlink_pairing_handshake.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_protocol_exception.dart';
 import 'package:dovahlink_client_sdk/src/dovahlink_storage_exception.dart';
 import 'package:dovahlink_client_sdk/src/internal/pairing/pairing_service.dart';
-import 'package:dovahlink_client_sdk/src/internal/state/subscription_service.dart';
 import 'package:dovahlink_client_sdk/src/pairing_cancel_outcome.dart';
 import 'package:dovahlink_client_sdk/src/pairing_challenge_status.dart';
 import 'package:dovahlink_client_sdk/src/pairing_renotify_result.dart';
@@ -87,23 +86,17 @@ class DovahLinkPairing implements IDovahLinkPairing {
   /// Owns pairing protocol operations and credential recovery.
   final IPairingService _pairingService;
 
-  /// Restores desired game-state subscriptions after trusted pairing recovery.
-  final ISubscriptionService _subscriptionService;
-
   /// Creates a pairing view over the existing client discovery and state owners.
   /// @param discoverHosts Executes the client's authoritative discovery/reconciliation operation.
   /// @param candidates The client's replaying runtime candidate projection.
   /// @param pairingService Owns pairing protocol operations.
-  /// @param subscriptionService Owns desired state subscription intent.
   DovahLinkPairing({
     required Future<List<DovahLinkHost>> Function() discoverHosts,
     required Stream<List<DovahLinkHost>> candidates,
     required IPairingService pairingService,
-    required ISubscriptionService subscriptionService,
   }) : _discoverHosts = discoverHosts,
        _candidates = candidates,
-       _pairingService = pairingService,
-       _subscriptionService = subscriptionService;
+       _pairingService = pairingService;
 
   /// Implements [IDovahLinkPairing.candidates].
   @override
@@ -115,29 +108,14 @@ class DovahLinkPairing implements IDovahLinkPairing {
 
   /// Implements [IDovahLinkPairing.authenticateCandidate].
   @override
-  Future<DovahLinkPairingHandshake> authenticateCandidate(Uri uri) async {
-    final DovahLinkPairingHandshake result = await _pairingService
-        .authenticateCandidate(uri);
-    if (result.hello.trustState == DovahLinkTrustState.unpaired &&
-        result.trustState == DovahLinkTrustState.trusted) {
-      _subscriptionService.restoreDesiredStateAreas();
-    }
-    return result;
-  }
+  Future<DovahLinkPairingHandshake> authenticateCandidate(Uri uri) =>
+      _pairingService.authenticateCandidate(uri);
 
   /// Implements [IDovahLinkPairing.authenticateKnownHost].
   @override
   Future<DovahLinkPairingHandshake> authenticateKnownHost(
     DovahLinkHostId hostId,
-  ) async {
-    final DovahLinkPairingHandshake result = await _pairingService
-        .authenticateKnownHost(hostId);
-    if (result.hello.trustState == DovahLinkTrustState.unpaired &&
-        result.trustState == DovahLinkTrustState.trusted) {
-      _subscriptionService.restoreDesiredStateAreas();
-    }
-    return result;
-  }
+  ) => _pairingService.authenticateKnownHost(hostId);
 
   /// Implements [IDovahLinkPairing.requestCode].
   @override
@@ -155,22 +133,14 @@ class DovahLinkPairing implements IDovahLinkPairing {
 
   /// Implements [IDovahLinkPairing.confirmCode].
   @override
-  Future<void> confirmCode({required String code, String? displayName}) async {
-    await _pairingService.confirmPairingCodeAndAcknowledge(
-      code: code,
-      displayName: displayName,
-    );
-    _subscriptionService.restoreDesiredStateAreas();
-  }
+  Future<void> confirmCode({required String code, String? displayName}) =>
+      _pairingService.confirmPairingCodeAndAcknowledge(
+        code: code,
+        displayName: displayName,
+      );
 
   /// Implements [IDovahLinkPairing.recoverPendingPairing].
   @override
-  Future<DovahLinkTrustState> recoverPendingPairing() async {
-    final DovahLinkTrustState trustState = await _pairingService
-        .recoverPendingPairing();
-    if (trustState == DovahLinkTrustState.trusted) {
-      _subscriptionService.restoreDesiredStateAreas();
-    }
-    return trustState;
-  }
+  Future<DovahLinkTrustState> recoverPendingPairing() =>
+      _pairingService.recoverPendingPairing();
 }

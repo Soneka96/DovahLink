@@ -3749,6 +3749,115 @@ void main() {
     );
 
     test(
+      'Behavior trusted initial admission restores remembered subscriptions once',
+      () async {
+        await expectLater(
+          client.currentHost.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            hostId: '81869993-955c-4ba3-a7d0-d35ca86078ea',
+            hostName: 'Soneka-Desktop',
+            credential: 'trusted-credential',
+          ),
+        );
+        transport.queueResponse(
+          _rawFixture('connection/hello-ack-paired.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(accepted: <String>['character_xp']),
+        );
+
+        await client.connections.connectKnownHost(
+          DovahLinkHostId('81869993-955c-4ba3-a7d0-d35ca86078ea'),
+        );
+        for (
+          int attempt = 0;
+          attempt < 20 && _sentSubscriptionUpdates(transport).isEmpty;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+        await pumpEventQueue();
+
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+        expect(
+          _sentSubscriptionUpdates(transport).single['payload'],
+          <String, dynamic>{
+            'stateAreas': <String>['character_xp'],
+          },
+        );
+      },
+    );
+
+    test(
+      'Behavior an unpaired admission does not restore remembered subscriptions',
+      () async {
+        await expectLater(
+          client.currentHost.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        await _connectAndHello(transport, client);
+        for (int attempt = 0; attempt < 10; attempt++) {
+          await pumpEventQueue();
+        }
+
+        expect(client.currentHost.trustState, DovahLinkTrustState.unpaired);
+        expect(_sentSubscriptionUpdates(transport), isEmpty);
+      },
+    );
+
+    test(
+      'Behavior candidate authentication that recovers a pending pairing restores remembered subscriptions',
+      () async {
+        await storage.save(
+          Fixtures.buildPersistedClientState(
+            clientId: 'client-1',
+            credential: 'a1b2c3d4e5f6',
+            recoveryState: PairingRecoveryState.confirming,
+          ),
+        );
+        await expectLater(
+          client.currentHost.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+        transport.queueResponse(_rawFixture('connection/hello-ack.json'));
+        transport.queueResponse(
+          _rawFixture('capabilities/capabilities-host.json'),
+        );
+        transport.queueResponse(
+          _rawFixture('pairing/pairing-outcome-trusted.json'),
+        );
+        transport.queueResponse(
+          _rawSubscriptionAck(
+            accepted: <String>['character_xp'],
+            sessionId: 'session-1',
+          ),
+        );
+
+        final DovahLinkPairingHandshake handshake = await client.pairing
+            .authenticateCandidate(Uri.parse('ws://127.0.0.1:58231/'));
+        for (
+          int attempt = 0;
+          attempt < 20 && _sentSubscriptionUpdates(transport).isEmpty;
+          attempt++
+        ) {
+          await pumpEventQueue();
+        }
+
+        expect(handshake.hello.trustState, DovahLinkTrustState.unpaired);
+        expect(handshake.trustState, DovahLinkTrustState.trusted);
+        expect(_sentSubscriptionUpdates(transport), hasLength(1));
+      },
+    );
+
+    test(
       'Behavior ordinary reconnect restores only desired areas, retains their value as recovering, and replaces it with a fresh Snapshot',
       () async {
         final FakeDovahLinkTransport reconnectTransport =

@@ -238,6 +238,7 @@ class DovahLinkClient {
         );
     final SessionTrustService sessionTrustService = SessionTrustService(
       state: state,
+      subscriptionService: _subscriptionService,
     );
     final ClientIdResolver clientIdResolver = ClientIdResolver(
       clientStateService: _clientStateService,
@@ -324,7 +325,6 @@ class DovahLinkClient {
       discoverHosts: _discoverHosts,
       candidates: _candidateHostsChanges,
       pairingService: _pairingService,
-      subscriptionService: _subscriptionService,
     );
   }
 
