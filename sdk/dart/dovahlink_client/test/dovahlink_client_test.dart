@@ -1502,6 +1502,64 @@ void main() {
     );
   });
 
+  group('Behavior separate client instances behave correctly', () {
+    test(
+      'Behavior two clients share no session, transport, or subscription state',
+      () async {
+        final FakeDovahLinkTransport otherTransport = FakeDovahLinkTransport();
+        final DovahLinkClient other = buildDovahLinkClientForTesting(
+          transport: otherTransport,
+          storage: InMemoryClientStorage(),
+        );
+        addTearDown(other.close);
+
+        await _connectAndHello(transport, client);
+        await expectLater(
+          client.currentHost.subscribeStateArea(DovahLinkStateArea.characterXp),
+          throwsA(isA<DovahLinkConnectionException>()),
+        );
+
+        expect(client.connections.state, DovahLinkConnectionState.connected);
+        expect(other.connections.state, DovahLinkConnectionState.disconnected);
+        expect(otherTransport.connectCalls, isEmpty);
+        expect(client.clientId, isNotNull);
+        expect(other.clientId, isNull);
+        expect(other.currentHost.trustState, isNull);
+        expect(_sentSubscriptionUpdates(otherTransport), isEmpty);
+      },
+    );
+
+    test('Behavior closing one client leaves another fully usable', () async {
+      final FakeDovahLinkTransport otherTransport = FakeDovahLinkTransport();
+      final DovahLinkClient other = buildDovahLinkClientForTesting(
+        transport: otherTransport,
+        storage: InMemoryClientStorage(),
+      );
+      addTearDown(other.close);
+
+      await client.close();
+      await _connectAndHello(otherTransport, other);
+
+      expect(other.connections.state, DovahLinkConnectionState.connected);
+      await expectLater(
+        _connectAndHello(transport, client),
+        throwsA(isA<DovahLinkConnectionException>()),
+      );
+    });
+
+    test('Behavior close is idempotent and shares one completion', () async {
+      await _connectAndHello(transport, client);
+
+      final Future<void> first = client.close();
+      final Future<void> second = client.close();
+
+      expect(identical(first, second), isTrue);
+      await first;
+      expect(client.connections.state, DovahLinkConnectionState.disconnected);
+      expect(transport.closeCallCount, 1);
+    });
+  });
+
   group('Method loadKnownHosts behaves correctly', () {
     test(
       'Method loadKnownHosts returns persisted Hosts without credentials',

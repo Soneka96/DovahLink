@@ -102,7 +102,7 @@ class DovahLinkClient {
       clientStateService: _clientStateService,
       hostAvailabilityService: _hostAvailabilityService,
     );
-    final SessionState state = _sessionState = SessionState();
+    final SessionState state = SessionState();
     final LifecycleOperationQueue lifecycleQueue = LifecycleOperationQueue();
     // The callback closes over the session service before it is assigned; it is only invoked by
     // a real teardown after construction has completed. The request service supplies teardown's
@@ -317,9 +317,6 @@ class DovahLinkClient {
   /// session's late-bound callbacks.
   late final SessionService _sessionService;
 
-  /// Owns session state and immutable Known Host invalidation events.
-  late final SessionState _sessionState;
-
   /// Owns the runtime availability map and complete Known Host projection.
   late final IHostAvailabilityService _hostAvailabilityService;
 
@@ -401,7 +398,7 @@ class DovahLinkClient {
     await _hostAvailabilityService.close().catchError(
       (Object _, StackTrace __) {},
     );
-    await _sessionState.close().catchError((Object _, StackTrace __) {});
+    await _sessionService.dispose().catchError((Object _, StackTrace __) {});
   })();
 
   /// Removes one Known Host's credential while preserving its metadata and the local client ID.

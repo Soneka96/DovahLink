@@ -419,6 +419,16 @@ T2 and the app half of T1.
 - **Dependencies:** none. Revised: do it before 5A.7/5A.8 begin, because it is a prerequisite for T10 and T11 and those SAS phases extend the pairing facade it simplifies; if 5A.7 is already in flight, finish that first and rebase this task onto it.
 - **Non-goals:** new public API, a second client engine, changes to the three documented callbacks. T3 relocates restoration only; it does not declare intent. Declaring the Overview's initial desired areas is T6, and with an empty desired set T3's restoration is correctly a no-op.
 - **Benefit:** the root only wires; discovery logic becomes independently testable.
+- **Outcome:** the root no longer holds discovery state, the Known Host invalidation mapping, the
+  cancellation sequence, or the `SessionState` field. `HostCandidateService` owns discovery
+  reconciliation, `AuthenticationService.handleKnownHostInvalidation` owns the invalidation cleanup,
+  `ConnectionService` owns disconnect, shutdown, and rename, and `SessionTrustService` joins trusted
+  admission as the two triggers of subscription restoration; `DovahLinkPairing` makes no restore call
+  and the test-only observation hook is gone. S-3: not confirmed as a persistent defect (a
+  superseded initial attempt is momentarily `connected`, but the superseding attempt always replaces
+  that connection). S-4: the non-completion of consumer state streams after `close()` is confirmed
+  but unobservable as a leak or hang, and completing public streams is a behavior change left for a
+  separate decision. No public export changed.
 - **Estimated files:** 20-30.
 - **Regression risks:** discovery race suppression, storage-error propagation, cancellation order on close.
 - **Acceptance criteria:** the root holds no behavior or mutable discovery fields; all existing `discoverHosts`, `close`, and disconnect tests pass; no public export changes; one restoration test exists per trigger (trusted initial admission, ordinary reconnect, trust upgrade of an existing unpaired session, successful pairing confirmation, pending-pairing recovery) plus negative tests showing no restoration for an `unpaired` admission, a superseded session, or after administrative invalidation.

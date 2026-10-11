@@ -168,7 +168,7 @@ protocol and compatibility failures. A discovered `hostId` alone must not author
 credential disclosure, pairing bypass, durable Known Host updates, or another security-sensitive
 decision.
 
-`client.pairing.discoverHosts()` exposes the complete runtime candidate projection. The client
+`client.pairing.discoverHosts()` exposes the complete runtime candidate projection. `HostCandidateService`
 filters each validated discovery claim against the latest committed Known Host collection by
 normalized `hostId`, never by endpoint or display name, and suppresses duplicate Host IDs. The
 projection is available through `client.pairing.candidates`; it is runtime-only and is never written
@@ -218,7 +218,7 @@ separate.
 
 ## Internal composition
 
-The client engine described above is implemented as nine major Services, each an
+The client engine described above is implemented as eleven major Services, each an
 independently-testable behavioral subsystem, plus supporting collaborators. Every supporting
 collaborator that owns behavior has its own explicit contract; data-only helpers remain concrete.
 **A concrete production Service implementation implements exactly one architectural Service
@@ -241,7 +241,7 @@ When a supporting collaborator's dependency shape does not already match a real 
 with its own contract and depend on that contract. Never let a `ServiceImpl` implement the
 collaborator's own dependency port and pass `this`.
 
-The nine Services:
+The eleven Services:
 
 - `ISessionService`/`SessionService` — owns transport lifecycle, connection state, and stream
   ownership: `connect`, `disconnect`, reads (`connectionState`, `currentSessionId`,
@@ -253,9 +253,10 @@ The nine Services:
   injected only into `AuthenticationService`. Also triggers `RequestService`'s
   retry-orphaned-operations transition as part of admitting a session, keeping reconnect/session
   recovery cohesive in one place; trusted admission also starts restoration of the remembered
-  state-area set through `SubscriptionService`.
+  state-area set through `SubscriptionService` (see "One restoration trigger" below).
 - `ISessionTrustService`/`SessionTrustService` — `markTrusted`, a privileged capability injected
-  only into `PairingService`.
+  only into `PairingService`. After upgrading an admitted session it starts the same restoration
+  through `SubscriptionService` that trusted admission does.
 - `IRequestService`/`RequestService` — owns pending requests, timeout policy, retry behavior,
   envelope decoding, correlation, and unsolicited routing: `sendAndAwait`, `handleIncoming`,
   `failAll`, `retryOrphanedOperations`. Privately owns `MessageRouter` and
@@ -281,6 +282,17 @@ The nine Services:
   runs. After the acknowledgement, it reconciles the gate to the Host-accepted set; rejected and
   removed areas then stop updating their typed state streams. If the request fails, it restores the
   last Host-accepted set.
+- `IConnectionService`/`ConnectionService` — the operations performed on the client's single active
+  session: deliberate `disconnect`, terminal `shutdown`, and `renameDevice`. It owns the one
+  cancellation sequence (pending authentication, initial-connection retry, established-session
+  recovery, then desired-subscription intent) that both `disconnect` and `shutdown` run before
+  touching the session, so a cancelled continuation can never reconnect or restore. `renameDevice`
+  builds the request, applies its `RequestPolicy`, decodes the reply, and reports a malformed reply
+  as a protocol violation through `ISessionService`.
+- `IHostCandidateService`/`HostCandidateService` — the runtime candidate projection: sessionless
+  discovery results reconciled against the committed Known Hosts by normalized Host ID, with
+  generation-guarded publication, Known Host observation, and its own closed state. It reads Known
+  Hosts through `IClientStateService` and never mutates them.
 
 Each interface and its implementation are named classes in their own files under `src/`, absent
 from the public barrel per `ai/context/sdk/api-design.md`'s "curated public exports".
@@ -428,6 +440,68 @@ the one that legitimately performs them — `AuthenticationService` and `Pairing
 respectively, and nothing else. This is enforced by the dependency graph itself: no other consumer
 is ever given either interface.
 
+### Composition root and public facades
+
+`DovahLinkClient` is the one SDK composition root. Its private build constructor is the only place
+that constructs the service graph (the public constructor and `buildDovahLinkClientForTesting`
+share it). The root's responsibilities are limited to:
+
+- constructing each service once and passing the same instance to every consumer;
+- assigning the three documented `SessionService` callbacks and the ordinary-transport-loss hook;
+- subscribing the session's Known Host projection to `HostAvailabilityService` and its Known Host
+  invalidation events to `AuthenticationService.handleKnownHostInvalidation`;
+- starting the presence monitor and state recovery;
+- exposing the public views and coordinating terminal `close()`.
+
+The root holds no discovery state, no session state, no gameplay value, and no credential policy.
+It does not decide when a session restores subscriptions, how an invalidation reason maps to
+`pairingRequired`, how a disconnect cancels pending work, or how candidates are reconciled; each of
+those has a single service owner above.
+
+The four public views are thin API organization over those owners and hold no mutable domain
+state:
+
+| View | Delegates to |
+| --- | --- |
+| `hosts` (`DovahLinkHosts`) | `ClientStateService`, `HostAvailabilityService` |
+| `connections` (`DovahLinkConnections`) | `SessionService` (reads), `AuthenticationService` and `ReconnectService` (connect), `ConnectionService` (disconnect, rename) |
+| `pairing` (`DovahLinkPairing`) | `HostCandidateService` (discovery, candidates), `PairingService` (pairing operations) |
+| `currentHost` (`DovahLinkCurrentHost`) | `SessionService`, `SubscriptionService`, and the registered state modules' typed streams |
+
+A view never calls an internal service the owner already coordinates (for example, `pairing` does
+not restore subscriptions), never re-implements a retry, reconnect, or synchronization policy, and
+never keeps a copy of a fact another service owns.
+
+Shared instances, each created once by the root: `SessionState` (through `SessionService`,
+`SessionAdmissionService`, `SessionTrustService`, and `ConnectionTeardownCoordinator`), the one
+`PendingOperationBookkeeping` shared by `RequestService`'s router and transmitter, the one inbound
+receiver (`SessionService`) feeding the one `RequestService`/`MessageRouter`, the registered
+`StateDomainDefinition` list shared by `StateMessageHandler` and Event-recovery composition, the
+accepted-area gate shared by `SubscriptionService` and `StateMessageHandler`, and one
+`ClientStateService` and `HostAvailabilityService`. Two `DovahLinkClient` instances share none of
+them.
+
+Initialization order is dependency order: client state and availability, session state and
+teardown, `SessionService`, the state handler, the request graph, `SubscriptionService`, state
+recovery, session admission and trust, `AuthenticationService`, the teardown callback,
+`ReconnectService`, `PairingService`, the presence monitor, `ConnectionService`, and last the public
+views. Terminal `close()` marks candidate discovery closed first, then runs candidate, presence
+monitor, and `ConnectionService.shutdown` cleanup together; after they finish it cancels the
+projection and invalidation subscriptions, closes `HostAvailabilityService`, and finally disposes
+`SessionState` through `SessionService.dispose`. These boundaries must not be bypassed: no class
+other than the root constructs a service, and no consumer reaches `SessionState` except the session
+subsystem listed under "Session-state ownership".
+
+#### One restoration trigger
+
+A session restores its remembered subscriptions when it becomes trusted, and it becomes trusted
+through exactly two SDK paths: trusted admission (`SessionAdmissionService`, which covers initial
+Known Host admission and ordinary reconnect) and a successful `markTrusted` on an admitted session
+(`SessionTrustService`, which covers a trust upgrade through code confirmation or pending-pairing
+recovery). Both call `SubscriptionService.restoreDesiredStateAreas`, which is a no-op for an empty
+desired set. An `unpaired` admission, a session replaced before acknowledgement, and an
+administratively invalidated session restore nothing. No public view calls restoration.
+
 ## State synchronization composition
 
 `DovahLinkClient` remains the SDK composition root for state synchronization, while domain modules
@@ -548,7 +622,7 @@ in maintaining it: `SessionService`, `SessionAdmissionService`, `SessionTrustSer
 `ConnectionTeardownCoordinator` (`SessionService`'s own supporting collaborator, per
 "Internal composition", through its explicit contract). The composition root itself also
 holds `SessionState` only transiently, to construct it once and pass it to these holders — it never
-keeps it as a field. Every other consumer — `IRequestService`,
+keeps it as a field; `SessionService.dispose` releases it at the end of terminal close. Every other consumer — `IRequestService`,
 `IAuthenticationService`, `IPairingService`, `IReconnectService` — depends on the appropriate Service
 contract, never on `SessionState` directly. `PairingService` composes authentication and initial
 retry through their existing contracts; this adds no second connection or session owner. Never

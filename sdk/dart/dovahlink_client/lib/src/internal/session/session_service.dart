@@ -334,6 +334,12 @@ class SessionService implements ISessionService {
     return disconnect();
   }
 
+  /// Releases the stream resources of the [SessionState] this service drives. The composition root
+  /// calls it exactly once, last in client shutdown, after [close] and after every consumer of the
+  /// session streams has stopped listening. It is deliberately not part of [ISessionService]: only
+  /// the owner of the session lifecycle may end the state's lifetime.
+  Future<void> dispose() => _state.close();
+
   /// Implements [ISessionService.onUnhealthy]. Ordinary transport loss: tears down, and -- only if
   /// that teardown was not raced by a concurrent administrative invalidation or explicit
   /// disconnect, and both a last-connected URI and [onOrdinaryTransportLoss] are available --

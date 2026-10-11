@@ -1011,6 +1011,25 @@ void main() {
     );
   });
 
+  group('Method dispose behaves correctly', () {
+    test('Method dispose closes the owned session state', () async {
+      when(() => state.close()).thenAnswer((_) async {});
+
+      await service.dispose();
+
+      verify(() => state.close()).called(1);
+    });
+
+    test('Method dispose does not disconnect or close the lifecycle', () async {
+      when(() => state.close()).thenAnswer((_) async {});
+
+      await service.dispose();
+
+      expect(service.isTerminallyClosed, isFalse);
+      verifyNever(() => transport.close());
+    });
+  });
+
   group('Method close behaves correctly', () {
     test('Method close prevents a later connection attempt', () async {
       await service.close();

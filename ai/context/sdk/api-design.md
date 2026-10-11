@@ -66,7 +66,7 @@ The current owner boundaries are:
 
 | Concern | Owner and public view | Invariant and regression risk |
 | --- | --- | --- |
-| Known Host persistence and candidate reconciliation | `ClientStateService` and `DovahLinkClient`, exposed through `hosts` and `pairing` | Preserve storage errors, deterministic snapshots, race suppression, and the rule that candidate claims never select credentials. |
+| Known Host persistence and candidate reconciliation | `ClientStateService` and `HostCandidateService`, exposed through `hosts` and `pairing` | Preserve storage errors, deterministic snapshots, race suppression, and the rule that candidate claims never select credentials. |
 | Known Host availability and session projection | `HostAvailabilityService` and `SessionService`, exposed through `hosts` | Preserve replay, recovery after stream errors, runtime-only availability, and exact relationship matching. |
 | Connection/authentication and recovery | `SessionService`, `AuthenticationService`, and `ReconnectService`, exposed through `connections` | Transport-open is not session admission. Initial retries remain separate from bounded established-session recovery. |
 | Pairing protocol sequencing | `PairingService`, exposed through `pairing` | Preserve crash recovery, retriable wrong-code/pacing outcomes, expiry, cooldown, credential rejection, administrative invalidation, and candidate/Known Host credential boundaries. |
