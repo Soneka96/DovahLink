@@ -212,6 +212,56 @@ does not reactivate them until an explicit user-initiated Retry succeeds, mirror
 credential/reconnect policy in `roadmap/03`'s Phase 3.3. An explicit SDK disconnect clears desired
 subscription intent; ordinary transport loss and administrative invalidation preserve it.
 
+## Live versus historical state
+
+This section is the canonical definition of the live/historical distinction. Persistence ownership
+for history is in [SDK persistence, "Historical gameplay snapshots"](persistence.md#historical-gameplay-snapshots).
+
+**Status.** The live-state half describes the current contract. The historical half is an approved
+rule for future work: no historical API exists, and the SDK does not yet keep live values across
+recovery (teardown still resets accepted domains to `notSubscribed` with no value). Both capabilities
+are tracked in the audit's T8 (in-memory retention) and T11 (historical snapshots); do not describe
+either as implemented.
+
+- **Live state** is what the current admitted Host session supplies and synchronizes through the
+  typed `currentHost` domain streams, as `StateSynchronization<T>` with its real `stateAuthorityId`,
+  `playContextId`, and revision.
+- **Historical state** is a previously accepted authoritative observation that is explicitly
+  identified as historical and may be read without a live connection.
+
+A consumer must be able to tell these apart from the SDK's types alone, without Flutter-specific
+logic:
+
+| Condition | Representation |
+| --- | --- |
+| Current synchronized value | Live `StateSynchronization<T>` with the existing synchronized status |
+| Recovering or otherwise non-current live value | Live `StateSynchronization<T>` with its existing non-current status; never relabelled as synchronized |
+| Historical stored value | A separate read-only historical surface that carries provenance; never a live `StateSynchronization<T>` pretending to be synchronized |
+| Unavailable value | The existing unavailable status; no fabricated value |
+| Unknown state | No current Host evidence (for example not subscribed, or before a baseline); no value is implied |
+
+The exact historical type is not decided. Whether it reuses `StateSynchronization<T>` or a separate
+wrapper is an open decision; the requirement is that it cannot be mistaken for live data.
+
+Truthfulness and precedence rules:
+
+1. A historical value is never treated as newly synchronized gameplay data, and never receives a
+   fabricated `synchronized` status, revision, `stateAuthorityId`, or `playContextId`.
+2. A previously known value keeps its original authoritative identity and provenance (Host, capture
+   time, recorded `stateAuthorityId` and `playContextId`).
+3. Historical values never enter `StateRevisionTracker`, `StateMessageHandler`, or
+   `SubscriptionService`. A snapshot capability reads accepted values and never writes into the live
+   trackers.
+4. A fresh authoritative baseline supersedes any earlier non-current or historical observation for
+   that domain, and only once that baseline is accepted; until then the earlier value stays labelled
+   non-current or historical.
+5. Identity safeguards: a change of `stateAuthorityId` or `playContextId` ends the previous
+   context's values rather than mixing them with the new context. A revision is meaningful only within
+   one `(stateAuthorityId, playContextId)` pair and is never compared across pairs or invented for a
+   historical value.
+6. Redux or any other consumer projection mirrors both sources without a second synchronization
+   engine; see [Flutter architecture](../flutter/architecture.md#gameplay-readiness-and-historical-state).
+
 ## SDK domain types and app presentation values
 
 Reusable typed DovahLink client/domain concepts belong to the SDK. The Flutter app maps SDK outputs
